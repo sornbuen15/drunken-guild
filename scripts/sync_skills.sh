@@ -29,6 +29,9 @@ echo -e "Target: $GLOBAL_SKILLS_DIR\n"
 NEW_COUNT=0
 UPDATED_COUNT=0
 
+_skill_list=$(mktemp)
+find "$LOCAL_SKILLS_DIR" -type f -name "SKILL.md" | sort > "$_skill_list"
+
 # Build INDEX.md in a temp file — replaced atomically at the end
 TEMP_INDEX=$(mktemp)
 cat > "$TEMP_INDEX" << 'HEADER'
@@ -81,7 +84,8 @@ while IFS= read -r skill_file; do
   echo "  Path: \$HOME/.claude/skills/${skill_name}/SKILL.md" >> "$TEMP_INDEX"
   echo "" >> "$TEMP_INDEX"
 
-done < <(find "$LOCAL_SKILLS_DIR" -type f -name "SKILL.md" | sort)
+done < "$_skill_list"
+rm -f "$_skill_list"
 
 # Atomically replace the INDEX — single write, no partial state
 mv "$TEMP_INDEX" "$INDEX_FILE"

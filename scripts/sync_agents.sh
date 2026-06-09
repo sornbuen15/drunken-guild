@@ -26,6 +26,9 @@ echo -e "Target: $GLOBAL_AGENTS_DIR\n"
 NEW_COUNT=0
 UPDATED_COUNT=0
 
+_agent_list=$(mktemp)
+find "$LOCAL_AGENTS_DIR" -maxdepth 1 -type f -name "*.md" | sort > "$_agent_list"
+
 while IFS= read -r agent_file; do
   agent_name="$(basename "$agent_file" .md)"
 
@@ -44,7 +47,8 @@ while IFS= read -r agent_file; do
     UPDATED_COUNT=$((UPDATED_COUNT + 1))
   fi
 
-done < <(find "$LOCAL_AGENTS_DIR" -maxdepth 1 -type f -name "*.md" | sort)
+done < "$_agent_list"
+rm -f "$_agent_list"
 
 echo -e "\n${GREEN}Sync complete.${NC}"
 echo -e "  ${NEW_COUNT} new  |  ${UPDATED_COUNT} updated"
