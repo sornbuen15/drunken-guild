@@ -10,6 +10,18 @@ Skills enforce domain standards in-context via slash commands. Domain specialist
 
 ---
 
+## Why This Exists
+
+I'm a computer engineer, but I don't feel confident I'm good enough — and I don't have much time to develop my skills the way I'd like to.
+
+I built this toolkit to learn the fundamentals properly and try building an agent system from my own perspective. It's part study, part experiment.
+
+The skills were drafted by me, then **reviewed and improved with AI assistance** — I used Claude to audit the reasoning, tighten the constraints, and sharpen the output format of each `SKILL.md`.
+
+I'm sharing this because I wanted a review. I'm not sure I'm still where I need to be as a software engineer, and this project is my honest attempt to find out.
+
+---
+
 ## Mental Model: Skills vs Agents
 
 | | Skills | Agents |
@@ -558,6 +570,28 @@ While this toolkit provides a highly structured agentic workflow, there are prac
 
 ---
 
+## Getting Started
+
+New here? Read **[`GETTING_STARTED.md`](./GETTING_STARTED.md)** — a step-by-step guide for using the toolkit on your own project, from setup through your first completed task.
+
+---
+
+## Examples & Walkthrough
+
+A self-contained example lives in [`examples/`](./examples/). It walks through the full project lifecycle using a fictional app called **TaskFlow** — from blank templates to a running kanban board — with every major skill firing in sequence.
+
+| Stage | Skill | What it shows |
+|---|---|---|
+| `00-setup/` | — | Filled-in `PROJECT_BRIEF.md` and `REQUIREMENTS.md` |
+| `01-spec-to-backlog/` | `/init-project` | Backlog of 6 tasks generated from spec |
+| `02-backlog-refinement/` | `/refine` | CRITICAL tasks promoted to `todo/` |
+| `03-task-estimation/` | `/estimate` | T-shirt sizing and AI turn estimates |
+| `04-next-task/` | `/next` | Task picked, execution plan proposed, awaiting approval |
+| `05-agentic-kanban/` | `/task` | Mid-sprint bug task created |
+| `contributing/` | — | Annotated `SKILL.md` for writing new skills |
+
+---
+
 ## Setup
 
 ```bash
@@ -591,6 +625,15 @@ ai-team-toolkit/
 │   ├── native-ios.md              # iOS specialist (Swift, SwiftUI, App Store)
 │   ├── native-android.md          # Android specialist (Kotlin, Compose, Play Store)
 │   └── cross-platform-mobile.md   # Flutter/RN/KMM cross-platform specialist
+├── examples/
+│   ├── README.md                  # Walkthrough guide
+│   ├── 00-setup/                  # Filled project context templates (TaskFlow)
+│   ├── 01-spec-to-backlog/        # Output of /init-project
+│   ├── 02-backlog-refinement/     # Output of /refine
+│   ├── 03-task-estimation/        # Output of /estimate
+│   ├── 04-next-task/              # Output of /next (execution plan)
+│   ├── 05-agentic-kanban/         # Output of /task (mid-sprint bug)
+│   └── contributing/              # Annotated SKILL.md for skill authors
 ├── templates/
 │   ├── PROJECT_BRIEF.md           # Project goal, users, platform, constraints
 │   └── REQUIREMENTS.md            # Functional + non-functional requirements
@@ -636,5 +679,6 @@ ai-team-toolkit/
 │       ├── project-hygiene/
 │       └── test-report-generator/
 ├── CLAUDE.md                      # Master instructions for this repo
+├── GETTING_STARTED.md             # Step-by-step user guide for your first project
 └── README.md                      # This file
 ```
