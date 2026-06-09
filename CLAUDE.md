@@ -82,8 +82,9 @@
       to discover available skills and their exact paths. Do NOT guess paths from memory.
     </instruction>
     <mapping>
-      - For ALL skill discovery: READ `~/Projects/my-claude-skill/skills/` directory tree
-      - For ALL agent discovery: READ `~/Projects/my-claude-skill/agents/` directory
+      - For ALL skill discovery:  READ `skills/INDEX.md` (local project index listing every skill name, trigger, and path)
+      - For ALL agent discovery:  READ `agents/` directory
+      - After sync, the deployed index is at `~/.claude/skills/INDEX.md` — same content, global install location
     </mapping>
   </skill_routing>
 

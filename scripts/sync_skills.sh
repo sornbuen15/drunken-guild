@@ -87,9 +87,13 @@ while IFS= read -r skill_file; do
 done < "$_skill_list"
 rm -f "$_skill_list"
 
-# Atomically replace the INDEX — single write, no partial state
+# Atomically replace the global INDEX — single write, no partial state
 mv "$TEMP_INDEX" "$INDEX_FILE"
+
+# Keep a local copy so CLAUDE.md skill_routing can read it without a sync
+cp "$INDEX_FILE" "$LOCAL_SKILLS_DIR/INDEX.md"
 
 echo -e "\n${GREEN}Sync complete.${NC}"
 echo -e "  ${NEW_COUNT} new  |  ${UPDATED_COUNT} updated"
 echo -e "  INDEX.md regenerated: $INDEX_FILE"
+echo -e "  INDEX.md mirrored:    $LOCAL_SKILLS_DIR/INDEX.md"
