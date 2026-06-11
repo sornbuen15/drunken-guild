@@ -296,19 +296,29 @@ function toolSummary() {
       .map(f => taskSummary(lane, f, path.join(dir, f)));
   }
 
-  // Auto-release stale claims in todo/
-  for (const task of lanes.todo || []) {
-    if (task.claimed_at && (Date.now() - new Date(task.claimed_at).getTime()) > CLAIM_TTL_MS) {
-      const found = findTask(task.id);
-      if (found) {
-        let c = fs.readFileSync(found.fullPath, 'utf8');
-        c = removeFrontmatterField(c, 'claimed_at');
-        c = removeFrontmatterField(c, 'claimed_by');
-        fs.writeFileSync(found.fullPath, c, 'utf8');
-        task.claimed_at = null;
-        task.claimed_by = null;
-        task._stale_claim_released = true;
-      }
+  // Collect stale claim candidates (read phase — no lock needed)
+  const staleIds = (lanes.todo || [])
+    .filter(t => t.claimed_at && (Date.now() - new Date(t.claimed_at).getTime()) > CLAIM_TTL_MS)
+    .map(t => t.id);
+
+  // Release each stale claim under lock (double-checked locking: re-verify before writing)
+  for (const taskId of staleIds) {
+    acquireLock();
+    try {
+      const found = findTask(taskId);
+      if (!found) continue;
+      const c  = fs.readFileSync(found.fullPath, 'utf8');
+      const fm = parseFrontmatter(c);
+      // Re-check under lock — another agent may have already reclaimed or released
+      if (!fm.claimed_at) continue;
+      if ((Date.now() - new Date(fm.claimed_at).getTime()) < CLAIM_TTL_MS) continue;
+      let updated = removeFrontmatterField(c, 'claimed_at');
+      updated     = removeFrontmatterField(updated, 'claimed_by');
+      fs.writeFileSync(found.fullPath, updated, 'utf8');
+      const summary = (lanes.todo || []).find(t => t.id === taskId);
+      if (summary) { summary.claimed_at = null; summary.claimed_by = null; summary._stale_claim_released = true; }
+    } finally {
+      releaseLock();
     }
   }
 
@@ -411,6 +421,85 @@ function toolAgentContext({ task_id }) {
     depends_on:          fm.depends_on  || [],
     blocks:              fm.blocks      || [],
   };
+}
+
+// ─── query_project_context helpers ────────────────────────────────────────────
+
+function extractMatchingSections(lines, keywords, maxLines) {
+  const headingRe = /^(#{1,4})\s+(.+)$/;
+  const sections  = [];
+  let i = 0;
+
+  while (i < lines.length) {
+    const hm = lines[i].match(headingRe);
+    if (hm) {
+      const level = hm[1].length;
+      const title = hm[2];
+      const start = i;
+      i++;
+      while (i < lines.length) {
+        const nm = lines[i].match(headingRe);
+        if (nm && nm[1].length <= level) break;
+        i++;
+      }
+      const titleHit = keywords.some(kw => title.toLowerCase().includes(kw.toLowerCase()));
+      const body     = lines.slice(start + 1, i).join('\n');
+      const bodyHit  = !titleHit && keywords.some(kw => body.toLowerCase().includes(kw.toLowerCase()));
+      if (titleHit || bodyHit) {
+        sections.push({
+          section_title: title,
+          content:       lines.slice(start, Math.min(i, start + maxLines)).join('\n'),
+          line_start:    start + 1,
+          truncated:     (i - start) > maxLines,
+        });
+      }
+      continue;
+    }
+    i++;
+  }
+
+  // Fallback: inline keyword matches with ±3 lines of context
+  if (sections.length === 0) {
+    const seen = new Set();
+    for (let j = 0; j < lines.length; j++) {
+      if (keywords.some(kw => lines[j].toLowerCase().includes(kw.toLowerCase()))) {
+        const s = Math.max(0, j - 3);
+        const e = Math.min(lines.length, j + 7);
+        const key = `${s}-${e}`;
+        if (!seen.has(key)) {
+          seen.add(key);
+          sections.push({ section_title: '(inline match)', content: lines.slice(s, e).join('\n'), line_start: s + 1, truncated: false });
+        }
+        j = e;
+      }
+    }
+  }
+
+  return sections;
+}
+
+function toolQueryProjectContext({ files, keywords }) {
+  if (!Array.isArray(files) || files.length === 0) throw new Error('files must be a non-empty array');
+  if (!Array.isArray(keywords) || keywords.length === 0) throw new Error('keywords must be a non-empty array');
+
+  const results = [];
+  for (const filePath of files) {
+    // Resolve short names like 'PROJECT_SPEC.md' to '.claude/PROJECT_SPEC.md'
+    let resolved = filePath;
+    if (!filePath.includes('/') && !filePath.startsWith('.')) {
+      const candidate = path.join('.claude', filePath);
+      if (fs.existsSync(candidate)) resolved = candidate;
+    }
+    if (!fs.existsSync(resolved)) {
+      results.push({ file: filePath, error: 'file_not_found' });
+      continue;
+    }
+    const lines    = fs.readFileSync(resolved, 'utf8').split('\n');
+    const sections = extractMatchingSections(lines, keywords, 60);
+    for (const s of sections) results.push({ file: filePath, ...s });
+  }
+
+  return { results, total_matches: results.length };
 }
 
 // ─── Tool catalog ──────────────────────────────────────────────────────────────
@@ -536,20 +625,41 @@ const TOOLS = [
       required: ['task_id'],
     },
   },
+  {
+    name: 'query_project_context',
+    description: 'Extracts only the relevant sections from project context files (PROJECT_SPEC.md, ARCHITECTURE.md, POLICY.md) matching the supplied keywords. Returns section title + content (~60 lines max per section). Use this instead of reading whole files to avoid context bloat.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        files: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'File names or paths to search, e.g. ["POLICY.md", "ARCHITECTURE.md"]. Short names are resolved against .claude/ automatically.',
+        },
+        keywords: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Keywords to match against section headings and body text, e.g. ["authentication", "rate limiting"].',
+        },
+      },
+      required: ['files', 'keywords'],
+    },
+  },
 ];
 
 const TOOL_MAP = {
-  board_next_id:       toolNextId,
-  board_create_task:   toolCreateTask,
-  board_claim_task:    toolClaimTask,
-  board_release_claim: toolReleaseClaim,
-  board_move_task:     toolMoveTask,
-  board_done_task:     toolDoneTask,
-  board_get_task:      toolGetTask,
-  board_list_lane:     toolListLane,
-  board_summary:       toolSummary,
-  board_orchestrate:   toolOrchestrate,
-  board_agent_context: toolAgentContext,
+  board_next_id:          toolNextId,
+  board_create_task:      toolCreateTask,
+  board_claim_task:       toolClaimTask,
+  board_release_claim:    toolReleaseClaim,
+  board_move_task:        toolMoveTask,
+  board_done_task:        toolDoneTask,
+  board_get_task:         toolGetTask,
+  board_list_lane:        toolListLane,
+  board_summary:          toolSummary,
+  board_orchestrate:      toolOrchestrate,
+  board_agent_context:    toolAgentContext,
+  query_project_context:  toolQueryProjectContext,
 };
 
 // ─── MCP JSON-RPC 2.0 over stdio ──────────────────────────────────────────────
@@ -570,7 +680,7 @@ function handleRequest(req) {
       result: {
         protocolVersion: '2024-11-05',
         capabilities:    { tools: {} },
-        serverInfo:      { name: 'kanban-board-server', version: '1.0.0' },
+        serverInfo:      { name: 'kanban-board-server', version: '1.1.0' },
       },
     });
     return;
