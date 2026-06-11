@@ -11,8 +11,8 @@
 
   <core_instructions>
     <instruction category="Strict Branching Strategy">
-      - **Step 1: Sync Base.** Always ensure your base branch is up-to-date: `git checkout main && git pull origin main`
-      - **Step 2: Create Task Branch.** NEVER work directly on `main` or `master`. Create a dedicated branch for the task: `git checkout -b <type>/<task_name>`
+      - **Step 1: Sync Base.** Always ensure your base branch is up-to-date: `git checkout develop && git pull origin develop`
+      - **Step 2: Create Task Branch.** NEVER work directly on `develop` or `main`. Create a dedicated branch for the task: `git checkout -b <type>/<task_name>`
       - Valid `<type>` prefixes: `feature/` (new implementations), `fix/` (bug fixes), `refactor/` (code structure changes), `chore/` (configs, tooling).
     </instruction>
 
@@ -21,9 +21,9 @@
     </instruction>
 
     <instruction category="Squash Merging (Clean History)">
-      To maintain a strictly clean and linear git history, all completed task branches MUST be squash-merged back into the main branch.
+      To maintain a strictly clean and linear git history, all completed task branches MUST be squash-merged back into the develop branch.
       Execution flow for completion:
-      1. `git checkout main`
+      1. `git checkout develop`
       2. `git merge --squash <feature_branch_name>`
       3. `git commit -m "<type>(<scope>): <Task Summary Title>"`
       4. `git branch -D <feature_branch_name>`
@@ -44,7 +44,7 @@
 
   <constraints>
     <fatal_constraint>
-      NO DIRECT COMMITS TO MAIN: All code modifications MUST happen on a separate task branch before being squash-merged.
+      NO DIRECT COMMITS TO MAIN OR DEVELOP: All code modifications MUST happen on a separate task branch before being squash-merged to develop.
     </fatal_constraint>
     <fatal_constraint>
       NO GENERIC COMMITS: NEVER generate commit messages like "Fixed bug", "Update files", or "WIP".
