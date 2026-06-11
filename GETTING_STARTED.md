@@ -10,6 +10,7 @@ A complete walkthrough — from installation through your first completed task. 
 - [Installation](#installation)
   - [macOS / Linux](#macos--linux)
   - [Windows](#windows)
+  - [Manual Installation (no scripts)](#manual-installation-no-scripts)
 - [Step-by-Step Guide](#step-by-step-guide)
   - [Step 1 — Describe Your Project](#step-1--describe-your-project)
   - [Step 2 — Generate Your Backlog](#step-2--generate-your-backlog)
@@ -74,6 +75,76 @@ Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
 Both scripts are safe to re-run after any update.
 
 > **Note:** The `scripts\kanban\` scripts are separate — they implement board I/O for your *target project*, not this toolkit. Copy them into your project when you need them.
+
+---
+
+### Manual Installation (no scripts)
+
+Use this path if you cannot run shell or PowerShell scripts (e.g., restricted environments, corporate policies, or you just prefer to do it by hand).
+
+**1. Create the target directories**
+
+```bash
+mkdir -p ~/.claude/skills
+mkdir -p ~/.claude/agents
+```
+
+Windows (PowerShell):
+```powershell
+New-Item -ItemType Directory -Force -Path "$HOME\.claude\skills"
+New-Item -ItemType Directory -Force -Path "$HOME\.claude\agents"
+```
+
+**2. Copy each skill folder**
+
+For every folder under `skills/` that contains a `SKILL.md`, copy the whole folder to `~/.claude/skills/`. For example:
+
+```bash
+# macOS / Linux — repeat for each skill
+cp -r skills/kanban/kanban-io             ~/.claude/skills/
+cp -r skills/kanban/agentic-kanban        ~/.claude/skills/
+cp -r skills/kanban/spec-to-backlog       ~/.claude/skills/
+cp -r skills/kanban/audit-to-backlog      ~/.claude/skills/
+cp -r skills/workflow/git-workflow        ~/.claude/skills/
+cp -r skills/workflow/project-audit-reviewer ~/.claude/skills/
+# ... repeat for all remaining skill folders
+```
+
+Windows (PowerShell):
+```powershell
+Copy-Item -Recurse skills\kanban\kanban-io             "$HOME\.claude\skills\"
+Copy-Item -Recurse skills\kanban\agentic-kanban        "$HOME\.claude\skills\"
+Copy-Item -Recurse skills\kanban\spec-to-backlog       "$HOME\.claude\skills\"
+# ... repeat for all remaining skill folders
+```
+
+To see every skill that needs copying:
+```bash
+find skills -name "SKILL.md" | sort
+```
+
+**3. Copy each agent file**
+
+```bash
+# macOS / Linux
+cp agents/*.md ~/.claude/agents/
+```
+
+Windows (PowerShell):
+```powershell
+Copy-Item agents\*.md "$HOME\.claude\agents\"
+```
+
+**4. Copy the Skill Index**
+
+```bash
+cp skills/INDEX.md ~/.claude/skills/INDEX.md
+```
+
+Windows (PowerShell):
+```powershell
+Copy-Item skills\INDEX.md "$HOME\.claude\skills\INDEX.md"
+```
 
 ---
 

@@ -6,7 +6,7 @@
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
-$ScriptDir       = Split-Path -Parent $MyInvocation.MyCommand.Path
+$ScriptDir       = $PSScriptRoot
 $LocalSkillsDir  = Resolve-Path (Join-Path $ScriptDir "..\..\skills")
 $GlobalSkillsDir = Join-Path $HOME ".claude\skills"
 $IndexFile       = Join-Path $GlobalSkillsDir "INDEX.md"

@@ -6,7 +6,7 @@
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
-$ScriptDir       = Split-Path -Parent $MyInvocation.MyCommand.Path
+$ScriptDir       = $PSScriptRoot
 $LocalAgentsDir  = Resolve-Path (Join-Path $ScriptDir "..\..\agents")
 $GlobalAgentsDir = Join-Path $HOME ".claude\agents"
 
