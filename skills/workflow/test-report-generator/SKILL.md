@@ -1,5 +1,5 @@
 # Skill: Test Report Generator
-**Version:** v1.1.0
+**Version:** v1.2.0
 **Description:** Runs the full test suite, audits project board state, checks architecture compliance, and writes a dated Markdown test report to `.claude/reports/test_report/test_DDMMYYYY.md`. Intended for pre-merge quality gates.
 **Trigger/Keywords:** /test-report, generate test report, write test report, pre-merge test report, create test report, run tests and report
 
@@ -11,13 +11,17 @@
   </role>
 
   <execution_rules>
-    <rule priority="FATAL" name="Context First">
-      Before running any test command, read:
-      - `.claude/PROJECT_SPEC.md`
-      - `.claude/ARCHITECTURE.md`
-      - `.claude/POLICY.md`
-      These define what "correct" looks like. Test results without context are meaningless.
-      If these files do not exist, use `README.md` or ask the user for the project's test standards.
+    <rule priority="FATAL" name="Context First — Phased Loading">
+      Before running any test command, load context in phases — do NOT read all files upfront:
+        Phase 1 (before running tests):
+          query_project_context({ files: ['POLICY.md'], keywords: ['rule', 'constraint', 'required', 'forbidden', 'gate'] })
+          This loads compliance rules and acceptance gates that define pass/fail criteria.
+        Phase 2 (during Architecture Compliance check):
+          query_project_context({ files: ['ARCHITECTURE.md'], keywords: ['layer', 'dependency', 'module', 'boundary'] })
+        Phase 3 (only if a specific feature is under test and context is needed):
+          query_project_context({ files: ['PROJECT_SPEC.md'], keywords: [<feature name>] })
+      If POLICY.md does not exist, read `README.md` or ask the user for the project's test standards.
+      Bulk-reading all three files upfront degrades LLM recall for findings generated later in the session.
     </rule>
 
     <rule priority="FATAL" name="Live Run Required">
@@ -51,13 +55,15 @@
   </execution_rules>
 
   <action_sequence>
-    1. READ context files: PROJECT_SPEC.md, ARCHITECTURE.md, POLICY.md (or README.md if absent).
+    1. LOAD POLICY: query_project_context({ files: ['POLICY.md'], keywords: ['rule', 'constraint', 'required', 'forbidden', 'gate'] })
+       (or read README.md if POLICY.md is absent). Do NOT read ARCHITECTURE.md or PROJECT_SPEC.md upfront.
     2. DETECT test runner: identify the language, framework, and test command for this project.
     3. AUDIT board: board_summary() → count tasks in each lane. Note any in-progress or open critical items.
     4. RUN tests: execute the test runner live; capture full verbose output.
     5. TRIAGE failures: for each FAILED test, determine root cause and fix or escalate.
     6. RE-RUN if fixes were applied; confirm clean pass.
-    7. ASSESS architecture compliance gates.
+    7. ASSESS architecture compliance: query_project_context({ files: ['ARCHITECTURE.md'], keywords: ['layer', 'dependency', 'module', 'boundary'] })
+       then check compliance gates from POLICY.md findings. Identify violations with file:line evidence.
     8. DETERMINE the report file path:
        - Base: `.claude/reports/test_report/`
        - Filename: `test_DDMMYYYY.md` where DDMMYYYY = today's date (e.g. `test_09062026.md`)
