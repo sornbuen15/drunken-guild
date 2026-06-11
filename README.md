@@ -87,6 +87,7 @@ That's it. See [GETTING_STARTED.md](./GETTING_STARTED.md) for a step-by-step wal
 
 - [Claude Code CLI](https://claude.ai/code) installed and authenticated
 - Git
+- **[Node.js](https://nodejs.org/) v18 or v24** *(required for the kanban board scripts)*
 - **macOS / Linux:** Bash 3.2+, `rsync`
 - **Windows:** PowerShell 5.1+ or [PowerShell Core 7+](https://github.com/PowerShell/PowerShell/releases)
 
@@ -127,7 +128,7 @@ Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
 
 Re-run both scripts after any skill or agent update.
 
-> **Kanban board scripts** (`scripts/kanban/`) are separate — they implement board I/O for your target project and are not part of the install process.
+> **Kanban board scripts** (`scripts/kanban/`) are separate — they implement board I/O for your target project and are not part of the install process. They require **Node.js v18+** to run.
 
 ---
 

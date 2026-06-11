@@ -1,5 +1,5 @@
 # Skill: Kanban Board I/O
-**Version:** v1.0.0
+**Version:** v2.0.0
 **Description:** The single, authoritative interface for all reads and writes to the local Kanban board. All other skills that need board access MUST delegate to this skill — never touch `.claude/board/` directly.
 **Trigger/Keywords:** /kanban-io, kanban read, kanban write, board read, board write, board I/O, next task ID
 
@@ -14,15 +14,29 @@
     canonical board scripts so that I/O is consistent, auditable, and safe.
   </role>
 
+  <implementation_note>
+    The board scripts are thin wrappers around a unified Node.js CLI:
+      scripts/kanban/kanban.js   ← single cross-platform implementation (Node.js 18+)
+      scripts/kanban/kanban_read.sh / kanban_read.ps1   ← delegate to kanban.js
+      scripts/kanban/kanban_write.sh / kanban_write.ps1 ← delegate to kanban.js
+
+    You always invoke the wrapper scripts (kanban_read.sh / kanban_write.sh), never
+    kanban.js directly. The wrappers are the stable public interface.
+
+    Node.js v18 or v24 must be installed in the user's environment for the scripts to work.
+    The unified CLI acquires a file lock (.kanban.lock) during create to prevent ID
+    collisions when multiple sessions run concurrently.
+  </implementation_note>
+
   <scripts>
-    All board operations MUST go through these two scripts:
+    All board operations MUST go through these two wrapper scripts:
 
     READ operations:
       ./scripts/kanban/kanban_read.sh [command] [args]
 
       Commands:
-        next-id             — prints the next available TASK-NNN integer
-        list [lane]         — lists all task files in a lane (backlog|todo|in-progress|done)
+        next-id             — prints the next available TASK-NNN integer (zero-padded)
+        list <lane>         — lists all task files in a lane (backlog|todo|in-progress|done)
         list-all            — lists every task across all lanes
         get <TASK-ID>       — prints the full content of a single task file
 
@@ -30,11 +44,13 @@
       ./scripts/kanban/kanban_write.sh [command] [args]
 
       Commands:
-        create <lane> <id> <slug> [content-file]
-                            — creates TASK-<id>_<slug>.md in the given lane
+        create <lane> <NNN> <slug> <content-file>
+                            — creates TASK-<NNN>_<slug>.md in the given lane (atomic, locked)
         move <TASK-ID> <target-lane>
                             — moves a task file from its current lane to target-lane
         done <TASK-ID>      — moves task to done/ lane
+
+    Windows users: replace .sh with .ps1 — the interface is identical.
   </scripts>
 
   <board_structure>
