@@ -1,5 +1,5 @@
 # Skill: Incident Post-Mortem & Audit Analyzer
-**Version:** v3.1.0
+**Version:** v3.2.0
 **Description:** Analyzes failures or project audits, generates a permanent Markdown report, and breaks every Action Item into a Kanban backlog task via the kanban-io MCP tools.
 **Trigger/Keywords:** /audit, Post-Mortem, Audit, Review code, Code audit, Technical debt review
 
@@ -34,13 +34,27 @@
       Every generated task MUST have `assigned_to` set to exactly one agent slug.
       If a finding spans multiple concerns, generate one task per concern, each with its own assignee.
     </rule>
+
+    <rule priority="FATAL" name="Temporary Buffer for Long Outputs">
+      If the Dry-Run Proposal Table has more than 20 rows OR would exceed ~2000 tokens in chat,
+      write the full table to `.claude/temp_audit_dryrun.md` instead of printing it inline.
+      Then output only this summary line in chat:
+        "Dry-Run table written to .claude/temp_audit_dryrun.md — N task(s) proposed. Please review and reply with Approve all / Approve #N / Reject all."
+      After the Tech Lead approves or rejects AND all board_create_task calls are complete,
+      delete `.claude/temp_audit_dryrun.md` immediately with: `rm .claude/temp_audit_dryrun.md`
+      NEVER leave the temp file on disk after the workflow step is done.
+      This file is covered by `.gitignore` — do not commit it.
+    </rule>
   </execution_rules>
 
   <action_sequence>
     1. ANALYZE: Review the incident logs, audit text, or code state.
     2. DOCUMENT: Create `.claude/reports/post-mortems/YYYY-MM-DD_<issue-slug>.md`.
        Must include: Executive Summary, Root Cause, Timeline, and Action Items.
-    3a. DRY-RUN PROPOSAL: Output a proposal table for every Action Item. Do NOT call board_create_task yet.
+    3a. DRY-RUN PROPOSAL: Build a proposal table for every Action Item. Do NOT call board_create_task yet.
+        - If the table exceeds 20 rows or ~2000 tokens: write it to `.claude/temp_audit_dryrun.md`
+          and output only the summary line in chat (see Temporary Buffer rule).
+        - Otherwise output the table inline:
 
         | # | Action Item | Proposed Title | Type | Priority | Assignee | Source Reference |
         |---|-------------|----------------|------|----------|----------|------------------|

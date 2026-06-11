@@ -1,5 +1,5 @@
 # Skill: Project Code Audit & Health Check
-**Version:** v3.0.0
+**Version:** v3.1.0
 **Description:** Performs a comprehensive codebase health audit covering architecture compliance, code quality, dependency risk, and technical debt — producing a scored report, a dry-run task proposal, and a prioritized backlog via the kanban-io MCP tools after Tech Lead approval.
 **Trigger/Keywords:** /audit-project, Project audit, Codebase review, Architecture compliance, Health check, Technical debt, Code quality
 
@@ -45,6 +45,17 @@
       Every proposed task MUST have assigned_to set to exactly one agent slug.
       If a finding requires multiple specialists, propose one task per specialist.
     </rule>
+
+    <rule priority="FATAL" name="Temporary Buffer for Long Outputs">
+      If the Dry-Run Proposal Table has more than 20 rows OR would exceed ~2000 tokens in chat,
+      write the full table to `.claude/temp_project_audit.md` instead of printing it inline.
+      Then output only this summary line in chat:
+        "Dry-Run table written to .claude/temp_project_audit.md — N task(s) proposed. Please review and reply with Approve all / Approve #N / Reject all."
+      After the Tech Lead approves or rejects AND all board_create_task calls are complete,
+      delete `.claude/temp_project_audit.md` immediately with: `rm .claude/temp_project_audit.md`
+      NEVER leave the temp file on disk after the workflow step is done.
+      This file is covered by `.gitignore` — do not commit it.
+    </rule>
   </execution_rules>
 
   <action_sequence>
@@ -66,8 +77,10 @@
 
     5. REPORT: Write `.claude/reports/audit/YYYY-MM-DD_project-audit.md` using the structure below.
 
-    6a. DRY-RUN PROPOSAL: Output the following table to the Tech Lead for every HIGH or CRITICAL
-        finding. Do NOT call board_create_task yet.
+    6a. DRY-RUN PROPOSAL: Build a table for every HIGH or CRITICAL finding. Do NOT call board_create_task yet.
+        - If the table exceeds 20 rows or ~2000 tokens: write it to `.claude/temp_project_audit.md`
+          and output only the summary line in chat (see Temporary Buffer rule).
+        - Otherwise output the table inline:
 
         | # | Finding ID | Proposed Title | Type | Priority | Assignee | Rationale |
         |---|------------|----------------|------|----------|----------|-----------|

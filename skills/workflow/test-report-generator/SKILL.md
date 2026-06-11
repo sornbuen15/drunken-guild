@@ -1,5 +1,5 @@
 # Skill: Test Report Generator
-**Version:** v1.2.0
+**Version:** v1.3.0
 **Description:** Runs the full test suite, audits project board state, checks architecture compliance, and writes a dated Markdown test report to `.claude/reports/test_report/test_DDMMYYYY.md`. Intended for pre-merge quality gates.
 **Trigger/Keywords:** /test-report, generate test report, write test report, pre-merge test report, create test report, run tests and report
 
@@ -31,6 +31,17 @@
       - If the runner or environment is unknown, locate it first before executing.
     </rule>
 
+    <rule priority="FATAL" name="Temporary Buffer for Long Operations">
+      If test runner output OR any grep result exceeds ~150 lines, write it to
+      `.claude/temp_test_logs.md` before parsing. This prevents mid-stream truncation
+      from causing missed failures or incomplete triage.
+      Delete `.claude/temp_test_logs.md` immediately after the parse/triage step is complete
+      (i.e., after step 5 or step 7, whichever last wrote to it).
+      Use: `rm .claude/temp_test_logs.md`
+      NEVER leave the temp file on disk at the end of skill execution.
+      This file is covered by `.gitignore` — do not commit it.
+    </rule>
+
     <rule priority="HIGH" name="Board State Audit">
       Before writing the report, call board_summary() to get task counts across all lanes.
       Include the counts in the report. In-progress tasks during a test run is a warning sign.
@@ -60,6 +71,8 @@
     2. DETECT test runner: identify the language, framework, and test command for this project.
     3. AUDIT board: board_summary() → count tasks in each lane. Note any in-progress or open critical items.
     4. RUN tests: execute the test runner live; capture full verbose output.
+       If output exceeds ~150 lines, write it to `.claude/temp_test_logs.md` before parsing
+       (see Temporary Buffer rule). Delete the file after step 5 triage is complete.
     5. TRIAGE failures: for each FAILED test, determine root cause and fix or escalate.
     6. RE-RUN if fixes were applied; confirm clean pass.
     7. ASSESS architecture compliance: query_project_context({ files: ['ARCHITECTURE.md'], keywords: ['layer', 'dependency', 'module', 'boundary'] })

@@ -9,3 +9,6 @@ oldversion.zip
 # Editor
 .vscode/
 .idea/
+
+# Skill temporary buffer files (auto-deleted after use — never commit)
+.claude/temp_*.md
