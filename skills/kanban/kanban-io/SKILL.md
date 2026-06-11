@@ -1,5 +1,5 @@
 # Skill: Kanban Board I/O
-**Version:** v3.0.0
+**Version:** v3.1.0
 **Description:** The single, authoritative interface for all reads and writes to the local Kanban board. All other skills that need board access MUST delegate to this skill — never touch `.claude/board/` directly.
 **Trigger/Keywords:** /kanban-io, kanban read, kanban write, board read, board write, board I/O, next task ID
 
@@ -84,6 +84,18 @@
                    technical_notes, relevant_files, depends_on, blocks }
         Compact ~100-150 token handoff envelope for sub-agent briefing.
         Pass this directly to a sub-agent instead of the full task Markdown.
+
+    CONTEXT RETRIEVAL operations:
+      query_project_context { files: string[], keywords: string[] }
+        Returns: { results: [{ file, section_title, content, line_start, truncated }], total_matches }
+        Extracts only the sections of project context files that match the supplied keywords.
+        Up to 60 lines per matched section. Falls back to inline ±3-line context if no headings match.
+        Short filenames (e.g. 'POLICY.md') are resolved to .claude/ automatically.
+
+        Use this INSTEAD of reading whole files upfront. Examples:
+          query_project_context({ files: ['POLICY.md'], keywords: ['rate limiting', 'auth'] })
+          query_project_context({ files: ['ARCHITECTURE.md'], keywords: ['layer', 'dependency rule'] })
+          query_project_context({ files: ['PROJECT_SPEC.md'], keywords: ['payment', 'checkout'] })
   </mcp_tools>
 
   <board_structure>
@@ -209,6 +221,12 @@
       • Full snapshot:  board_summary()
       • Single lane:    board_list_lane({ lane })
       • Single task:    board_get_task({ task_id })
+
+    Querying project context (targeted retrieval):
+      • Compliance rules:   query_project_context({ files: ['POLICY.md'], keywords: ['...'] })
+      • Architecture check: query_project_context({ files: ['ARCHITECTURE.md'], keywords: ['...'] })
+      • Spec verification:  query_project_context({ files: ['PROJECT_SPEC.md'], keywords: ['...'] })
+      Never read full context files upfront when a targeted query is sufficient.
 
     Scheduling a group of tasks (PE orchestration):
       1. board_summary() → identify todo/ tasks
