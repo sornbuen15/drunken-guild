@@ -1,46 +1,154 @@
 # AI Team Toolkit
 
-> **🚨 EXPERIMENTAL WARNING:** This project is currently an experimental concept and a work-in-progress (trial and error). **Do NOT use this in a production environment**, as it may cause unexpected errors, delete files, or lead to unintended consequences.
+> **EXPERIMENTAL WARNING:** This project is a work-in-progress. **Do NOT use in a production environment** — it may cause unexpected errors, delete files, or produce unintended consequences.
 
-> An AI-powered development team toolkit using Claude — skills, agents, and workflows that assemble a disciplined engineering squad for any software project.
+An AI-powered development team toolkit using Claude — skills, agents, and workflows that assemble a disciplined engineering squad for any software project.
 
-A collection of **26 skills**, **2 domain specialists**, and an **8-agent engineering squad** that transforms Claude Code into a structured, team-based engineering system.
-
-Skills enforce domain standards in-context via slash commands. Domain specialists provide industry knowledge. Engineering agents execute work autonomously and can be orchestrated as a full squad.
+A collection of **30 skills**, **2 domain specialists**, and an **8-agent engineering squad** that transforms Claude Code into a structured, team-based engineering system. Board state is managed through a typed MCP server — agents call board tools natively instead of composing shell commands.
 
 ---
 
-## Why This Exists
+## Table of Contents
 
-I'm a computer engineer, but I don't feel confident I'm good enough — and I don't have much time to develop my skills the way I'd like to.
-
-I built this toolkit to learn the fundamentals properly and try building an agent system from my own perspective. It's part study, part experiment.
-
-The skills were drafted by me, then **reviewed and improved with AI assistance** — I used Claude to audit the reasoning, tighten the constraints, and sharpen the output format of each `SKILL.md`.
-
-I'm sharing this because I wanted a review. I'm not sure I'm still where I need to be as a software engineer, and this project is my honest attempt to find out.
+- [Quick Start](#quick-start)
+- [Installation](#installation)
+  - [Prerequisites](#prerequisites)
+  - [macOS / Linux](#macos--linux)
+  - [Windows](#windows)
+- [How It Works](#how-it-works)
+  - [Skills vs Agents](#skills-vs-agents)
+  - [The Three-Tier System](#the-three-tier-system)
+- [Tier 1 — Domain Specialists](#tier-1--domain-specialists)
+- [Tier 2 — Principal Engineer](#tier-2--principal-engineer)
+- [Tier 3 — Engineering Squad](#tier-3--engineering-squad)
+- [Skill Catalog](#skill-catalog)
+- [Leader's Guidebook](#leaders-guidebook)
+- [Workflows](#workflows)
+- [Repository Structure](#repository-structure)
+- [Known Limitations](#known-limitations)
 
 ---
 
-## Mental Model: Skills vs Agents
+## Quick Start
+
+**1. Clone and install**
+
+```bash
+# macOS / Linux
+git clone <repo-url> ai-team-toolkit
+cd ai-team-toolkit
+bash scripts/install/sync_skills.sh
+bash scripts/install/sync_agents.sh
+```
+
+```powershell
+# Windows (PowerShell — run as Administrator if needed)
+git clone <repo-url> ai-team-toolkit
+cd ai-team-toolkit
+.\scripts\install\sync_skills.ps1
+.\scripts\install\sync_agents.ps1
+```
+
+**2. Set up your project context**
+
+```bash
+cp templates/PROJECT_BRIEF.md  your-project/
+cp templates/REQUIREMENTS.md   your-project/
+# Fill in both files — agents read them before every session
+```
+
+**3. Start the orchestrator**
+
+```bash
+claude --agent principal-engineer
+```
+
+> "Read `PROJECT_BRIEF.md` and `REQUIREMENTS.md`. Give me a platform strategy, initial ADR, and squad plan."
+
+**4. Generate your backlog**
+
+```
+/init-project
+```
+
+**5. Pick the first task and build**
+
+```
+/next
+```
+
+That's it. See [GETTING_STARTED.md](./GETTING_STARTED.md) for a step-by-step walkthrough.
+
+---
+
+## Installation
+
+### Prerequisites
+
+- [Claude Code CLI](https://claude.ai/code) installed and authenticated
+- Git
+- **[Node.js](https://nodejs.org/) v18 or v24** *(required for the kanban MCP server and CLI fallback scripts)*
+- **macOS / Linux:** Bash 3.2+, `rsync`
+- **Windows:** PowerShell 5.1+ or [PowerShell Core 7+](https://github.com/PowerShell/PowerShell/releases)
+
+### macOS / Linux
+
+```bash
+# Clone the repo
+git clone <repo-url> ai-team-toolkit
+cd ai-team-toolkit
+
+# Install skills to ~/.claude/skills/
+bash scripts/install/sync_skills.sh
+
+# Install agents to ~/.claude/agents/
+bash scripts/install/sync_agents.sh
+```
+
+Re-run both scripts after any skill or agent update.
+
+### Windows
+
+Open PowerShell (5.1+ or Core 7+) and run:
+
+```powershell
+# Clone the repo
+git clone <repo-url> ai-team-toolkit
+cd ai-team-toolkit
+
+# If script execution is blocked, enable it first (one-time, current user):
+Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
+
+# Install skills to %USERPROFILE%\.claude\skills\
+.\scripts\install\sync_skills.ps1
+
+# Install agents to %USERPROFILE%\.claude\agents\
+.\scripts\install\sync_agents.ps1
+```
+
+Re-run both scripts after any skill or agent update.
+
+> **Kanban board scripts and MCP server** (`scripts/kanban/`, `scripts/mcp/`) are separate — they implement board I/O for your target project and are not part of the install process. Both require **Node.js v18+** to run. See `scripts/mcp/README.md` for MCP server setup.
+
+---
+
+## How It Works
+
+### Skills vs Agents
 
 | | Skills | Agents |
 |---|---|---|
 | **What it is** | A domain standard loaded into the current context | A standalone AI instance with its own context window |
 | **How to invoke** | Slash command: `/clean-arch`, `/secure`, `/tdd` | `claude --agent <name>` or `@"name (agent)"` |
 | **Runs in** | Your current conversation | Its own isolated context — starts fresh every time |
-| **Memory** | Shares your conversation history | No conversation history unless you pass it explicitly |
-| **Tools** | Same as your session | Only the tools declared in the agent's definition |
+| **Memory** | Shares your conversation history | No conversation history unless passed explicitly |
+| **Tools** | Same as your session | Only the tools declared in the agent definition |
 | **Purpose** | Enforce a specific standard or workflow during a task | Execute a category of work autonomously |
 | **Best for** | "While I'm coding, apply this architecture standard" | "Go implement this feature and come back with the result" |
 
 **In practice, agents USE skills.** When a squad agent starts a task, it reads the skills index and loads the relevant skill (e.g., `clean-architecture`, `anti-regression`) before writing code.
 
----
-
-## The Three-Tier System
-
-This toolkit is designed around three tiers that work in sequence:
+### The Three-Tier System
 
 ```
 ┌─────────────────────────────────────────────────────────┐
@@ -64,7 +172,7 @@ This toolkit is designed around three tiers that work in sequence:
 └─────────────────────────────────────────────────────────┘
 ```
 
-**Tier 1** is optional — skip it for general engineering work. It is required when building in a regulated or domain-heavy space (finance, insurance, health).
+**Tier 1** is optional — skip it for general engineering work. Required when building in a regulated or domain-heavy space (finance, insurance, health).
 
 **Tier 2** is always the orchestrator. It reads domain context, makes platform decisions, assembles the squad, and synthesizes results back to you.
 
@@ -82,7 +190,6 @@ Domain specialists carry deep industry knowledge: regulations, protocols, data m
 | `insurance-specialist` | Sonnet 4.6 | Building policy admin, claims, underwriting, or anything touching NAIC, HIPAA, ACA, Solvency II, IFRS 17 |
 
 ```bash
-# Start a domain consultation
 claude --agent fintech-specialist
 claude --agent insurance-specialist
 
@@ -101,7 +208,7 @@ claude --agent principal-engineer
 ```
 
 The principal engineer:
-1. Reads your project context files (`PROJECT_BRIEF.md`, `REQUIREMENTS.md`, `DESIGN.md`)
+1. Reads your project context files (`PROJECT_BRIEF.md`, `REQUIREMENTS.md`)
 2. Reads the domain brief from Tier 1 (if applicable)
 3. Makes the platform decision (web, native mobile, cross-platform)
 4. Assembles the squad and delegates with scoped, context-rich prompts
@@ -125,8 +232,6 @@ principal-engineer
   └── cross-platform-mobile   ← Flutter (primary), React Native, KMM
 ```
 
-### Agent Roster
-
 | Agent | Model | Role | Invoke directly when... |
 |---|---|---|---|
 | `principal-engineer` | Opus 4.8 | Technical Director + PM | You need strategic direction, roadmap, or architecture guidance |
@@ -137,161 +242,6 @@ principal-engineer
 | `native-ios` | Sonnet 4.6 | Swift, SwiftUI, UIKit, App Store delivery | iOS-specific implementation or App Store compliance |
 | `native-android` | Sonnet 4.6 | Kotlin, Jetpack Compose, Play Store delivery | Android-specific implementation or Play Store compliance |
 | `cross-platform-mobile` | Sonnet 4.6 | Flutter (primary), React Native, KMM | Shared-codebase mobile app, platform trade-off analysis |
-
----
-
-## Leader's Guidebook
-
-How to start any project using this toolkit — from domain consultation to squad execution.
-
-### Step 1 — Prepare project context files
-
-Before starting any agent session, create these files in your project root. They are how agents understand your project — the more complete they are, the better every agent's output.
-
-```
-your-project/
-├── PROJECT_BRIEF.md    ← project goals, users, platform, constraints
-├── REQUIREMENTS.md     ← functional + non-functional requirements
-└── DESIGN.md           ← architecture, tech stack, domain models
-```
-
-Copy the templates from this repo:
-
-```bash
-cp my-claude-skill/templates/PROJECT_BRIEF.md your-project/
-cp my-claude-skill/templates/REQUIREMENTS.md  your-project/
-```
-
-Fill them out before running any agent.
-
----
-
-### Step 2 — Domain consultation (skip for general projects)
-
-If your project is in a regulated or domain-heavy space, start here.
-
-```bash
-claude --agent fintech-specialist
-# or
-claude --agent insurance-specialist
-```
-
-Tell the specialist what you are building. It will output:
-- Applicable regulations and standards
-- Required data models (with correct field types)
-- Architecture constraints and patterns
-- Compliance checklist
-
-**Save the output as `DOMAIN_BRIEF.md` in your project root.** This becomes input for the principal engineer.
-
----
-
-### Step 3 — Principal engineer kickoff
-
-```bash
-claude --agent principal-engineer
-```
-
-Hand it your context files:
-
-> "Read `PROJECT_BRIEF.md`, `REQUIREMENTS.md`, and `DOMAIN_BRIEF.md`. Analyze the project and give me a platform strategy, initial ADR, and squad plan."
-
-The principal engineer will:
-1. Confirm the platform decision (web / native mobile / cross-platform)
-2. Decide which squad agents are needed
-3. Run `/init-project` to generate a prioritized backlog from your spec
-4. Produce an Architecture Decision Record
-5. Brief each specialist on what to build and which skills to load
-
----
-
-### Step 4 — Squad execution
-
-Squad agents work from tasks on the kanban board (`backlog/` → `todo/` → `in-progress/` → `done/`).
-
-```bash
-# Pick the next task and start work
-claude --agent fullstack-engineer
-# "Read PROJECT_BRIEF.md and pick up the next task in todo/"
-
-# Run parallel tracks
-claude --agent qa-engineer       # write tests
-claude --agent security-engineer # threat model
-```
-
-The domain specialist remains available for consultation throughout execution:
-
-```
-@"fintech-specialist (agent)" is this ledger model correct for PSD2 compliance?
-```
-
----
-
-### Example: Fintech Mobile Wallet App
-
-```
-User: "Build a mobile fintech wallet app"
-         │
-         ▼
-┌─────────────────────────────────────────────────────────────┐
-│ STEP 1 — fintech-specialist                                 │
-│ → KYC/AML tiers, PCI-DSS scope reduction via tokenization  │
-│ → Idempotency key requirement on all payment mutations      │
-│ → Double-entry ledger, amounts as integer minor units       │
-│ → OFAC screening before every transaction                   │
-│ → Output: DOMAIN_BRIEF.md                                   │
-└──────────────────────────┬──────────────────────────────────┘
-                           │
-                           ▼
-┌─────────────────────────────────────────────────────────────┐
-│ STEP 2 — principal-engineer reads domain + project brief    │
-│ → Platform decision: cross-platform (Flutter) — iOS + Android│
-│ → Squad: fullstack + cross-platform-mobile + security + qa  │
-│          + devops                                           │
-│ → ADR: Flutter BLoC + Clean Architecture, PCI-DSS scope     │
-│        reduction to SAQ-A via Stripe Elements               │
-│ → Backlog generated from spec (/init-project)               │
-└──────────────────────────┬──────────────────────────────────┘
-                           │
-                           ▼
-┌─────────────────────────────────────────────────────────────┐
-│ STEP 3 — Squad execution                                    │
-│                                                             │
-│  cross-platform-mobile                                      │
-│    → Flutter app, BLoC state management, feature modules   │
-│    → Loads: clean-architecture, universal-ux, core-engineering│
-│                                                             │
-│  fullstack-engineer                                         │
-│    → Backend API: ledger, payment rails, idempotency        │
-│    → Loads: clean-architecture, secure-by-design            │
-│                                                             │
-│  security-engineer                                          │
-│    → PCI-DSS scope, tokenization, OFAC check integration   │
-│    → Loads: secure-by-design                               │
-│                                                             │
-│  qa-engineer                                                │
-│    → Payment flow tests, idempotency regression tests       │
-│    → Loads: test-strategy, test-architecture                │
-│                                                             │
-│  devops-engineer                                            │
-│    → Secrets management, CI/CD, environment isolation       │
-│    → Loads: cloud-native, secure-by-design                  │
-│                                                             │
-│  fintech-specialist (on-call for domain questions)          │
-└─────────────────────────────────────────────────────────────┘
-```
-
----
-
-## Project Context Templates
-
-Two templates live in `templates/`. Copy them into any project before starting an agent session.
-
-### `templates/PROJECT_BRIEF.md`
-Captures the project goal, target users, platforms, and business constraints. The principal engineer reads this to make the platform decision and assemble the squad.
-
-### `templates/REQUIREMENTS.md`
-Captures functional and non-functional requirements in a structured format agents can parse. Feeds `/init-project` to generate the backlog.
 
 ---
 
@@ -344,8 +294,9 @@ Skills enforce domain standards. Load them via slash command during any task.
 
 | Skill | Command | Purpose |
 |---|---|---|
+| `kanban-io` | `/kanban-io` | Single interface for all board reads and writes — used by other skills |
 | `spec-to-backlog` | `/init-project` | Day 0: spec → prioritized backlog |
-| `agentic-kanban` | `/task` | Create task files before writing any code |
+| `agentic-kanban` | `/task` | Workflow orchestrator — triage, assign, promote tasks |
 | `backlog-refinement` | `/refine` | Promote tasks by priority level, Critical-first rule |
 | `next-task` | `/next` | WIP limit = 1, priority-pick, plan before coding |
 | `task-estimation` | `/estimate` | T-shirt sizing, AI turns estimate, human review effort |
@@ -357,6 +308,7 @@ Skills enforce domain standards. Load them via slash command during any task.
 
 | Skill | Command | Purpose |
 |---|---|---|
+| `git-workflow` | `/git-workflow` | Branching strategy, commit conventions, PR lifecycle |
 | `core-engineering` | `/tdd` | TDD Red-Green-Refactor cycle, debugging mantra |
 | `anti-regression` | `/surgical` | Blast radius assessment, surgical edits, no silent deletions |
 | `ai-output` | `/discipline` | Token efficiency, atomic code blocks, execution safety |
@@ -377,6 +329,79 @@ Skills enforce domain standards. Load them via slash command during any task.
 
 ---
 
+## Leader's Guidebook
+
+How to start any project using this toolkit — from domain consultation to squad execution.
+
+### Step 1 — Prepare project context files
+
+Before starting any agent session, create these files in your project root:
+
+```
+your-project/
+├── PROJECT_BRIEF.md    ← project goals, users, platform, constraints
+├── REQUIREMENTS.md     ← functional + non-functional requirements
+└── DESIGN.md           ← architecture, tech stack, domain models (optional)
+```
+
+Copy the templates from this repo:
+
+```bash
+cp ai-team-toolkit/templates/PROJECT_BRIEF.md your-project/
+cp ai-team-toolkit/templates/REQUIREMENTS.md  your-project/
+```
+
+Fill them out before running any agent.
+
+### Step 2 — Domain consultation (skip for general projects)
+
+If your project is in a regulated or domain-heavy space, start here.
+
+```bash
+claude --agent fintech-specialist
+# or
+claude --agent insurance-specialist
+```
+
+Tell the specialist what you are building. It will output:
+- Applicable regulations and standards
+- Required data models (with correct field types)
+- Architecture constraints and patterns
+- Compliance checklist
+
+**Save the output as `DOMAIN_BRIEF.md` in your project root.** This becomes input for the principal engineer.
+
+### Step 3 — Principal engineer kickoff
+
+```bash
+claude --agent principal-engineer
+```
+
+> "Read `PROJECT_BRIEF.md`, `REQUIREMENTS.md`, and `DOMAIN_BRIEF.md`. Analyze the project and give me a platform strategy, initial ADR, and squad plan."
+
+The principal engineer will:
+1. Confirm the platform decision (web / native mobile / cross-platform)
+2. Decide which squad agents are needed
+3. Run `/init-project` to generate a prioritized backlog from your spec
+4. Produce an Architecture Decision Record
+5. Brief each specialist on what to build and which skills to load
+
+### Step 4 — Squad execution
+
+Squad agents work from tasks on the kanban board (`backlog/` → `todo/` → `in-progress/` → `done/`).
+
+```bash
+# Pick the next task and start work
+claude --agent fullstack-engineer
+# "Read PROJECT_BRIEF.md and pick up the next task in todo/"
+
+# Run parallel tracks
+claude --agent qa-engineer       # write tests
+claude --agent security-engineer # threat model
+```
+
+---
+
 ## Workflows
 
 ### Squad Workflow — Greenfield Feature
@@ -384,7 +409,6 @@ Skills enforce domain standards. Load them via slash command during any task.
 ```mermaid
 flowchart TD
     U([User Request]) --> PE[principal-engineer\nAnalyze + Route]
-
     PE --> |"SDLC: Design"| SD["/system-design\nApprove HLD + API contract"]
     SD --> |"SDLC: Build"| FE[fullstack-engineer\nImplement feature]
     FE --> |Load skills| FS1["clean-architecture\ncore-engineering\nanti-regression"]
@@ -399,8 +423,6 @@ flowchart TD
     GATE --> |Fail| FE
     DO --> PE2[principal-engineer\nSynthesize + report to user]
 ```
-
----
 
 ### Skill Workflow 1 — Greenfield Project Kickoff
 
@@ -421,13 +443,11 @@ flowchart TD
     K --> L
     L --> M["/telemetry\nInstrument user journeys"]
     M --> N["/test-report\nMerge-gate report"]
-    N --> O["/git\nConventional commit"]
+    N --> O["/git-workflow\nConventional commit"]
     O --> P{More tasks?}
     P -- Yes --> H
     P -- No --> Q["/report\nSprint summary"]
 ```
-
----
 
 ### Skill Workflow 2 — Feature Development Cycle
 
@@ -446,10 +466,8 @@ flowchart TD
     I --> J["/secure\nMini threat model"]
     J --> K["/telemetry\nAdd event tracking"]
     K --> L["/test-types\nVerify correct test level"]
-    L --> M["/git\nConventional commit"]
+    L --> M["/git-workflow\nConventional commit"]
 ```
-
----
 
 ### Skill Workflow 3 — Bug Fix
 
@@ -462,11 +480,9 @@ flowchart TD
     E --> F["/test-types\nVerify: unit + sanity + smoke"]
     F --> G{Tests pass?}
     G -- No --> C
-    G -- Yes --> H["/git\nfix/: Conventional Commit"]
+    G -- Yes --> H["/git-workflow\nfix/: Conventional Commit"]
     H --> I["/test-report\nPre-merge report"]
 ```
-
----
 
 ### Skill Workflow 4 — Production Incident Response
 
@@ -485,8 +501,6 @@ flowchart TD
     J --> K["/refine\nPromote CRITICAL action items"]
 ```
 
----
-
 ### Skill Workflow 5 — Code Quality Audit
 
 ```mermaid
@@ -504,109 +518,6 @@ flowchart TD
     K -- No --> G
     K -- Yes --> L["/playbook\nDocument new standards"]
 ```
-
----
-
-## Quick Reference
-
-### Agents
-
-| Start session as | Command |
-|---|---|
-| Orchestrator (full squad) | `claude --agent principal-engineer` |
-| Fintech domain expert | `claude --agent fintech-specialist` |
-| Insurance domain expert | `claude --agent insurance-specialist` |
-| Full-stack developer | `claude --agent fullstack-engineer` |
-| DevOps engineer | `claude --agent devops-engineer` |
-| QA engineer | `claude --agent qa-engineer` |
-| Security engineer | `claude --agent security-engineer` |
-| iOS engineer | `claude --agent native-ios` |
-| Android engineer | `claude --agent native-android` |
-| Cross-platform mobile | `claude --agent cross-platform-mobile` |
-
-### Skills
-
-| Command | Skill | When to use |
-|---|---|---|
-| `/system-design` | system-design-rules | Before writing any new system or API |
-| `/clean-arch` | clean-architecture | Designing or reviewing layer structure |
-| `/ui` | universal-ui | Any frontend layout / visual work |
-| `/ux` | universal-ux | Any frontend state / flow / error handling |
-| `/infra` | cloud-native | Docker, K8s, CI/CD, IaC |
-| `/secure` | secure-by-design | Any auth, data handling, or new endpoint |
-| `/test-types` | test-strategy | Choosing the right test for the situation |
-| `/test-arch` | test-architecture | Designing a test suite or CI/CD pipeline |
-| `/test-report` | test-report-generator | Pre-merge quality gate |
-| `/tdd` | core-engineering | Writing new code or fixing a bug |
-| `/surgical` | anti-regression | Modifying existing files |
-| `/discipline` | ai-output | Enforcing output formatting standards |
-| `/git` | project-hygiene | Commits, branches, README, ADR |
-| `/init-project` | spec-to-backlog | Day 0 — spec → backlog |
-| `/task` | agentic-kanban | New bug or feature — create task first |
-| `/refine` | backlog-refinement | Sprint planning — promote tasks by priority |
-| `/estimate` | task-estimation | Size tasks before sprint |
-| `/next` | next-task | Start next highest-priority task |
-| `/report` | local-progress-reporter | Sprint / project status snapshot |
-| `/audit` | audit-to-backlog | Post-mortem or code audit |
-| `/audit-project` | project-audit-reviewer | Full codebase health check |
-| `/incident` | incident-response | Active production outage |
-| `/lead` | servant-leadership | Code review, mentorship, team comms |
-| `/product` | product-midset | Feature ROI, FinOps, build-vs-buy |
-| `/telemetry` | business-telemetry | Adding event tracking |
-| `/playbook` | standard-playbook-generator | Generate engineering documentation |
-
----
-
-## ⚠️ Real-World Considerations & Known Limitations
-
-While this toolkit provides a highly structured agentic workflow, there are practical trade-offs to consider before adopting it for daily production use:
-
-1. **Token Cost & Latency:** Orchestrating multiple agents, passing large context files (`PROJECT_BRIEF.md`, `DOMAIN_BRIEF.md`), and dynamically loading skills consumes a significant amount of tokens. Each turn can be expensive and may take several minutes to execute due to the context size.
-2. **File-Based Kanban Fragility:** The current kanban system (`todo/`, `in-progress/`, `done/`) relies on the AI reading and moving `.md` files via bash commands. In long conversations, the AI might occasionally lose track of state, overwrite files incorrectly, or hallucinate the board's status.
-3. **Process Heavy for Small Tasks:** The strict three-tier architecture and engineering discipline are designed for complex features. Using the full squad workflow for a minor CSS tweak or simple hotfix is overkill and will create unnecessary bottlenecks.
-4. **Agent Orchestration Loops:** Autonomous agent interactions (e.g., `qa-engineer` rejects code -> `fullstack-engineer` fixes -> `qa-engineer` rejects again) can potentially get stuck in a retry cycle, burning tokens. It is highly recommended to monitor execution and enforce a "Human-in-the-loop" intervention if tests fail repeatedly.
-
-*Note: Future updates may explore Function Calling / Tools for more robust Kanban state management and "Fast-Track" modes for smaller engineering tasks.*
-
----
-
-## Getting Started
-
-New here? Read **[`GETTING_STARTED.md`](./GETTING_STARTED.md)** — a step-by-step guide for using the toolkit on your own project, from setup through your first completed task.
-
----
-
-## Examples & Walkthrough
-
-A self-contained example lives in [`examples/`](./examples/). It walks through the full project lifecycle using a fictional app called **TaskFlow** — from blank templates to a running kanban board — with every major skill firing in sequence.
-
-| Stage | Skill | What it shows |
-|---|---|---|
-| `00-setup/` | — | Filled-in `PROJECT_BRIEF.md` and `REQUIREMENTS.md` |
-| `01-spec-to-backlog/` | `/init-project` | Backlog of 6 tasks generated from spec |
-| `02-backlog-refinement/` | `/refine` | CRITICAL tasks promoted to `todo/` |
-| `03-task-estimation/` | `/estimate` | T-shirt sizing and AI turn estimates |
-| `04-next-task/` | `/next` | Task picked, execution plan proposed, awaiting approval |
-| `05-agentic-kanban/` | `/task` | Mid-sprint bug task created |
-| `contributing/` | — | Annotated `SKILL.md` for writing new skills |
-
----
-
-## Setup
-
-```bash
-# Clone the repo
-git clone <repo-url>
-cd ai-team-toolkit
-
-# Deploy skills to ~/.claude/skills/
-bash scripts/sync_skills.sh
-
-# Deploy agents to ~/.claude/agents/
-bash scripts/sync_agents.sh
-```
-
-Re-run after any skill or agent update.
 
 ---
 
@@ -634,12 +545,21 @@ ai-team-toolkit/
 │   ├── 04-next-task/              # Output of /next (execution plan)
 │   ├── 05-agentic-kanban/         # Output of /task (mid-sprint bug)
 │   └── contributing/              # Annotated SKILL.md for skill authors
-├── templates/
-│   ├── PROJECT_BRIEF.md           # Project goal, users, platform, constraints
-│   └── REQUIREMENTS.md            # Functional + non-functional requirements
 ├── scripts/
-│   ├── sync_skills.sh             # Deploy skills to ~/.claude/skills/
-│   └── sync_agents.sh             # Deploy agents to ~/.claude/agents/
+│   ├── install/                   # ← INSTALL SCRIPTS (deploy to ~/.claude/)
+│   │   ├── sync_skills.sh         #   Deploy skills — macOS / Linux
+│   │   ├── sync_skills.ps1        #   Deploy skills — Windows (PowerShell)
+│   │   ├── sync_agents.sh         #   Deploy agents — macOS / Linux
+│   │   └── sync_agents.ps1        #   Deploy agents — Windows (PowerShell)
+│   ├── kanban/                    # ← KANBAN SCRIPTS (CLI fallback, board I/O for your project)
+│   │   ├── kanban_read.sh         #   Read board state — macOS / Linux
+│   │   ├── kanban_read.ps1        #   Read board state — Windows (PowerShell)
+│   │   ├── kanban_write.sh        #   Write / move tasks — macOS / Linux
+│   │   ├── kanban_write.ps1       #   Write / move tasks — Windows (PowerShell)
+│   │   └── kanban.js              #   Unified cross-platform CLI (Node.js 18+)
+│   └── mcp/                       # ← MCP SERVER (primary board interface)
+│       ├── kanban-server.js       #   JSON-RPC 2.0 MCP server — 11 typed board tools
+│       └── README.md              #   MCP setup guide and tool reference
 ├── skills/
 │   ├── architecture/
 │   │   └── system-design-rules/
@@ -653,6 +573,7 @@ ai-team-toolkit/
 │   ├── infrastructure/
 │   │   └── cloud-native/
 │   ├── kanban/
+│   │   ├── kanban-io/             # ← single board I/O interface
 │   │   ├── agentic-kanban/
 │   │   ├── audit-to-backlog/
 │   │   ├── backlog-refinement/
@@ -675,10 +596,45 @@ ai-team-toolkit/
 │       ├── ai-output/
 │       ├── anti-regression/
 │       ├── core-engineering/
+│       ├── git-workflow/          # ← branching + commit conventions
 │       ├── project-audit-reviewer/
 │       ├── project-hygiene/
 │       └── test-report-generator/
+├── templates/
+│   ├── PROJECT_BRIEF.md           # Project goal, users, platform, constraints
+│   ├── REQUIREMENTS.md            # Functional + non-functional requirements
+│   └── mcp-settings.json          # Copy-paste MCP server registration snippet
 ├── CLAUDE.md                      # Master instructions for this repo
-├── GETTING_STARTED.md             # Step-by-step user guide for your first project
+├── GETTING_STARTED.md             # Step-by-step user guide
 └── README.md                      # This file
 ```
+
+---
+
+## Known Limitations
+
+1. **Token Cost & Latency:** Orchestrating multiple agents consumes significant tokens. The MCP orchestration protocol reduces per-delegation overhead (~650 tokens vs ~4,200 for free-form prompts), but parallel waves still add up quickly.
+2. **MCP Registration Required:** The board MCP server must be registered in your project's `.claude/settings.json`. See `scripts/mcp/README.md` for setup. CLI scripts remain as fallback.
+3. **Node.js Required:** The kanban MCP server and CLI scripts both require Node.js v18+.
+4. **Process Heavy for Small Tasks:** The strict three-tier architecture is designed for complex features. Using the full squad for a minor CSS tweak is overkill.
+5. **Agent Orchestration Loops:** Autonomous agent interactions can occasionally enter retry cycles. Monitor execution and apply human-in-the-loop intervention if tasks fail repeatedly.
+
+---
+
+## Why This Exists
+
+I'm a computer engineer, but I don't feel confident I'm good enough — and I don't have much time to develop my skills the way I'd like to.
+
+I built this toolkit to learn the fundamentals properly and try building an agent system from my own perspective. It's part study, part experiment.
+
+The skills were drafted by me, then **reviewed and improved with AI assistance** — I used Claude to audit the reasoning, tighten the constraints, and sharpen the output format of each `SKILL.md`.
+
+I'm sharing this because I wanted a review. I'm not sure I'm still where I need to be as a software engineer, and this project is my honest attempt to find out.
+
+---
+
+## Getting Started
+
+New here? Read **[`GETTING_STARTED.md`](./GETTING_STARTED.md)** — step-by-step guide from setup through your first completed task.
+
+**Examples:** [`examples/`](./examples/) walks through the full project lifecycle using a fictional app called **TaskFlow**.

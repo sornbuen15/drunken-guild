@@ -1,5 +1,5 @@
 # Skill: Test Report Generator
-**Version:** v1.1.0
+**Version:** v1.3.0
 **Description:** Runs the full test suite, audits project board state, checks architecture compliance, and writes a dated Markdown test report to `.claude/reports/test_report/test_DDMMYYYY.md`. Intended for pre-merge quality gates.
 **Trigger/Keywords:** /test-report, generate test report, write test report, pre-merge test report, create test report, run tests and report
 
@@ -11,13 +11,17 @@
   </role>
 
   <execution_rules>
-    <rule priority="FATAL" name="Context First">
-      Before running any test command, read:
-      - `.claude/PROJECT_SPEC.md`
-      - `.claude/ARCHITECTURE.md`
-      - `.claude/POLICY.md`
-      These define what "correct" looks like. Test results without context are meaningless.
-      If these files do not exist, use `README.md` or ask the user for the project's test standards.
+    <rule priority="FATAL" name="Context First — Phased Loading">
+      Before running any test command, load context in phases — do NOT read all files upfront:
+        Phase 1 (before running tests):
+          query_project_context({ files: ['POLICY.md'], keywords: ['rule', 'constraint', 'required', 'forbidden', 'gate'] })
+          This loads compliance rules and acceptance gates that define pass/fail criteria.
+        Phase 2 (during Architecture Compliance check):
+          query_project_context({ files: ['ARCHITECTURE.md'], keywords: ['layer', 'dependency', 'module', 'boundary'] })
+        Phase 3 (only if a specific feature is under test and context is needed):
+          query_project_context({ files: ['PROJECT_SPEC.md'], keywords: [<feature name>] })
+      If POLICY.md does not exist, read `README.md` or ask the user for the project's test standards.
+      Bulk-reading all three files upfront degrades LLM recall for findings generated later in the session.
     </rule>
 
     <rule priority="FATAL" name="Live Run Required">
@@ -27,13 +31,21 @@
       - If the runner or environment is unknown, locate it first before executing.
     </rule>
 
+    <rule priority="FATAL" name="Temporary Buffer for Long Operations">
+      If test runner output OR any grep result exceeds ~150 lines, write it to
+      `.claude/temp_test_logs.md` before parsing. This prevents mid-stream truncation
+      from causing missed failures or incomplete triage.
+      Delete `.claude/temp_test_logs.md` immediately after the parse/triage step is complete
+      (i.e., after step 5 or step 7, whichever last wrote to it).
+      Use: `rm .claude/temp_test_logs.md`
+      NEVER leave the temp file on disk at the end of skill execution.
+      This file is covered by `.gitignore` — do not commit it.
+    </rule>
+
     <rule priority="HIGH" name="Board State Audit">
-      Before writing the report, check the Kanban board:
-      - `ls .claude/board/backlog/`
-      - `ls .claude/board/todo/`
-      - `ls .claude/board/in-progress/`
-      - `find .claude/board/done/ -type f | sort`
+      Before writing the report, call board_summary() to get task counts across all lanes.
       Include the counts in the report. In-progress tasks during a test run is a warning sign.
+      NEVER use ls, find, or cat on .claude/board/ — always use the MCP board_* tools.
     </rule>
 
     <rule priority="HIGH" name="Bug Triage">
@@ -54,13 +66,17 @@
   </execution_rules>
 
   <action_sequence>
-    1. READ context files: PROJECT_SPEC.md, ARCHITECTURE.md, POLICY.md (or README.md if absent).
+    1. LOAD POLICY: query_project_context({ files: ['POLICY.md'], keywords: ['rule', 'constraint', 'required', 'forbidden', 'gate'] })
+       (or read README.md if POLICY.md is absent). Do NOT read ARCHITECTURE.md or PROJECT_SPEC.md upfront.
     2. DETECT test runner: identify the language, framework, and test command for this project.
-    3. AUDIT board: count tasks in each column. Note any in-progress or open critical items.
+    3. AUDIT board: board_summary() → count tasks in each lane. Note any in-progress or open critical items.
     4. RUN tests: execute the test runner live; capture full verbose output.
+       If output exceeds ~150 lines, write it to `.claude/temp_test_logs.md` before parsing
+       (see Temporary Buffer rule). Delete the file after step 5 triage is complete.
     5. TRIAGE failures: for each FAILED test, determine root cause and fix or escalate.
     6. RE-RUN if fixes were applied; confirm clean pass.
-    7. ASSESS architecture compliance gates.
+    7. ASSESS architecture compliance: query_project_context({ files: ['ARCHITECTURE.md'], keywords: ['layer', 'dependency', 'module', 'boundary'] })
+       then check compliance gates from POLICY.md findings. Identify violations with file:line evidence.
     8. DETERMINE the report file path:
        - Base: `.claude/reports/test_report/`
        - Filename: `test_DDMMYYYY.md` where DDMMYYYY = today's date (e.g. `test_09062026.md`)

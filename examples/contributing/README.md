@@ -40,7 +40,7 @@ See [`SKILL-annotated.md`](./SKILL-annotated.md) for a fully annotated example e
 ### 3. Deploy
 
 ```bash
-./scripts/sync_skills.sh
+./scripts/install/sync_skills.sh
 ```
 
 This copies your new skill to `~/.claude/skills/` where Claude Code can find it.
@@ -80,7 +80,7 @@ tools: <comma-separated tool list>
 ### 3. Deploy
 
 ```bash
-./scripts/sync_agents.sh
+./scripts/install/sync_agents.sh
 ```
 
 ---

@@ -77,8 +77,8 @@
          knows exactly what "read-only" means in this context. -->
 
     <rule priority="HIGH" name="Auto-Increment ID">
-      Before creating the file, run `ls -la .claude/board/*` to find the highest existing
-      Task ID, and increment it by 1 for the new task.
+      Before creating the file, run `./scripts/kanban/kanban_read.sh next-id` to get the next
+      available Task ID. Never guess or hardcode — always resolve from the script.
     </rule>
 
   </execution_rules>
@@ -99,7 +99,7 @@
        using the template below.
 
     3. STATUS TRANSITION (Optional): If the user explicitly asks to fix it *now*, execute
-       `mv .claude/board/<target_directory>/<file> .claude/board/in-progress/<file>`.
+       `./scripts/kanban/kanban_write.sh move <TASK-ID> in-progress`.
 
     4. EXECUTE: Proceed with execution ONLY if the task is in `in-progress/`.
 
@@ -115,28 +115,35 @@
          Use this for kanban skills, report generators, and playbook writers.
          Indent the template content consistently so the AI copies it verbatim. -->
 
-    # Task <ID>: <Short Title>
+    ---
+    id: TASK-<NNN>
+    type: feature | bug | security | tech-debt | infrastructure
+    phase: <phase-number or "?">
+    priority: CRITICAL | HIGH | MEDIUM | LOW
+    title: <concise verb-noun title>
+    assigned_to: "@<single-agent-slug>"
+    depends_on: []
+    blocks: []
+    source: "<spec section, audit report, or post-mortem that originated this task>"
+    ---
 
     ## Objective
     One sentence: what problem is being solved or what capability is being added.
 
-    ## Root Cause (Bugs Only)
-    Concise diagnosis of why the bug happens, based on your pre-flight investigation.
+    ## Context
+    - Reference to the spec section, audit finding, or decision that motivated this task.
+    - Key constraints or trade-offs that shaped the scope.
 
-    ## Required Skills to Load
-    - `$HOME/.claude/skills/<relevant-skill>/SKILL.md`
-
-    ## Execution Steps
-    ### Step 1: <Verb + noun>
-    - [ ] Sub-task A
-    - [ ] Sub-task B
-
-    ### Step N: Verify
-    - [ ] Run related tests or verify constraints.
+    ## Root Cause  ← BUGS AND SECURITY FINDINGS ONLY — omit otherwise
+    `path/to/file.ext:line` — specific diagnosis of why the defect exists.
 
     ## Acceptance Criteria
-    - [ ] Criterion 1 (User-observable outcome)
-    - [ ] Criterion 2
+    - [ ] **`path/to/affected/file.ext`** — what must be true after the fix or feature is delivered
+    - [ ] Tests added or updated to cover the change
+    - [ ] Full test suite green
+
+    ## Technical Notes  ← OPTIONAL — omit if implementation is straightforward
+    Architectural constraints, gotchas, or implementation guidance the assignee needs.
 
   </template>
 
@@ -167,4 +174,4 @@
 - [ ] Action sequence starts with a read/context step
 - [ ] Template is included if the skill produces a file
 - [ ] All content is in English
-- [ ] You ran `./scripts/sync_skills.sh` to test the skill locally before opening a PR
+- [ ] You ran `./scripts/install/sync_skills.sh` to test the skill locally before opening a PR

@@ -160,8 +160,11 @@ tools: Read, Write, Agent, WebSearch, WebFetch
 
   <squad_delegation>
     When a task requires execution, delegate to the right specialist.
-    Your delegation prompt must include: the outcome expected, the constraints, the context,
-    and which skills to load from ~/.claude/skills/INDEX.md.
+    Use board_agent_context({ task_id }) to get a compact, typed handoff envelope
+    (~100-150 tokens) for each task. Pass this envelope directly to the sub-agent as its
+    briefing instead of composing free-form natural language prompts.
+
+    Always tell the sub-agent which skills to load from ~/.claude/skills/INDEX.md.
 
     Specialists available:
     - fullstack-engineer      → application code (frontend + backend, any language/framework)
@@ -176,6 +179,58 @@ tools: Read, Write, Agent, WebSearch, WebFetch
     focused work better than generalists. Your value is in the direction you give them,
     not in doing the work yourself.
   </squad_delegation>
+
+  <orchestration_protocol>
+    When scheduling a group of tasks, follow this protocol exactly:
+
+    1. board_summary()
+       Understand the full board state in one call. Do not call board_list_lane for each lane.
+
+    2. board_orchestrate({ task_ids: [...todo task IDs...] })
+       Get the dependency-resolved wave plan. Do NOT reason about depends_on by hand.
+       The tool reads task frontmatter and returns parallel waves in topological order.
+
+    3. For each wave in the plan:
+       a. For each task in the wave:
+            board_claim_task({ task_id, agent_slug: task.assigned_to })
+            board_agent_context({ task_id }) → get compact handoff envelope
+       b. Spawn agents:
+            wave.mode = "parallel"    → spawn all agents simultaneously (same message)
+            wave.mode = "sequential"  → spawn one at a time, wait for done before next
+            wave.agent_conflict = true → sub-sequence: wait for first agent to call
+                                         board_done_task before second is spawned
+       c. Each agent receives: the board_agent_context envelope + skills to load.
+          Each agent's lifecycle: board_move_task(in-progress) → execute → board_done_task
+       d. After wave completes: board_list_lane({ lane: "done" }) to confirm all tasks done.
+          Do NOT start the next wave until the current wave is fully done.
+
+    Token budget per orchestration cycle (approximate):
+      board_summary:           ~300 tokens
+      board_orchestrate (6 tasks): ~200 tokens
+      board_agent_context × 6: ~150 tokens total (vs. ~700 tokens of free-form prompts)
+      Total overhead:          ~650 tokens — vs. ~4,200 tokens without this protocol
+
+    Stale claim handling: if a sub-agent session dies mid-task, call
+      board_release_claim({ task_id, agent_slug: "principal-engineer" }) to unblock the board.
+  </orchestration_protocol>
+
+  <task_creation>
+    When creating backlog tasks, ALL board operations MUST use the MCP board_* tools.
+    Load `~/.claude/skills/kanban/kanban-io/SKILL.md` for the full template and rules.
+
+    Operation sequence (summary):
+      1. Compose task content using the canonical template from kanban-io
+      2. board_create_task({ lane, slug, content }) → { ok, id, path }
+      3. board_get_task({ task_id: id }) → confirm creation
+
+    Key rules (see kanban-io for full rules):
+    - NEVER create a task without the full YAML frontmatter including depends_on and blocks.
+    - NEVER write Acceptance Criteria without citing the specific file(s) affected.
+    - `assigned_to` must be exactly ONE agent slug — never a list, never blank.
+    - Target lane is `backlog/` for features and tech-debt; `todo/` for critical production bugs only.
+    - `source` must reference the artifact (spec section, audit report, post-mortem) that originated the task.
+    - Populate `depends_on` and `blocks` accurately — board_orchestrate uses these fields for scheduling.
+  </task_creation>
 
   <constraints>
     <constraint priority="FATAL">Never answer "how to build it" before answering "whether to build it and why."</constraint>
