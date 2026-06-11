@@ -18,7 +18,7 @@
     All board operations MUST go through these two scripts:
 
     READ operations:
-      ./scripts/kanban_read.sh [command] [args]
+      ./scripts/kanban/kanban_read.sh [command] [args]
 
       Commands:
         next-id             — prints the next available TASK-NNN integer
@@ -27,7 +27,7 @@
         get <TASK-ID>       — prints the full content of a single task file
 
     WRITE operations:
-      ./scripts/kanban_write.sh [command] [args]
+      ./scripts/kanban/kanban_write.sh [command] [args]
 
       Commands:
         create <lane> <id> <slug> [content-file]
@@ -100,38 +100,38 @@
     <rule priority="FATAL" name="Scripts Only — No Direct File Operations">
       NEVER use `ls`, `mv`, `cp`, `mkdir`, `cat`, `echo >`, or any shell file command
       to interact with `.claude/board/` directly.
-      ALWAYS call `./scripts/kanban_read.sh` or `./scripts/kanban_write.sh`.
+      ALWAYS call `./scripts/kanban/kanban_read.sh` or `./scripts/kanban/kanban_write.sh`.
     </rule>
 
     <rule priority="FATAL" name="Resolve ID Before Creating">
       Before creating any task, always call:
-        ./scripts/kanban_read.sh next-id
+        ./scripts/kanban/kanban_read.sh next-id
       Use the returned integer as the NNN in the new task's ID and filename.
       Never guess, hardcode, or reuse an existing ID.
     </rule>
 
     <rule priority="HIGH" name="Verify Lane Before Moving">
       Before calling the move command, confirm the task exists by calling:
-        ./scripts/kanban_read.sh get <TASK-ID>
+        ./scripts/kanban/kanban_read.sh get <TASK-ID>
       Only move if the task is found. Never move a task that doesn't exist.
     </rule>
   </execution_rules>
 
   <operation_sequences>
     Creating a new task:
-      1. Call `./scripts/kanban_read.sh next-id` → get NNN
+      1. Call `./scripts/kanban/kanban_read.sh next-id` → get NNN
       2. Build the task content using the canonical template above
       3. Write content to a temp file: /tmp/TASK-<NNN>_<slug>.md
-      4. Call `./scripts/kanban_write.sh create <lane> <NNN> <slug> /tmp/TASK-<NNN>_<slug>.md`
-      5. Confirm creation by calling `./scripts/kanban_read.sh get TASK-<NNN>`
+      4. Call `./scripts/kanban/kanban_write.sh create <lane> <NNN> <slug> /tmp/TASK-<NNN>_<slug>.md`
+      5. Confirm creation by calling `./scripts/kanban/kanban_read.sh get TASK-<NNN>`
 
     Moving a task between lanes:
-      1. Call `./scripts/kanban_read.sh get <TASK-ID>` to confirm it exists
-      2. Call `./scripts/kanban_write.sh move <TASK-ID> <target-lane>`
-      3. Confirm by calling `./scripts/kanban_read.sh list <target-lane>`
+      1. Call `./scripts/kanban/kanban_read.sh get <TASK-ID>` to confirm it exists
+      2. Call `./scripts/kanban/kanban_write.sh move <TASK-ID> <target-lane>`
+      3. Confirm by calling `./scripts/kanban/kanban_read.sh list <target-lane>`
 
     Listing the board state:
-      1. Call `./scripts/kanban_read.sh list-all`
+      1. Call `./scripts/kanban/kanban_read.sh list-all`
   </operation_sequences>
 
   <constraints>

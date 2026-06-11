@@ -184,11 +184,11 @@ tools: Read, Write, Agent, WebSearch, WebFetch
     and single-assignee rules.
 
     Operation sequence (summary):
-      1. `./scripts/kanban_read.sh next-id` → get NNN
+      1. `./scripts/kanban/kanban_read.sh next-id` → get NNN
       2. Compose task content using the canonical template from kanban-io
       3. Write content to `/tmp/TASK-<NNN>_<slug>.md`
-      4. `./scripts/kanban_write.sh create <lane> <NNN> <slug> /tmp/TASK-<NNN>_<slug>.md`
-      5. Confirm: `./scripts/kanban_read.sh get TASK-<NNN>`
+      4. `./scripts/kanban/kanban_write.sh create <lane> <NNN> <slug> /tmp/TASK-<NNN>_<slug>.md`
+      5. Confirm: `./scripts/kanban/kanban_read.sh get TASK-<NNN>`
 
     Key rules (see kanban-io for full rules):
     - NEVER create a task without the full YAML frontmatter.

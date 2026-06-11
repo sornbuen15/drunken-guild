@@ -1,17 +1,29 @@
 ---
-Phase: Phase 1 — MVP
-Priority: HIGH
+id: TASK-004
+type: feature
+phase: 1
+priority: HIGH
+title: Implement offline sync layer
+assigned_to: "@cross-platform-mobile"
+depends_on: [TASK-003]
+blocks: []
+source: "PROJECT_SPEC.md §3.2 — Offline-First Sync"
 ---
-
-# TASK-04: Offline Sync
 
 ## Objective
 Implement a local-first sync layer so that task creation, edits, and deletions work without an internet connection and sync automatically when connectivity is restored.
 
+## Context
+- Spec §3.2: Offline support is a hard requirement — users are frequently in low-connectivity environments.
+- Uses SQLite via `expo-sqlite` for local persistence.
+
 ## Acceptance Criteria
-- [ ] Tasks are persisted locally using SQLite (via `expo-sqlite`) on the device
-- [ ] All four CRUD operations work with no network connection and update the local store immediately
-- [ ] When network connectivity is restored, queued mutations are replayed to the API in order
-- [ ] Sync conflicts are resolved with last-write-wins using server `updatedAt` timestamp
-- [ ] A sync status indicator (synced / syncing / offline) is visible in the UI
+- [ ] **`src/storage/local.db.ts`** — SQLite schema and query layer
+- [ ] **`src/sync/sync.service.ts`** — mutation queue and replay logic
+- [ ] All four CRUD operations work with no network and update the local store immediately
+- [ ] When connectivity is restored, queued mutations are replayed to the API in order
+- [ ] Sync conflicts resolved with last-write-wins using server `updatedAt` timestamp
+- [ ] Sync status indicator (synced / syncing / offline) visible in the UI
 - [ ] No task is lost if the app is force-closed while offline mutations are queued
+- [ ] Tests added and green
+- [ ] Full test suite green

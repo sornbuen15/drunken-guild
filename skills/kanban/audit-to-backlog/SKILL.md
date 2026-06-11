@@ -10,7 +10,7 @@
     analyze failures or audits, write a permanent record, and generate actionable engineering tasks.
 
     You do NOT touch the board directly. All Kanban board reads and writes go through the
-    kanban-io skill via `./scripts/kanban_read.sh` and `./scripts/kanban_write.sh`.
+    kanban-io skill via `./scripts/kanban/kanban_read.sh` and `./scripts/kanban/kanban_write.sh`.
   </role>
 
   <execution_rules>
@@ -22,9 +22,9 @@
     <rule priority="FATAL" name="Auto-Backlog via kanban-io">
       After generating the report, you MUST create one Kanban task per Action Item or Technical
       Debt finding. All task creation MUST go through the kanban-io scripts:
-        - Get the next ID:   `./scripts/kanban_read.sh next-id`
-        - Create the task:   `./scripts/kanban_write.sh create backlog <NNN> <slug> <content-file>`
-        - Confirm the task:  `./scripts/kanban_read.sh get TASK-<NNN>`
+        - Get the next ID:   `./scripts/kanban/kanban_read.sh next-id`
+        - Create the task:   `./scripts/kanban/kanban_write.sh create backlog <NNN> <slug> <content-file>`
+        - Confirm the task:  `./scripts/kanban/kanban_read.sh get TASK-<NNN>`
       NEVER use direct shell file commands (`ls`, `mv`, `mkdir`, `echo >`) on `.claude/board/`.
     </rule>
 
@@ -39,13 +39,13 @@
     2. DOCUMENT: Create `.claude/reports/post-mortems/YYYY-MM-DD_<issue-slug>.md`.
        Must include: Executive Summary, Root Cause, Timeline, and Action Items.
     3. DELEGATE: For each Action Item, create a Kanban task via kanban-io:
-         a. `./scripts/kanban_read.sh next-id` → get NNN
+         a. `./scripts/kanban/kanban_read.sh next-id` → get NNN
          b. Compose task content using the canonical template (see kanban-io skill)
             Set `source` to the report file path.
             Populate `## Context` with the finding reference (e.g., ACTION-01).
          c. Write content to `/tmp/TASK-<NNN>_<slug>.md`
-         d. `./scripts/kanban_write.sh create backlog <NNN> <slug> /tmp/TASK-<NNN>_<slug>.md`
-         e. `./scripts/kanban_read.sh get TASK-<NNN>` to confirm
+         d. `./scripts/kanban/kanban_write.sh create backlog <NNN> <slug> /tmp/TASK-<NNN>_<slug>.md`
+         e. `./scripts/kanban/kanban_read.sh get TASK-<NNN>` to confirm
     4. VERIFY: Each task must have full canonical frontmatter and at minimum
        `## Objective`, `## Context`, and `## Acceptance Criteria`.
   </action_sequence>

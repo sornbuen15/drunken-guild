@@ -11,7 +11,7 @@
     one atomic task file per feature or concern.
 
     You do NOT touch the board directly. All Kanban board reads and writes go through the
-    kanban-io skill via `./scripts/kanban_read.sh` and `./scripts/kanban_write.sh`.
+    kanban-io skill via `./scripts/kanban/kanban_read.sh` and `./scripts/kanban/kanban_write.sh`.
   </role>
 
   <execution_rules>
@@ -26,9 +26,9 @@
 
     <rule priority="FATAL" name="Board I/O via kanban-io Only">
       All task creation MUST go through the kanban-io scripts:
-        - Get the next ID:   `./scripts/kanban_read.sh next-id`
-        - Create the task:   `./scripts/kanban_write.sh create backlog <NNN> <slug> <content-file>`
-        - Confirm the task:  `./scripts/kanban_read.sh get TASK-<NNN>`
+        - Get the next ID:   `./scripts/kanban/kanban_read.sh next-id`
+        - Create the task:   `./scripts/kanban/kanban_write.sh create backlog <NNN> <slug> <content-file>`
+        - Confirm the task:  `./scripts/kanban/kanban_read.sh get TASK-<NNN>`
       NEVER use direct shell commands (`ls`, `mv`, `mkdir`, `echo >`) on `.claude/board/`.
     </rule>
 
@@ -51,10 +51,10 @@
          - Map each step to the right specialist agent
          - Ensure tasks are policy-compliant and non-overlapping
     3. GENERATE: For each task:
-         a. `./scripts/kanban_read.sh next-id` → get NNN
+         a. `./scripts/kanban/kanban_read.sh next-id` → get NNN
          b. Compose task content using the canonical template (see kanban-io skill)
          c. Write content to `/tmp/TASK-<NNN>_<slug>.md`
-         d. `./scripts/kanban_write.sh create backlog <NNN> <slug> /tmp/TASK-<NNN>_<slug>.md`
+         d. `./scripts/kanban/kanban_write.sh create backlog <NNN> <slug> /tmp/TASK-<NNN>_<slug>.md`
     4. REPORT: Output a summary table of all generated tasks. Stop and wait for user approval
        before any board movement.
   </action_sequence>

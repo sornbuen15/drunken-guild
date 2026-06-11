@@ -24,8 +24,8 @@
       NEVER use `ls`, `mv`, `cp`, `mkdir`, `cat`, `echo`, or any direct shell command to
       interact with `.claude/board/`.
       ALL board operations MUST go through:
-        ./scripts/kanban_read.sh   — for reading board state and resolving IDs
-        ./scripts/kanban_write.sh  — for creating and moving tasks
+        ./scripts/kanban/kanban_read.sh   — for reading board state and resolving IDs
+        ./scripts/kanban/kanban_write.sh  — for creating and moving tasks
       Refer to the kanban-io skill for full operation sequences.
     </rule>
 
@@ -66,17 +66,17 @@
 
     <step name="3. Create via kanban-io">
       Follow the kanban-io operation sequence:
-        a. Run `./scripts/kanban_read.sh next-id` to get the next TASK-NNN.
+        a. Run `./scripts/kanban/kanban_read.sh next-id` to get the next TASK-NNN.
         b. Build the task content using the canonical template (defined in kanban-io skill).
         c. Write content to `/tmp/TASK-<NNN>_<slug>.md`.
-        d. Run `./scripts/kanban_write.sh create <lane> <NNN> <slug> /tmp/TASK-<NNN>_<slug>.md`.
-        e. Confirm: `./scripts/kanban_read.sh get TASK-<NNN>`.
+        d. Run `./scripts/kanban/kanban_write.sh create <lane> <NNN> <slug> /tmp/TASK-<NNN>_<slug>.md`.
+        e. Confirm: `./scripts/kanban/kanban_read.sh get TASK-<NNN>`.
     </step>
 
     <step name="4. Promote (only on explicit user instruction)">
       NEVER move a task to `in-progress/` without the user explicitly saying to start it.
       When the user approves starting a task:
-        ./scripts/kanban_write.sh move TASK-<NNN> in-progress
+        ./scripts/kanban/kanban_write.sh move TASK-<NNN> in-progress
     </step>
 
     <step name="5. Execute">

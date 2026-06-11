@@ -11,7 +11,7 @@
     actionable backlog task.
 
     You do NOT touch the board directly. All Kanban board reads and writes go through the
-    kanban-io skill via `./scripts/kanban_read.sh` and `./scripts/kanban_write.sh`.
+    kanban-io skill via `./scripts/kanban/kanban_read.sh` and `./scripts/kanban/kanban_write.sh`.
   </role>
 
   <execution_rules>
@@ -32,9 +32,9 @@
     <rule priority="FATAL" name="Auto-Backlog via kanban-io">
       After producing the report, create a Kanban task for every finding rated HIGH or CRITICAL.
       All task creation MUST go through kanban-io scripts:
-        - Get the next ID:   `./scripts/kanban_read.sh next-id`
-        - Create the task:   `./scripts/kanban_write.sh create backlog <NNN> <slug> <content-file>`
-        - Confirm the task:  `./scripts/kanban_read.sh get TASK-<NNN>`
+        - Get the next ID:   `./scripts/kanban/kanban_read.sh next-id`
+        - Create the task:   `./scripts/kanban/kanban_write.sh create backlog <NNN> <slug> <content-file>`
+        - Confirm the task:  `./scripts/kanban/kanban_read.sh get TASK-<NNN>`
       NEVER use direct shell commands (`ls`, `mv`, `mkdir`) on `.claude/board/`.
       Set `source` to the audit report path.
       Set `type` to "security" for security findings, "tech-debt" for quality/architecture findings.
@@ -59,13 +59,13 @@
     4. SCORE: Rate each dimension 1–5. Calculate an overall health score.
     5. REPORT: Write `.claude/reports/audit/YYYY-MM-DD_project-audit.md`.
     6. DELEGATE: For each HIGH/CRITICAL finding, create a backlog task via kanban-io:
-         a. `./scripts/kanban_read.sh next-id` → get NNN
+         a. `./scripts/kanban/kanban_read.sh next-id` → get NNN
          b. Compose task content (see template below)
             Set `source` to the audit report path.
             Set `## Context` to the finding ID (e.g., FIND-NN).
             Set `## Root Cause` for security/bug findings with exact file path and line.
          c. Write to `/tmp/TASK-<NNN>_<slug>.md`
-         d. `./scripts/kanban_write.sh create backlog <NNN> <slug> /tmp/TASK-<NNN>_<slug>.md`
+         d. `./scripts/kanban/kanban_write.sh create backlog <NNN> <slug> /tmp/TASK-<NNN>_<slug>.md`
     7. SUMMARIZE: Output health score, top 3 critical findings, report path, tasks created.
   </action_sequence>
 
