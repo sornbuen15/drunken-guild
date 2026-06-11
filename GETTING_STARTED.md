@@ -351,7 +351,9 @@ Once comfortable with the basics, see the [Skill Catalog](./README.md#skill-cata
 | `/git-workflow` | git-workflow | Branches, commits, PR lifecycle |
 | `/git` | project-hygiene | Commits, branches, README, ADR |
 | `/init-project` | spec-to-backlog | Day 0 — spec → backlog |
-| `/task` | agentic-kanban | New bug or feature — create task first |
+| `/issue` | issue-intake | Report a bug or problem — captured to backlog automatically |
+| `/squad-workflow` | squad-workflow | Coordinate the full squad: planning → QA → deployment |
+| `/task` | agentic-kanban | Orchestrate full task lifecycle after intake |
 | `/refine` | backlog-refinement | Sprint planning — promote tasks by priority |
 | `/estimate` | task-estimation | Size tasks before sprint |
 | `/next` | next-task | Start next highest-priority task |
