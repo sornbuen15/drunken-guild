@@ -1,5 +1,5 @@
 # Skill: Squad Workflow Coordinator
-**Version:** v1.0.0
+**Version:** v2.0.0
 **Description:** Defines the end-to-end coordination protocol for the AI squad — who acts at each phase, in what order, at which gates, and when work runs in parallel versus sequentially.
 **Trigger/Keywords:** /squad-workflow, squad coordination, team workflow, coordinate squad, who does what, squad plan
 
@@ -34,6 +34,31 @@
         5. Principal Engineer presents the task plan to the user for approval before any promotion.
       </steps>
       <gate>User approves the planned tasks before they move to refinement.</gate>
+    </phase>
+
+    <phase name="1b. Orchestration Planning">
+      <who>Principal Engineer</who>
+      <when>After user approval of the task plan, before any agent starts work.</when>
+      <steps>
+        1. Collect all approved todo/ task IDs.
+        2. Call board_orchestrate({ task_ids: [...] }) → get the dependency-resolved wave plan.
+        3. For each wave, call board_agent_context({ task_id }) for every task in that wave.
+           This produces a compact ~100-150 token handoff envelope per task.
+        4. Present the wave plan to the user before spawning any agents.
+      </steps>
+      <gate>Wave plan reviewed before first agent is spawned.</gate>
+      <orchestration_loop>
+        For each wave:
+          a. For each task in wave: board_claim_task(task_id, assigned_to) → claim
+          b. Spawn agents:
+               mode "parallel"   → spawn all agents in the wave simultaneously
+               mode "sequential" → spawn one at a time, wait for board_done_task before next
+          c. Each agent: board_move_task to in-progress → execute → board_done_task
+          d. Principal Engineer: confirm all wave tasks are done before starting next wave
+               (board_list_lane({ lane: "done" }) to verify)
+          e. If agent_conflict: true in a wave, sub-sequence agents within that wave
+             (same agent cannot hold two in-progress tasks)
+      </orchestration_loop>
     </phase>
 
     <phase name="2. Refinement">
@@ -105,27 +130,48 @@
   </workflow>
 
   <parallelism_rules>
-    <rule name="Specialist Consultation">
-      During Planning, the Principal Engineer may consult multiple specialists simultaneously.
-      Their domains are independent — parallelism is always valid here.
+    <rule name="Use board_orchestrate — Do Not Reason About Deps by Hand">
+      When scheduling multiple tasks, ALWAYS call board_orchestrate({ task_ids }) first.
+      The tool reads depends_on / blocks fields and returns a wave plan with mode: parallel
+      or sequential per wave. Do not manually reason about task ordering — trust the wave plan.
     </rule>
-    <rule name="Independent Tasks">
-      Tasks with no depends_on relationship and different assigned agents may be executed
-      in parallel — one in-progress/ per agent at a time.
-    </rule>
-    <rule name="Deployment Preparation vs QA">
-      DevOps deployment preparation may overlap with QA testing.
-      Deployment execution is always sequential — it follows QA pass.
-    </rule>
-    <rule name="Sequential Gates">
-      The following transitions are always sequential — each must complete before the next begins:
 
-        Planning → Backlog
-        Backlog → Refinement → Todo
-        Todo → Development (one task at a time per agent)
-        Development Complete → QA Gate
-        QA Pass → Done
-        Done → Deployment Execution (if required)
+    <rule name="Parallel: Same Wave, Different Agents">
+      Tasks in the same wave with different assigned_to values may run simultaneously.
+      Spawn them in a single message to run truly concurrently.
+      Examples:
+        - @security-engineer threat modeling + @qa-engineer writing tests (no dependency)
+        - @native-ios + @native-android implementing the same screen independently
+        - @devops-engineer infra prep + @fullstack-engineer API work (no shared files)
+    </rule>
+
+    <rule name="Sequential: Different Waves">
+      Tasks in different waves MUST NOT start until all tasks in the prior wave are in done/.
+      Examples:
+        - @fullstack-engineer must complete before @qa-engineer validates (depends_on)
+        - @qa-engineer must pass before @devops-engineer deploys (depends_on)
+        - Any task where depends_on lists an incomplete task
+    </rule>
+
+    <rule name="Agent Conflict Within a Wave">
+      If board_orchestrate returns agent_conflict: true for a wave, sub-sequence those tasks:
+      the same agent cannot hold two in-progress tasks (WIP=1 enforced server-side).
+      Complete the first task before claiming the second.
+    </rule>
+
+    <rule name="Deployment Preparation vs QA">
+      DevOps deployment preparation (writing IaC, updating configs) may overlap with QA testing
+      if board_orchestrate places them in the same wave.
+      Deployment execution task always depends_on QA pass — it will be in a later wave.
+    </rule>
+
+    <rule name="Sequential Gates (always enforced regardless of wave plan)">
+      Planning → Backlog
+      Backlog → Refinement → Todo
+      Todo → Development (one task at a time per agent, WIP=1)
+      Development Complete → QA Gate
+      QA Pass → Done
+      Done → Deployment Execution (if required)
     </rule>
   </parallelism_rules>
 
@@ -134,7 +180,7 @@
     - [ ] Every acceptance criterion in the task file is met and verified by QA.
     - [ ] All relevant tests (unit, integration, E2E) are green.
     - [ ] No regressions introduced in related functionality.
-    - [ ] QA Engineer has moved the task to done/ via kanban_write.sh.
+    - [ ] QA Engineer has called board_done_task to move the task to done/.
     - [ ] If deployment was required: the deployment task is also complete and verified.
   </definition_of_done>
 

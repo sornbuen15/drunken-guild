@@ -26,7 +26,7 @@ Map task keywords to their absolute skill file paths. Load ONLY the relevant ski
 - `audit-to-backlog` (`/audit`) — Analyzes failures or project audits, generates a permanent Markdown report, and 
   Path: $HOME/.claude/skills/audit-to-backlog/SKILL.md
 
-- `backlog-refinement` (`/refine`) — Scans and filters Tasks from backlog/ to move to todo/ based on Priority levels,
+- `backlog-refinement` (`/refine`) — Scans tasks from backlog/ to promote to todo/ based on Priority levels, with a m
   Path: $HOME/.claude/skills/backlog-refinement/SKILL.md
 
 - `issue-intake` (`/issue`) — Captures user-reported issues, bugs, and problems from conversation and creates 
@@ -38,7 +38,7 @@ Map task keywords to their absolute skill file paths. Load ONLY the relevant ski
 - `local-progress-reporter` (`/report`) — Aggregates data from the entire Kanban board (backlog, todo, in-progress, done) 
   Path: $HOME/.claude/skills/local-progress-reporter/SKILL.md
 
-- `next-task` (`/next`) — A system that pulls tasks from todo/ into in-progress/, enforcing that the curre
+- `next-task` (`/next`) — Pulls the highest-priority task from todo/ into in-progress/ using atomic claim 
   Path: $HOME/.claude/skills/next-task/SKILL.md
 
 - `spec-to-backlog` (`/init-project`) — Analyzes project specification files on Day 0 and generates a comprehensive, pri

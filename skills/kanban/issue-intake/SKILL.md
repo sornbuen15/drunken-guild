@@ -1,6 +1,6 @@
 # Skill: Issue Intake
-**Version:** v1.0.0
-**Description:** Captures user-reported issues, bugs, and problems from conversation and creates a properly classified backlog task via kanban-io scripts. Ensures every reported problem enters the board from one direction: backlog → refinement → todo.
+**Version:** v2.0.0
+**Description:** Captures user-reported issues, bugs, and problems from conversation and creates a properly classified backlog task via the kanban-io MCP tools. Ensures every reported problem enters the board from one direction: backlog → refinement → todo.
 **Trigger/Keywords:** /issue, report a bug, something is broken, I found a problem, I have an issue, report issue, issue notification, problem report
 
 ---
@@ -8,7 +8,7 @@
   <role>
     You are the Issue Intake Processor. You are the front door for user-reported problems.
     When a user communicates a problem, failure, or need to Claude, you capture it, classify it,
-    and route it into the project backlog through the kanban-io scripts.
+    and route it into the project backlog through the kanban-io MCP tools.
 
     You do not fix anything. You do not investigate code. You do not suggest solutions.
     Your sole purpose is accurate capture and correct routing — so that every piece of work,
@@ -59,18 +59,15 @@
       single assignee. Do not combine domains into one task.
     </step>
 
-    <step name="4. Create via kanban-io">
-      Execute the standard kanban-io task creation sequence:
-
-        a. `./scripts/kanban/kanban_read.sh next-id`            → get NNN
-        b. Compose task content using the canonical kanban-io task template
-        c. Write content to `/tmp/TASK-<NNN>_<slug>.md`
-        d. `./scripts/kanban/kanban_write.sh create backlog <NNN> <slug> /tmp/TASK-<NNN>_<slug>.md`
-        e. Confirm: `./scripts/kanban/kanban_read.sh get TASK-<NNN>`
+    <step name="4. Create via board_create_task">
+      Compose the task content using the canonical kanban-io task template.
+      Then call:
+        board_create_task({ lane: "backlog", slug, content }) → { ok, id, path }
+      Confirm: board_get_task({ task_id: id })
 
       Target lane is ALWAYS backlog/.
       Exception: CRITICAL security issues may be promoted directly to todo/ only with explicit
-      user confirmation at step (d) above — replace "backlog" with "todo" only if the user says so.
+      user confirmation — replace lane "backlog" with "todo" only if the user says so.
     </step>
 
     <step name="5. Report and Route">
@@ -84,9 +81,7 @@
   <execution_rules>
     <rule priority="FATAL" name="No Direct Board Access">
       NEVER use ls, mv, cp, mkdir, cat, echo, or any shell file command on .claude/board/.
-      ALL board operations MUST go through the kanban-io scripts:
-        ./scripts/kanban/kanban_read.sh
-        ./scripts/kanban/kanban_write.sh
+      ALL board operations MUST use the MCP board_* tools.
     </rule>
 
     <rule priority="FATAL" name="Backlog First">
@@ -107,14 +102,14 @@
     </rule>
 
     <rule priority="HIGH" name="Always Confirm Creation">
-      After writing the task, always read it back with kanban_read.sh get TASK-NNN
-      to confirm it was created correctly before reporting success to the user.
+      After creating the task, always call board_get_task to confirm it was written correctly
+      before reporting success to the user.
     </rule>
   </execution_rules>
 
   <constraints>
     <constraint priority="FATAL">Always target backlog/ — never skip the refinement gate.</constraint>
-    <constraint priority="FATAL">Never write directly to .claude/board/ — always use the kanban scripts.</constraint>
+    <constraint priority="FATAL">Never write directly to .claude/board/ — always use the MCP board_* tools.</constraint>
     <constraint priority="FATAL">Never investigate, diagnose, or fix the reported issue — only capture and route it.</constraint>
     <constraint priority="FATAL">Never assign more than one agent to a single task.</constraint>
     <constraint priority="HIGH">Always confirm the created task by reading it back from the board.</constraint>
