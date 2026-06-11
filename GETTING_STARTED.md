@@ -30,6 +30,7 @@ A complete walkthrough — from installation through your first completed task. 
 
 - [Claude Code CLI](https://claude.ai/code) installed and authenticated
 - Git
+- **[Node.js](https://nodejs.org/) v18 or v24** *(required for the kanban board scripts — `kanban_read.sh`, `kanban_write.sh` and their Windows equivalents all delegate to a unified `kanban.js` CLI)*
 - **macOS / Linux:** Bash 3.2+, `rsync`
 - **Windows:** PowerShell 5.1+ or [PowerShell Core 7+](https://github.com/PowerShell/PowerShell/releases)
 
