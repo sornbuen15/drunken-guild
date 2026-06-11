@@ -23,7 +23,7 @@ Map task keywords to their absolute skill file paths. Load ONLY the relevant ski
 - `agentic-kanban` (`/task`) — Orchestrates the team workflow when a bug is found or a new feature is needed — 
   Path: $HOME/.claude/skills/agentic-kanban/SKILL.md
 
-- `audit-to-backlog` (`/audit`) — Analyzes failures or project audits, generates a permanent Markdown report, and 
+- `audit-to-backlog` (`/audit`) — Analyzes failures or project audits, generates a report, proposes backlog tasks via dry-run gate, and creates approved items via MCP board_create_task.
   Path: $HOME/.claude/skills/audit-to-backlog/SKILL.md
 
 - `backlog-refinement` (`/refine`) — Scans tasks from backlog/ to promote to todo/ based on Priority levels, with a m
@@ -80,7 +80,7 @@ Map task keywords to their absolute skill file paths. Load ONLY the relevant ski
 - `git-workflow` (`/git-workflow`) — Enforces best-practice Git usage — branch naming, commit conventions, PR lifecyc
   Path: $HOME/.claude/skills/git-workflow/SKILL.md
 
-- `project-audit-reviewer` (`/audit-project`) — Performs a comprehensive codebase health audit covering architecture compliance,
+- `project-audit-reviewer` (`/audit-project`) — Performs a comprehensive codebase health audit; produces a scored report, dry-run task proposal, and prioritized backlog via MCP tools after Tech Lead approval.
   Path: $HOME/.claude/skills/project-audit-reviewer/SKILL.md
 
 - `project-hygiene` (`/git`) — Standard for Repository maintenance, Git Workflow management, and documentation 
@@ -89,6 +89,6 @@ Map task keywords to their absolute skill file paths. Load ONLY the relevant ski
 - `squad-workflow` (`/squad-workflow`) — Defines the end-to-end coordination protocol for the AI squad — who acts at each
   Path: $HOME/.claude/skills/squad-workflow/SKILL.md
 
-- `test-report-generator` (`/test-report`) — Runs the full test suite, audits project board state, checks architecture compli
+- `test-report-generator` (`/test-report`) — Runs the full test suite, audits project board state, checks architecture compliance via phased query_project_context, and writes a dated Markdown test report.
   Path: $HOME/.claude/skills/test-report-generator/SKILL.md
 

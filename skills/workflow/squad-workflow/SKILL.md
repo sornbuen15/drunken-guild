@@ -100,7 +100,7 @@
         1. QA Engineer reads the task and its acceptance criteria.
         2. QA Engineer reviews the implementation: code changes, tests written, test results.
         3. QA Engineer validates every acceptance criterion against the Definition of Done.
-        4. PASS — all criteria met: QA Engineer moves the task to done/ via kanban_write.sh.
+        4. PASS — all criteria met: QA Engineer calls board_done_task to move the task to done/.
         5. FAIL — any criterion unmet: QA Engineer documents the specific failures in the task file
            and notifies the engineer. The task remains in in-progress/ for remediation.
         6. After remediation, the engineer signals completion again and QA retests.
