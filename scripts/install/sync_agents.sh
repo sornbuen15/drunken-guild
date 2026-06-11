@@ -6,7 +6,7 @@ NC='\033[0m'
 RED='\033[0;31m'
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-LOCAL_AGENTS_DIR="$SCRIPT_DIR/../agents"
+LOCAL_AGENTS_DIR="$SCRIPT_DIR/../../agents"
 GLOBAL_AGENTS_DIR="$HOME/.claude/agents"
 
 echo -e "${BLUE}=================================================${NC}"

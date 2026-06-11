@@ -8,7 +8,7 @@ NC='\033[0m'
 
 # Resolve paths relative to the script's location — works from anywhere
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-LOCAL_SKILLS_DIR="$SCRIPT_DIR/../skills"
+LOCAL_SKILLS_DIR="$SCRIPT_DIR/../../skills"
 GLOBAL_SKILLS_DIR="$HOME/.claude/skills"
 INDEX_FILE="$GLOBAL_SKILLS_DIR/INDEX.md"
 
