@@ -1,6 +1,6 @@
 # Skill: Incident Post-Mortem & Audit Analyzer
-**Version:** v2.0.0
-**Description:** Analyzes failures or project audits, generates a permanent Markdown report, and breaks every Action Item into a Kanban backlog task via the kanban-io skill and its scripts.
+**Version:** v3.0.0
+**Description:** Analyzes failures or project audits, generates a permanent Markdown report, and breaks every Action Item into a Kanban backlog task via the kanban-io MCP tools.
 **Trigger/Keywords:** /audit, Post-Mortem, Audit, Review code, Code audit, Technical debt review
 
 ---
@@ -10,7 +10,7 @@
     analyze failures or audits, write a permanent record, and generate actionable engineering tasks.
 
     You do NOT touch the board directly. All Kanban board reads and writes go through the
-    kanban-io skill via `./scripts/kanban/kanban_read.sh` and `./scripts/kanban/kanban_write.sh`.
+    kanban-io skill via the MCP board_* tools.
   </role>
 
   <execution_rules>
@@ -19,12 +19,11 @@
       file in `.claude/reports/post-mortems/` (or `docs/` if instructed).
     </rule>
 
-    <rule priority="FATAL" name="Auto-Backlog via kanban-io">
+    <rule priority="FATAL" name="Auto-Backlog via board_create_task">
       After generating the report, you MUST create one Kanban task per Action Item or Technical
-      Debt finding. All task creation MUST go through the kanban-io scripts:
-        - Get the next ID:   `./scripts/kanban/kanban_read.sh next-id`
-        - Create the task:   `./scripts/kanban/kanban_write.sh create backlog <NNN> <slug> <content-file>`
-        - Confirm the task:  `./scripts/kanban/kanban_read.sh get TASK-<NNN>`
+      Debt finding. All task creation MUST use:
+        board_create_task({ lane: "backlog", slug, content }) → { ok, id, path }
+      Confirm each task: board_get_task({ task_id: id })
       NEVER use direct shell file commands (`ls`, `mv`, `mkdir`, `echo >`) on `.claude/board/`.
     </rule>
 
@@ -38,14 +37,12 @@
     1. ANALYZE: Review the incident logs, audit text, or code state.
     2. DOCUMENT: Create `.claude/reports/post-mortems/YYYY-MM-DD_<issue-slug>.md`.
        Must include: Executive Summary, Root Cause, Timeline, and Action Items.
-    3. DELEGATE: For each Action Item, create a Kanban task via kanban-io:
-         a. `./scripts/kanban/kanban_read.sh next-id` → get NNN
-         b. Compose task content using the canonical template (see kanban-io skill)
+    3. DELEGATE: For each Action Item, create a Kanban task:
+         a. Compose task content using the canonical template (see kanban-io skill).
             Set `source` to the report file path.
             Populate `## Context` with the finding reference (e.g., ACTION-01).
-         c. Write content to `/tmp/TASK-<NNN>_<slug>.md`
-         d. `./scripts/kanban/kanban_write.sh create backlog <NNN> <slug> /tmp/TASK-<NNN>_<slug>.md`
-         e. `./scripts/kanban/kanban_read.sh get TASK-<NNN>` to confirm
+         b. board_create_task({ lane: "backlog", slug, content }) → { ok, id }
+         c. board_get_task({ task_id: id }) → confirm
     4. VERIFY: Each task must have full canonical frontmatter and at minimum
        `## Objective`, `## Context`, and `## Acceptance Criteria`.
   </action_sequence>
@@ -87,12 +84,12 @@
     <step>1. Open a <thinking> block to assess scope: incident post-mortem, code audit, or tech-debt review.</step>
     <step>2. ANALYZE the provided input.</step>
     <step>3. DOCUMENT findings into the report file.</step>
-    <step>4. DELEGATE each Action Item to a Kanban task via kanban-io scripts.</step>
+    <step>4. DELEGATE each Action Item to a Kanban task via board_create_task.</step>
     <step>5. Output a brief summary: report path, number of action items, task IDs created.</step>
   </output_format>
 
   <constraints>
-    <constraint priority="FATAL">Never write to the board directly — always use kanban_read.sh and kanban_write.sh.</constraint>
+    <constraint priority="FATAL">Never write to the board directly — always use the MCP board_* tools.</constraint>
     <constraint priority="FATAL">Every task must have exactly one agent in assigned_to.</constraint>
     <constraint priority="FATAL">A post-mortem must always produce a report file — never just a chat response.</constraint>
     <constraint priority="HIGH">All output must be in English.</constraint>

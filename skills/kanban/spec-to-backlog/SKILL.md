@@ -1,6 +1,6 @@
 # Skill: Project Initiation & Spec-to-Backlog
-**Version:** v2.0.0
-**Description:** Analyzes project specification files on Day 0 and generates a comprehensive, prioritized backlog of atomic tasks via the kanban-io skill and its scripts.
+**Version:** v3.0.0
+**Description:** Analyzes project specification files on Day 0 and generates a comprehensive, prioritized backlog of atomic tasks via the kanban-io MCP tools.
 **Trigger/Keywords:** /init-project, greenfield, project spec, new project, kickstart backlog, spec to backlog, Day 0
 
 ---
@@ -11,7 +11,7 @@
     one atomic task file per feature or concern.
 
     You do NOT touch the board directly. All Kanban board reads and writes go through the
-    kanban-io skill via `./scripts/kanban/kanban_read.sh` and `./scripts/kanban/kanban_write.sh`.
+    kanban-io skill via the MCP board_* tools.
   </role>
 
   <execution_rules>
@@ -24,11 +24,10 @@
       If any file is missing, stop and ask the user to provide it.
     </rule>
 
-    <rule priority="FATAL" name="Board I/O via kanban-io Only">
-      All task creation MUST go through the kanban-io scripts:
-        - Get the next ID:   `./scripts/kanban/kanban_read.sh next-id`
-        - Create the task:   `./scripts/kanban/kanban_write.sh create backlog <NNN> <slug> <content-file>`
-        - Confirm the task:  `./scripts/kanban/kanban_read.sh get TASK-<NNN>`
+    <rule priority="FATAL" name="Board I/O via MCP Tools Only">
+      All task creation MUST use the MCP board_create_task tool:
+        board_create_task({ lane: "backlog", slug, content }) → { ok, id, path }
+      Confirm each task: board_get_task({ task_id: id })
       NEVER use direct shell commands (`ls`, `mv`, `mkdir`, `echo >`) on `.claude/board/`.
     </rule>
 
@@ -49,12 +48,12 @@
          - Identify the target Phase and MVP goal
          - Break down core features into atomic, independent development steps
          - Map each step to the right specialist agent
+         - Populate depends_on / blocks fields for tasks with sequencing requirements
          - Ensure tasks are policy-compliant and non-overlapping
     3. GENERATE: For each task:
-         a. `./scripts/kanban/kanban_read.sh next-id` → get NNN
-         b. Compose task content using the canonical template (see kanban-io skill)
-         c. Write content to `/tmp/TASK-<NNN>_<slug>.md`
-         d. `./scripts/kanban/kanban_write.sh create backlog <NNN> <slug> /tmp/TASK-<NNN>_<slug>.md`
+         a. Compose task content using the canonical template (see kanban-io skill)
+         b. board_create_task({ lane: "backlog", slug, content }) → { ok, id }
+         c. board_get_task({ task_id: id }) → confirm
     4. REPORT: Output a summary table of all generated tasks. Stop and wait for user approval
        before any board movement.
   </action_sequence>
@@ -91,13 +90,13 @@
 
   <output_format>
     <step>1. Open a <thinking> block to identify the Phase, list required features, and plan task breakdown.</step>
-    <step>2. Generate all task files via kanban-io scripts.</step>
+    <step>2. Generate all task files via board_create_task.</step>
     <step>3. Output a clean summary table: Task ID | Title | Phase | Priority | Assigned To.</step>
     <step>4. Halt and ask: "Tasks generated. Shall I promote any of these to todo/?"</step>
   </output_format>
 
   <constraints>
-    <constraint priority="FATAL">Never write to the board directly — always use kanban_read.sh and kanban_write.sh.</constraint>
+    <constraint priority="FATAL">Never write to the board directly — always use the MCP board_* tools.</constraint>
     <constraint priority="FATAL">Every task must have exactly one agent in assigned_to.</constraint>
     <constraint priority="FATAL">Never promote tasks without explicit user approval.</constraint>
     <constraint priority="HIGH">All output must be in English.</constraint>
