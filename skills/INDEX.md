@@ -20,9 +20,6 @@ Map task keywords to their absolute skill file paths. Load ONLY the relevant ski
 - `cloud-native` (`/infra`) — Cloud-Native infrastructure standard focused on resilience, Scalability, and aut
   Path: $HOME/.claude/skills/cloud-native/SKILL.md
 
-- `issue-intake` (`/issue`) — Captures user-reported issues and creates a classified backlog task via kanban-io sc
-  Path: $HOME/.claude/skills/issue-intake/SKILL.md
-
 - `agentic-kanban` (`/task`) — Orchestrates the team workflow when a bug is found or a new feature is needed — 
   Path: $HOME/.claude/skills/agentic-kanban/SKILL.md
 
@@ -31,6 +28,9 @@ Map task keywords to their absolute skill file paths. Load ONLY the relevant ski
 
 - `backlog-refinement` (`/refine`) — Scans and filters Tasks from backlog/ to move to todo/ based on Priority levels,
   Path: $HOME/.claude/skills/backlog-refinement/SKILL.md
+
+- `issue-intake` (`/issue`) — Captures user-reported issues, bugs, and problems from conversation and creates 
+  Path: $HOME/.claude/skills/issue-intake/SKILL.md
 
 - `kanban-io` (`/kanban-io`) — The single, authoritative interface for all reads and writes to the local Kanban
   Path: $HOME/.claude/skills/kanban-io/SKILL.md
@@ -86,9 +86,9 @@ Map task keywords to their absolute skill file paths. Load ONLY the relevant ski
 - `project-hygiene` (`/git`) — Standard for Repository maintenance, Git Workflow management, and documentation 
   Path: $HOME/.claude/skills/project-hygiene/SKILL.md
 
+- `squad-workflow` (`/squad-workflow`) — Defines the end-to-end coordination protocol for the AI squad — who acts at each
+  Path: $HOME/.claude/skills/squad-workflow/SKILL.md
+
 - `test-report-generator` (`/test-report`) — Runs the full test suite, audits project board state, checks architecture compli
   Path: $HOME/.claude/skills/test-report-generator/SKILL.md
-
-- `squad-workflow` (`/squad-workflow`) — Defines the end-to-end coordination protocol for the AI squad — who acts at each phas
-  Path: $HOME/.claude/skills/squad-workflow/SKILL.md
 
