@@ -28,12 +28,9 @@
     </rule>
 
     <rule priority="HIGH" name="Board State Audit">
-      Before writing the report, check the Kanban board:
-      - `ls .claude/board/backlog/`
-      - `ls .claude/board/todo/`
-      - `ls .claude/board/in-progress/`
-      - `find .claude/board/done/ -type f | sort`
+      Before writing the report, call board_summary() to get task counts across all lanes.
       Include the counts in the report. In-progress tasks during a test run is a warning sign.
+      NEVER use ls, find, or cat on .claude/board/ — always use the MCP board_* tools.
     </rule>
 
     <rule priority="HIGH" name="Bug Triage">
@@ -56,7 +53,7 @@
   <action_sequence>
     1. READ context files: PROJECT_SPEC.md, ARCHITECTURE.md, POLICY.md (or README.md if absent).
     2. DETECT test runner: identify the language, framework, and test command for this project.
-    3. AUDIT board: count tasks in each column. Note any in-progress or open critical items.
+    3. AUDIT board: board_summary() → count tasks in each lane. Note any in-progress or open critical items.
     4. RUN tests: execute the test runner live; capture full verbose output.
     5. TRIAGE failures: for each FAILED test, determine root cause and fix or escalate.
     6. RE-RUN if fixes were applied; confirm clean pass.
