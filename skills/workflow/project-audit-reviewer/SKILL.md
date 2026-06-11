@@ -82,10 +82,10 @@
           and output only the summary line in chat (see Temporary Buffer rule).
         - Otherwise output the table inline:
 
-        | # | Finding ID | Proposed Title | Type | Priority | Assignee | Rationale |
-        |---|------------|----------------|------|----------|----------|-----------|
-        | 1 | FIND-01    | ...            | ...  | CRITICAL | @...     | ...       |
-        | 2 | FIND-03    | ...            | ...  | HIGH     | @...     | ...       |
+        | # | Finding ID | Proposed Title | Type | Priority | Assignee | Depends On | Rationale |
+        |---|------------|----------------|------|----------|----------|------------|-----------|
+        | 1 | FIND-01    | ...            | ...  | CRITICAL | @...     | —          | ...       |
+        | 2 | FIND-03    | ...            | ...  | HIGH     | @...     | #1         | ...       |
 
     6b. APPROVAL GATE: After presenting the table, output exactly:
 
@@ -103,6 +103,7 @@
         board_create_task({ lane: "backlog", slug, content })
         board_get_task({ task_id }) → confirm creation
         Set `source` to the audit report path.
+        Populate `depends_on` with the actual IDs of the tasks it depends on, if any.
 
     7. SUMMARIZE: Output health score, top 3 critical findings, report path, tasks created.
   </action_sequence>
@@ -143,7 +144,7 @@
     priority: CRITICAL | HIGH | MEDIUM | LOW
     title: <concise verb-noun title>
     assigned_to: "@<single-agent-slug>"
-    depends_on: []
+    depends_on: [<array of TASK-IDs this depends on, if any>]
     blocks: []
     source: "<path to audit report, e.g. .claude/reports/audit/YYYY-MM-DD_project-audit.md>"
     ---

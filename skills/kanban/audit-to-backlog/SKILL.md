@@ -56,9 +56,10 @@
           and output only the summary line in chat (see Temporary Buffer rule).
         - Otherwise output the table inline:
 
-        | # | Action Item | Proposed Title | Type | Priority | Assignee | Source Reference |
-        |---|-------------|----------------|------|----------|----------|------------------|
-        | 1 | ACTION-01   | ...            | ...  | HIGH     | @...     | ...              |
+        | # | Action Item | Proposed Title | Type | Priority | Assignee | Depends On | Source Reference |
+        |---|-------------|----------------|------|----------|----------|------------|------------------|
+        | 1 | ACTION-01   | ...            | ...  | HIGH     | @...     | —          | ...              |
+        | 2 | ACTION-02   | ...            | ...  | MEDIUM   | @...     | #1         | ...              |
 
     3b. APPROVAL GATE: After presenting the table, output exactly:
 
@@ -76,6 +77,7 @@
          a. Compose task content using the canonical template (see kanban-io skill).
             Set `source` to the report file path.
             Populate `## Context` with the finding reference (e.g., ACTION-01).
+            Populate `depends_on` with the actual IDs of the tasks it depends on, if any.
          b. board_create_task({ lane: "backlog", slug, content }) → { ok, id }
          c. board_get_task({ task_id: id }) → confirm
 
@@ -93,7 +95,7 @@
     priority: CRITICAL | HIGH | MEDIUM | LOW
     title: <concise verb-noun title>
     assigned_to: "@<single-agent-slug>"
-    depends_on: []
+    depends_on: [<array of TASK-IDs this depends on, if any>]
     blocks: []
     source: "<path to post-mortem or audit report>"
     ---
