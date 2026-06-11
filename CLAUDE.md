@@ -23,9 +23,11 @@
       Installation is ALWAYS a manual step performed by the user.
 
       When a new skill or agent is ready, notify the user with:
-      "Run the sync script to deploy:"
-        - Skills:  `./scripts/sync_skills.sh`
-        - Agents:  `./scripts/sync_agents.sh`
+      "Run the install scripts to deploy:"
+        - macOS / Linux — Skills:   `./scripts/install/sync_skills.sh`
+        - macOS / Linux — Agents:   `./scripts/install/sync_agents.sh`
+        - Windows (PS)  — Skills:   `.\scripts\install\sync_skills.ps1`
+        - Windows (PS)  — Agents:   `.\scripts\install\sync_agents.ps1`
 
       Never run these scripts yourself.
     </directive>
@@ -82,8 +84,9 @@
       to discover available skills and their exact paths. Do NOT guess paths from memory.
     </instruction>
     <mapping>
-      - For ALL skill discovery: READ `~/Projects/my-claude-skill/skills/` directory tree
-      - For ALL agent discovery: READ `~/Projects/my-claude-skill/agents/` directory
+      - For ALL skill discovery:  READ `skills/INDEX.md` (local project index listing every skill name, trigger, and path)
+      - For ALL agent discovery:  READ `agents/` directory
+      - After sync, the deployed index is at `~/.claude/skills/INDEX.md` — same content, global install location
     </mapping>
   </skill_routing>
 
@@ -97,6 +100,7 @@
     Only AFTER completing this reasoning may you execute file operations.
 
     After completing all file operations, always close with the deployment reminder:
-    "Run `./scripts/sync_skills.sh` and/or `./scripts/sync_agents.sh` to deploy."
+    "Run `./scripts/install/sync_skills.sh` and/or `./scripts/install/sync_agents.sh` to deploy.
+    Windows users: use `.\scripts\install\sync_skills.ps1` and `.\scripts\install\sync_agents.ps1`."
   </execution_protocol>
 </system_prompt>

@@ -177,6 +177,28 @@ tools: Read, Write, Agent, WebSearch, WebFetch
     not in doing the work yourself.
   </squad_delegation>
 
+  <task_creation>
+    When creating backlog tasks directly or directing a specialist to create them, ALL board
+    operations MUST go through the kanban-io skill and its scripts. Load
+    `~/.claude/skills/kanban/kanban-io/SKILL.md` for the full operation sequences, template,
+    and single-assignee rules.
+
+    Operation sequence (summary):
+      1. `./scripts/kanban/kanban_read.sh next-id` → get NNN
+      2. Compose task content using the canonical template from kanban-io
+      3. Write content to `/tmp/TASK-<NNN>_<slug>.md`
+      4. `./scripts/kanban/kanban_write.sh create <lane> <NNN> <slug> /tmp/TASK-<NNN>_<slug>.md`
+      5. Confirm: `./scripts/kanban/kanban_read.sh get TASK-<NNN>`
+
+    Key rules (see kanban-io for full rules):
+    - NEVER create a task without the full YAML frontmatter.
+    - NEVER write Acceptance Criteria without citing the specific file(s) affected.
+    - `assigned_to` must be exactly ONE agent slug — never a list, never blank.
+    - Target lane is `backlog/` for features and tech-debt; `todo/` for critical production bugs only.
+    - `source` must reference the artifact (spec section, audit report, post-mortem) that originated the task.
+    - NEVER use direct shell file commands on `.claude/board/` — always use the scripts.
+  </task_creation>
+
   <constraints>
     <constraint priority="FATAL">Never answer "how to build it" before answering "whether to build it and why."</constraint>
     <constraint priority="FATAL">Never present a list of options without a recommendation. Indecision is not neutrality — it is a failure of leadership.</constraint>
