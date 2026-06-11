@@ -4,7 +4,7 @@
 
 An AI-powered development team toolkit using Claude — skills, agents, and workflows that assemble a disciplined engineering squad for any software project.
 
-A collection of **28 skills**, **2 domain specialists**, and an **8-agent engineering squad** that transforms Claude Code into a structured, team-based engineering system.
+A collection of **30 skills**, **2 domain specialists**, and an **8-agent engineering squad** that transforms Claude Code into a structured, team-based engineering system. Board state is managed through a typed MCP server — agents call board tools natively instead of composing shell commands.
 
 ---
 
@@ -87,7 +87,7 @@ That's it. See [GETTING_STARTED.md](./GETTING_STARTED.md) for a step-by-step wal
 
 - [Claude Code CLI](https://claude.ai/code) installed and authenticated
 - Git
-- **[Node.js](https://nodejs.org/) v18 or v24** *(required for the kanban board scripts)*
+- **[Node.js](https://nodejs.org/) v18 or v24** *(required for the kanban MCP server and CLI fallback scripts)*
 - **macOS / Linux:** Bash 3.2+, `rsync`
 - **Windows:** PowerShell 5.1+ or [PowerShell Core 7+](https://github.com/PowerShell/PowerShell/releases)
 
@@ -128,7 +128,7 @@ Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
 
 Re-run both scripts after any skill or agent update.
 
-> **Kanban board scripts** (`scripts/kanban/`) are separate — they implement board I/O for your target project and are not part of the install process. They require **Node.js v18+** to run.
+> **Kanban board scripts and MCP server** (`scripts/kanban/`, `scripts/mcp/`) are separate — they implement board I/O for your target project and are not part of the install process. Both require **Node.js v18+** to run. See `scripts/mcp/README.md` for MCP server setup.
 
 ---
 
@@ -551,11 +551,15 @@ ai-team-toolkit/
 │   │   ├── sync_skills.ps1        #   Deploy skills — Windows (PowerShell)
 │   │   ├── sync_agents.sh         #   Deploy agents — macOS / Linux
 │   │   └── sync_agents.ps1        #   Deploy agents — Windows (PowerShell)
-│   └── kanban/                    # ← KANBAN SCRIPTS (board I/O for your project)
-│       ├── kanban_read.sh         #   Read board state — macOS / Linux
-│       ├── kanban_read.ps1        #   Read board state — Windows (PowerShell)
-│       ├── kanban_write.sh        #   Write / move tasks — macOS / Linux
-│       └── kanban_write.ps1       #   Write / move tasks — Windows (PowerShell)
+│   ├── kanban/                    # ← KANBAN SCRIPTS (CLI fallback, board I/O for your project)
+│   │   ├── kanban_read.sh         #   Read board state — macOS / Linux
+│   │   ├── kanban_read.ps1        #   Read board state — Windows (PowerShell)
+│   │   ├── kanban_write.sh        #   Write / move tasks — macOS / Linux
+│   │   ├── kanban_write.ps1       #   Write / move tasks — Windows (PowerShell)
+│   │   └── kanban.js              #   Unified cross-platform CLI (Node.js 18+)
+│   └── mcp/                       # ← MCP SERVER (primary board interface)
+│       ├── kanban-server.js       #   JSON-RPC 2.0 MCP server — 11 typed board tools
+│       └── README.md              #   MCP setup guide and tool reference
 ├── skills/
 │   ├── architecture/
 │   │   └── system-design-rules/
@@ -598,7 +602,8 @@ ai-team-toolkit/
 │       └── test-report-generator/
 ├── templates/
 │   ├── PROJECT_BRIEF.md           # Project goal, users, platform, constraints
-│   └── REQUIREMENTS.md            # Functional + non-functional requirements
+│   ├── REQUIREMENTS.md            # Functional + non-functional requirements
+│   └── mcp-settings.json          # Copy-paste MCP server registration snippet
 ├── CLAUDE.md                      # Master instructions for this repo
 ├── GETTING_STARTED.md             # Step-by-step user guide
 └── README.md                      # This file
@@ -608,10 +613,11 @@ ai-team-toolkit/
 
 ## Known Limitations
 
-1. **Token Cost & Latency:** Orchestrating multiple agents and loading large context files consumes significant tokens. Each turn can be expensive and may take several minutes due to context size.
-2. **File-Based Kanban Fragility:** The kanban system relies on the AI reading and moving `.md` files via shell scripts. In long conversations, the AI may occasionally lose track of board state.
-3. **Process Heavy for Small Tasks:** The strict three-tier architecture is designed for complex features. Using the full squad for a minor CSS tweak is overkill.
-4. **Agent Orchestration Loops:** Autonomous agent interactions can occasionally enter retry cycles. Monitor execution and apply human-in-the-loop intervention if tasks fail repeatedly.
+1. **Token Cost & Latency:** Orchestrating multiple agents consumes significant tokens. The MCP orchestration protocol reduces per-delegation overhead (~650 tokens vs ~4,200 for free-form prompts), but parallel waves still add up quickly.
+2. **MCP Registration Required:** The board MCP server must be registered in your project's `.claude/settings.json`. See `scripts/mcp/README.md` for setup. CLI scripts remain as fallback.
+3. **Node.js Required:** The kanban MCP server and CLI scripts both require Node.js v18+.
+4. **Process Heavy for Small Tasks:** The strict three-tier architecture is designed for complex features. Using the full squad for a minor CSS tweak is overkill.
+5. **Agent Orchestration Loops:** Autonomous agent interactions can occasionally enter retry cycles. Monitor execution and apply human-in-the-loop intervention if tasks fail repeatedly.
 
 ---
 

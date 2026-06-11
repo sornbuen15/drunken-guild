@@ -30,7 +30,7 @@ A complete walkthrough — from installation through your first completed task. 
 
 - [Claude Code CLI](https://claude.ai/code) installed and authenticated
 - Git
-- **[Node.js](https://nodejs.org/) v18 or v24** *(required for the kanban board scripts — `kanban_read.sh`, `kanban_write.sh` and their Windows equivalents all delegate to a unified `kanban.js` CLI)*
+- **[Node.js](https://nodejs.org/) v18 or v24** *(required for the kanban MCP server and CLI fallback scripts — `kanban-server.js`, `kanban_read.sh`, `kanban_write.sh` and their Windows equivalents)*
 - **macOS / Linux:** Bash 3.2+, `rsync`
 - **Windows:** PowerShell 5.1+ or [PowerShell Core 7+](https://github.com/PowerShell/PowerShell/releases)
 
@@ -75,7 +75,7 @@ Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
 
 Both scripts are safe to re-run after any update.
 
-> **Note:** The `scripts\kanban\` scripts are separate — they implement board I/O for your *target project*, not this toolkit. Copy them into your project when you need them.
+> **Note:** The `scripts\kanban\` and `scripts\mcp\` directories are separate — they implement board I/O for your *target project*, not this toolkit. Register the MCP server in your project's `.claude/settings.json` using `templates/mcp-settings.json`. See `scripts/mcp/README.md` for full setup instructions.
 
 ---
 
