@@ -1,7 +1,7 @@
 # Kanban Board MCP Server
 
 `kanban-server.js` is a [Model Context Protocol](https://modelcontextprotocol.io/) server that
-exposes the local kanban board as 11 typed, atomically-safe tools. When registered in your
+exposes the local kanban board as 12 typed, atomically-safe tools. When registered in your
 project's Claude Code settings, the LLM calls these tools as native function calls instead of
 composing shell commands.
 
@@ -46,7 +46,7 @@ echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":
 
 Expected response (on one line):
 ```json
-{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2024-11-05","capabilities":{"tools":{}},"serverInfo":{"name":"kanban-board-server","version":"1.0.0"}}}
+{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2024-11-05","capabilities":{"tools":{}},"serverInfo":{"name":"kanban-board-server","version":"1.1.0"}}}
 ```
 
 ---
@@ -66,6 +66,7 @@ Expected response (on one line):
 | `board_summary` | — | Multi-lane snapshot + counts | Full board state |
 | `board_orchestrate` | `task_ids[]` | Wave plan | Dependency-resolved execution plan |
 | `board_agent_context` | `task_id` | Compact handoff envelope | Token-efficient sub-agent briefing |
+| `query_project_context` | `files[], keywords[]` | Matched sections array | Targeted context retrieval from project docs |
 
 ---
 
@@ -156,6 +157,54 @@ dependency graph, and returns a wave plan:
 
 Tasks with `agent_conflict: true` in their wave require sub-sequencing within the wave —
 the same agent cannot hold two `in-progress` tasks simultaneously.
+
+---
+
+## Context Retrieval Protocol
+
+`query_project_context` lets agents pull only the relevant sections from project documentation
+files instead of reading whole files upfront. This prevents "Lost in the Middle" recall
+degradation caused by loading large context files early in the session.
+
+**Arguments:**
+
+| Argument | Type | Description |
+|---|---|---|
+| `files` | `string[]` | One or more filenames. Short names (e.g. `'POLICY.md'`) are resolved to `.claude/` automatically. |
+| `keywords` | `string[]` | Keywords to match against Markdown section headings and body text. |
+
+**Returns:**
+
+```json
+{
+  "results": [
+    {
+      "file": "POLICY.md",
+      "section_title": "## Rate Limiting Rules",
+      "content": "...",
+      "line_start": 42,
+      "truncated": false
+    }
+  ],
+  "total_matches": 1
+}
+```
+
+Up to 60 lines of content are returned per matched section. If no section heading matches,
+the tool falls back to returning the ±3 lines surrounding each keyword occurrence.
+
+**Recommended call patterns:**
+
+```js
+// Phase 1: Load compliance gates before any analysis
+query_project_context({ files: ['POLICY.md'], keywords: ['rule', 'constraint', 'required', 'forbidden'] })
+
+// Phase 2: Load architecture rules only when checking layering
+query_project_context({ files: ['ARCHITECTURE.md'], keywords: ['layer', 'dependency', 'module', 'boundary'] })
+
+// Phase 3: Load feature spec only when a specific feature is under review
+query_project_context({ files: ['PROJECT_SPEC.md'], keywords: ['payment', 'checkout'] })
+```
 
 ---
 
