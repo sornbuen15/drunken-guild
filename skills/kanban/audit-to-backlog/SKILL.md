@@ -1,5 +1,5 @@
 # Skill: Incident Post-Mortem & Audit Analyzer
-**Version:** v3.0.0
+**Version:** v3.1.0
 **Description:** Analyzes failures or project audits, generates a permanent Markdown report, and breaks every Action Item into a Kanban backlog task via the kanban-io MCP tools.
 **Trigger/Keywords:** /audit, Post-Mortem, Audit, Review code, Code audit, Technical debt review
 
@@ -19,9 +19,12 @@
       file in `.claude/reports/post-mortems/` (or `docs/` if instructed).
     </rule>
 
-    <rule priority="FATAL" name="Auto-Backlog via board_create_task">
-      After generating the report, you MUST create one Kanban task per Action Item or Technical
-      Debt finding. All task creation MUST use:
+    <rule priority="FATAL" name="Dry-Run Gate — No Auto-Backlog">
+      After generating the report, you MUST present a Dry-Run Proposal Table and HALT.
+      Do NOT call board_create_task for any Action Item until the Tech Lead explicitly approves.
+      The Tech Lead may approve all, approve a subset (e.g., "Approve #1, #3"), or reject all.
+      Only call board_create_task for the approved subset.
+      All task creation MUST use:
         board_create_task({ lane: "backlog", slug, content }) → { ok, id, path }
       Confirm each task: board_get_task({ task_id: id })
       NEVER use direct shell file commands (`ls`, `mv`, `mkdir`, `echo >`) on `.claude/board/`.
@@ -37,12 +40,31 @@
     1. ANALYZE: Review the incident logs, audit text, or code state.
     2. DOCUMENT: Create `.claude/reports/post-mortems/YYYY-MM-DD_<issue-slug>.md`.
        Must include: Executive Summary, Root Cause, Timeline, and Action Items.
-    3. DELEGATE: For each Action Item, create a Kanban task:
+    3a. DRY-RUN PROPOSAL: Output a proposal table for every Action Item. Do NOT call board_create_task yet.
+
+        | # | Action Item | Proposed Title | Type | Priority | Assignee | Source Reference |
+        |---|-------------|----------------|------|----------|----------|------------------|
+        | 1 | ACTION-01   | ...            | ...  | HIGH     | @...     | ...              |
+
+    3b. APPROVAL GATE: After presenting the table, output exactly:
+
+        ---
+        **Dry-Run complete. N task(s) proposed.**
+        Please review the table above and reply with one of:
+        - "Approve all" — create all N tasks
+        - "Approve #1, #3" — create only the numbered tasks
+        - "Reject all" — do not create any tasks
+        ---
+
+        HALT. Do NOT proceed until the Tech Lead replies.
+
+    3c. EXECUTE (after approval): For each approved item:
          a. Compose task content using the canonical template (see kanban-io skill).
             Set `source` to the report file path.
             Populate `## Context` with the finding reference (e.g., ACTION-01).
          b. board_create_task({ lane: "backlog", slug, content }) → { ok, id }
          c. board_get_task({ task_id: id }) → confirm
+
     4. VERIFY: Each task must have full canonical frontmatter and at minimum
        `## Objective`, `## Context`, and `## Acceptance Criteria`.
   </action_sequence>
