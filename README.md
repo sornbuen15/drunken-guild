@@ -4,7 +4,7 @@
 
 An AI-powered development team toolkit using Claude — skills, agents, and workflows that assemble a disciplined engineering squad for any software project.
 
-A collection of **30 skills**, **2 domain specialists**, and an **8-agent engineering squad** that transforms Claude Code into a structured, team-based engineering system. Board state is managed through a typed MCP server — agents call board tools natively instead of composing shell commands.
+A collection of **30 skills**, **5 specialist agents**, and an **8-agent engineering squad** that transforms Claude Code into a structured, team-based engineering system. Board state is managed through a typed MCP server — agents call board tools natively instead of composing shell commands.
 
 ---
 
@@ -19,6 +19,7 @@ A collection of **30 skills**, **2 domain specialists**, and an **8-agent engine
   - [Skills vs Agents](#skills-vs-agents)
   - [The Three-Tier System](#the-three-tier-system)
 - [Tier 1 — Domain Specialists](#tier-1--domain-specialists)
+- [Specialty AI Agents](#specialty-ai-agents)
 - [Tier 2 — Principal Engineer](#tier-2--principal-engineer)
 - [Tier 3 — Engineering Squad](#tier-3--engineering-squad)
 - [Skill Catalog](#skill-catalog)
@@ -196,6 +197,26 @@ claude --agent insurance-specialist
 # Or invoke mid-conversation
 @"fintech-specialist (agent)" review this payment API design
 ```
+
+---
+
+## Specialty AI Agents
+
+Standalone consultants for technical AI domains. Invoke when the task requires expertise in voice, memory, or agentic system design — not general engineering judgment.
+
+| Agent | Model | Invoke when... |
+|---|---|---|
+| `agentic-systems-specialist` | Opus 4.8 | Designing agentic loops, tool calling schemas, autonomy boundaries, IoT/API orchestration, or action audit trails |
+| `ai-memory-specialist` | Opus 4.8 | Designing RAG pipelines, vector DB selection, memory taxonomy, context injection strategy, or retrieval relevance scoring |
+| `voice-ai-specialist` | Opus 4.8 | Designing voice pipelines, STT/TTS selection, real-time audio streaming, latency budgets, or graceful degradation in audio systems |
+
+```bash
+claude --agent agentic-systems-specialist
+claude --agent ai-memory-specialist
+claude --agent voice-ai-specialist
+```
+
+> These agents enter plan mode at the start of every session and require approval before advising — they are consultative, not executors.
 
 ---
 
