@@ -13,63 +13,42 @@
     <rule priority="FATAL" name="Branch Before You Touch">
       NEVER modify files on `main` or `develop` directly.
       The FIRST action for any task is: create the correct feature branch from `develop`.
-      If uncommitted changes already exist on `develop`, branch immediately — the working tree
-      changes will follow.
+      If uncommitted changes already exist on `develop`, branch immediately — the working tree changes will follow.
     </rule>
 
     <rule priority="FATAL" name="Branch Naming Convention">
-      All branches MUST follow this pattern:
+      All branches MUST follow: `<type>/<kebab-case-description>`
 
-        <type>/<kebab-case-description>
-
-      Allowed types:
-        feat/     — new skill, agent, script, or capability
-        fix/      — correction to an existing skill or agent
-        refactor/ — restructuring without behavior change
-        docs/     — documentation-only changes
-        chore/    — maintenance: sync scripts, tooling, config
-
-      Examples:
-        feat/kanban-io-skill
-        fix/agentic-kanban-single-assignee
-        refactor/separate-kanban-workflow-from-methodology
-        docs/update-skill-index
-        chore/sync-script-improvements
+      Allowed types: feat/ | fix/ | refactor/ | docs/ | chore/
+      Examples: feat/kanban-io-skill | fix/agentic-kanban-single-assignee | docs/update-skill-index
 
       NEVER use: hotfix/, release/, your-name/, or freeform text.
     </rule>
 
     <rule priority="HIGH" name="One Branch Per Task">
-      Each branch addresses exactly one task or concern.
-      Do not bundle unrelated changes on the same branch.
-      If a second concern is discovered mid-work, note it and create a separate branch after the current one is merged.
+      Each branch addresses exactly one task or concern. If a second concern is discovered mid-work, note it and create a separate branch after the current one is merged.
     </rule>
   </branch_strategy>
 
   <commit_conventions>
     <rule priority="FATAL" name="Conventional Commits">
-      Every commit message MUST follow Conventional Commits format:
+      Every commit MUST follow: `<type>(<scope>): <short description>`
 
-        <type>(<scope>): <short description>
-
-      Types: feat, fix, refactor, docs, chore, test
-      Scope: the skill name, agent name, or script affected (kebab-case)
-      Short description: imperative mood, lowercase, no trailing period, ≤72 characters
+      Types: feat | fix | refactor | docs | chore | test
+      Scope: skill name, agent name, or script affected (kebab-case)
+      Description: imperative mood, lowercase, no trailing period, ≤72 characters
 
       Examples:
         feat(kanban-io): add single kanban read/write interface skill
         fix(agentic-kanban): enforce single assignee constraint
-        refactor(spec-to-backlog): delegate board I/O to kanban-io
-        docs(git-workflow): add branching strategy skill
         chore(scripts): add kanban_read and kanban_write shell scripts
 
       NEVER use: "WIP", "misc", "updates", "changes", or unprefixed free text.
     </rule>
 
     <rule priority="HIGH" name="Atomic Commits">
-      Each commit should represent one logical change that can stand alone.
-      Do not commit partial work. If a task requires multiple logical changes,
-      make multiple commits — one per logical unit.
+      Each commit represents one logical change that can stand alone.
+      Multiple logical changes = multiple commits, one per logical unit.
     </rule>
 
     <rule priority="HIGH" name="No Secrets in Commits">
@@ -81,52 +60,37 @@
   <pr_lifecycle>
     <rule priority="FATAL" name="PR Targets develop Only">
       All feature/fix/refactor/docs branches merge into `develop`.
-      NEVER open a PR directly to `main`.
-      Only `develop` merges into `main` via a release PR.
+      NEVER open a PR directly to `main`. Only `develop` merges into `main` via a release PR.
     </rule>
 
     <rule priority="HIGH" name="PR Checklist">
       Before opening a PR, verify:
       - [ ] Branch name follows the convention above
       - [ ] All commits follow Conventional Commits
-      - [ ] No unrelated file changes are included
-      - [ ] Skill files follow the canonical SKILL.md structure (see CLAUDE.md)
-      - [ ] Agent files follow the canonical agent `.md` structure (see CLAUDE.md)
-      - [ ] sync scripts have NOT been run — installation is always a manual user step
+      - [ ] No unrelated file changes included
+      - [ ] Skill files follow canonical SKILL.md structure (see CLAUDE.md)
+      - [ ] Agent files follow canonical agent `.md` structure (see CLAUDE.md)
+      - [ ] Sync scripts have NOT been run — installation is always a manual user step
     </rule>
 
     <rule priority="HIGH" name="PR Title and Description">
-      PR title: mirrors the primary commit message format — `type(scope): description`
-      PR body must include:
-        ## What
-        One paragraph describing the change.
-
-        ## Why
-        One paragraph explaining the motivation.
-
-        ## Checklist
-        The checklist items above, checked off.
+      PR title: `type(scope): description` (mirrors primary commit message)
+      PR body must include: ## What (one paragraph), ## Why (one paragraph), ## Checklist (checked off).
     </rule>
   </pr_lifecycle>
 
   <release_flow>
     <rule priority="HIGH" name="develop → main Release">
-      When `develop` is stable and all intended changes are merged:
-      1. Open a PR from `develop` to `main` titled `chore(release): vX.Y.Z`
-      2. Merge with a merge commit (no squash, no rebase) to preserve history
-      3. Tag the merge commit: `git tag vX.Y.Z`
-      Version bumping follows SemVer:
-        MAJOR — breaking change to skill/agent interface or behavior
-        MINOR — new skill, agent, or script added
-        PATCH — fix or docs update to existing files
+      When `develop` is stable: open PR titled `chore(release): vX.Y.Z` → merge with merge commit (no squash, no rebase) → tag: `git tag vX.Y.Z`
+      SemVer: MAJOR = breaking interface change | MINOR = new skill/agent/script | PATCH = fix or docs
     </rule>
   </release_flow>
 
   <execution_protocol>
-    When the user starts any new task, this skill activates and enforces:
+    For any new task:
     1. BRANCH CHECK: Is the current branch a valid feature/fix/etc. branch? If not, create one now.
-    2. SCOPE CHECK: Are the planned changes limited to one concern? If not, split the work.
-    3. COMMIT GUIDE: After file changes, propose the commit message in Conventional Commits format before committing.
+    2. SCOPE CHECK: Are planned changes limited to one concern? If not, split the work.
+    3. COMMIT GUIDE: After changes, propose the commit message in Conventional Commits format before committing.
     4. PR GUIDE: When work is complete, walk through the PR checklist and draft the PR description.
   </execution_protocol>
 
@@ -138,20 +102,9 @@
   </constraints>
 
   <output_format>
-    For branch creation:
-      Branch created: `<type>/<name>`
-      Base: `develop` at `<short-sha>`
-
-    For commit guidance:
-      Proposed commit message:
-      ```
-      <type>(<scope>): <description>
-      ```
-      Files staged: <list>
-
-    For PR guidance:
-      PR title: `<type>(<scope>): <description>`
-      Target branch: `develop`
-      Then output the full PR body template, pre-filled.
+    Branch creation:  Branch created: `<type>/<name>` | Base: `develop` at `<short-sha>`
+    Commit guidance:  Proposed commit: `<type>(<scope>): <description>` | Files staged: <list>
+    PR guidance:      PR title: `<type>(<scope>): <description>` | Target: `develop`
+                      Then output the full PR body template, pre-filled.
   </output_format>
 </system_prompt>
