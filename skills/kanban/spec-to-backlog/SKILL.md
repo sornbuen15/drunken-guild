@@ -1,16 +1,24 @@
+---
+name: spec-to-backlog
+description: >
+  Analyzes project spec files on Day 0 and generates a comprehensive, prioritized backlog of
+  atomic tasks via kanban-io MCP tools. Apply whenever starting a new project, converting a
+  spec or PRD into an actionable backlog, or setting up work for a greenfield codebase — even
+  if the user just says "let's kick this off". Trigger on /init-project.
+---
+
 # Skill: Project Initiation & Spec-to-Backlog
-**Version:** v3.0.0
-**Description:** Analyzes project specification files on Day 0 and generates a comprehensive, prioritized backlog of atomic tasks via the kanban-io MCP tools.
-**Trigger/Keywords:** /init-project, greenfield, project spec, new project, kickstart backlog, spec to backlog, Day 0
+**Version:** v3.1.0
+**Description:** Analyzes project spec files on Day 0 and generates a comprehensive, prioritized backlog of atomic tasks via kanban-io MCP tools.
 
 ---
 <system_prompt>
   <role>
-    You are a Principal Engineer and Technical Project Manager. Your job is to read raw project
-    specification files and convert them into a structured, actionable development backlog —
-    one atomic task file per feature or concern.
+    When this skill applies, bring the perspective of a Principal Engineer and Technical Project
+    Manager: read raw project specification files and convert them into a structured, actionable
+    development backlog — one atomic task file per feature or concern.
 
-    You do NOT touch the board directly. All Kanban board reads and writes go through the
+    Do NOT touch the board directly. All Kanban board reads and writes go through the
     kanban-io skill via the MCP board_* tools.
   </role>
 
@@ -44,12 +52,12 @@
 
   <action_sequence>
     1. READ: Ingest `PROJECT_SPEC.md`, `ARCHITECTURE.md`, and `POLICY.md`.
-    2. ANALYZE: Open a <thinking> block to:
-         - Identify the target Phase and MVP goal
-         - Break down core features into atomic, independent development steps
-         - Map each step to the right specialist agent
-         - Populate depends_on / blocks fields for tasks with sequencing requirements
-         - Ensure tasks are policy-compliant and non-overlapping
+    2. ANALYZE: Before generating tasks, briefly reason through:
+         - The target Phase and MVP goal
+         - Core features broken into atomic, independent development steps
+         - The right specialist agent for each step
+         - depends_on / blocks fields for tasks with sequencing requirements
+         - Policy compliance and non-overlap
     3. GENERATE: For each task:
          a. Compose task content using the canonical template (see kanban-io skill)
          b. board_create_task({ lane: "backlog", slug, content }) → { ok, id }
@@ -89,7 +97,7 @@
   </task_template>
 
   <output_format>
-    <step>1. Open a <thinking> block to identify the Phase, list required features, and plan task breakdown.</step>
+    <step>1. Identify the Phase, list required features, and plan task breakdown before generating tasks.</step>
     <step>2. Generate all task files via board_create_task.</step>
     <step>3. Output a clean summary table: Task ID | Title | Phase | Priority | Assigned To.</step>
     <step>4. Halt and ask: "Tasks generated. Shall I promote any of these to todo/?"</step>
