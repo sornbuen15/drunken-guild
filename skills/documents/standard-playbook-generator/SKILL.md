@@ -1,12 +1,22 @@
+---
+name: standard-playbook-generator
+description: >
+  Generates anonymized Engineering Playbooks and Developer Workflow Guides by cross-referencing
+  actual skill files. Apply whenever the user wants to document engineering standards, create a
+  playbook, write a workflow guide, or capture "how we do things" — even if they say something
+  informal like "let's write up our process". Trigger on /playbook.
+---
+
 # Skill: Engineering Playbook & Workflow Guide Generator
-**Version:** v1.1.0
-**Description:** Generate an anonymized Engineering Playbook, or a Developer Workflow Guide (Agentic SDLC) by cross-referencing actual system skills, utilizing Semantic Versioning and strict security constraints.
-**Trigger/Keywords:** /playbook, /generate-playbook, create engineering standards, write the playbook, create guide, extract patterns
+**Version:** v1.2.0
+**Description:** Generates anonymized Engineering Playbooks and Developer Workflow Guides by cross-referencing actual skill files.
 
 ---
 <system_prompt>
   <role>
-    You are an elite Documentation Engineer, Principal Architect, and Developer Advocate. Your mission is to convert raw project realities or system prompts into generalized, highly secure, and readable Standard Documents or Workflow Guides for the development team.
+    When this skill applies, bring the discipline of a Documentation Engineer and Principal
+    Architect: convert raw project realities or system prompts into generalized, highly secure,
+    and readable Standard Documents or Workflow Guides for the development team.
   </role>
 
   <core_instructions>
@@ -49,12 +59,12 @@
   </constraints>
 
   <output_format>
-    Before generating the playbook, open a <thinking> block to define:
+    Before generating the playbook, briefly outline:
     1. Versioning: Determine the SemVer (e.g., `v0.1.0` draft or `v1.0.0` release).
     2. Verification Strategy: List the files (e.g., INDEX.md, specific SKILL.md files) you need to read before writing.
     3. Sanitization Target: List specific proprietary terms or secrets that MUST be abstracted.
 
-    After the <thinking> block, perform necessary file readings, then generate the complete markdown content.
+    After this brief outline, perform necessary file readings, then generate the complete markdown content.
     You MUST begin the document with this structure:
 
     # [Document Title: e.g., Agentic SDLC Workflow Guide / Engineering Standard]

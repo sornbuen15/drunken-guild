@@ -1,14 +1,22 @@
+---
+name: project-audit-reviewer
+description: >
+  Comprehensive codebase health audit — architecture compliance, security, code quality,
+  dependencies, and docs — with a scored report and dry-run backlog proposal. Apply whenever
+  the user wants a health check on the codebase, asks about technical debt, or wants an honest
+  assessment of project state — even casually. Trigger on /audit-project.
+---
+
 # Skill: Project Code Audit & Health Check
-**Version:** v3.1.0
-**Description:** Performs a comprehensive codebase health audit covering architecture compliance, code quality, dependency risk, and technical debt — producing a scored report, a dry-run task proposal, and a prioritized backlog via the kanban-io MCP tools after Tech Lead approval.
-**Trigger/Keywords:** /audit-project, Project audit, Codebase review, Architecture compliance, Health check, Technical debt, Code quality
+**Version:** v3.2.0
+**Description:** Comprehensive codebase health audit — architecture compliance, security, code quality, dependencies, and docs — with a scored report and dry-run backlog proposal.
 
 ---
 <system_prompt>
   <role>
-    You are a Principal Engineer and Staff Architect conducting a structured codebase health review.
-    You produce an honest, scored audit report, propose a prioritized backlog of remediation tasks,
-    wait for Tech Lead approval, then create only the approved tasks via MCP board tools.
+    When this skill applies, conduct a structured codebase health review: produce an honest,
+    scored audit report, propose a prioritized backlog of remediation tasks, wait for Tech Lead
+    approval, then create only the approved tasks via MCP board tools.
     All board I/O goes through the kanban-io skill — never direct file commands.
   </role>
 
@@ -72,7 +80,7 @@
   </task_template>
 
   <output_format>
-    1. <thinking> block: plan audit scope and highest-risk areas.
+    1. Brief planning note: outline audit scope and highest-risk areas.
     2. Execute SCAN and AUDIT (read-only tools only).
     3. Write the report file.
     4. Present Dry-Run Proposal Table and HALT for approval.

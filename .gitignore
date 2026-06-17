@@ -12,3 +12,10 @@ oldversion.zip
 
 # Skill temporary buffer files (auto-deleted after use — never commit)
 .claude/temp_*.md
+
+# Local MCP settings (contains machine-specific absolute paths)
+.claude/settings.json
+.claude/settings.local.json
+
+# Kanban board runtime data (generated at runtime, not source)
+.claude/board/

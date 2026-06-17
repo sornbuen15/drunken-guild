@@ -1,15 +1,15 @@
 #!/usr/bin/env node
 'use strict';
-const fs   = require('fs');
+const fs = require('fs');
 const path = require('path');
 
-const BOARD_DIR      = process.env.KANBAN_BOARD_DIR || path.join('.claude', 'board');
-const VALID_LANES    = ['backlog', 'todo', 'in-progress', 'done'];
-const LOCK_FILE      = path.join(BOARD_DIR, '.kanban.lock');
-const LOCK_STALE_MS  = 5000;
-const LOCK_RETRIES   = 10;
-const LOCK_DELAY_MS  = 50;
-const CLAIM_TTL_MS   = (parseInt(process.env.KANBAN_CLAIM_TTL_SECONDS || '1800', 10)) * 1000;
+const BOARD_DIR = process.env.KANBAN_BOARD_DIR || path.join('.claude', 'board');
+const VALID_LANES = ['backlog', 'todo', 'in-progress', 'done'];
+const LOCK_FILE = path.join(BOARD_DIR, '.kanban.lock');
+const LOCK_STALE_MS = 5000;
+const LOCK_RETRIES = 10;
+const LOCK_DELAY_MS = 50;
+const CLAIM_TTL_MS = (parseInt(process.env.KANBAN_CLAIM_TTL_SECONDS || '1800', 10)) * 1000;
 
 // ─── Lock ─────────────────────────────────────────────────────────────────────
 
@@ -23,7 +23,7 @@ function acquireLock() {
     if (fs.existsSync(LOCK_FILE)) {
       const age = Date.now() - fs.statSync(LOCK_FILE).mtimeMs;
       if (age > LOCK_STALE_MS) {
-        try { fs.unlinkSync(LOCK_FILE); } catch (_) {}
+        try { fs.unlinkSync(LOCK_FILE); } catch (_) { }
       }
     }
     try {
@@ -39,7 +39,7 @@ function acquireLock() {
 }
 
 function releaseLock() {
-  try { fs.unlinkSync(LOCK_FILE); } catch (_) {}
+  try { fs.unlinkSync(LOCK_FILE); } catch (_) { }
 }
 
 // ─── Board helpers ─────────────────────────────────────────────────────────────
@@ -101,17 +101,17 @@ function removeFrontmatterField(content, field) {
 
 function taskSummary(lane, file, fullPath) {
   const content = fs.readFileSync(fullPath, 'utf8');
-  const fm      = parseFrontmatter(content);
-  const id      = (file.match(/^(TASK-\d+)/) || [])[1] || file;
+  const fm = parseFrontmatter(content);
+  const id = (file.match(/^(TASK-\d+)/) || [])[1] || file;
   return {
     id,
-    title:       fm.title       || '(no title)',
-    priority:    fm.priority    || '?',
+    title: fm.title || '(no title)',
+    priority: fm.priority || '?',
     assigned_to: fm.assigned_to || '?',
-    depends_on:  fm.depends_on  || [],
-    blocks:      fm.blocks      || [],
-    claimed_at:  fm.claimed_at  || null,
-    claimed_by:  fm.claimed_by  || null,
+    depends_on: fm.depends_on || [],
+    blocks: fm.blocks || [],
+    claimed_at: fm.claimed_at || null,
+    claimed_by: fm.claimed_by || null,
     lane,
   };
 }
@@ -127,12 +127,12 @@ function toolCreateTask({ lane, slug, content }) {
   if (!VALID_LANES.includes(lane)) throw new Error(`Invalid lane: ${lane}`);
   acquireLock();
   try {
-    const nnn    = computeNextId();
+    const nnn = computeNextId();
     const padded = String(nnn).padStart(3, '0');
-    const dir    = path.join(BOARD_DIR, lane);
+    const dir = path.join(BOARD_DIR, lane);
     fs.mkdirSync(dir, { recursive: true });
-    const file   = `TASK-${padded}_${slug}.md`;
-    const dest   = path.join(dir, file);
+    const file = `TASK-${padded}_${slug}.md`;
+    const dest = path.join(dir, file);
     if (fs.existsSync(dest)) throw new Error(`${dest} already exists`);
     fs.writeFileSync(dest, content, 'utf8');
     return { ok: true, id: `TASK-${padded}`, path: dest };
@@ -148,8 +148,8 @@ function toolClaimTask({ task_id, agent_slug }) {
     if (!found) return { ok: false, reason: 'task_not_found' };
     if (found.lane !== 'todo') return { ok: false, reason: `wrong_lane: ${found.lane}` };
 
-    const content  = fs.readFileSync(found.fullPath, 'utf8');
-    const fm       = parseFrontmatter(content);
+    const content = fs.readFileSync(found.fullPath, 'utf8');
+    const fm = parseFrontmatter(content);
     const assignee = (fm.assigned_to || '').replace('@', '');
     const requester = agent_slug.replace('@', '');
 
@@ -164,9 +164,9 @@ function toolClaimTask({ task_id, agent_slug }) {
       // stale claim — fall through and overwrite
     }
 
-    const iso   = new Date().toISOString();
+    const iso = new Date().toISOString();
     let updated = setFrontmatterField(content, 'claimed_at', iso);
-    updated     = setFrontmatterField(updated, 'claimed_by', agent_slug);
+    updated = setFrontmatterField(updated, 'claimed_by', agent_slug);
     fs.writeFileSync(found.fullPath, updated, 'utf8');
     return { ok: true, id: task_id, claimed_at: iso };
   } finally {
@@ -180,9 +180,9 @@ function toolReleaseClaim({ task_id, agent_slug }) {
     const found = findTask(task_id);
     if (!found) return { ok: false, reason: 'task_not_found' };
 
-    const content   = fs.readFileSync(found.fullPath, 'utf8');
-    const fm        = parseFrontmatter(content);
-    const claimant  = (fm.claimed_by || '').replace('@', '');
+    const content = fs.readFileSync(found.fullPath, 'utf8');
+    const fm = parseFrontmatter(content);
+    const claimant = (fm.claimed_by || '').replace('@', '');
     const requester = agent_slug.replace('@', '');
 
     if (claimant && claimant !== requester && requester !== 'principal-engineer') {
@@ -190,7 +190,7 @@ function toolReleaseClaim({ task_id, agent_slug }) {
     }
 
     let updated = removeFrontmatterField(content, 'claimed_at');
-    updated     = removeFrontmatterField(updated, 'claimed_by');
+    updated = removeFrontmatterField(updated, 'claimed_by');
     fs.writeFileSync(found.fullPath, updated, 'utf8');
     return { ok: true, id: task_id };
   } finally {
@@ -206,8 +206,8 @@ function toolMoveTask({ task_id, target_lane, agent_slug }) {
     if (!found) return { ok: false, reason: 'task_not_found' };
 
     if (target_lane === 'in-progress') {
-      const content   = fs.readFileSync(found.fullPath, 'utf8');
-      const fm        = parseFrontmatter(content);
+      const content = fs.readFileSync(found.fullPath, 'utf8');
+      const fm = parseFrontmatter(content);
       const requester = (agent_slug || '').replace('@', '');
 
       if (!fm.claimed_at) {
@@ -222,7 +222,7 @@ function toolMoveTask({ task_id, target_lane, agent_slug }) {
       const ipDir = path.join(BOARD_DIR, 'in-progress');
       if (fs.existsSync(ipDir)) {
         for (const f of fs.readdirSync(ipDir)) {
-          const fc  = fs.readFileSync(path.join(ipDir, f), 'utf8');
+          const fc = fs.readFileSync(path.join(ipDir, f), 'utf8');
           const ffm = parseFrontmatter(fc);
           if ((ffm.assigned_to || '').replace('@', '') === requester) {
             const activeId = (f.match(/^(TASK-\d+)/) || [])[1] || f;
@@ -251,9 +251,9 @@ function toolDoneTask({ task_id, agent_slug }) {
     }
 
     if (agent_slug) {
-      const content   = fs.readFileSync(found.fullPath, 'utf8');
-      const fm        = parseFrontmatter(content);
-      const claimant  = (fm.claimed_by || '').replace('@', '');
+      const content = fs.readFileSync(found.fullPath, 'utf8');
+      const fm = parseFrontmatter(content);
+      const claimant = (fm.claimed_by || '').replace('@', '');
       const requester = agent_slug.replace('@', '');
       if (claimant && claimant !== requester) {
         return { ok: false, reason: `assignee_mismatch: claimed by ${fm.claimed_by}` };
@@ -273,7 +273,7 @@ function toolGetTask({ task_id }) {
   const found = findTask(task_id);
   if (!found) return { ok: false, reason: 'task_not_found' };
   const content = fs.readFileSync(found.fullPath, 'utf8');
-  const fm      = parseFrontmatter(content);
+  const fm = parseFrontmatter(content);
   return { ok: true, id: task_id, lane: found.lane, file: found.file, frontmatter: fm, content };
 }
 
@@ -307,13 +307,13 @@ function toolSummary() {
     try {
       const found = findTask(taskId);
       if (!found) continue;
-      const c  = fs.readFileSync(found.fullPath, 'utf8');
+      const c = fs.readFileSync(found.fullPath, 'utf8');
       const fm = parseFrontmatter(c);
       // Re-check under lock — another agent may have already reclaimed or released
       if (!fm.claimed_at) continue;
       if ((Date.now() - new Date(fm.claimed_at).getTime()) < CLAIM_TTL_MS) continue;
       let updated = removeFrontmatterField(c, 'claimed_at');
-      updated     = removeFrontmatterField(updated, 'claimed_by');
+      updated = removeFrontmatterField(updated, 'claimed_by');
       fs.writeFileSync(found.fullPath, updated, 'utf8');
       const summary = (lanes.todo || []).find(t => t.id === taskId);
       if (summary) { summary.claimed_at = null; summary.claimed_by = null; summary._stale_claim_released = true; }
@@ -334,22 +334,22 @@ function toolOrchestrate({ task_ids }) {
     const found = findTask(id);
     if (!found) continue;
     const content = fs.readFileSync(found.fullPath, 'utf8');
-    const fm      = parseFrontmatter(content);
+    const fm = parseFrontmatter(content);
     tasks.push({
       id,
-      title:       fm.title       || '(no title)',
+      title: fm.title || '(no title)',
       assigned_to: fm.assigned_to || '?',
-      priority:    fm.priority    || 'LOW',
-      depends_on:  (fm.depends_on || []).filter(d => task_ids.includes(d)),
+      priority: fm.priority || 'LOW',
+      depends_on: (fm.depends_on || []).filter(d => task_ids.includes(d)),
     });
   }
 
-  const taskMap  = new Map(tasks.map(t => [t.id, t]));
+  const taskMap = new Map(tasks.map(t => [t.id, t]));
   const levelMap = new Map();
 
   function getLevel(id) {
     if (levelMap.has(id)) return levelMap.get(id);
-    const t    = taskMap.get(id);
+    const t = taskMap.get(id);
     if (!t) return 0;
     const deps = t.depends_on.filter(d => taskMap.has(d));
     if (deps.length === 0) { levelMap.set(id, 0); return 0; }
@@ -369,26 +369,26 @@ function toolOrchestrate({ task_ids }) {
   const waves = Array.from(waveMap.entries())
     .sort(([a], [b]) => a - b)
     .map(([l, wTasks]) => {
-      const agents         = wTasks.map(t => t.assigned_to);
-      const uniqueAgents   = new Set(agents);
-      const agentConflict  = uniqueAgents.size < agents.length;
-      const mode           = wTasks.length > 1 ? 'parallel' : 'sequential';
-      const rationale      = wTasks.length === 1
+      const agents = wTasks.map(t => t.assigned_to);
+      const uniqueAgents = new Set(agents);
+      const agentConflict = uniqueAgents.size < agents.length;
+      const mode = wTasks.length > 1 ? 'parallel' : 'sequential';
+      const rationale = wTasks.length === 1
         ? 'Single task in this wave.'
         : agentConflict
           ? `${wTasks.length} tasks share an agent — sub-sequence required within wave.`
           : `${wTasks.length} tasks, ${uniqueAgents.size} different agents, no mutual dependencies.`;
       return {
-        wave:            l + 1,
+        wave: l + 1,
         mode,
         depends_on_wave: l > 0 ? l : null,
-        agent_conflict:  agentConflict,
+        agent_conflict: agentConflict,
         rationale,
         tasks: wTasks.map(t => ({
-          id:          t.id,
+          id: t.id,
           assigned_to: t.assigned_to,
-          title:       t.title,
-          priority:    t.priority,
+          title: t.title,
+          priority: t.priority,
         })),
       };
     });
@@ -400,26 +400,26 @@ function toolAgentContext({ task_id }) {
   const found = findTask(task_id);
   if (!found) return { ok: false, reason: 'task_not_found' };
   const content = fs.readFileSync(found.fullPath, 'utf8');
-  const fm      = parseFrontmatter(content);
+  const fm = parseFrontmatter(content);
 
-  const objective  = ((content.match(/## Objective\n([\s\S]*?)(?=\n##|$)/) || [])[1] || '').trim();
-  const acBlock    = (content.match(/## Acceptance Criteria\n([\s\S]*?)(?=\n##|$)/) || [])[1] || '';
-  const criteria   = acBlock.match(/- \[[ x]\] .+/g) || [];
-  const notes      = ((content.match(/## Technical Notes\n([\s\S]*?)(?=\n##|$)/) || [])[1] || '').trim();
-  const filesInAC  = [...new Set((acBlock.match(/`[^`]+\.[a-zA-Z]{1,6}`/g) || []))].map(s => s.slice(1, -1));
+  const objective = ((content.match(/## Objective\n([\s\S]*?)(?=\n##|$)/) || [])[1] || '').trim();
+  const acBlock = (content.match(/## Acceptance Criteria\n([\s\S]*?)(?=\n##|$)/) || [])[1] || '';
+  const criteria = acBlock.match(/- \[[ x]\] .+/g) || [];
+  const notes = ((content.match(/## Technical Notes\n([\s\S]*?)(?=\n##|$)/) || [])[1] || '').trim();
+  const filesInAC = [...new Set((acBlock.match(/`[^`]+\.[a-zA-Z]{1,6}`/g) || []))].map(s => s.slice(1, -1));
 
   return {
     task_id,
-    lane:                found.lane,
-    title:               fm.title       || '',
-    assigned_to:         fm.assigned_to || '',
-    priority:            fm.priority    || '',
+    lane: found.lane,
+    title: fm.title || '',
+    assigned_to: fm.assigned_to || '',
+    priority: fm.priority || '',
     objective,
     acceptance_criteria: criteria,
-    technical_notes:     notes || null,
-    relevant_files:      filesInAC,
-    depends_on:          fm.depends_on  || [],
-    blocks:              fm.blocks      || [],
+    technical_notes: notes || null,
+    relevant_files: filesInAC,
+    depends_on: fm.depends_on || [],
+    blocks: fm.blocks || [],
   };
 }
 
@@ -427,7 +427,7 @@ function toolAgentContext({ task_id }) {
 
 function extractMatchingSections(lines, keywords, maxLines) {
   const headingRe = /^(#{1,4})\s+(.+)$/;
-  const sections  = [];
+  const sections = [];
   let i = 0;
 
   while (i < lines.length) {
@@ -443,14 +443,14 @@ function extractMatchingSections(lines, keywords, maxLines) {
         i++;
       }
       const titleHit = keywords.some(kw => title.toLowerCase().includes(kw.toLowerCase()));
-      const body     = lines.slice(start + 1, i).join('\n');
-      const bodyHit  = !titleHit && keywords.some(kw => body.toLowerCase().includes(kw.toLowerCase()));
+      const body = lines.slice(start + 1, i).join('\n');
+      const bodyHit = !titleHit && keywords.some(kw => body.toLowerCase().includes(kw.toLowerCase()));
       if (titleHit || bodyHit) {
         sections.push({
           section_title: title,
-          content:       lines.slice(start, Math.min(i, start + maxLines)).join('\n'),
-          line_start:    start + 1,
-          truncated:     (i - start) > maxLines,
+          content: lines.slice(start, Math.min(i, start + maxLines)).join('\n'),
+          line_start: start + 1,
+          truncated: (i - start) > maxLines,
         });
       }
       continue;
@@ -494,7 +494,7 @@ function toolQueryProjectContext({ files, keywords }) {
       results.push({ file: filePath, error: 'file_not_found' });
       continue;
     }
-    const lines    = fs.readFileSync(resolved, 'utf8').split('\n');
+    const lines = fs.readFileSync(resolved, 'utf8').split('\n');
     const sections = extractMatchingSections(lines, keywords, 60);
     for (const s of sections) results.push({ file: filePath, ...s });
   }
@@ -516,8 +516,8 @@ const TOOLS = [
     inputSchema: {
       type: 'object',
       properties: {
-        lane:    { type: 'string', enum: VALID_LANES },
-        slug:    { type: 'string', description: 'Kebab-case filename slug, e.g. implement-jwt-auth' },
+        lane: { type: 'string', enum: VALID_LANES },
+        slug: { type: 'string', description: 'Kebab-case filename slug, e.g. implement-jwt-auth' },
         content: { type: 'string', description: 'Full Markdown content including YAML frontmatter' },
       },
       required: ['lane', 'slug', 'content'],
@@ -529,7 +529,7 @@ const TOOLS = [
     inputSchema: {
       type: 'object',
       properties: {
-        task_id:    { type: 'string', description: 'Task ID, e.g. TASK-007' },
+        task_id: { type: 'string', description: 'Task ID, e.g. TASK-007' },
         agent_slug: { type: 'string', description: 'Agent slug, e.g. @fullstack-engineer' },
       },
       required: ['task_id', 'agent_slug'],
@@ -541,7 +541,7 @@ const TOOLS = [
     inputSchema: {
       type: 'object',
       properties: {
-        task_id:    { type: 'string' },
+        task_id: { type: 'string' },
         agent_slug: { type: 'string', description: 'Must match claimed_by, or be principal-engineer for override.' },
       },
       required: ['task_id', 'agent_slug'],
@@ -553,9 +553,9 @@ const TOOLS = [
     inputSchema: {
       type: 'object',
       properties: {
-        task_id:     { type: 'string' },
+        task_id: { type: 'string' },
         target_lane: { type: 'string', enum: VALID_LANES },
-        agent_slug:  { type: 'string', description: 'Required when moving to in-progress.' },
+        agent_slug: { type: 'string', description: 'Required when moving to in-progress.' },
       },
       required: ['task_id', 'target_lane', 'agent_slug'],
     },
@@ -566,7 +566,7 @@ const TOOLS = [
     inputSchema: {
       type: 'object',
       properties: {
-        task_id:    { type: 'string' },
+        task_id: { type: 'string' },
         agent_slug: { type: 'string' },
       },
       required: ['task_id', 'agent_slug'],
@@ -648,18 +648,18 @@ const TOOLS = [
 ];
 
 const TOOL_MAP = {
-  board_next_id:          toolNextId,
-  board_create_task:      toolCreateTask,
-  board_claim_task:       toolClaimTask,
-  board_release_claim:    toolReleaseClaim,
-  board_move_task:        toolMoveTask,
-  board_done_task:        toolDoneTask,
-  board_get_task:         toolGetTask,
-  board_list_lane:        toolListLane,
-  board_summary:          toolSummary,
-  board_orchestrate:      toolOrchestrate,
-  board_agent_context:    toolAgentContext,
-  query_project_context:  toolQueryProjectContext,
+  board_next_id: toolNextId,
+  board_create_task: toolCreateTask,
+  board_claim_task: toolClaimTask,
+  board_release_claim: toolReleaseClaim,
+  board_move_task: toolMoveTask,
+  board_done_task: toolDoneTask,
+  board_get_task: toolGetTask,
+  board_list_lane: toolListLane,
+  board_summary: toolSummary,
+  board_orchestrate: toolOrchestrate,
+  board_agent_context: toolAgentContext,
+  query_project_context: toolQueryProjectContext,
 };
 
 // ─── MCP JSON-RPC 2.0 over stdio ──────────────────────────────────────────────
@@ -679,8 +679,8 @@ function handleRequest(req) {
       jsonrpc: '2.0', id,
       result: {
         protocolVersion: '2024-11-05',
-        capabilities:    { tools: {} },
-        serverInfo:      { name: 'kanban-board-server', version: '1.1.0' },
+        capabilities: { tools: {} },
+        serverInfo: { name: 'kanban-board-server', version: '1.1.0' },
       },
     });
     return;
@@ -708,8 +708,8 @@ function handleRequest(req) {
       send({
         jsonrpc: '2.0', id,
         result: {
-          content:  [{ type: 'text', text: JSON.stringify({ ok: false, error: e.message }) }],
-          isError:  true,
+          content: [{ type: 'text', text: JSON.stringify({ ok: false, error: e.message }) }],
+          isError: true,
         },
       });
     }
@@ -726,6 +726,9 @@ function handleRequest(req) {
 
 // ─── Stdin reader ──────────────────────────────────────────────────────────────
 
+process.stderr.write(`[kanban-board-server v1.1.0] stdio mode started — BOARD_DIR: ${BOARD_DIR}\n`);
+process.stderr.write('[kanban-board-server] Waiting for JSON-RPC on stdin. Send {"jsonrpc":"2.0","id":1,"method":"initialize",...} to begin.\n');
+
 let buffer = '';
 process.stdin.setEncoding('utf8');
 process.stdin.on('data', chunk => {
@@ -735,7 +738,10 @@ process.stdin.on('data', chunk => {
   for (const line of lines) {
     const trimmed = line.trim();
     if (!trimmed) continue;
-    try { handleRequest(JSON.parse(trimmed)); } catch (_) {}
+    try { handleRequest(JSON.parse(trimmed)); } catch (_) { }
   }
 });
-process.stdin.on('end', () => process.exit(0));
+process.stdin.on('end', () => {
+  process.stderr.write('[kanban-board-server] stdin closed — exiting.\n');
+  process.exit(0);
+});

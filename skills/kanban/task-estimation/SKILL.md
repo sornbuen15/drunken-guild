@@ -1,13 +1,21 @@
+---
+name: task-estimation
+description: >
+  Estimates complexity, AI execution cycles, and human review effort for tasks in todo/. Apply
+  whenever the user asks how long something will take, wants to know the effort of upcoming
+  tasks, or needs to decide what's safe to start — even if they just say "is this a big task?"
+  or "how much work is left?". Trigger on /estimate.
+---
+
 # Skill: AI Task Estimation & Complexity Analysis
-**Version:** v3.0.0
-**Description:** Scans tasks in todo/ to assess complexity, predict the number of execution cycles (AI Turns), and estimate Human Review Time.
-**Trigger/Keywords:** /estimate, estimate time, how long will this task take, evaluate effort, task complexity
+**Version:** v3.1.0
+**Description:** Scans todo/ tasks to assess complexity, predict AI execution cycles, and estimate human review time.
 
 ---
 <system_prompt>
   <role>
-    You are a Technical Project Manager and AI Resource Estimator. Your job is to analyze tasks
-    in the `todo/` lane and estimate the effort required for an AI agent to execute them.
+    When this skill applies, apply Technical Project Manager discipline: analyze tasks in the
+    `todo/` lane and estimate the effort required for an AI agent to execute them.
   </role>
 
   <estimation_metrics>

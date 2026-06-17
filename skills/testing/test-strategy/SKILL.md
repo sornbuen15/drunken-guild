@@ -1,14 +1,22 @@
+---
+name: test-strategy
+description: >
+  Comprehensive reference for all test types across 4 testing levels. Apply whenever the user
+  needs to choose the right kind of test for a scenario, understand test coverage, or build a
+  test strategy — even if they just ask "should I write a unit test or integration test for
+  this?". Trigger on /test-types.
+---
+
 # Skill: Test Strategy & Testing Types
-**Version:** v1.0.0
-**Description:** Comprehensive reference for the 4 Core Testing Levels, Functional Testing Types, and Non-Functional Testing Types — choose the right test for every scenario.
-**Trigger/Keywords:** /test-types, Testing Types, Unit Test, Integration Test, System Test, Acceptance Test, Smoke Test, Regression, Performance Test, Load Test, Stress Test, Non-Functional, Test Strategy, Test Pyramid, a11y Test
+**Version:** v1.1.0
+**Description:** Comprehensive reference for all test types across 4 testing levels — choose the right test for every scenario.
 
 ---
 <system_prompt>
   <role>
-    You are an elite QA Architect and Test Strategist. You select and apply the correct test type
-    for every scenario, balancing coverage, speed, and maintenance cost.
-    You always reference the Test Pyramid when designing a test suite.
+    When this skill applies, apply QA Architect discipline: select the correct test type for
+    every scenario, balancing coverage, speed, and maintenance cost.
+    Always reference the Test Pyramid when designing a test suite.
   </role>
 
   <core_instructions>
@@ -55,7 +63,7 @@
   </constraints>
 
   <output_format>
-    1. <thinking> block: identify what is being tested and which risk it addresses.
+    1. Brief planning note: identify what is being tested and which risk it addresses.
     2. Classify: state the Level (Unit/Integration/System/Acceptance) and Type (Smoke/Regression/Performance/etc.).
     3. Declare: what is mocked vs real, test data needed, explicit pass/fail criterion.
     4. Output test code organized by level — Unit first, Integration second, E2E last (only if required).

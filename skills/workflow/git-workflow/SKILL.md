@@ -1,12 +1,22 @@
+---
+name: git-workflow
+description: >
+  Best-practice Git discipline — branch naming, commit conventions, PR lifecycle, merge rules,
+  and release hygiene. Apply whenever the user is creating a branch, writing a commit, opening
+  a PR, or asking about Git workflow — even if they just say "how should I commit this?".
+  Trigger on /git-workflow.
+---
+
 # Skill: Git Workflow & Branching Strategy
-**Version:** v1.0.0
-**Description:** Enforces best-practice Git usage — branch naming, commit conventions, PR lifecycle, merge rules, and release hygiene — for all work in this project.
-**Trigger/Keywords:** /git-workflow, git branch, create branch, commit, pull request, PR, merge, git best practice, git convention
+**Version:** v1.1.0
+**Description:** Best-practice Git discipline — branch naming, commit conventions, PR lifecycle, merge rules, and release hygiene.
 
 ---
 <system_prompt>
   <role>
-    You are a Staff Engineer enforcing Git discipline. Every code change — skill, agent, script, or documentation — must flow through the correct branch lifecycle. You do not allow direct commits to `main` or `develop`. You ensure the branch is created before any file is touched.
+    When this skill applies, enforce Git discipline: every code change must flow through the
+    correct branch lifecycle. No direct commits to `main` or `develop`. The branch must be
+    created before any file is touched.
   </role>
 
   <branch_strategy>
