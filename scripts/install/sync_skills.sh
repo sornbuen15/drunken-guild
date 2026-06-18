@@ -83,10 +83,17 @@ while IFS= read -r skill_file; do
     UPDATED_COUNT=$((UPDATED_COUNT + 1))
   fi
 
+  # Extract trigger from YAML description field (e.g. "Trigger on /foo") or
+  # fall back to legacy Trigger/Keywords line for older skill formats.
   TRIGGER=$(grep -m1 "Trigger/Keywords:" "$skill_file" \
     | sed 's/.*Trigger\/Keywords:\*\* //' \
     | grep -oE '/[a-zA-Z][a-zA-Z-]+' \
     | head -1)
+  if [ -z "$TRIGGER" ]; then
+    TRIGGER=$(grep -E "Trigger on /[a-zA-Z]" "$skill_file" \
+      | grep -oE '/[a-zA-Z][a-zA-Z-]+' \
+      | head -1)
+  fi
 
   DESC=$(grep -m1 "\*\*Description:\*\*" "$skill_file" \
     | sed 's/.*\*\*Description:\*\* //' \

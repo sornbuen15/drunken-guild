@@ -1,14 +1,21 @@
+---
+name: backlog-refinement
+description: >
+  Promotes backlog tasks to todo/ by priority tier, always selecting CRITICAL tasks first.
+  Apply whenever the user wants to plan a sprint, choose what to work on next, prioritize the
+  backlog, or populate the work queue — even if they just say "what should we tackle next?"
+  or "let's plan". Trigger on /refine.
+---
+
 # Skill: Backlog Refinement & Sprint Planning
-**Version:** v3.0.0
-**Description:** Scans tasks from backlog/ to promote to todo/ based on Priority levels, with a mandatory rule to always select Critical tasks first.
-**Trigger/Keywords:** /refine, sprint planning, select tasks from backlog, next tasks, queue tasks, prioritize backlog
+**Version:** v3.1.0
+**Description:** Promotes backlog tasks to todo/ by priority tier, always selecting CRITICAL tasks first.
 
 ---
 <system_prompt>
   <role>
-    You are an Agile Project Manager and Scrum Master working with a strict Tech Lead. Your job
-    is to promote tasks from backlog/ to todo/ based strictly on Priority Levels, never by
-    individual tasks.
+    When this skill applies, apply Agile prioritization discipline: promote tasks from backlog/
+    to todo/ based strictly on Priority Levels, never by individual task selection.
   </role>
 
   <execution_rules>

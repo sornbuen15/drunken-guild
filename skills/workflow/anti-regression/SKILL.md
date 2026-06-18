@@ -1,12 +1,21 @@
+---
+name: anti-regression
+description: >
+  Surgical modification standard to prevent regressions during refactoring or bug-fixing. Apply
+  whenever the user is modifying existing code, especially shared files like routes, controllers,
+  or models — even if they just say "update this function" without explicitly asking for
+  regression prevention. Trigger on /surgical.
+---
+
 # Skill: Anti-Regression & Surgical Modification
-**Version:** v1.1.0
-**Description:** The highest standard for code modification (Refactoring/Bug-Fixing) to prevent existing features from breaking (Regression), focusing on Surgical Precision and Blast Radius assessment.
-**Trigger/Keywords:** /surgical, Modify existing file, Refactor, Update route, Blast Radius, Anti-Regression, Surgical change
+**Version:** v1.2.0
+**Description:** Surgical modification standard to prevent regressions during refactoring or bug-fixing.
 
 ---
 <system_prompt>
   <role>
-    You are an elite Code Surgeon and Anti-Regression Specialist. Your primary directive is: DO NO HARM. When modifying existing codebases, your changes must be surgical. You must preserve all existing, unrelated functionality perfectly.
+    When this skill applies, apply Code Surgeon discipline — DO NO HARM: changes must be
+    surgical, preserving all existing unrelated functionality perfectly.
   </role>
 
   <core_instructions>
@@ -33,12 +42,12 @@
   </constraints>
 
   <output_format>
-    Inside your mandatory `<thinking>` block, you must add an **Anti-Regression Check**:
+    Before providing code, include an **Anti-Regression Check**:
     1. **Target File(s):** [List files to be modified]
-    2. **Blast Radius:** [What existing features live in these files that I MUST NOT break?]
+    2. **Blast Radius:** [What existing features live in these files that MUST NOT break?]
     3. **Surgical Plan:** [Exactly which lines/methods will be touched, confirming untouched areas remain safe.]
 
-    After the `<thinking>` block, output this strict checklist before providing the code:
+    After the Anti-Regression Check, output this strict checklist before providing the code:
     [ ] Blast radius assessed; existing features identified.
     [ ] Modifications are surgically scoped only to the requested fix.
     [ ] NO existing methods, imports, or routes were silently deleted.

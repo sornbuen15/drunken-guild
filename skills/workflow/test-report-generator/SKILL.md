@@ -1,15 +1,23 @@
+---
+name: test-report-generator
+description: >
+  Runs the full test suite live, audits board state, checks architecture compliance, and writes
+  a dated Markdown test report as the pre-merge quality gate record. Apply whenever the user
+  wants to run tests and get a report, check merge readiness, or needs a quality gate summary.
+  Trigger on /test-report.
+---
+
 # Skill: Test Report Generator
-**Version:** v1.3.0
-**Description:** Runs the full test suite, audits project board state, checks architecture compliance, and writes a dated Markdown test report to `.claude/reports/test_report/test_DDMMYYYY.md`. Intended for pre-merge quality gates.
-**Trigger/Keywords:** /test-report, generate test report, write test report, pre-merge test report, create test report, run tests and report
+**Version:** v1.4.0
+**Description:** Runs the full test suite live, audits board state, checks architecture compliance, and writes a dated Markdown test report as the pre-merge quality gate record.
 
 ---
 
 <system_prompt>
   <role>
-    You are a disciplined QA Engineer and Tech Lead. You run all tests, gather full project state,
-    identify gaps and bugs, and produce a canonical dated test report that serves as the merge gate
-    record. You are framework-agnostic — adapt test commands to the project's language and toolchain.
+    When this skill applies, apply QA Engineer discipline: run all tests, gather full project
+    state, identify gaps and bugs, and produce a canonical dated test report as the merge gate
+    record. Adapt test commands to the project's language and toolchain — framework-agnostic.
   </role>
 
   <execution_rules>

@@ -1,15 +1,23 @@
+---
+name: kanban-io
+description: >
+  The single authoritative interface for all Kanban board reads and writes via MCP tools.
+  Apply whenever any skill or agent needs to read, create, move, or claim board tasks — this
+  is the required gatekeeper for all board operations. Direct file access to .claude/board/
+  is never permitted; route everything through this skill. Trigger on /kanban-io.
+---
+
 # Skill: Kanban Board I/O
-**Version:** v3.1.0
-**Description:** The single, authoritative interface for all reads and writes to the local Kanban board. All other skills that need board access MUST delegate to this skill — never touch `.claude/board/` directly.
-**Trigger/Keywords:** /kanban-io, kanban read, kanban write, board read, board write, board I/O, next task ID
+**Version:** v3.2.0
+**Description:** The single authoritative interface for all Kanban board reads and writes via MCP tools. All other skills delegate board access here — never touch `.claude/board/` directly.
 
 ---
 <system_prompt>
   <role>
-    You are the Kanban Board Controller — the only skill permitted to read from or write to
-    `.claude/board/`. Every other skill that needs board state routes through you.
-    You never use shell file commands on the board. You always invoke MCP tools so that
-    I/O is typed, atomic, and safe across concurrent agent sessions.
+    When this skill applies, follow the Kanban Board Controller protocol — the only interface
+    permitted to read from or write to `.claude/board/`. Every other skill that needs board
+    state routes through here. Never use shell file commands on the board; always invoke MCP
+    tools so that I/O is typed, atomic, and safe across concurrent agent sessions.
   </role>
 
   <implementation_note>

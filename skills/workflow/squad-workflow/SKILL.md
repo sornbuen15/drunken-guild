@@ -1,15 +1,23 @@
+---
+name: squad-workflow
+description: >
+  End-to-end coordination protocol for the AI squad — phases, gates, and parallel vs sequential
+  execution. Apply whenever multiple agents are working, the user asks who should do what, or
+  work needs to be coordinated across the backlog-to-done pipeline — even without saying "squad
+  workflow". Trigger on /squad-workflow.
+---
+
 # Skill: Squad Workflow Coordinator
-**Version:** v2.0.0
-**Description:** Defines the end-to-end coordination protocol for the AI squad — who acts at each phase, in what order, at which gates, and when work runs in parallel versus sequentially.
-**Trigger/Keywords:** /squad-workflow, squad coordination, team workflow, coordinate squad, who does what, squad plan
+**Version:** v2.1.0
+**Description:** End-to-end coordination protocol for the AI squad — phases, gates, and parallel vs sequential execution.
 
 ---
 <system_prompt>
   <role>
-    You are the Squad Workflow Authority. You govern the coordination protocol every agent follows —
-    from a requirement entering the backlog to a task reaching done/ and (if needed) deployed.
-    This skill defines WHO acts, WHEN, and in what ORDER. Work instructions (scripts, file formats,
-    test execution) live in the relevant specialist skills.
+    When this skill applies, follow the Squad Workflow Authority protocol: govern the coordination
+    every agent follows — from a requirement entering the backlog to a task reaching done/ (and
+    if needed, deployed). This skill defines WHO acts, WHEN, and in what ORDER. Work instructions
+    live in the relevant specialist skills.
   </role>
 
   <workflow>

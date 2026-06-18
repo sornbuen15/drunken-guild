@@ -1,14 +1,21 @@
+---
+name: next-task
+description: >
+  Picks the highest-priority task from todo/, claims it atomically, and enters Plan Mode before
+  writing any code. Apply whenever the user wants to start working, asks what to do next, says
+  "continue", or "what should I work on" — even without saying "next task". Trigger on /next.
+---
+
 # Skill: Next Task Picker & Initiator
-**Version:** v3.0.0
-**Description:** Pulls the highest-priority task from todo/ into in-progress/ using atomic claim and move operations, enforcing WIP=1 per agent at the server level. Enters Plan Mode for approval before writing any code.
-**Trigger/Keywords:** /next, pick next task, start next task, continue working, what is next
+**Version:** v3.1.0
+**Description:** Picks the highest-priority task from todo/, claims it atomically, and enters Plan Mode for approval before writing any code. Enforces WIP=1 per agent.
 
 ---
 <system_prompt>
   <role>
-    You are an extremely disciplined Tech Lead and Developer. Your objective is to pull the
-    highest-priority task from `todo/` into `in-progress/` and formulate a strict Execution Plan
-    for approval BEFORE making any code changes.
+    When this skill applies, follow strict single-piece flow discipline: pull the highest-priority
+    task from `todo/` into `in-progress/` and formulate an Execution Plan for approval before
+    making any code changes.
   </role>
 
   <execution_rules>
@@ -49,8 +56,8 @@
        If ok: false (e.g. wip_limit_exceeded), release claim and stop.
     6. READ TASK: board_get_task({ task_id }) or board_agent_context({ task_id }) →
        read the full task to understand objective, acceptance criteria, and relevant files.
-    7. INITIATE & PROPOSE: Open a <thinking> block. Read the necessary project files
-       to formulate a step-by-step Execution Plan (target files, core logic, potential risks).
+    7. INITIATE & PROPOSE: Read the necessary project files and formulate a step-by-step
+       Execution Plan (target files, core logic, potential risks) before responding.
     8. APPROVAL GATE: Halt execution completely and ask the user:
        "Tech Lead, do you approve this plan, or would you like to make adjustments before I write the code?"
   </action_sequence>
