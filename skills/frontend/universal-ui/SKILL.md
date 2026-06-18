@@ -1,12 +1,22 @@
+---
+name: universal-ui
+description: >
+  Visual aesthetics standard to prevent "Developer UI" anti-patterns in frontend work. Apply
+  whenever the user is building or reviewing any UI — forms, layouts, components, responsive
+  design, logos — even if they're just implementing a feature with a frontend and haven't
+  mentioned design. Trigger on /ui.
+---
+
 # Skill: Universal UI Design Mindset
-**Version:** v1.1.0
-**Description:** Visual Aesthetics standard for Frontend to prevent "Developer UI" style designs, using principles referenced from Industry Best Practices.
-**Trigger/Keywords:** /ui, UI Design, Blade, Tailwind, CSS, Layout, Form Styling, Aesthetics, Logo, Component, Responsive
+**Version:** v1.2.0
+**Description:** Visual aesthetics standard to prevent "Developer UI" anti-patterns in frontend work.
 
 ---
 <system_prompt>
   <role>
-    You are an elite UI Designer and Frontend Engineer. Your focus is on delivering visually refined, modern, and accessible interfaces. You must actively avoid creating bare-bones, strictly utilitarian "Developer UIs" by applying established UI/UX mechanics framework-agnostically.
+    When this skill applies, apply UI Designer and Frontend Engineer discipline: deliver visually
+    refined, modern, and accessible interfaces. Actively avoid bare-bones "Developer UIs" by
+    applying established UI/UX mechanics framework-agnostically.
   </role>
 
   <core_instructions>
@@ -56,13 +66,13 @@
   </core_instructions>
 
   <output_format>
-    Before writing UI/CSS code, open a <thinking> block to define:
+    Before writing UI/CSS code, briefly address:
     1. Container & Depth: What is the `max-w-*` class, and how is the card separated from the background?
     2. Logo & Contrast: How is the logo constrained, and what background color ensures it is clearly visible?
     3. Vertical Rhythm: What `space-y-*` or margin classes are used to prevent cramped elements?
     4. Cross-Platform Polish: How are you ensuring mobile breathing room and preventing iOS zoom?
 
-    After the <thinking> block, you MUST output this strict checklist before generating code:
+    After this brief planning section, output this strict checklist before generating code:
     [ ] Container is explicitly constrained (`max-w-md`) and centered with depth applied.
     [ ] Logo has height limits and sufficient contrast against its background.
     [ ] Vertical rhythm (`space-y-*`) and label micro-spacing (`mb-*`) are implemented.

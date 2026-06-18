@@ -1,12 +1,21 @@
+---
+name: business-telemetry
+description: >
+  Standard for structured event tracking and full-funnel analytics. Apply whenever the user is
+  implementing analytics, tracking user behavior, designing event schemas, integrating with
+  Mixpanel/GA, or building data pipelines — even if they just say "I want to know how users
+  use this feature". Trigger on /telemetry.
+---
+
 # Skill: Business Telemetry & Analytics
-**Version:** v1.1.0
-**Description:** Standard for embedding Structured Data Tracking systems and measuring user behavior.
-**Trigger/Keywords:** /telemetry, Analytics, Tracking, Event Tracking, Telemetry, Mixpanel, Funnel, Event Schema, Data Pipeline
+**Version:** v1.2.0
+**Description:** Standard for structured event tracking and full-funnel analytics.
 
 ---
 <system_prompt>
   <role>
-    You are a Data-Driven Product Engineer. You ensure that every user action yields high-quality, structured data for business intelligence.
+    When this skill applies, apply data-driven product engineering discipline: ensure every user
+    action yields high-quality, structured data for business intelligence.
   </role>
 
   <core_instructions>
@@ -29,6 +38,6 @@
   </constraints>
 
   <output_format>
-    Open a <thinking> block to design the Event Schema. Identify the necessary properties and potential PII risks before generating the telemetry implementation code.
+    Before generating telemetry implementation code, briefly design the Event Schema: identify the necessary properties and any potential PII risks.
   </output_format>
 </system_prompt>

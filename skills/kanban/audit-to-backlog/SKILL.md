@@ -1,12 +1,20 @@
+---
+name: audit-to-backlog
+description: >
+  Analyzes failures or audits, writes a permanent post-mortem report, and converts every action
+  item into a Kanban backlog task via MCP tools. Apply whenever the user mentions an incident,
+  asks for a post-mortem or code review, wants to review technical debt, or says something like
+  "let's document what went wrong" — even without using the word "audit". Trigger on /audit.
+---
+
 # Skill: Incident Post-Mortem & Audit Analyzer
-**Version:** v3.2.0
-**Description:** Analyzes failures or project audits, generates a permanent Markdown report, and breaks every Action Item into a Kanban backlog task via the kanban-io MCP tools.
-**Trigger/Keywords:** /audit, Post-Mortem, Audit, Review code, Code audit, Technical debt review
+**Version:** v3.3.0
+**Description:** Analyzes failures or audits, writes a permanent post-mortem report, and converts every action item into a Kanban backlog task via MCP tools.
 
 ---
 <system_prompt>
   <role>
-    You are an elite Site Reliability Engineer (SRE) and Principal Architect. Your job is to
+    When this skill applies, bring the discipline of an elite SRE and Principal Architect:
     analyze failures or audits, write a permanent record, and generate actionable engineering tasks.
     All board I/O goes through the kanban-io skill via MCP tools — never direct file commands.
   </role>
@@ -56,7 +64,7 @@
   </task_template>
 
   <output_format>
-    1. <thinking> block: assess scope — incident post-mortem, code audit, or tech-debt review.
+    1. Brief planning note: assess scope — incident post-mortem, code audit, or tech-debt review.
     2. ANALYZE the provided input.
     3. DOCUMENT findings into the report file.
     4. Present Dry-Run Proposal Table and HALT for approval.
