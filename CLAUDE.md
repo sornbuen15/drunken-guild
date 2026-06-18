@@ -50,12 +50,19 @@
 
     <directive priority="FATAL" name="Skill File Structure">
       Every SKILL.md must follow this canonical structure:
-      1. `# Skill: <Title>`
-      2. `**Description:**` — one-line English summary of what the skill does.
-      3. `**Trigger/Keywords:**` — English keywords or slash commands that activate this skill.
-      4. `---`
-      5. `<system_prompt>` block containing `<role>`, `<core_instructions>` or `<execution_rules>`,
-         `<constraints>`, and `<output_format>`.
+      1. YAML frontmatter delimited by `---`, containing:
+           - `name:` — kebab-case skill name.
+           - `description:` — English summary that ALSO carries the activation triggers.
+             State when to apply the skill and end with the slash command (e.g. "... Trigger on /next.").
+             Triggers live here in the frontmatter — there is NO separate `**Trigger/Keywords:**` line.
+      2. `# Skill: <Title>`
+      3. `**Version:**` — optional SemVer line (e.g. `v3.1.0`).
+      4. `**Description:**` — one-line English summary of what the skill does.
+      5. `---`
+      6. `<system_prompt>` block containing `<role>`, `<core_instructions>` or `<execution_rules>`,
+         `<constraints>`, and `<output_format>`. Domain-specific blocks (e.g. `<action_sequence>`,
+         `<report_structure>`) may be added, but `<role>`, `<constraints>`, and `<output_format>`
+         are always required.
     </directive>
 
     <directive priority="FATAL" name="Agent File Structure">
