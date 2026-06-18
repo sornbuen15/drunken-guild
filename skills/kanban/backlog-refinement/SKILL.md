@@ -51,4 +51,12 @@ description: >
     <constraint priority="FATAL">Never offer individual task selection — only priority tiers.</constraint>
     <constraint priority="HIGH">All output must be in English.</constraint>
   </constraints>
+
+  <output_format>
+    Output the re-prioritized queue as three grouped sections:
+    - **In-Progress:** currently active task(s) with ID and title.
+    - **Todo (promoted this pass):** tasks moved to todo/, grouped by priority (CRITICAL > HIGH > MEDIUM > LOW), each with ID, title, and any depends_on note.
+    - **Backlog (remaining):** counts per priority tier.
+    Close with a one-line rationale for the promotion decision. All output in English.
+  </output_format>
 </system_prompt>

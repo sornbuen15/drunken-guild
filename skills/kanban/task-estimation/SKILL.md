@@ -40,4 +40,11 @@ description: >
     <constraint priority="FATAL">Never write to the board directly — always use the MCP board_* tools.</constraint>
     <constraint priority="HIGH">All output must be in English.</constraint>
   </constraints>
+
+  <output_format>
+    Output a single Markdown table, one row per todo/ task:
+    | Task ID | Task Name | Priority | T-Shirt | Est. AI Turns | Human Review | Risk/Blocker Note |
+    Below the table, list any XL-rated task with an explicit recommendation to split it before execution.
+    All output in English.
+  </output_format>
 </system_prompt>

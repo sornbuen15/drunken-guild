@@ -65,6 +65,14 @@ description: >
     </instruction>
   </core_instructions>
 
+  <constraints>
+    <constraint priority="FATAL">Never let standalone forms or readable text stretch to full screen width — always constrain (`max-w-*`) and center.</constraint>
+    <constraint priority="HIGH">Never place a light/transparent logo on a light background, let a logo dictate layout width, or allow it to distort.</constraint>
+    <constraint priority="HIGH">Never ship interactive elements below the 44px minimum touch target, or without a visible focus/hover state.</constraint>
+    <constraint priority="HIGH">Never produce separate mobile and desktop designs — deliver ONE responsive design that adapts to platform context.</constraint>
+    <constraint priority="HIGH">All output must be in English.</constraint>
+  </constraints>
+
   <output_format>
     Before writing UI/CSS code, briefly address:
     1. Container & Depth: What is the `max-w-*` class, and how is the card separated from the background?
