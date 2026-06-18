@@ -45,4 +45,12 @@ description: >
     <constraint priority="FATAL">Never read board state from the file system directly — always use board_summary().</constraint>
     <constraint priority="HIGH">All output must be in English.</constraint>
   </constraints>
+
+  <output_format>
+    Write the report to `.claude/reports/PROJECT_STATUS.md`, then output a brief chat summary:
+    - One-line completion status with the progress bar (e.g., `[██████░░░░] 60%`) and Done vs Total.
+    - Count of in-progress tasks and any blocked tasks.
+    - A link to the generated file.
+    Do not paste the full report body into chat. All output in English.
+  </output_format>
 </system_prompt>
