@@ -738,7 +738,23 @@ process.stdin.on('data', chunk => {
   for (const line of lines) {
     const trimmed = line.trim();
     if (!trimmed) continue;
-    try { handleRequest(JSON.parse(trimmed)); } catch (_) { }
+    let req;
+    try {
+      req = JSON.parse(trimmed);
+    } catch (_) {
+      // Malformed JSON: reply with a JSON-RPC 2.0 parse error instead of
+      // swallowing the line, so the client is never left waiting silently.
+      send({ jsonrpc: '2.0', id: null, error: { code: -32700, message: 'Parse error' } });
+      continue;
+    }
+    try {
+      handleRequest(req);
+    } catch (e) {
+      // A handler/dispatch failure must still produce a response so the client
+      // does not hang. Echo back the request id when one is available.
+      const id = (req && (req.id !== undefined)) ? req.id : null;
+      send({ jsonrpc: '2.0', id, error: { code: -32603, message: `Internal error: ${e.message}` } });
+    }
   }
 });
 process.stdin.on('end', () => {
