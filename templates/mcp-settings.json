@@ -3,7 +3,7 @@
     "kanban-board": {
       "command": "node",
       "args": [
-        "/ABSOLUTE/PATH/TO/ai-team-toolkit/scripts/mcp/kanban-server.js"
+        "/ABSOLUTE/PATH/TO/drunken-ai-team/scripts/mcp/kanban-server.js"
       ],
       "env": {
         "KANBAN_BOARD_DIR": "/ABSOLUTE/PATH/TO/.claude/board",
