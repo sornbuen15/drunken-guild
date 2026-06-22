@@ -1,4 +1,4 @@
-# Drunken AGY - Ultimate Antigravity Extension Suite
+# Drunken AGY - Ultimate (Drunken) Antigravity Extension Suite
 *Brought to you by Drunken Programmer*
 
 Drunken AGY is a collection of lightweight, robust, and token-optimized utility tools and custom integrations designed to supercharge your experience with **Google Antigravity** (or other agentic AI systems). 
