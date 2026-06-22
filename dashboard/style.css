@@ -1,0 +1,768 @@
+/* Drunken AGY Inn - Classic JRPG Blue Theme */
+:root {
+    --bg-dark: hsl(230, 20%, 5%);
+    --panel-bg: linear-gradient(135deg, hsl(225, 95%, 16%) 0%, hsl(225, 95%, 8%) 100%);
+    --wood-border: hsl(225, 60%, 25%);
+    --wood-light: hsl(225, 50%, 14%);
+    
+    /* JRPG Colors */
+    --jrpg-blue: linear-gradient(135deg, hsl(225, 95%, 22%) 0%, hsl(225, 95%, 10%) 100%);
+    --jrpg-border: 3px solid white;
+    --jrpg-shadow: 0 0 0 3px black, inset 0 0 0 2px black;
+    
+    --gold: hsl(45, 100%, 55%);
+    --gold-dim: hsl(45, 80%, 40%);
+    --fire: hsl(15, 95%, 55%);
+    --work-glow: rgba(0, 242, 254, 0.4);
+    --work-cyan: hsl(185, 100%, 50%);
+    --text-on-dark: hsl(225, 100%, 95%);
+    --text-muted: hsl(225, 40%, 65%);
+    
+    /* Stats Colors */
+    --hp-green: linear-gradient(to right, #00ff66, #00aa33);
+    --mp-blue: linear-gradient(to right, #00e5ff, #0088cc);
+}
+
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+body {
+    background-color: var(--bg-dark);
+    color: var(--text-on-dark);
+    font-family: 'Press Start 2P', monospace;
+    font-size: 12px;
+    padding: 20px;
+    background-image: radial-gradient(circle at 50% 50%, hsl(230, 25%, 10%) 0%, hsl(230, 30%, 4%) 100%);
+    min-height: 100vh;
+    cursor: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><text y="18" font-size="18">👉</text></svg>'), auto;
+}
+
+.tavern-container {
+    max-width: 1400px;
+    margin: 0 auto;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+}
+
+/* Header */
+.tavern-header {
+    background: var(--panel-bg);
+    border: var(--jrpg-border);
+    box-shadow: var(--jrpg-shadow);
+    border-radius: 4px;
+    padding: 15px 25px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.header-logo {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+}
+
+.header-logo h1 {
+    font-family: 'MedievalSharp', serif;
+    font-size: 2.2rem;
+    color: var(--gold);
+    text-shadow: 2px 2px 0px rgba(0,0,0,0.8);
+    letter-spacing: 1px;
+}
+
+.pixel-icon {
+    font-size: 2.2rem;
+    filter: drop-shadow(2px 2px 0px rgba(0,0,0,0.8));
+}
+
+.project-selector-container {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    background-color: rgba(0, 0, 0, 0.4);
+    border: 2px solid white;
+    border-radius: 4px;
+    padding: 6px 15px;
+}
+
+.project-label {
+    font-family: 'Press Start 2P', monospace;
+    font-size: 0.7rem;
+    color: var(--gold);
+}
+
+.pixel-select {
+    background: transparent;
+    border: none;
+    outline: none;
+    color: var(--text-on-dark);
+    font-family: 'Press Start 2P', monospace;
+    font-size: 0.75rem;
+    font-weight: 600;
+    cursor: pointer;
+    padding-right: 5px;
+}
+
+.pixel-select option {
+    background-color: hsl(230, 40%, 8%);
+    color: var(--text-on-dark);
+    font-family: 'Press Start 2P', monospace;
+    padding: 5px;
+}
+
+.header-status {
+    display: flex;
+    gap: 15px;
+}
+
+.badge {
+    background-color: rgba(0, 0, 0, 0.5);
+    border: 2px solid white;
+    border-radius: 4px;
+    padding: 6px 12px;
+    font-family: 'Press Start 2P', cursive;
+    font-size: 0.65rem;
+    color: var(--text-muted);
+}
+
+#tavern-activity {
+    color: var(--gold);
+}
+
+#working-count {
+    color: var(--work-cyan);
+}
+
+#drunk-count {
+    color: var(--fire);
+}
+
+/* Main Grid Layout */
+.tavern-grid {
+    display: grid;
+    grid-template-columns: 1.2fr 0.8fr;
+    gap: 20px;
+}
+
+@media (max-width: 1024px) {
+    .tavern-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* Left Side: Viewport */
+.viewport-card {
+    background: var(--panel-bg);
+    border: var(--jrpg-border);
+    box-shadow: var(--jrpg-shadow);
+    border-radius: 4px;
+    padding: 15px;
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+}
+
+.viewport-title h3 {
+    font-family: 'Press Start 2P', monospace;
+    font-size: 0.85rem;
+    color: var(--gold);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.tavern-viewport {
+    position: relative;
+    width: 100%;
+    aspect-ratio: 16/9;
+    background-image: url('tavern_bg.jpg');
+    background-size: cover;
+    background-position: center;
+    border: 4px solid #000;
+    border-radius: 4px;
+    overflow: hidden;
+    box-shadow: inset 0 0 40px rgba(0,0,0,0.8);
+    animation: fireplaceGlow 4s infinite alternate ease-in-out;
+}
+
+@keyframes fireplaceGlow {
+    0% { box-shadow: inset 0 0 50px rgba(0,0,0,0.9); }
+    100% { box-shadow: inset 0 0 30px rgba(0,0,0,0.7); }
+}
+
+.viewport-footer {
+    color: var(--text-muted);
+    font-size: 0.65rem;
+    line-height: 1.6;
+    text-align: center;
+    font-family: 'Outfit', sans-serif;
+}
+
+/* Right Side: Controls */
+.control-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+}
+
+/* Parchment Card (JRPG Blue Menu Style) */
+.parchment-card {
+    background: var(--jrpg-blue);
+    border: var(--jrpg-border);
+    box-shadow: var(--jrpg-shadow);
+    border-radius: 4px;
+    padding: 20px;
+    color: var(--text-on-dark);
+}
+
+.medieval-header {
+    font-family: 'Press Start 2P', monospace;
+    font-size: 0.85rem;
+    text-align: center;
+    margin-bottom: 8px;
+    color: var(--gold);
+    text-shadow: 1px 1px 0px black;
+}
+
+.agent-model {
+    font-family: 'Press Start 2P', cursive;
+    font-size: 0.55rem;
+    text-align: center;
+    color: var(--text-muted);
+    margin-bottom: 10px;
+}
+
+.scroll-divider {
+    border: 0;
+    height: 3px;
+    background: white;
+    margin: 10px 0 15px 0;
+}
+
+.agent-details {
+    font-family: 'Outfit', sans-serif;
+    font-size: 0.95rem;
+    line-height: 1.5;
+    min-height: 120px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+/* Stats Display in JRPG Mode */
+.jrpg-stats-container {
+    font-family: 'Press Start 2P', monospace;
+    font-size: 0.65rem;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-bottom: 12px;
+    background-color: rgba(0, 0, 0, 0.4);
+    border: 2px solid white;
+    padding: 10px;
+    border-radius: 4px;
+}
+
+.jrpg-stat-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.jrpg-stat-row span {
+    width: 65px;
+    color: var(--text-on-dark);
+}
+
+.stat-bar-container {
+    background-color: #222;
+    border: 1px solid white;
+    height: 10px;
+    width: 120px;
+    border-radius: 2px;
+    overflow: hidden;
+}
+
+.stat-bar {
+    height: 100%;
+    width: 100%;
+    transition: width 0.3s ease;
+}
+
+.stat-bar.hp {
+    background: var(--hp-green);
+}
+
+.stat-bar.mp {
+    background: var(--mp-blue);
+}
+
+.stat-text-val {
+    font-size: 0.55rem;
+    color: white;
+    text-align: right;
+    width: auto !important;
+}
+
+.stat-val {
+    color: var(--gold) !important;
+    width: auto !important;
+}
+
+.status-lbl.resting {
+    color: var(--fire) !important;
+}
+
+.status-lbl.working {
+    color: var(--work-cyan) !important;
+}
+
+.agent-state-box {
+    margin-top: 20px;
+    border-top: 2px solid white;
+    padding-top: 15px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.state-status {
+    font-family: 'Press Start 2P', monospace;
+    font-size: 0.65rem;
+    font-weight: 600;
+}
+
+/* JRPG Terminal/Message Window */
+.terminal-card {
+    background: var(--jrpg-blue);
+    border: var(--jrpg-border);
+    box-shadow: var(--jrpg-shadow);
+    border-radius: 4px;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    height: 280px;
+}
+
+.terminal-header {
+    background-color: rgba(0, 0, 0, 0.4);
+    border-bottom: 2px solid white;
+    padding: 10px 15px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.jrpg-arrow {
+    font-family: 'Press Start 2P', monospace;
+    font-size: 0.85rem;
+    color: var(--gold);
+    animation: pulseArrow 0.5s infinite alternate ease-in-out;
+}
+
+@keyframes pulseArrow {
+    0% { transform: translateX(0px); }
+    100% { transform: translateX(4px); }
+}
+
+.terminal-title {
+    font-family: 'Press Start 2P', monospace;
+    font-size: 0.65rem;
+    color: white;
+}
+
+.terminal-body {
+    flex-grow: 1;
+    padding: 15px;
+    font-family: 'Outfit', sans-serif;
+    font-size: 0.95rem;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    color: white;
+    background-color: rgba(0, 0, 0, 0.2);
+}
+
+.terminal-line.system {
+    color: var(--gold);
+}
+.terminal-line.user {
+    color: var(--work-cyan);
+}
+.terminal-line.error {
+    color: var(--fire);
+}
+
+.terminal-input-bar {
+    border-top: 2px solid white;
+    background-color: rgba(0, 0, 0, 0.4);
+    padding: 10px 15px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.prompt-char {
+    font-size: 1.1rem;
+}
+
+.terminal-input-bar input {
+    background: transparent;
+    border: none;
+    outline: none;
+    color: white;
+    font-family: 'Outfit', sans-serif;
+    font-size: 1rem;
+    flex-grow: 1;
+}
+
+/* JRPG Roster / Party Board */
+.roster-section {
+    background: var(--panel-bg);
+    border: var(--jrpg-border);
+    box-shadow: var(--jrpg-shadow);
+    border-radius: 4px;
+    padding: 20px;
+}
+
+.section-title {
+    font-family: 'Press Start 2P', monospace;
+    font-size: 0.85rem;
+    color: var(--gold);
+    margin-bottom: 20px;
+    border-bottom: 3px solid white;
+    padding-bottom: 12px;
+}
+
+.roster-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+    gap: 15px;
+}
+
+.roster-card {
+    background: var(--jrpg-blue);
+    border: 2px solid #555;
+    border-radius: 4px;
+    padding: 15px;
+    cursor: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><text y="18" font-size="18">👉</text></svg>'), pointer;
+    transition: all 0.15s ease;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    box-shadow: 2px 2px 0px rgba(0,0,0,0.4);
+}
+
+.roster-card:hover {
+    border-color: white;
+    background-color: hsl(225, 95%, 15%);
+    transform: translateY(-2px);
+}
+
+.roster-card.selected {
+    border-color: var(--gold);
+    background-color: hsl(225, 95%, 18%);
+    box-shadow: 0 0 10px rgba(230, 180, 34, 0.4);
+}
+
+.roster-card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.roster-info h4 {
+    font-family: 'Press Start 2P', monospace;
+    font-size: 0.65rem;
+    color: white;
+}
+
+.roster-card.selected .roster-info h4 {
+    color: var(--gold);
+}
+
+.roster-info p {
+    font-size: 0.55rem;
+    color: var(--text-muted);
+    font-family: 'Press Start 2P', monospace;
+    margin-top: 4px;
+}
+
+.roster-state-badge {
+    font-family: 'Press Start 2P', cursive;
+    font-size: 0.5rem;
+    padding: 4px 8px;
+    border-radius: 2px;
+}
+
+.roster-state-badge.resting {
+    color: var(--fire);
+    border: 1px solid var(--fire);
+    background: rgba(242, 97, 34, 0.1);
+}
+
+.roster-state-badge.working {
+    color: var(--work-cyan);
+    border: 1px solid var(--work-cyan);
+    background: rgba(0, 242, 254, 0.1);
+}
+
+/* Roster Mini Stat Bars */
+.roster-stats {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin-top: 5px;
+    border-top: 1px dashed rgba(255, 255, 255, 0.2);
+    padding-top: 8px;
+    font-family: 'Press Start 2P', monospace;
+    font-size: 0.5rem;
+}
+
+.roster-stat-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.roster-stat-lbl {
+    color: var(--text-muted);
+}
+
+.roster-stat-val {
+    color: white;
+}
+
+/* Agent Sprite Overlays */
+.agent-sprite {
+    position: absolute;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    cursor: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><text y="18" font-size="18">👉</text></svg>'), pointer;
+    transition: all 0.3s ease;
+    z-index: 10;
+}
+
+.agent-sprite:hover {
+    transform: scale(1.15);
+    z-index: 15;
+}
+
+.sprite-avatar {
+    font-size: 2.5rem;
+    filter: drop-shadow(2px 2px 2px rgba(0,0,0,0.8));
+    position: relative;
+    z-index: 2;
+}
+
+.sprite-glow {
+    position: absolute;
+    width: 50px;
+    height: 50px;
+    border-radius: 50%;
+    top: 5px;
+    z-index: 1;
+    transition: all 0.3s ease;
+}
+
+/* Agent Sprite States */
+.agent-sprite.resting .sprite-avatar {
+    animation: swayResting 2s infinite alternate ease-in-out;
+}
+
+.agent-sprite.resting .sprite-glow {
+    background-color: rgba(242, 97, 34, 0.1);
+}
+
+.agent-sprite.working .sprite-avatar {
+    animation: bounceWorking 0.4s infinite alternate ease-in-out;
+}
+
+.agent-sprite.working .sprite-glow {
+    background-color: var(--work-glow);
+    box-shadow: 0 0 15px var(--work-glow);
+}
+
+@keyframes swayResting {
+    0% { transform: rotate(-6deg) translateY(0px); }
+    100% { transform: rotate(6deg) translateY(2px); }
+}
+
+@keyframes bounceWorking {
+    0% { transform: translateY(0px) scaleX(1); }
+    100% { transform: translateY(-5px) scaleX(0.95); }
+}
+
+.sprite-bubble {
+    position: absolute;
+    background-color: white;
+    color: black;
+    border: 2px solid black;
+    border-radius: 4px;
+    font-size: 0.55rem;
+    font-family: 'Press Start 2P', monospace;
+    padding: 3px 6px;
+    top: -24px;
+    white-space: nowrap;
+    opacity: 0.85;
+    animation: floatText 1.5s infinite alternate ease-in-out;
+    pointer-events: none;
+    z-index: 5;
+}
+
+.agent-sprite.working .sprite-bubble {
+    background-color: #00ffff;
+    border-color: #0055aa;
+    color: black;
+}
+
+@keyframes floatText {
+    0% { transform: translateY(0px); }
+    100% { transform: translateY(-4px); }
+}
+
+.sprite-label {
+    background: rgba(0,0,0,0.85);
+    border: 1px solid white;
+    color: white;
+    font-size: 0.55rem;
+    font-family: 'Press Start 2P', monospace;
+    padding: 2px 5px;
+    border-radius: 2px;
+    margin-top: 4px;
+    white-space: nowrap;
+    text-shadow: 1px 1px 0px black;
+    pointer-events: none;
+}
+
+.agent-sprite.selected .sprite-label {
+    border-color: var(--gold);
+    color: var(--gold);
+}
+
+/* JRPG Pixel Buttons */
+.pixel-btn {
+    background-color: rgba(0, 0, 0, 0.4);
+    color: white;
+    border: 2px solid white;
+    border-radius: 4px;
+    padding: 8px 16px;
+    font-family: 'Press Start 2P', monospace;
+    font-size: 0.65rem;
+    cursor: pointer;
+    box-shadow: 2px 2px 0px black;
+    outline: none;
+}
+
+.pixel-btn:hover {
+    background-color: rgba(255, 255, 255, 0.15);
+    border-color: var(--gold);
+    transform: translateY(1px);
+}
+
+.pixel-btn:active {
+    box-shadow: none;
+    transform: translate(2px, 2px);
+}
+
+.pixel-btn.warning {
+    background-color: rgba(230, 180, 34, 0.2);
+    border-color: var(--gold);
+}
+
+.pixel-btn.warning:hover {
+    background-color: var(--gold);
+    color: black;
+}
+
+.pixel-btn:disabled {
+    background-color: rgba(0, 0, 0, 0.6) !important;
+    border-color: #444 !important;
+    color: #666 !important;
+    box-shadow: none !important;
+    cursor: not-allowed;
+    transform: none !important;
+}
+
+.select-btn {
+    width: 100%;
+}
+
+/* JRPG Modal Overlay */
+.jrpg-modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    background-color: rgba(0, 0, 0, 0.7);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 1000;
+}
+
+.jrpg-modal-content {
+    background: var(--jrpg-blue);
+    border: var(--jrpg-border);
+    box-shadow: var(--jrpg-shadow);
+    border-radius: 4px;
+    padding: 25px;
+    width: 440px;
+    color: white;
+    animation: openModal 0.2s ease-out;
+}
+
+@keyframes openModal {
+    0% { transform: scale(0.8); opacity: 0; }
+    100% { transform: scale(1); opacity: 1; }
+}
+
+.modal-form {
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+    margin-top: 15px;
+}
+
+.form-row {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.form-row label {
+    font-family: 'Press Start 2P', monospace;
+    font-size: 0.65rem;
+    color: var(--gold);
+}
+
+.form-row input {
+    background-color: rgba(0, 0, 0, 0.5);
+    border: 2px solid white;
+    border-radius: 4px;
+    padding: 10px;
+    color: white;
+    font-family: 'Outfit', sans-serif;
+    font-size: 1rem;
+    outline: none;
+}
+
+.form-row input:focus {
+    border-color: var(--gold);
+}
+
+.modal-btn-row {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+    margin-top: 10px;
+}
+

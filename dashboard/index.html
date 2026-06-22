@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Drunken AGY Inn - JRPG Status Monitor</title>
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=MedievalSharp&family=Outfit:wght@300;400;600;800&family=Press+Start+2P&display=swap" rel="stylesheet">
+    <!-- Style Sheet -->
+    <link rel="stylesheet" href="style.css">
+    <!-- Favicon -->
+    <link rel="icon" type="image/png" href="favicon.png">
+</head>
+<body>
+    <div class="tavern-container">
+        <!-- Header -->
+        <header class="tavern-header">
+            <div class="header-logo">
+                <span class="pixel-icon">🏰</span>
+                <h1>Drunken AGY Inn</h1>
+            </div>
+            <div class="project-selector-container">
+                <label for="project-select" class="project-label">☞ REALM:</label>
+                <select id="project-select" class="pixel-select">
+                    <option value="">Loading Realms...</option>
+                </select>
+            </div>
+            <div class="header-status">
+                <span class="badge" id="tavern-activity">QUEST: IDLE</span>
+                <span class="badge" id="working-count">PARTY ACTIVE: 0</span>
+                <span class="badge" id="drunk-count">PARTY SLEEP: 0</span>
+            </div>
+            <div class="header-controls">
+                <button id="toggle-all-btn" class="pixel-btn warning">🔔 Ring Inn Bell</button>
+            </div>
+        </header>
+
+        <!-- Main Content Grid -->
+        <div class="tavern-grid">
+            <!-- Left Side: Tavern Viewport -->
+            <div class="viewport-card">
+                <div class="viewport-title">
+                    <h3>⚔️ Inn Viewport (Party Visualizer)</h3>
+                </div>
+                <div class="tavern-viewport" id="tavern-viewport">
+                    <!-- JRPG Inn Room background loaded here -->
+                    
+                    <!-- Overlay Party Members positioned to fit the JRPG Inn room layout -->
+                    <div class="agent-sprite" id="sprite-principal" style="top: 52%; left: 73%;" data-agent="principal-engineer">
+                        <div class="sprite-avatar">🧙‍♂️</div>
+                        <div class="sprite-glow"></div>
+                        <div class="sprite-bubble">Zzz...</div>
+                        <div class="sprite-label">Archmage (PE)</div>
+                    </div>
+                    
+                    <div class="agent-sprite" id="sprite-devops" style="top: 60%; left: 46%;" data-agent="devops-engineer">
+                        <div class="sprite-avatar">👷‍♂️</div>
+                        <div class="sprite-glow"></div>
+                        <div class="sprite-bubble">Burp...</div>
+                        <div class="sprite-label">Knight (DevOps)</div>
+                    </div>
+
+                    <div class="agent-sprite" id="sprite-laravel" style="top: 76%; left: 34%;" data-agent="laravel-developer">
+                        <div class="sprite-avatar">🧔</div>
+                        <div class="sprite-glow"></div>
+                        <div class="sprite-bubble">More Beer!</div>
+                        <div class="sprite-label">Alchemist (Laravel)</div>
+                    </div>
+
+                    <div class="agent-sprite" id="sprite-qa" style="top: 56%; left: 24%;" data-agent="qa-engineer">
+                        <div class="sprite-avatar">🏹</div>
+                        <div class="sprite-glow"></div>
+                        <div class="sprite-bubble">Cheers!</div>
+                        <div class="sprite-label">Ranger (QA)</div>
+                    </div>
+
+                    <div class="agent-sprite" id="sprite-security" style="top: 48%; left: 56%;" data-agent="security-engineer">
+                        <div class="sprite-avatar">🥷</div>
+                        <div class="sprite-glow"></div>
+                        <div class="sprite-bubble">Shh...</div>
+                        <div class="sprite-label">Rogue (Security)</div>
+                    </div>
+
+                    <div class="agent-sprite" id="sprite-voice" style="top: 58%; left: 63%;" data-agent="voice-ai-specialist">
+                        <div class="sprite-avatar">🧝‍♀️</div>
+                        <div class="sprite-glow"></div>
+                        <div class="sprite-bubble">♫ ♪</div>
+                        <div class="sprite-label">Bard (Voice)</div>
+                    </div>
+                </div>
+                <div class="viewport-footer">
+                    <p>👉 <em>Click on a party member in the Inn or select from the Roster to view Stats, Equipment, and Command terminal.</em></p>
+                </div>
+            </div>
+
+            <!-- Right Side: Control & JRPG Command Menu -->
+            <div class="control-panel">
+                <!-- JRPG Classic Scroll/Parchment or Classic Blue Menu -->
+                <div class="parchment-card" id="agent-card">
+                    <div class="parchment-content">
+                        <h2 class="medieval-header" id="selected-agent-name">Select Party Member</h2>
+                        <p class="agent-model" id="selected-agent-model">Job: ---</p>
+                        <hr class="scroll-divider">
+                        
+                        <div class="agent-details">
+                            <div class="jrpg-stats-container" id="jrpg-stats" style="display: none;">
+                                <div class="jrpg-stat-row">
+                                    <span>LV:</span><span id="stat-lv" class="stat-val">--</span>
+                                </div>
+                                <div class="jrpg-stat-row">
+                                    <span>HP:</span>
+                                    <div class="stat-bar-container">
+                                        <div id="hp-bar" class="stat-bar hp" style="width: 100%;"></div>
+                                    </div>
+                                    <span id="stat-hp" class="stat-text-val">999/999</span>
+                                </div>
+                                <div class="jrpg-stat-row">
+                                    <span>MP:</span>
+                                    <div class="stat-bar-container">
+                                        <div id="mp-bar" class="stat-bar mp" style="width: 100%;"></div>
+                                    </div>
+                                    <span id="stat-mp" class="stat-text-val">999/999</span>
+                                </div>
+                                <div class="jrpg-stat-row">
+                                    <span>STATUS:</span><span id="stat-status-lbl" class="stat-val status-lbl">ACTIVE</span>
+                                </div>
+                            </div>
+                            
+                            <p id="selected-agent-desc" style="margin-top: 10px;">Select a party member to load their character sheet and skills inventory.</p>
+                            <p id="selected-agent-tools" style="margin-top: 10px;"><strong>Skills/Tools:</strong> ---</p>
+                        </div>
+                        
+                        <div class="agent-state-box" id="state-box" style="display: none;">
+                            <div class="state-status">
+                                <span>COMMAND:</span>
+                            </div>
+                            <button id="toggle-state-btn" class="pixel-btn select-btn">Change Command</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- JRPG Discord Config Panel -->
+                <div class="parchment-card" id="discord-card" style="margin-top: 5px;">
+                    <div class="parchment-content">
+                        <h2 class="medieval-header">📻 Transceiver</h2>
+                        <hr class="scroll-divider">
+                        <div class="jrpg-stats-container">
+                            <div class="jrpg-stat-row">
+                                <span>LINK:</span>
+                                <span id="discord-status-badge" class="state-badge resting">DISCONNECTED</span>
+                            </div>
+                            <div class="jrpg-stat-row" style="margin-top: 5px;">
+                                <span>ROOM ID:</span>
+                                <span id="discord-channel-lbl" class="stat-val">None</span>
+                            </div>
+                        </div>
+                        <div class="discord-btn-grid" style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px;">
+                            <button id="discord-config-btn" class="pixel-btn">⚙️ CONFIG</button>
+                            <button id="discord-toggle-btn" class="pixel-btn warning" disabled>⚡ LINK</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- JRPG Message Window -->
+                <div class="terminal-card">
+                    <div class="terminal-header">
+                        <span class="jrpg-arrow">☞</span>
+                        <span class="terminal-title" id="terminal-title">Message Window</span>
+                    </div>
+                    <div class="terminal-body" id="terminal-body">
+                        <div class="terminal-line system">[System] Party initialized. Select a character to initiate dialogue.</div>
+                    </div>
+                    <div class="terminal-input-bar">
+                        <span class="prompt-char">👉</span>
+                        <input type="text" id="terminal-input" placeholder="Enter input command for party member..." disabled>
+                        <button id="send-btn" class="pixel-btn" disabled>SEND</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- JRPG Party Status Board -->
+        <section class="roster-section">
+            <h2 class="section-title">🛡️ Active Party Members</h2>
+            <div class="roster-grid" id="roster-grid">
+                <!-- Javascript will populate all party members with JRPG stat displays -->
+            </div>
+        </section>
+    </div>
+
+    <!-- JRPG Modal Box for Discord Configuration -->
+    <div id="config-modal" class="jrpg-modal-overlay" style="display: none;">
+        <div class="jrpg-modal-content">
+            <h2 class="medieval-header">⚙️ Link Config</h2>
+            <hr class="scroll-divider">
+            <div class="modal-form">
+                <div class="form-row">
+                    <label>BOT TOKEN:</label>
+                    <input type="password" id="modal-token-input" placeholder="Leave empty to keep current...">
+                </div>
+                <div class="form-row">
+                    <label>ROOM ID:</label>
+                    <input type="text" id="modal-channel-input" placeholder="Enter Channel ID...">
+                </div>
+                <div class="modal-btn-row">
+                    <button id="modal-cancel-btn" class="pixel-btn">CANCEL</button>
+                    <button id="modal-save-btn" class="pixel-btn warning">SAVE</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Script File -->
+    <script src="app.js"></script>
+</body>
+</html>
