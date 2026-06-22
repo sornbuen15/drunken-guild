@@ -29,7 +29,7 @@ echo ""
 
 if [ ! -d "$LOCAL_SKILLS_DIR" ]; then
   echo -e "${RED}Error: skills/ directory not found at $LOCAL_SKILLS_DIR${NC}"
-  echo -e "${RED}Make sure you are running this from inside the ai-team-toolkit repo.${NC}"
+  echo -e "${RED}Make sure you are running this from inside the drunken-ai-team repo.${NC}"
   exit 1
 fi
 
