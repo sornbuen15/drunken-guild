@@ -44,3 +44,11 @@ Whenever the user provides a list of bugs, feedback, or issues (no matter how ur
 3. Convert each bug/issue into a structured task and add it to your '.local_backlog.md'. Clarify and understand by task name: please use prefix labels like `[BUG]` or `[ISSUE]` for feedback tasks (e.g. `[BUG] 500 error on home page`).
 4. Perform triage, then push these new issues to the Jira [TODO] board via the lightweight script.
 5. ONLY AFTER the issues are officially on the Jira board, you may begin pulling them into [IN_PROGRESS] and fixing them one by one following the strict Git branching (feature/<Ticket-ID>) and QA workflow.
+
+---
+
+## Approval Channel
+
+Whenever a workflow requires an explicit Tech Lead or User approval gate (e.g., approving an execution plan, sprint backlog transition, or codebase audit cleanup):
+- **Requirement:** You MUST send the approval request directly to Discord using the `ask_boss.py` script (e.g. `python3 scripts/ask_boss.py "Do you approve..."`).
+- **Wait for Response:** The script will block and wait for the user to react (👍 for Approval / 👎 for Rejection). Respect the exit status of the script (0 for Approved, 1 for Rejected) to proceed or abort.
