@@ -182,7 +182,8 @@ def get_running_discord_pid(project_path):
         # Use ps aux on macOS
         res = subprocess.run(["ps", "aux"], capture_output=True, text=True, timeout=5)
         for line in res.stdout.splitlines():
-            if "discord_listener.py" in line and "grep" not in line:
+            # Check for either scripts/discord_listener.py or global CLI binary "drunken-listen"
+            if ("discord_listener.py" in line or "drunken-listen" in line) and "grep" not in line:
                 parts = line.split()
                 if len(parts) > 1:
                     pid = parts[1]
@@ -192,6 +193,70 @@ def get_running_discord_pid(project_path):
     except Exception:
         pass
     return None
+
+def start_discord_listener_for_project(project_id, project_path):
+    pid = get_running_discord_pid(project_path)
+    if pid is not None:
+        return True
+
+    script_path = os.path.join(project_path, ".agents", "scripts", "discord_listener.py")
+    if not os.path.exists(script_path):
+        script_path = os.path.join(project_path, "scripts", "discord_listener.py")
+
+    if not os.path.exists(script_path):
+        return False
+
+    try:
+        log_dir = os.path.join(project_path, ".agents")
+        os.makedirs(log_dir, exist_ok=True)
+        log_file_path = os.path.join(log_dir, "discord_listener.log")
+        log_file = open(log_file_path, "w", encoding="utf-8")
+
+        # Prefer running the globally installed CLI command if present
+        import shutil
+        listen_cmd = shutil.which("drunken-listen")
+
+        if listen_cmd:
+            print(f"[*] Starting Discord listener using global binary: {listen_cmd} in {project_path}")
+            p = subprocess.Popen(
+                [listen_cmd],
+                cwd=project_path,
+                stdout=log_file,
+                stderr=log_file
+            )
+        else:
+            print(f"[*] Starting Discord listener using fallback script: {script_path}")
+            p = subprocess.Popen(
+                [sys.executable, script_path],
+                cwd=project_path,
+                stdout=log_file,
+                stderr=log_file
+            )
+        discord_processes[project_id] = p
+        return True
+    except Exception as e:
+        print(f"Failed to start process for {project_id}: {e}", file=sys.stderr)
+        return False
+
+def start_all_discord_listeners():
+    load_projects_mapping()
+    print("[*] Checking and auto-starting Discord transceivers for all realms...")
+    for p_id, p_path in project_paths.items():
+        config_path = os.path.join(p_path, ".agents", "discord_config.json")
+        if os.path.exists(config_path):
+            try:
+                with open(config_path, "r") as f:
+                    data = json.load(f)
+                    if data.get("bot_token") and data.get("channel_id"):
+                        if get_running_discord_pid(p_path) is None:
+                            started = start_discord_listener_for_project(p_id, p_path)
+                            if started:
+                                print(f"[+] Automatically started Discord transceiver for Realm: {p_id}")
+                            else:
+                                print(f"[-] Could not find listener script to start for Realm: {p_id}")
+            except Exception as e:
+                print(f"Failed to auto-start Discord for {p_id}: {e}")
+
 
 def is_agy_running(project_path):
     try:
@@ -289,52 +354,11 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 self.send_error_response("Project not found.")
                 return
 
-            # Check if already running
-            pid = get_running_discord_pid(project_path)
-            if pid is not None:
-                self.send_json_response({"ok": True, "message": "Discord listener is already running."})
-                return
-
-            # Path to script
-            script_path = os.path.join(project_path, ".agents", "scripts", "discord_listener.py")
-            # Fallback path if it's not synchronized yet
-            if not os.path.exists(script_path):
-                script_path = os.path.join(project_path, "scripts", "discord_listener.py")
-                
-            if not os.path.exists(script_path):
-                self.send_error_response("discord_listener.py not found in project scripts. Please run sync first.")
-                return
-
-            try:
-                log_dir = os.path.join(project_path, ".agents")
-                os.makedirs(log_dir, exist_ok=True)
-                log_file_path = os.path.join(log_dir, "discord_listener.log")
-                log_file = open(log_file_path, "w", encoding="utf-8")
-                
-                # Prefer running the globally installed CLI command if present
-                import shutil
-                listen_cmd = shutil.which("drunken-listen")
-                
-                if listen_cmd:
-                    print(f"[*] Starting Discord listener using global binary: {listen_cmd} in {project_path}")
-                    p = subprocess.Popen(
-                        [listen_cmd],
-                        cwd=project_path,
-                        stdout=log_file,
-                        stderr=log_file
-                    )
-                else:
-                    print(f"[*] Starting Discord listener using fallback script: {script_path}")
-                    p = subprocess.Popen(
-                        [sys.executable, script_path],
-                        cwd=project_path,
-                        stdout=log_file,
-                        stderr=log_file
-                    )
-                discord_processes[project_id] = p
+            success = start_discord_listener_for_project(project_id, project_path)
+            if success:
                 self.send_json_response({"ok": True, "message": "Discord listener started."})
-            except Exception as e:
-                self.send_error_response(f"Failed to start process: {e}")
+            else:
+                self.send_error_response("discord_listener.py not found in project scripts. Please run sync first.")
 
 
         # 3. API: Stop Discord Listener
@@ -524,6 +548,26 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 "channel_id": channel_id
             })
 
+        # 2.5 API: Get All Projects Discord Activity Logs
+        elif self.path == "/api/discord/activity/all":
+            load_projects_mapping()
+            all_activities = {}
+            for p_id, p_path in project_paths.items():
+                activity_file = os.path.join(p_path, ".agents", "discord_activity.jsonl")
+                events = []
+                if os.path.exists(activity_file):
+                    try:
+                        with open(activity_file, "r", encoding="utf-8") as f:
+                            lines = f.readlines()
+                            for line in lines[-20:]:
+                                line_stripped = line.strip()
+                                if line_stripped:
+                                    events.append(json.loads(line_stripped))
+                    except Exception:
+                        pass
+                all_activities[p_id] = events
+            self.send_json_response(all_activities)
+
         # 3. API: Get Discord Activity Logs
         elif self.path.startswith("/api/discord/activity"):
             # Parse query params
@@ -640,6 +684,12 @@ def main():
     with httpd:
         print(f"[*] Drunken AGY Inn JRPG Dashboard running at http://localhost:{PORT}/")
         print("[*] Press Ctrl+C to close the Inn.")
+
+        # Automatically start all registered Discord listeners
+        try:
+            start_all_discord_listeners()
+        except Exception as e:
+            print(f"Error auto-starting Discord listeners: {e}", file=sys.stderr)
         
         # Open browser after 1 second
         Timer(1.0, open_browser).start()
