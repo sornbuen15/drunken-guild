@@ -552,6 +552,15 @@ document.addEventListener('DOMContentLoaded', () => {
             terminalInput.placeholder = `Talk to ${agent.name} (LV ${agent.lv})...`;
         }
         if (sendBtn) sendBtn.removeAttribute('disabled');
+
+        // Save active agent on the backend
+        if (currentProjectId) {
+            fetch('/api/project/active-agent', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ project_id: currentProjectId, agent_key: key })
+            }).catch(err => console.error("Failed to save active agent:", err));
+        }
         
         writeToTerminal("system", `[Inspect] Loaded character profile: ${agent.name} [Job: ${agent.job}].`);
     }
@@ -691,6 +700,47 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         } catch (actErr) {
             console.error("Failed to fetch Discord activity:", actErr);
+        }
+
+        // Fetch project agy running status
+        try {
+            const agyRes = await fetch(`/api/project/status?project_id=${currentProjectId}&_=${Date.now()}`);
+            if (agyRes.ok) {
+                const agyStatus = await agyRes.json();
+                const wasRunning = document.body.classList.contains('agy-running');
+                
+                if (agyStatus.agy_running) {
+                    document.body.classList.add('agy-running');
+                    // Automatically put all agents in working state if they weren't already
+                    let updated = false;
+                    Object.keys(agentStates).forEach(key => {
+                        if (!agentStates[key]) {
+                            agentStates[key] = true;
+                            updated = true;
+                        }
+                    });
+                    if (!wasRunning) {
+                        writeToTerminal("system", `[Realm] Active agy process detected in VS Code / terminal for "${currentProjectId}"! Party set to QUEST mode.`);
+                    }
+                    if (updated) {
+                        updateIndicators();
+                        updateSelectedStateDetails();
+                    }
+                } else {
+                    document.body.classList.remove('agy-running');
+                    if (wasRunning) {
+                        // Automatically put all agents back to resting state
+                        Object.keys(agentStates).forEach(key => {
+                            agentStates[key] = false;
+                        });
+                        writeToTerminal("system", `[Realm] Agy process completed for "${currentProjectId}". Party returned to Inn to rest and drink.`);
+                        updateIndicators();
+                        updateSelectedStateDetails();
+                    }
+                }
+            }
+        } catch (agyErr) {
+            console.error("Failed to fetch project status:", agyErr);
         }
     }
 

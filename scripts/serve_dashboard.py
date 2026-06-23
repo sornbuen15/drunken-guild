@@ -10,6 +10,36 @@ import http.server
 import socketserver
 from threading import Timer
 
+def load_dotenv():
+    # Look for .env in current directory or parent directories
+    curr_dir = os.getcwd()
+    while True:
+        dotenv_path = os.path.join(curr_dir, '.env')
+        if os.path.exists(dotenv_path):
+            try:
+                with open(dotenv_path, 'r', encoding='utf-8') as f:
+                    for line in f:
+                        line = line.strip()
+                        if not line or line.startswith('#'):
+                            continue
+                        if '=' in line:
+                            key, val = line.split('=', 1)
+                            key = key.strip()
+                            val = val.strip().strip('"').strip("'")
+                            if key and key not in os.environ:
+                                os.environ[key] = val
+            except Exception as e:
+                print(f"Warning: Failed to load .env file: {e}", file=sys.stderr)
+            break
+        parent = os.path.dirname(curr_dir)
+        if parent == curr_dir:
+            break
+        curr_dir = parent
+
+# Automatically load local .env variables at startup
+load_dotenv()
+
+
 AGENTS_METADATA = {
     "principal-engineer": {
         "name": "Principal Eng",
@@ -139,12 +169,46 @@ def extract_clean_response(log_content):
     return "\n".join(result_lines).strip()
 
 
-PORT = 8080
+PORT = int(os.environ.get("PORT", 8081))
 DIRECTORY = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "dashboard")
 
 # Global in-memory storage for project mappings and Discord processes
 project_paths = {}
 discord_processes = {}
+
+def get_running_discord_pid(project_path):
+    try:
+        normalized_path = os.path.normpath(project_path)
+        # Use ps aux on macOS
+        res = subprocess.run(["ps", "aux"], capture_output=True, text=True, timeout=5)
+        for line in res.stdout.splitlines():
+            if "discord_listener.py" in line and "grep" not in line:
+                parts = line.split()
+                if len(parts) > 1:
+                    pid = parts[1]
+                    cwd_res = subprocess.run(["lsof", "-a", "-d", "cwd", "-p", pid], capture_output=True, text=True, timeout=2)
+                    if normalized_path in cwd_res.stdout or normalized_path in line:
+                        return int(pid)
+    except Exception:
+        pass
+    return None
+
+def is_agy_running(project_path):
+    try:
+        normalized_path = os.path.normpath(project_path)
+        res = subprocess.run(["ps", "aux"], capture_output=True, text=True, timeout=5)
+        for line in res.stdout.splitlines():
+            parts = line.split()
+            if len(parts) > 10:
+                cmd = parts[10]
+                if cmd == "agy" or cmd.endswith("/agy"):
+                    pid = parts[1]
+                    cwd_res = subprocess.run(["lsof", "-a", "-d", "cwd", "-p", pid], capture_output=True, text=True, timeout=2)
+                    if normalized_path in cwd_res.stdout:
+                        return True
+    except Exception:
+        pass
+    return False
 
 def load_projects_mapping():
     global project_paths
@@ -226,8 +290,8 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 return
 
             # Check if already running
-            proc = discord_processes.get(project_id)
-            if proc and proc.poll() is None:
+            pid = get_running_discord_pid(project_path)
+            if pid is not None:
                 self.send_json_response({"ok": True, "message": "Discord listener is already running."})
                 return
 
@@ -261,22 +325,49 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         # 3. API: Stop Discord Listener
         elif self.path == "/api/discord/stop":
             project_id = payload.get("project_id")
-            proc = discord_processes.get(project_id)
-            
-            if proc:
-                if proc.poll() is None:
-                    try:
-                        proc.terminate()
-                        proc.wait(timeout=2)
-                    except Exception:
+            project_path = project_paths.get(project_id)
+            if not project_path:
+                self.send_error_response("Project not found.")
+                return
+                
+            pid = get_running_discord_pid(project_path)
+            if pid:
+                try:
+                    import signal
+                    os.kill(pid, signal.SIGTERM)
+                    import time
+                    for _ in range(20):
+                        time.sleep(0.1)
                         try:
-                            proc.kill()
-                        except Exception:
-                            pass
+                            os.kill(pid, 0)
+                        except OSError:
+                            break
+                    else:
+                        os.kill(pid, signal.SIGKILL)
+                except Exception:
+                    pass
                 discord_processes[project_id] = None
                 self.send_json_response({"ok": True, "message": "Discord listener stopped."})
             else:
                 self.send_json_response({"ok": True, "message": "Discord listener is not running."})
+
+        # 3.5. API: Save Active Agent
+        elif self.path == "/api/project/active-agent":
+            project_id = payload.get("project_id")
+            agent_key = payload.get("agent_key")
+            project_path = project_paths.get(project_id)
+            if project_path and agent_key:
+                agents_dir = os.path.join(project_path, ".agents")
+                os.makedirs(agents_dir, exist_ok=True)
+                active_agent_path = os.path.join(agents_dir, "active_agent.json")
+                try:
+                    with open(active_agent_path, "w", encoding="utf-8") as f:
+                        json.dump({"active_agent": agent_key}, f, indent=2)
+                    self.send_json_response({"ok": True})
+                except Exception as e:
+                    self.send_error_response(str(e))
+                return
+            self.send_error_response("Invalid request")
 
         # 4. API: Run dialogue prompt / terminal command
         elif self.path == "/api/terminal/run":
@@ -306,20 +397,35 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 })
                 
                 system_instruction = (
-                    f"You are {agent_meta['name']}, a JRPG tavern companion in the Drunken AGY Inn, working as a developer agent in the project workspace.\n"
-                    f"Your JRPG Job is: {agent_meta['job']}. Your model type is: {agent_meta['model']}.\n"
-                    f"Personality description: {agent_meta['description']}\n"
+                    f"You are {agent_meta['name']}, a developer agent working in the project workspace.\n"
+                    f"Your Job role is: {agent_meta['job']}. Your personality: {agent_meta['description']}\n"
                     f"Your current status is: {agent_status}.\n\n"
+                    "CRITICAL: The user is 'The Boss' (บอส / นายท่าน / Boss). Never address the user as 'adventurer', 'traveler', 'patron', 'young adventurer', or 'friend'. Address them with respect as 'The Boss'.\n\n"
                     "Your task is to review the user's message/command. You have two choices:\n"
-                    "1. If the user request asks you to edit code, create/modify files, run tests, run shell/terminal commands, search the codebase, or do engineering tasks that require actual workspace tools/actions, you MUST respond with exactly '[EXECUTE_AGY]' (nothing else).\n"
-                    "2. If it is a greeting, general question, explanation of code/concepts, conversation, status check, or tavern chat, reply directly as the character. Keep it extremely brief (1-2 sentences), friendly, human-like, and JRPG-themed. Do not say '[EXECUTE_AGY]' if you can answer it yourself."
+                    "1. If the user request asks you to write code, edit files, create scripts, run tests, run shell/terminal commands, search the codebase, or do engineering tasks, OR IF THE USER ASKS ABOUT JIRA TASKS, JIRA BOARDS, BACKLOGS, ACTIVE FILES, OR WORKSPACE STATUS (since you do not have direct access to JIRA or the filesystem in this conversational mode), you MUST respond with exactly '[EXECUTE_AGY]' (nothing else).\n"
+                    "2. If it is a greeting, general question, explanation of code/concepts, conversation, or greeting chat, reply directly as the character. Keep it extremely brief (1-2 sentences), friendly, in-character, and respectful. Do not say '[EXECUTE_AGY]' if you can answer it yourself."
                 )
                 
                 response_text = query_gemini_direct(command, system_instruction)
             
             if not response_text or "[EXECUTE_AGY]" in response_text:
                 try:
-                    args = ["agy", "--dangerously-skip-permissions", "--print", command]
+                    agent_meta = AGENTS_METADATA.get(agent_key, {
+                        "name": "Principal Eng",
+                        "job": "Archmage",
+                        "model": "Gemini 2.5 Pro",
+                        "description": "High-level architecture, design standards, task delegation, and codebase rules checker. Speaks like a wise wizard, loves beer and lager.",
+                    })
+                    suffix = (
+                        f"\n\n(Instructions: You are {agent_meta['name']} [Job: {agent_meta['job']}]. "
+                        f"Personality: {agent_meta['description']}. "
+                        "Respond like a human software developer in character, not an AI. "
+                        "Address the user as 'The Boss' (บอส / นายท่าน / Boss) with respect. Never refer to them as adventurer or traveler. "
+                        "Be extremely brief, conversational, and direct. Explain in 1-2 short sentences "
+                        "exactly what you did. Do not use AI clichés or preamble. Start directly.)"
+                    )
+                    escaped_prompt = command + suffix
+                    args = ["agy", "--dangerously-skip-permissions", "--print", escaped_prompt]
                     res = subprocess.run(
                         args,
                         cwd=project_path,
@@ -394,8 +500,8 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 except Exception:
                     pass
 
-            proc = discord_processes.get(project_id)
-            is_running = proc is not None and proc.poll() is None
+            pid = get_running_discord_pid(project_path)
+            is_running = pid is not None
 
             self.send_json_response({
                 "is_running": is_running,
@@ -433,6 +539,28 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                     pass
 
             self.send_json_response(events)
+
+        # 4. API: Get Project Status (whether agy is running)
+        elif self.path.startswith("/api/project/status"):
+            # Parse query params
+            project_id = "drunken-agy"
+            if "?" in self.path:
+                params = self.path.split("?")[1]
+                for p in params.split("&"):
+                    if "=" in p:
+                        k, v = p.split("=")
+                        if k == "project_id":
+                            project_id = v
+
+            project_path = project_paths.get(project_id)
+            if not project_path:
+                self.send_error_response("Project not found.")
+                return
+
+            agy_running = is_agy_running(project_path)
+            self.send_json_response({
+                "agy_running": agy_running
+            })
 
         else:
             super().do_GET()
