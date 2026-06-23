@@ -11,7 +11,6 @@ Welcome to the official manual for the **Drunken AGY Suite**—a set of lightwei
 4. [🛠️ Post-Install Configuration](#4-post-install-configuration)
 5. [💬 Discord Integration & Listener Setup](#5-discord-integration--listener-setup)
 6. [🎮 Running the JRPG Tavern Dashboard](#6-running-the-jrpg-tavern-dashboard)
-7. [🐳 Simulating locally via Docker (Port 8888)](#7-simulating-locally-via-docker-port-8888)
 
 ---
 
@@ -118,25 +117,3 @@ drunken-dashboard [port]
 *   **Work Mode:** Agent glows cyan and prints strict engineering code/logs in the console.
 *   **Rest Mode:** Agent sways, drinks virtual ale, and screams funny programming rants when you chat with them.
 *   **Tavern Bell:** Ring the bell to toggle the active mode of all agents concurrently.
-
----
-
-## 🐳 7. Simulating locally via Docker (Port 8888)
-
-To simulate the dashboard in an isolated environment without installing Python dependencies locally, run it via Docker:
-
-### 1) Build the Image
-```bash
-docker build -t drunken-agy .
-```
-
-### 2) Run the Container on Port 8888
-```bash
-docker run -d -p 8888:8888 --name drunken-tavern-test drunken-agy
-```
-
-### 3) Test Connectivity
-Open your web browser and navigate to:
-👉 **[http://localhost:8888](http://localhost:8888)**
-
-*(Note: Webbrowser auto-open is ignored in headless Docker environments, but the dashboard is fully accessible via the link above).*
