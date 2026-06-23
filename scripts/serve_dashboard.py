@@ -36,56 +36,95 @@ def load_dotenv():
             break
         curr_dir = parent
 
+def send_to_discord(project_path, user_msg, bot_msg):
+    env_path = os.path.join(project_path, '.env')
+    if not os.path.exists(env_path):
+        return
+        
+    bot_token = None
+    channel_id = None
+    try:
+        with open(env_path, 'r', encoding='utf-8') as f:
+            for line in f:
+                line = line.strip()
+                if line.startswith('DISCORD_BOT_TOKEN='):
+                    bot_token = line.split('=', 1)[1].strip().strip('"').strip("'")
+                elif line.startswith('DISCORD_CHANNEL_ID='):
+                    channel_id = line.split('=', 1)[1].strip().strip('"').strip("'")
+    except Exception:
+        pass
+                
+    if bot_token and channel_id:
+        url = f"https://discord.com/api/v10/channels/{channel_id}/messages"
+        headers = {
+            "Authorization": f"Bot {bot_token}",
+            "Content-Type": "application/json"
+        }
+        
+        # Format the message
+        # Discord has a 2000 character limit per message
+        content = f"**[Dashboard Terminal] The Boss:**\n> {user_msg}\n\n**Agent Response:**\n{bot_msg}"
+        if len(content) > 1900:
+            content = content[:1900] + "... (truncated)"
+            
+        data = {"content": content}
+        try:
+            req = urllib.request.Request(url, data=json.dumps(data).encode('utf-8'), headers=headers, method='POST')
+            with urllib.request.urlopen(req, timeout=5):
+                pass
+        except Exception as e:
+            print(f"Failed to send to discord: {e}")
+
 # Automatically load local .env variables at startup
 load_dotenv()
 
 
 AGENTS_METADATA = {
     "principal-engineer": {
-        "name": "Principal Eng",
-        "job": "Archmage",
+        "name": "ARCHMAGE",
+        "job": "Principal Eng",
         "model": "Gemini 2.5 Pro",
         "description": "High-level architecture, design standards, task delegation, and codebase rules checker. Speaks like a wise wizard, loves beer and lager.",
     },
     "devops-engineer": {
-        "name": "DevOps Eng",
-        "job": "Iron Knight",
+        "name": "KNIGHT",
+        "job": "DevOps Eng",
         "model": "Gemini 2.5 Flash",
         "description": "Delivery pipelines, K8s orchestration, Docker, IaC. Speaks like an armored guardian, loves green IPAs and pipeline monitoring.",
     },
     "laravel-developer": {
-        "name": "Laravel Dev",
-        "job": "Alchemist",
+        "name": "ALCHEMIST",
+        "job": "Laravel Dev",
         "model": "Gemini 2.5 Flash",
         "description": "PHP, Laravel, migrations, blade templates. Speaks like a potion brewer, loves Artisan commands and caching whiskey in Redis.",
     },
     "qa-engineer": {
-        "name": "QA Eng",
-        "job": "Ranger",
+        "name": "RANGER",
+        "job": "QA Eng",
         "model": "Gemini 2.5 Flash",
         "description": "Testing, Cypress, E2E suites. Speaks like a sharp shooter, likes finding bugs and ordering 0, 9999, or -1 beers.",
     },
     "security-engineer": {
-        "name": "Security Eng",
-        "job": "Rogue",
+        "name": "ROGUE",
+        "job": "Security Eng",
         "model": "Gemini 2.5 Pro",
         "description": "Vulnerability scanning, secret detection. Speaks like a rogue hiding in shadows, likes encrypted rum and SQL injection menu cards.",
     },
     "voice-ai-specialist": {
-        "name": "Voice Specialist",
-        "job": "Bard",
+        "name": "BARD",
+        "job": "Voice Specialist",
         "model": "Gemini 2.5 Pro",
         "description": "Speech, WebRTC, Whisper. Speaks like a bard playing lute, singing sea shanties and audio tuning.",
     },
     "agentic-systems-specialist": {
-        "name": "Agentic Specialist",
-        "job": "Summoner",
+        "name": "SUMMONER",
+        "job": "Agentic Specialist",
         "model": "Gemini 2.5 Pro",
         "description": "Multi-agent coordination, workspaces. Speaks like a summoner controling subagents, using low-power screensaver mode.",
     },
     "fullstack-engineer": {
-        "name": "Fullstack Eng",
-        "job": "Spellsword",
+        "name": "BLADE",
+        "job": "Fullstack Eng",
         "model": "Gemini 2.5 Flash",
         "description": "Frontend, backend, CSS, responsive layout. Speaks like a dual-wielding warrior, struggling to center divs and styling with HSL colors.",
     }
@@ -282,10 +321,12 @@ def is_agy_running(project_path):
         normalized_path = os.path.normpath(project_path)
         res = subprocess.run(["ps", "aux"], capture_output=True, text=True, timeout=5)
         for line in res.stdout.splitlines():
+            # Check if "agy" is anywhere in the command string (column 10 onwards)
             parts = line.split()
             if len(parts) > 10:
-                cmd = parts[10]
-                if cmd == "agy" or cmd.endswith("/agy"):
+                cmd_full = " ".join(parts[10:])
+                # Filter out grep and ensure we are matching agy execution
+                if ("agy " in cmd_full or cmd_full.endswith("agy") or "/agy" in cmd_full) and "grep" not in cmd_full and "serve_dashboard" not in cmd_full:
                     pid = parts[1]
                     cwd_res = subprocess.run(["lsof", "-a", "-d", "cwd", "-p", pid], capture_output=True, text=True, timeout=2)
                     if normalized_path in cwd_res.stdout:
@@ -497,13 +538,27 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 response_text = query_gemini_direct(command, system_instruction)
             
             if not response_text or "[EXECUTE_AGY]" in response_text:
-                try:
-                    agent_meta = AGENTS_METADATA.get(agent_key, {
-                        "name": "Principal Eng",
-                        "job": "Archmage",
-                        "model": "Gemini 2.5 Pro",
-                        "description": "High-level architecture, design standards, task delegation, and codebase rules checker. Speaks like a wise wizard, loves beer and lager.",
-                    })
+                agent_meta = AGENTS_METADATA.get(agent_key, {
+                    "name": "Principal Eng",
+                    "job": "Archmage",
+                    "model": "Gemini 2.5 Pro",
+                    "description": "High-level architecture, design standards, task delegation, and codebase rules checker. Speaks like a wise wizard, loves beer and lager.",
+                })
+                
+                # Immediate response to UI
+                response_text = f"On it, Boss! I'll work on '{command}' asynchronously and let you know when it's done."
+                self.send_json_response({"ok": True, "output": response_text})
+                
+                # Notify Discord that we started it
+                import threading
+                threading.Thread(
+                    target=send_to_discord, 
+                    args=(project_path, command, response_text),
+                    daemon=True
+                ).start()
+                
+                # Start background thread to run agy
+                def run_agy_async():
                     suffix = (
                         f"\n\n(Instructions: You are {agent_meta['name']} [Job: {agent_meta['job']}]. "
                         f"Personality: {agent_meta['description']}. "
@@ -514,24 +569,38 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                     )
                     escaped_prompt = command + suffix
                     args = ["agy", "--dangerously-skip-permissions", "--print", escaped_prompt]
-                    res = subprocess.run(
-                        args,
-                        cwd=project_path,
-                        capture_output=True,
-                        text=True,
-                        timeout=60
-                    )
-                    raw_out = res.stdout + "\n" + res.stderr
-                    clean_resp = extract_clean_response(raw_out)
-                    if not clean_resp:
-                        clean_resp = raw_out.strip() or "Task completed without output."
-                    response_text = clean_resp
-                except subprocess.TimeoutExpired:
-                    response_text = "Task execution timed out (60 seconds)."
-                except Exception as e:
-                    response_text = f"Failed to execute task: {e}"
+                    try:
+                        res = subprocess.run(
+                            args,
+                            cwd=project_path,
+                            capture_output=True,
+                            text=True
+                            # no timeout so it can run as long as it needs
+                        )
+                        raw_out = res.stdout + "\n" + res.stderr
+                        clean_resp = extract_clean_response(raw_out)
+                        if not clean_resp:
+                            clean_resp = raw_out.strip() or "Task completed without output."
+                        final_result = f"✅ **Task Completed:** `{command}`\n\n{clean_resp}"
+                    except Exception as e:
+                        final_result = f"❌ **Task Failed:** `{command}`\n\nError: {e}"
+                        
+                    # Notify Discord of completion!
+                    send_to_discord(project_path, "System Update", final_result)
+                
+                threading.Thread(target=run_agy_async, daemon=True).start()
+                return
             
+            # If it's just a conversational reply (no EXECUTE_AGY)
             self.send_json_response({"ok": True, "output": response_text})
+            
+            # Send mirror to Discord
+            import threading
+            threading.Thread(
+                target=send_to_discord, 
+                args=(project_path, command, response_text),
+                daemon=True
+            ).start()
 
         else:
             self.send_response(404)
@@ -666,8 +735,19 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 return
 
             agy_running = is_agy_running(project_path)
+            active_agent = None
+            try:
+                active_agent_path = os.path.join(project_path, ".agents", "active_agent.json")
+                if os.path.exists(active_agent_path):
+                    with open(active_agent_path, "r") as f:
+                        data = json.load(f)
+                        active_agent = data.get("active_agent")
+            except Exception:
+                pass
+
             self.send_json_response({
-                "agy_running": agy_running
+                "agy_running": agy_running,
+                "active_agent": active_agent
             })
 
         else:
