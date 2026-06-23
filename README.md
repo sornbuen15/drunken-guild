@@ -128,6 +128,22 @@ python3 scripts/sync_customizations.py --global
 ```
 Installs the agents and skills globally for any Antigravity workspace to use.
 
+### 🧙 Available Agent Skills
+
+The suite includes the following pre-configured skills (located in the [skills/](file:///Users/r.jakkawan/Projects/drunken-agy/skills/) directory) that can be loaded by your Antigravity agents:
+
+*   **[git-workflow](file:///Users/r.jakkawan/Projects/drunken-agy/skills/git-workflow/SKILL.md)**: Enforces Git branching rules, Pull Requests, release workflows, and GitHub CLI (`gh`) best practices.
+*   **[next-task](file:///Users/r.jakkawan/Projects/drunken-agy/skills/next-task/SKILL.md)**: Moves high-priority items from the backlog/todo to in-progress using the Jira bridge.
+*   **[backlog-refinement](file:///Users/r.jakkawan/Projects/drunken-agy/skills/backlog-refinement/SKILL.md)**: Refines backlog tasks and aligns local items with Jira.
+*   **[confluence-sync](file:///Users/r.jakkawan/Projects/drunken-agy/skills/confluence-sync/SKILL.md)**: Syncs local documentation files (Specs, ADRs, etc.) with Confluence Cloud.
+*   **[debug-mantra](file:///Users/r.jakkawan/Projects/drunken-agy/skills/debug-mantra/SKILL.md)**: A 4-step disciplined debugging approach (reproduce, trace, falsify, cross-reference).
+*   **[management-talk](file:///Users/r.jakkawan/Projects/drunken-agy/skills/management-talk/SKILL.md)**: Rewrites highly technical logs/messages for leadership (VPs, PMs, directors).
+*   **[post-mortem](file:///Users/r.jakkawan/Projects/drunken-agy/skills/post-mortem/SKILL.md)**: Standardizes bug post-mortem documentation once a fix is landed.
+*   **[project-audit-reviewer](file:///Users/r.jakkawan/Projects/drunken-agy/skills/project-audit-reviewer/SKILL.md)**: Audits codebase health, architecture compliance, and security posture.
+*   **[scrutinize](file:///Users/r.jakkawan/Projects/drunken-agy/skills/scrutinize/SKILL.md)**: An independent review flow to audit proposed changes and PRs.
+*   **[system-design-rules](file:///Users/r.jakkawan/Projects/drunken-agy/skills/system-design-rules/SKILL.md)**: Guidelines for system architecture, API contracts, and design trade-offs.
+*   **[task-estimation](file:///Users/r.jakkawan/Projects/drunken-agy/skills/task-estimation/SKILL.md)**: Standardizes task complexity, requirements, and estimation.
+
 ---
 
 ## 💬 3. Discord Integration Suite
