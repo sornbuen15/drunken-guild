@@ -55,8 +55,9 @@ def get_jira_token():
         return token
     
     # 2. Try to read from global config
-    global_conf = "/Users/r.jakkawan/.gemini/config/jira_config.json"
+    global_conf = os.path.expanduser("~/.gemini/config/jira_config.json")
     if os.path.exists(global_conf):
+
         try:
             with open(global_conf, "r", encoding="utf-8") as f:
                 data = json.load(f)
@@ -226,7 +227,7 @@ def main():
             pass
             
     # 2. Try to fill missing fields from global config
-    global_conf = "/Users/r.jakkawan/.gemini/config/jira_config.json"
+    global_conf = os.path.expanduser("~/.gemini/config/jira_config.json")
     if os.path.exists(global_conf):
         try:
             with open(global_conf, "r", encoding="utf-8") as f:

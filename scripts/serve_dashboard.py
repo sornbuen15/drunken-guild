@@ -213,7 +213,7 @@ def is_agy_running(project_path):
 def load_projects_mapping():
     global project_paths
     project_paths = {}
-    projects_dir = "/Users/r.jakkawan/.gemini/config/projects"
+    projects_dir = os.path.expanduser("~/.gemini/config/projects")
     if os.path.exists(projects_dir):
         for fpath in glob.glob(os.path.join(projects_dir, "*.json")):
             try:
@@ -227,7 +227,7 @@ def load_projects_mapping():
                 pass
                 
     # Ensure current workspace is mapped
-    curr_workspace = "/Users/r.jakkawan/Projects/drunken-agy"
+    curr_workspace = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     if "drunken-agy" not in project_paths:
         project_paths["drunken-agy"] = curr_workspace
 

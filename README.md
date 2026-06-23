@@ -11,7 +11,7 @@ Instead of dealing with bloated payloads or sober, boring setups, this suite bri
 Drunken AGY is packaged as a global Python CLI tool. Install it once locally to make its commands accessible from anywhere in your terminal:
 
 ```bash
-cd /Users/r.jakkawan/Projects/drunken-agy
+cd /path/to/drunken-agy
 pip install -e .
 ```
 
