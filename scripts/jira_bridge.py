@@ -54,7 +54,18 @@ def get_jira_token():
     if token:
         return token
     
-    # 2. Try to read from jira_config.json
+    # 2. Try to read from global config
+    global_conf = "/Users/operator/.gemini/config/jira_config.json"
+    if os.path.exists(global_conf):
+        try:
+            with open(global_conf, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                if data.get("jira_token"):
+                    return data["jira_token"]
+        except Exception:
+            pass
+
+    # 3. Try to read from local jira_config.json
     config_file = find_config()
     if config_file:
         try:
@@ -65,7 +76,7 @@ def get_jira_token():
         except Exception:
             pass
     
-    # 3. Try 1Password CLI as a fallback
+    # 4. Try 1Password CLI as a fallback
     JIRA_PASS_URIS = [
         "op://Vault/Jira-TFF/credential",
         "op://Private/Jira-TFF/credential",
@@ -82,6 +93,7 @@ def get_jira_token():
             continue
         
     return None
+
 
 
 def make_request(url, method="GET", payload=None, email=None, token=None):
@@ -202,13 +214,37 @@ def main():
         print("Usage: jira_bridge.py <action> [args]", file=sys.stderr)
         sys.exit(1)
         
+    jira_config = {}
+    
+    # 1. Try to load from local config if it exists
     config_path = find_config()
-    if not config_path:
-        print("Error: .agents/jira_config.json not found in workspace.", file=sys.stderr)
-        sys.exit(1)
-        
-    with open(config_path, 'r', encoding='utf-8') as f:
-        jira_config = json.load(f)
+    if config_path:
+        try:
+            with open(config_path, 'r', encoding='utf-8') as f:
+                jira_config = json.load(f)
+        except Exception:
+            pass
+            
+    # 2. Try to fill missing fields from global config
+    global_conf = "/Users/operator/.gemini/config/jira_config.json"
+    if os.path.exists(global_conf):
+        try:
+            with open(global_conf, "r", encoding="utf-8") as f:
+                g_data = json.load(f)
+                for k in ["jira_url", "jira_email", "project_key"]:
+                    if k not in jira_config or not jira_config[k]:
+                        jira_config[k] = g_data.get(k)
+        except Exception:
+            pass
+
+    # 3. Try to fill from environment variables (loaded .env)
+    if "jira_url" not in jira_config or not jira_config["jira_url"]:
+        jira_config["jira_url"] = os.environ.get("JIRA_URL") or "https://your-domain.atlassian.net"
+    if "jira_email" not in jira_config or not jira_config["jira_email"]:
+        jira_config["jira_email"] = os.environ.get("JIRA_EMAIL") or "sornbuen15@gmail.com"
+    if "project_key" not in jira_config or not jira_config["project_key"]:
+        jira_config["project_key"] = os.environ.get("JIRA_PROJECT_KEY") or "ALPHA"
+
         
     token = get_jira_token()
     if not token:
