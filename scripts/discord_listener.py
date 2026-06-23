@@ -49,7 +49,8 @@ def query_gemini_direct(prompt, system_instruction=None):
         "contents": contents,
         "generationConfig": {
             "maxOutputTokens": 400,
-            "temperature": 0.7
+            "temperature": 0.7,
+            "responseMimeType": "application/json"
         }
     }
     
@@ -629,10 +630,24 @@ async def on_message(message):
                 clean_json = re.sub(r'```(?:json)?\n?(.*?)\n?```', r'\1', direct_response, flags=re.DOTALL).strip()
                 router_data = json.loads(clean_json)
             except Exception as e:
-                router_data = {"is_task": False, "mina_response": direct_response}
+                # Fallback: Extract using regex if JSON is truncated or malformed
+                mina_match = re.search(r'"mina_response"\s*:\s*"([^"]+)', direct_response)
+                agent_match = re.search(r'"target_agent"\s*:\s*"([^"]+)', direct_response)
+                
+                if agent_match:
+                    router_data = {"is_task": True, "target_agent": agent_match.group(1), "refined_prompt": content_str}
+                elif mina_match:
+                    router_data = {"is_task": False, "mina_response": mina_match.group(1)}
+                else:
+                    router_data = {"is_task": False, "mina_response": "เอ่อ... บอสคะ สัญญาณขาดหาย มิน่าฟังไม่ค่อยถนัดเลยค่ะ รบกวนพิมพ์ใหม่อีกรอบได้ไหมคะ? 😅"}
                 
             if not router_data.get("is_task"):
                 resp = router_data.get("mina_response", direct_response)
+                if isinstance(resp, dict):
+                    resp = str(resp)
+                # Cleanup common broken json artifacts
+                resp = resp.replace('{"is_task": false, "mina_response": "', '').replace('"}', '').strip()
+                
                 log_activity("agent", "Mina", resp)
                 await message.channel.send(f"🍹 **Mina [Hostess]:** {resp}")
                 return
