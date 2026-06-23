@@ -264,6 +264,65 @@ document.addEventListener('DOMContentLoaded', () => {
     let currentProjectId = "";
     let projectStates = {}; // Schema: { projectId: { agentStates: {...}, selectedAgentKey: "...", logs: [...] } }
     let lastActivityTimes = {}; // Schema: { projectId: timestamp }
+
+    // Toast container for JRPG style notifications
+    const toastContainer = document.createElement('div');
+    toastContainer.id = 'toast-container';
+    toastContainer.style.position = 'fixed';
+    toastContainer.style.top = '20px';
+    toastContainer.style.right = '20px';
+    toastContainer.style.zIndex = '9999';
+    toastContainer.style.display = 'flex';
+    toastContainer.style.flexDirection = 'column';
+    toastContainer.style.gap = '10px';
+    document.body.appendChild(toastContainer);
+
+    function showToast(title, message, projectId) {
+        const toast = document.createElement('div');
+        toast.className = 'jrpg-toast';
+        toast.style.background = 'rgba(10, 20, 40, 0.95)';
+        toast.style.border = '2px solid #5a9fd4';
+        toast.style.boxShadow = '0 0 10px rgba(90, 159, 212, 0.6)';
+        toast.style.color = '#fff';
+        toast.style.padding = '12px';
+        toast.style.borderRadius = '4px';
+        toast.style.minWidth = '260px';
+        toast.style.maxWidth = '360px';
+        toast.style.cursor = 'pointer';
+        toast.style.transition = 'all 0.3s ease';
+        toast.style.opacity = '0';
+        toast.style.transform = 'translateY(-20px)';
+        toast.style.fontFamily = "'Outfit', sans-serif";
+
+        toast.innerHTML = `
+            <div style="font-family: 'Press Start 2P', monospace; font-size: 8px; color: #ffd700; margin-bottom: 5px;">🔔 [ALERT] ${title}</div>
+            <div style="font-size: 13px; color: #e0e0e0; font-weight: 500;">${message}</div>
+            <div style="font-size: 10px; color: #888; margin-top: 5px; font-style: italic; text-align: right;">☞ Click to switch Realm</div>
+        `;
+
+        toast.addEventListener('click', () => {
+            const select = document.getElementById('project-select');
+            if (select) {
+                select.value = projectId;
+                switchProject(projectId);
+            }
+            toast.remove();
+        });
+
+        toastContainer.appendChild(toast);
+
+        // Animation
+        setTimeout(() => {
+            toast.style.opacity = '1';
+            toast.style.transform = 'translateY(0)';
+        }, 50);
+
+        setTimeout(() => {
+            toast.style.opacity = '0';
+            toast.style.transform = 'translateY(-20px)';
+            setTimeout(() => toast.remove(), 300);
+        }, 6000);
+    }
     
     let selectedAgentKey = "principal-engineer";
     let agentStates = {};
@@ -302,6 +361,19 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         currentProjectId = projectId;
+
+        // Restore raw name in selector
+        const select = document.getElementById('project-select');
+        if (select) {
+            Array.from(select.options).forEach(opt => {
+                if (opt.value === projectId) {
+                    const rawName = opt.getAttribute('data-raw-name');
+                    if (rawName) {
+                        opt.textContent = rawName;
+                    }
+                }
+            });
+        }
 
         if (!lastActivityTimes[projectId]) {
             lastActivityTimes[projectId] = Date.now() / 1000;
@@ -366,6 +438,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         opt.value = p.id;
                         opt.textContent = p.name;
                         opt.title = p.name;
+                        opt.setAttribute('data-raw-name', p.name); // Store raw name
                         select.appendChild(opt);
                     });
                     
@@ -676,27 +749,62 @@ document.addEventListener('DOMContentLoaded', () => {
             console.error("Failed to fetch Discord status:", e);
         }
 
-        // Fetch activity logs
+        // Fetch activity logs for all projects
         try {
-            const actRes = await fetch(`/api/discord/activity?project_id=${currentProjectId}&_=${Date.now()}`);
+            const actRes = await fetch(`/api/discord/activity/all?_=${Date.now()}`);
             if (actRes.ok) {
-                const activities = await actRes.json();
-                const lastTime = lastActivityTimes[currentProjectId] || 0;
-                let newLastTime = lastTime;
+                const allActivities = await actRes.json();
                 
-                activities.forEach(act => {
-                    if (act.timestamp > lastTime) {
-                        if (act.type === 'user') {
-                            writeToTerminal("system", `[Sys-Discord] ${act.author}: ${act.content}`);
-                        } else {
-                            writeToTerminal("system", `[Sys-Discord] Response: ${act.content}`);
+                Object.keys(allActivities).forEach(projectId => {
+                    const activities = allActivities[projectId];
+                    const lastTime = lastActivityTimes[projectId] || 0;
+                    let newLastTime = lastTime;
+                    let hasNewMessage = false;
+                    let lastMessageText = "";
+                    let lastMessageAuthor = "";
+
+                    activities.forEach(act => {
+                        if (act.timestamp > lastTime) {
+                            hasNewMessage = true;
+                            if (act.type === 'user') {
+                                lastMessageAuthor = act.author;
+                                lastMessageText = act.content;
+                                if (projectId === currentProjectId) {
+                                    writeToTerminal("system", `[Sys-Discord] ${act.author}: ${act.content}`);
+                                }
+                            } else {
+                                lastMessageAuthor = "Response";
+                                lastMessageText = act.content;
+                                if (projectId === currentProjectId) {
+                                    writeToTerminal("system", `[Sys-Discord] Response: ${act.content}`);
+                                }
+                            }
+                            if (act.timestamp > newLastTime) {
+                                newLastTime = act.timestamp;
+                            }
                         }
-                        if (act.timestamp > newLastTime) {
-                            newLastTime = act.timestamp;
+                    });
+                    
+                    if (hasNewMessage) {
+                        lastActivityTimes[projectId] = newLastTime;
+                        // Show notification if it is not the active project, and it's not the first loading initialization
+                        if (projectId !== currentProjectId && lastTime > 0) {
+                            const select = document.getElementById('project-select');
+                            let pName = projectId;
+                            if (select) {
+                                Array.from(select.options).forEach(opt => {
+                                    if (opt.value === projectId) {
+                                        pName = opt.getAttribute('data-raw-name') || opt.textContent;
+                                        if (!opt.textContent.startsWith("🆕")) {
+                                            opt.textContent = "🆕 " + pName;
+                                        }
+                                    }
+                                });
+                            }
+                            showToast(`${pName} Realm`, `${lastMessageAuthor}: ${lastMessageText}`, projectId);
                         }
                     }
                 });
-                lastActivityTimes[currentProjectId] = newLastTime;
             }
         } catch (actErr) {
             console.error("Failed to fetch Discord activity:", actErr);
