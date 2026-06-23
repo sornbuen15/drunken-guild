@@ -36,6 +36,45 @@ def load_dotenv():
             break
         curr_dir = parent
 
+def send_to_discord(project_path, user_msg, bot_msg):
+    env_path = os.path.join(project_path, '.env')
+    if not os.path.exists(env_path):
+        return
+        
+    bot_token = None
+    channel_id = None
+    try:
+        with open(env_path, 'r', encoding='utf-8') as f:
+            for line in f:
+                line = line.strip()
+                if line.startswith('DISCORD_BOT_TOKEN='):
+                    bot_token = line.split('=', 1)[1].strip().strip('"').strip("'")
+                elif line.startswith('DISCORD_CHANNEL_ID='):
+                    channel_id = line.split('=', 1)[1].strip().strip('"').strip("'")
+    except Exception:
+        pass
+                
+    if bot_token and channel_id:
+        url = f"https://discord.com/api/v10/channels/{channel_id}/messages"
+        headers = {
+            "Authorization": f"Bot {bot_token}",
+            "Content-Type": "application/json"
+        }
+        
+        # Format the message
+        # Discord has a 2000 character limit per message
+        content = f"**[Dashboard Terminal] The Boss:**\n> {user_msg}\n\n**Agent Response:**\n{bot_msg}"
+        if len(content) > 1900:
+            content = content[:1900] + "... (truncated)"
+            
+        data = {"content": content}
+        try:
+            req = urllib.request.Request(url, data=json.dumps(data).encode('utf-8'), headers=headers, method='POST')
+            with urllib.request.urlopen(req, timeout=5):
+                pass
+        except Exception as e:
+            print(f"Failed to send to discord: {e}")
+
 # Automatically load local .env variables at startup
 load_dotenv()
 
@@ -497,13 +536,27 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 response_text = query_gemini_direct(command, system_instruction)
             
             if not response_text or "[EXECUTE_AGY]" in response_text:
-                try:
-                    agent_meta = AGENTS_METADATA.get(agent_key, {
-                        "name": "Principal Eng",
-                        "job": "Archmage",
-                        "model": "Gemini 2.5 Pro",
-                        "description": "High-level architecture, design standards, task delegation, and codebase rules checker. Speaks like a wise wizard, loves beer and lager.",
-                    })
+                agent_meta = AGENTS_METADATA.get(agent_key, {
+                    "name": "Principal Eng",
+                    "job": "Archmage",
+                    "model": "Gemini 2.5 Pro",
+                    "description": "High-level architecture, design standards, task delegation, and codebase rules checker. Speaks like a wise wizard, loves beer and lager.",
+                })
+                
+                # Immediate response to UI
+                response_text = f"On it, Boss! I'll work on '{command}' asynchronously and let you know when it's done."
+                self.send_json_response({"ok": True, "output": response_text})
+                
+                # Notify Discord that we started it
+                import threading
+                threading.Thread(
+                    target=send_to_discord, 
+                    args=(project_path, command, response_text),
+                    daemon=True
+                ).start()
+                
+                # Start background thread to run agy
+                def run_agy_async():
                     suffix = (
                         f"\n\n(Instructions: You are {agent_meta['name']} [Job: {agent_meta['job']}]. "
                         f"Personality: {agent_meta['description']}. "
@@ -514,24 +567,38 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                     )
                     escaped_prompt = command + suffix
                     args = ["agy", "--dangerously-skip-permissions", "--print", escaped_prompt]
-                    res = subprocess.run(
-                        args,
-                        cwd=project_path,
-                        capture_output=True,
-                        text=True,
-                        timeout=60
-                    )
-                    raw_out = res.stdout + "\n" + res.stderr
-                    clean_resp = extract_clean_response(raw_out)
-                    if not clean_resp:
-                        clean_resp = raw_out.strip() or "Task completed without output."
-                    response_text = clean_resp
-                except subprocess.TimeoutExpired:
-                    response_text = "Task execution timed out (60 seconds)."
-                except Exception as e:
-                    response_text = f"Failed to execute task: {e}"
+                    try:
+                        res = subprocess.run(
+                            args,
+                            cwd=project_path,
+                            capture_output=True,
+                            text=True
+                            # no timeout so it can run as long as it needs
+                        )
+                        raw_out = res.stdout + "\n" + res.stderr
+                        clean_resp = extract_clean_response(raw_out)
+                        if not clean_resp:
+                            clean_resp = raw_out.strip() or "Task completed without output."
+                        final_result = f"✅ **Task Completed:** `{command}`\n\n{clean_resp}"
+                    except Exception as e:
+                        final_result = f"❌ **Task Failed:** `{command}`\n\nError: {e}"
+                        
+                    # Notify Discord of completion!
+                    send_to_discord(project_path, "System Update", final_result)
+                
+                threading.Thread(target=run_agy_async, daemon=True).start()
+                return
             
+            # If it's just a conversational reply (no EXECUTE_AGY)
             self.send_json_response({"ok": True, "output": response_text})
+            
+            # Send mirror to Discord
+            import threading
+            threading.Thread(
+                target=send_to_discord, 
+                args=(project_path, command, response_text),
+                daemon=True
+            ).start()
 
         else:
             self.send_response(404)
