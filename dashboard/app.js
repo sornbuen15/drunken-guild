@@ -819,16 +819,35 @@ document.addEventListener('DOMContentLoaded', () => {
                 
                 if (agyStatus.agy_running) {
                     document.body.classList.add('agy-running');
-                    // Automatically put all agents in working state if they weren't already
                     let updated = false;
-                    Object.keys(agentStates).forEach(key => {
-                        if (!agentStates[key]) {
-                            agentStates[key] = true;
-                            updated = true;
-                        }
-                    });
+                    
+                    if (agyStatus.active_agent && agentStates[agyStatus.active_agent] !== undefined) {
+                        // Activate ONLY the target agent
+                        Object.keys(agentStates).forEach(key => {
+                            if (key === agyStatus.active_agent) {
+                                if (!agentStates[key]) {
+                                    agentStates[key] = true;
+                                    updated = true;
+                                }
+                            } else {
+                                if (agentStates[key]) {
+                                    agentStates[key] = false;
+                                    updated = true;
+                                }
+                            }
+                        });
+                    } else {
+                        // Fallback: put all agents in working state
+                        Object.keys(agentStates).forEach(key => {
+                            if (!agentStates[key]) {
+                                agentStates[key] = true;
+                                updated = true;
+                            }
+                        });
+                    }
+                    
                     if (!wasRunning) {
-                        writeToTerminal("system", `[Realm] Active agy process detected in VS Code / terminal for "${currentProjectId}"! Party set to QUEST mode.`);
+                        writeToTerminal("system", `[Realm] Active agy process detected for "${currentProjectId}"!`);
                     }
                     if (updated) {
                         updateIndicators();
