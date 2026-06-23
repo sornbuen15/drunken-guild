@@ -13,3 +13,5 @@ This file indexes available global and workspace skills for Antigravity.
 - [task-estimation/SKILL.md](task-estimation/SKILL.md): Estimating task complexity, description, and requirements.
 - [confluence-sync/SKILL.md](confluence-sync/SKILL.md): Synchronizes project documentation files (Architecture, Specs, ADRs, and API docs) to Confluence.
 - [git-workflow/SKILL.md](git-workflow/SKILL.md): Standardized Git branching, Pull Requests, releases, and GitHub CLI (gh) best practices.
+- [acronym-namer/SKILL.md](acronym-namer/SKILL.md): Generates meaningful, thematic acronyms for projects, bots, and features.
+- [release-notes-writer/SKILL.md](release-notes-writer/SKILL.md): Standardizes the generation of professional Release Notes and Tag Version descriptions.
