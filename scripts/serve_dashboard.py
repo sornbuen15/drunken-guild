@@ -596,13 +596,33 @@ def clean_up_subprocesses():
                 pass
 
 def main():
+    global PORT
     load_projects_mapping()
     if not os.path.exists(DIRECTORY):
         print(f"Error: Dashboard directory not found at {DIRECTORY}", file=sys.stderr)
         sys.exit(1)
         
+    # Check if a custom port is passed as a command-line argument
+    if len(sys.argv) > 1:
+        try:
+            PORT = int(sys.argv[1])
+        except ValueError:
+            pass
+            
     socketserver.TCPServer.allow_reuse_address = True
-    with socketserver.TCPServer(("", PORT), Handler) as httpd:
+    try:
+        httpd = socketserver.TCPServer(("", PORT), Handler)
+    except OSError as e:
+        import errno
+        if e.errno == errno.EADDRINUSE:
+            print(f"[!] *hic* พอร์ต {PORT} ถูกใช้งานอยู่แล้วค่ะ! โรงเตี๊ยมเปิดให้บริการอยู่แล้วนะคะบอส")
+            print(f"[*] กำลังเปิดประตูบานเดิมเพื่อต้อนรับนายท่านที่: http://localhost:{PORT}")
+            open_browser()
+            sys.exit(0)
+        else:
+            raise e
+
+    with httpd:
         print(f"[*] Drunken AGY Inn JRPG Dashboard running at http://localhost:{PORT}/")
         print("[*] Press Ctrl+C to close the Inn.")
         
@@ -618,3 +638,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
