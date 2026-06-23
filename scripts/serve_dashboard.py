@@ -238,24 +238,43 @@ def start_discord_listener_for_project(project_id, project_path):
         print(f"Failed to start process for {project_id}: {e}", file=sys.stderr)
         return False
 
+def is_discord_configured_for_project(p_path):
+    # 1. Check config JSON file
+    config_path = os.path.join(p_path, ".agents", "discord_config.json")
+    if os.path.exists(config_path):
+        try:
+            with open(config_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                if data.get("bot_token") and data.get("channel_id"):
+                    return True
+        except Exception:
+            pass
+
+    # 2. Check local .env file
+    env_path = os.path.join(p_path, ".env")
+    if os.path.exists(env_path):
+        try:
+            with open(env_path, "r", encoding="utf-8") as f:
+                content = f.read()
+                # Simple substring checks to detect if token and channel variables are populated
+                if "DISCORD_BOT_TOKEN=" in content and "DISCORD_CHANNEL_ID=" in content:
+                    return True
+        except Exception:
+            pass
+            
+    return False
+
 def start_all_discord_listeners():
     load_projects_mapping()
     print("[*] Checking and auto-starting Discord transceivers for all realms...")
     for p_id, p_path in project_paths.items():
-        config_path = os.path.join(p_path, ".agents", "discord_config.json")
-        if os.path.exists(config_path):
-            try:
-                with open(config_path, "r") as f:
-                    data = json.load(f)
-                    if data.get("bot_token") and data.get("channel_id"):
-                        if get_running_discord_pid(p_path) is None:
-                            started = start_discord_listener_for_project(p_id, p_path)
-                            if started:
-                                print(f"[+] Automatically started Discord transceiver for Realm: {p_id}")
-                            else:
-                                print(f"[-] Could not find listener script to start for Realm: {p_id}")
-            except Exception as e:
-                print(f"Failed to auto-start Discord for {p_id}: {e}")
+        if is_discord_configured_for_project(p_path):
+            if get_running_discord_pid(p_path) is None:
+                started = start_discord_listener_for_project(p_id, p_path)
+                if started:
+                    print(f"[+] Automatically started Discord transceiver for Realm: {p_id}")
+                else:
+                    print(f"[-] Could not find listener script to start for Realm: {p_id}")
 
 
 def is_agy_running(project_path):
@@ -279,6 +298,7 @@ def load_projects_mapping():
     global project_paths
     project_paths = {}
     projects_dir = os.path.expanduser("~/.gemini/config/projects")
+    os.makedirs(projects_dir, exist_ok=True)
     if os.path.exists(projects_dir):
         for fpath in glob.glob(os.path.join(projects_dir, "*.json")):
             try:
@@ -290,7 +310,36 @@ def load_projects_mapping():
                         project_paths[p_id] = p_path
             except Exception:
                 pass
-                
+
+    # Automatically register current working directory (CWD) if not already registered
+    cwd_path = os.getcwd()
+    cwd_registered_id = None
+    for p_id, p_path in list(project_paths.items()):
+        if os.path.abspath(p_path) == os.path.abspath(cwd_path):
+            cwd_registered_id = p_id
+            break
+
+    if not cwd_registered_id:
+        import uuid
+        cwd_id = str(uuid.uuid4())
+        project_file = os.path.join(projects_dir, f"{cwd_id}.json")
+        reg_data = {
+            "id": cwd_id,
+            "name": os.path.abspath(cwd_path),
+            "projectResources": {
+                "resources": [
+                    { "folderUri": f"file://{os.path.abspath(cwd_path)}" }
+                ]
+            }
+        }
+        try:
+            with open(project_file, "w", encoding="utf-8") as f:
+                json.dump(reg_data, f, indent=2)
+            project_paths[cwd_id] = os.path.abspath(cwd_path)
+            print(f"[+] Automatically registered active directory in Dashboard: {cwd_path}")
+        except Exception as e:
+            print(f"[-] Failed to auto-register current directory: {e}", file=sys.stderr)
+
     # Ensure current workspace is mapped
     curr_workspace = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     if "drunken-agy" not in project_paths:
