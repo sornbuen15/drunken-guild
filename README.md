@@ -5,9 +5,42 @@ Grab a pint, pull up a sturdy wooden stool, and welcome to **Drunken AGY**! This
 
 Instead of dealing with bloated payloads or sober, boring setups, this suite brings developer-focused workflows, interactive boss approvals, a real-time pixelated tavern visualizer, and lightweight third-party integrations with zero hangover.
 
+
+## 🚀 Installation & Quick Start
+
+Drunken AGY is packaged as a global Python CLI tool. Install it once locally to make its commands accessible from anywhere in your terminal:
+
+```bash
+cd /Users/r.jakkawan/Projects/drunken-agy
+pip install -e .
+```
+
+This registers the main command utilities in your `$PATH`:
+- **`drunken-register [path]`**: Register a project path, create `.agents/` folders, initialize `ANTIGRAVITY.md` router rules, and fetch/store credentials (supporting 1Password CLI biometrics or safe local global configurations).
+- **`drunken-dashboard [port]`**: Launch the retroactive retro Tavern JRPG dashboard visualizer (defaults to port `8081`). If the port is already occupied, it opens the existing link automatically.
+- **`drunken-listen`**: Starts the Discord gateway transceiver to listen for task queries and interact with agents via **Mina (ผู้ดูแลโรงเตี๊ยม)**.
+
+### 🛎️ Registering a Project
+
+To initialize and setup Drunken AGY for any project:
+1. Open your terminal and `cd` to the target project directory.
+2. Run the register command:
+   ```bash
+   drunken-register
+   ```
+3. The command will:
+   - Ensure the `.agents/` folder is present.
+   - Generate `ANTIGRAVITY.md` router rules if missing.
+   - Detect 1Password CLI (`op`) and prompt for biometrics (Touch ID / Passkey) to fetch tokens.
+   - **No 1Password Fallback:** If 1Password is missing, it will prompt you for consent to store credentials in the global configuration folder (`~/.gemini/config/jira_config.json`) instead. If accepted, you can input JIRA credentials manually.
+   - Prompt you for the Discord Channel ID.
+   - Write `.env` and add it to `.gitignore`.
+   - Register the project inside the Tavern Dashboard registry (`~/.gemini/config/projects/`).
+
 ---
 
 ## 🍻 Features of the Inn
+
 
 1.  **Tavern Dashboard Visualizer** (`dashboard/`):
     Step inside the **Drunken AGY Inn**—a cozy retro visual dashboard where all your specialized developer agents hang out. Ring the tavern bell to switch them from **Work Mode** (glowing cyan, writing strict type-safe code) to **Rest Mode** (getting completely hammered on virtual ale, swaying, and yelling hilarious programming rants) via an interactive console!

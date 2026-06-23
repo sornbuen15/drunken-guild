@@ -17,6 +17,8 @@ dependencies = [
 drunken-setup = "scripts.setup_env:main"
 drunken-dashboard = "scripts.serve_dashboard:main"
 drunken-listen = "scripts.discord_listener:main"
+drunken-register = "scripts.register_project:main"
+
 
 [tool.setuptools]
 packages = ["scripts"]
