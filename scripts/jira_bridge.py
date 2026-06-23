@@ -78,11 +78,11 @@ def get_jira_token():
             pass
     
     # 4. Try 1Password CLI as a fallback
-    JIRA_PASS_URIS = [
-        "op://Personal/Jira-TFF/credential",
-        "op://Private/Jira-TFF/credential",
-        "op://Personal/Jira-TFF/password",
-        "op://Private/Jira-TFF/password"
+    JIRA_PASS_URIS = os.environ.get("JIRA_PASS_URIS", "").split(",") if os.environ.get("JIRA_PASS_URIS") else [
+        "op://Personal/Jira/credential",
+        "op://Private/Jira/credential",
+        "op://Personal/Jira/password",
+        "op://Private/Jira/password"
     ]
     for uri in JIRA_PASS_URIS:
         try:
@@ -240,11 +240,11 @@ def main():
 
     # 3. Try to fill from environment variables (loaded .env)
     if "jira_url" not in jira_config or not jira_config["jira_url"]:
-        jira_config["jira_url"] = os.environ.get("JIRA_URL") or "https://sornbuen15.atlassian.net"
+        jira_config["jira_url"] = os.environ.get("JIRA_URL") or ""
     if "jira_email" not in jira_config or not jira_config["jira_email"]:
-        jira_config["jira_email"] = os.environ.get("JIRA_EMAIL") or "sornbuen15@gmail.com"
+        jira_config["jira_email"] = os.environ.get("JIRA_EMAIL") or ""
     if "project_key" not in jira_config or not jira_config["project_key"]:
-        jira_config["project_key"] = os.environ.get("JIRA_PROJECT_KEY") or "ALPHA"
+        jira_config["project_key"] = os.environ.get("JIRA_PROJECT_KEY") or ""
 
         
     token = get_jira_token()
@@ -253,6 +253,10 @@ def main():
         sys.exit(1)
         
     jira_config['jira_token'] = token
+
+    if not jira_config.get("jira_url") or not jira_config.get("jira_email") or not jira_config.get("project_key"):
+        print("Error: Missing Jira configuration (jira_url, jira_email, or project_key). Please set them in your .env or global config.", file=sys.stderr)
+        sys.exit(1)
     action = sys.argv[1]
     
     if action == "get-todo":

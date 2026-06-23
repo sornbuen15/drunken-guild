@@ -69,7 +69,7 @@ def query_gemini_direct(prompt, system_instruction=None):
 
 # Defaults
 DEFAULT_BOT_TOKEN = None
-DEFAULT_CHANNEL_ID = 1518206617336811573
+DEFAULT_CHANNEL_ID = None
 RAW_LOG_FILE = 'agy_discord_raw.log'
 
 current_process = None
@@ -183,11 +183,11 @@ def load_config():
             
     # Try 1Password CLI ONLY if environment and config bot_token is empty
     if not config["bot_token"] or config["bot_token"] == DEFAULT_BOT_TOKEN:
-        DISCORD_URIS = [
-            "op://Personal/Discord-TFF/token",
-            "op://Private/Discord-TFF/token",
-            "op://Personal/Discord-TFF/credential",
-            "op://Private/Discord-TFF/credential"
+        DISCORD_URIS = os.environ.get("DISCORD_PASS_URIS", "").split(",") if os.environ.get("DISCORD_PASS_URIS") else [
+            "op://Personal/Discord/token",
+            "op://Private/Discord/token",
+            "op://Personal/Discord/credential",
+            "op://Private/Discord/credential"
         ]
         for uri in DISCORD_URIS:
             try:
@@ -211,6 +211,10 @@ CHANNEL_ID = config["channel_id"]
 
 if not BOT_TOKEN:
     print("Error: Missing Discord Bot Token. Please set DISCORD_BOT_TOKEN in env or configure it.", file=sys.stderr)
+    sys.exit(1)
+
+if not CHANNEL_ID:
+    print("Error: Missing Discord Channel ID. Please set DISCORD_CHANNEL_ID in env or configure it.", file=sys.stderr)
     sys.exit(1)
 
 intents = discord.Intents.default()

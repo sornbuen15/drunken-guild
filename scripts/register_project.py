@@ -6,10 +6,10 @@ import uuid
 import shutil
 import subprocess
 
-DEFAULT_JIRA_URL = "https://sornbuen15.atlassian.net"
-DEFAULT_JIRA_EMAIL = "sornbuen15@gmail.com"
-DEFAULT_JIRA_PROJECT = "ALPHA"
-DEFAULT_DISCORD_CHANNEL = "1518206617336811573"
+DEFAULT_JIRA_URL = ""
+DEFAULT_JIRA_EMAIL = ""
+DEFAULT_JIRA_PROJECT = ""
+DEFAULT_DISCORD_CHANNEL = ""
 
 def get_or_create_project_id(project_path):
     projects_dir = os.path.expanduser("~/.gemini/config/projects")
@@ -109,11 +109,11 @@ def main():
     op_bin = shutil.which("op")
     if op_bin:
         print("[*] พบ 1Password CLI (op) ในระบบ กำลังตรวจสอบสิทธิ์ Biometric...")
-        JIRA_PASS_URIS = [
-            "op://Personal/Jira-TFF/credential",
-            "op://Private/Jira-TFF/credential",
-            "op://Personal/Jira-TFF/password",
-            "op://Private/Jira-TFF/password"
+        JIRA_PASS_URIS = os.environ.get("JIRA_PASS_URIS", "").split(",") if os.environ.get("JIRA_PASS_URIS") else [
+            "op://Personal/Jira/credential",
+            "op://Private/Jira/credential",
+            "op://Personal/Jira/password",
+            "op://Private/Jira/password"
         ]
         
         op_success = False
@@ -169,17 +169,23 @@ def main():
         # Prompt user manually if still missing
         if not jira_token:
             print("[*] กรุณาระบุรายละเอียด JIRA Credentials ด้านล่างนี้เพื่อบันทึกลง Global Config ค่ะบอส:")
-            jira_url_input = input(f"JIRA URL [{jira_url}]: ").strip()
+            jira_url_input = input(f"JIRA URL (เช่น https://your-domain.atlassian.net) [{jira_url}]: ").strip()
             if jira_url_input:
                 jira_url = jira_url_input
+            while not jira_url:
+                jira_url = input("JIRA URL (จำเป็น): ").strip()
                 
             jira_email_input = input(f"JIRA Email [{jira_email}]: ").strip()
             if jira_email_input:
                 jira_email = jira_email_input
+            while not jira_email:
+                jira_email = input("JIRA Email (จำเป็น): ").strip()
                 
             project_key_input = input(f"Project Key [{project_key}]: ").strip()
             if project_key_input:
                 project_key = project_key_input
+            while not project_key:
+                project_key = input("Project Key (จำเป็น): ").strip()
                 
             # Loop until we get a token
             while not jira_token:
