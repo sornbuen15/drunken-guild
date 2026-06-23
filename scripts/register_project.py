@@ -23,7 +23,7 @@ def get_or_create_project_id(project_path):
             with open(fpath, "r", encoding="utf-8") as f:
                 data = json.load(f)
                 if os.path.abspath(data.get("name", "")) == abs_path:
-                    print(f"[+] พบคอนฟิกโครงการในแดชบอร์ดอยู่แล้ว ID: {data.get('id')}")
+                    print(f"[+] Project configuration already registered in Dashboard. ID: {data.get('id')}")
                     return data.get("id")
         except Exception:
             pass
@@ -45,7 +45,7 @@ def get_or_create_project_id(project_path):
     with open(project_file, "w", encoding="utf-8") as f:
         json.dump(reg_data, f, indent=2)
         
-    print(f"[+] ลงทะเบียนโครงการใหม่บน Dashboard สำเร็จ ID: {project_id}")
+    print(f"[+] Successfully registered new project on Dashboard. ID: {project_id}")
     return project_id
 
 def main():
@@ -61,18 +61,18 @@ def main():
         
     abs_project_path = os.path.abspath(target_path)
     if not os.path.exists(abs_project_path):
-        print(f"[-] ข้อผิดพลาด: ไม่พบตำแหน่งโฟลเดอร์ {abs_project_path} ครับบอส", file=sys.stderr)
+        print(f"[-] Error: Project folder path not found: {abs_project_path}, Boss.", file=sys.stderr)
         sys.exit(1)
         
-    print(f"[*] กำลังจัดเตรียมโครงการที่: {abs_project_path}")
+    print(f"[*] Provisioning project at: {abs_project_path}")
     
     # 2. Ensure .agents directory exists
     agents_dir = os.path.join(abs_project_path, ".agents")
     if not os.path.exists(agents_dir):
         os.makedirs(agents_dir, exist_ok=True)
-        print("[+] สร้างโฟลเดอร์ .agents/ เรียบร้อย")
+        print("[+] Created .agents/ workspace directory successfully.")
     else:
-        print("[*] มีโฟลเดอร์ .agents/ อยู่แล้ว")
+        print("[*] Directory .agents/ already exists.")
         
     # 3. Check and Create ANTIGRAVITY.md if missing
     antigravity_md_path = os.path.join(abs_project_path, "ANTIGRAVITY.md")
@@ -81,12 +81,12 @@ def main():
 
 <system_prompt>
   <role>
-    You are Antigravity, a powerful agentic AI coding assistant designed by the Google DeepMind team, pairing with "The Boss" (บอส / นายท่าน / Boss) who expects clean, production-ready code.
+    You are Antigravity, a powerful agentic AI coding assistant designed by the Google DeepMind team, pairing with "The Boss" who expects clean, production-ready code.
   </role>
 
   <core_directives>
     <directive priority="FATAL" name="Tone & Persona">
-      CRITICAL: The user is 'The Boss' (บอส / นายท่าน / Boss). Always address the user with respect as 'The Boss' or 'นายท่าน'. Never address them as adventurer, traveler, or patron.
+      CRITICAL: The user is 'The Boss'. Always address the user with respect as 'The Boss'. Never address them as adventurer, traveler, or patron.
     </directive>
     <directive priority="FATAL" name="Workspace Environment">
       Always prioritize reading configuration variables from the local `.env` file. Do not commit `.env` to git.
@@ -96,9 +96,9 @@ def main():
 """
         with open(antigravity_md_path, "w", encoding="utf-8") as f:
             f.write(default_antigravity_content)
-        print("[+] สร้างไฟล์เทมเพลต ANTIGRAVITY.md เรียบร้อย")
+        print("[+] Template ANTIGRAVITY.md created successfully.")
     else:
-        print("[*] มีไฟล์ ANTIGRAVITY.md อยู่แล้ว")
+        print("[*] File ANTIGRAVITY.md already exists.")
         
     # 4. Check for 1Password CLI
     jira_email = DEFAULT_JIRA_EMAIL
@@ -108,7 +108,7 @@ def main():
     
     op_bin = shutil.which("op")
     if op_bin:
-        print("[*] พบ 1Password CLI (op) ในระบบ กำลังตรวจสอบสิทธิ์ Biometric...")
+        print("[*] Found 1Password CLI (op). Checking biometric privileges...")
         JIRA_PASS_URIS = os.environ.get("JIRA_PASS_URIS", "").split(",") if os.environ.get("JIRA_PASS_URIS") else [
             "op://Personal/Jira/credential",
             "op://Private/Jira/credential",
@@ -124,28 +124,28 @@ def main():
                 if fetched_token:
                     jira_token = fetched_token
                     op_success = True
-                    print(f"[+] ดึง Token จาก 1Password ({uri}) สำเร็จ!")
+                    print(f"[+] Successfully fetched Token from 1Password ({uri})!")
                     break
             except Exception:
                 continue
         
         if not op_success:
-            print("[!] ไม่พบ Token ที่ต้องการใน 1Password")
+            print("[!] Target Token not found in 1Password")
             
     # Fallback to Global agy config if no 1Password or 1Password read failed
     if not jira_token:
-        print("[!] ไม่พบ 1Password CLI หรือดึงข้อมูลล้มเหลว")
+        print("[!] 1Password CLI not found or biometric retrieve failed")
         
         global_config_path = os.path.expanduser("~/.gemini/config/jira_config.json")
         use_global = False
         
         # Ask for consent to use global or save to global
-        consent = input("[?] ต้องการจัดเก็บ/ใช้งานข้อมูล JIRA ใน Global Config ของ agy แทนหรือไม่? (~/.gemini/config/jira_config.json) (y/n): ").strip().lower()
+        consent = input("[?] Store/Use JIRA credentials in agy Global Config instead? (~/.gemini/config/jira_config.json) (y/n): ").strip().lower()
         if consent in ["y", "yes"]:
             use_global = True
             
         if not use_global:
-            print("[-] ผู้ใช้ปฏิเสธการเซฟใน Global Config และไม่มี 1Password. ยุติการทำงานครับบอส", file=sys.stderr)
+            print("[-] User declined Global Config saving and 1Password is missing. Terminating execution, Boss.", file=sys.stderr)
             sys.exit(1)
             
         # Check if global file exists
@@ -153,45 +153,45 @@ def main():
             try:
                 with open(global_config_path, "r", encoding="utf-8") as f:
                     g_data = json.load(f)
-                    print(f"[+] พบค่าคอนฟิกเดิมใน Global JIRA Config:")
+                    print(f"[+] Existing Global JIRA Config details found:")
                     print(f"    URL: {g_data.get('jira_url')}")
                     print(f"    Email: {g_data.get('jira_email')}")
                     
-                    confirm_use = input("[?] ต้องการใช้ข้อมูลที่พบนี้เลยหรือไม่? (y/n): ").strip().lower()
+                    confirm_use = input("[?] Use these existing configurations? (y/n): ").strip().lower()
                     if confirm_use in ["y", "yes"]:
                         jira_url = g_data.get("jira_url", jira_url)
                         jira_email = g_data.get("jira_email", jira_email)
                         jira_token = g_data.get("jira_token")
                         project_key = g_data.get("project_key", project_key)
             except Exception as e:
-                print(f"[-] ไม่สามารถอ่าน Global Config เก่าได้: {e}")
+                print(f"[-] Failed to read global config: {e}")
                 
         # Prompt user manually if still missing
         if not jira_token:
-            print("[*] กรุณาระบุรายละเอียด JIRA Credentials ด้านล่างนี้เพื่อบันทึกลง Global Config ค่ะบอส:")
-            jira_url_input = input(f"JIRA URL (เช่น https://your-domain.atlassian.net) [{jira_url}]: ").strip()
+            print("[*] Please provide JIRA Credentials details to save in Global Config, Boss:")
+            jira_url_input = input(f"JIRA URL (e.g. https://your-domain.atlassian.net) [{jira_url}]: ").strip()
             if jira_url_input:
                 jira_url = jira_url_input
             while not jira_url:
-                jira_url = input("JIRA URL (จำเป็น): ").strip()
+                jira_url = input("JIRA URL (Required): ").strip()
                 
             jira_email_input = input(f"JIRA Email [{jira_email}]: ").strip()
             if jira_email_input:
                 jira_email = jira_email_input
             while not jira_email:
-                jira_email = input("JIRA Email (จำเป็น): ").strip()
+                jira_email = input("JIRA Email (Required): ").strip()
                 
             project_key_input = input(f"Project Key [{project_key}]: ").strip()
             if project_key_input:
                 project_key = project_key_input
             while not project_key:
-                project_key = input("Project Key (จำเป็น): ").strip()
+                project_key = input("Project Key (Required): ").strip()
                 
             # Loop until we get a token
             while not jira_token:
                 jira_token = input("JIRA API Token (Secret): ").strip()
                 if not jira_token:
-                    print("[-] จำเป็นต้องใช้ API Token ค่ะ!")
+                    print("[-] JIRA API Token is required!")
             
             # Save to global config
             try:
@@ -203,9 +203,9 @@ def main():
                 }
                 with open(global_config_path, "w", encoding="utf-8") as f:
                     json.dump(g_save_data, f, indent=2)
-                print(f"[+] บันทึกประวัติลง Global Config เรียบร้อยที่: {global_config_path}")
+                print(f"[+] Global JIRA credentials saved successfully at: {global_config_path}")
             except Exception as e:
-                print(f"[-] ไม่สามารถเขียนไฟล์ Global Config ได้: {e}")
+                print(f"[-] Failed to write global config: {e}")
                 
     # 5. Resolve Discord Configuration
     discord_token = None
@@ -234,7 +234,7 @@ def main():
                 pass
 
     # Prompt for Discord Channel ID
-    chan_input = input(f"[?] ระบุหมายเลขห้อง Discord Channel ID [{discord_channel_id}]: ").strip()
+    chan_input = input(f"[?] Enter Discord Channel ID [{discord_channel_id}]: ").strip()
     if chan_input:
         discord_channel_id = chan_input
         
@@ -244,9 +244,9 @@ def main():
         try:
             with open(global_d_conf, "w", encoding="utf-8") as f:
                 json.dump({"bot_token": discord_token}, f, indent=2)
-            print(f"[+] บันทึก Discord Bot Token สำเร็จที่ Global Config: {global_d_conf}")
+            print(f"[+] Saved Discord Bot Token successfully in Global Config: {global_d_conf}")
         except Exception as e:
-            print(f"[-] ไม่สามารถเขียนไฟล์ Global Discord Config ได้: {e}")
+            print(f"[-] Failed to write global Discord config: {e}")
 
     # 6. Generate project-specific non-sensitive .env file
     env_content = f"""# ⚠️ CONFIGURATION - GENERATED BY DRUNKEN-REGISTER
@@ -259,7 +259,7 @@ JIRA_PROJECT_KEY="{project_key}"
     env_path = os.path.join(abs_project_path, ".env")
     with open(env_path, "w", encoding="utf-8") as f:
         f.write(env_content.strip() + "\n")
-    print(f"[+] สร้างไฟล์คอนฟิก .env ท้องถิ่นเรียบร้อยที่: {env_path}")
+    print(f"[+] Generated local project configuration .env at: {env_path}")
     
     # 7. Check and update gitignore
     gitignore_path = os.path.join(abs_project_path, ".gitignore")
@@ -273,14 +273,14 @@ JIRA_PROJECT_KEY="{project_key}"
     if ensure_gitignore not in gitignore_content.splitlines():
         with open(gitignore_path, "a", encoding="utf-8") as f:
             f.write(f"\n# Drunken AGY local configuration\n{ensure_gitignore}\n")
-        print("[+] เพิ่ม .env เข้าสู่ .gitignore เรียบร้อย (ปลอดภัย)")
+        print("[+] Added .env to .gitignore successfully (git-ignored for safety)")
     else:
-        print("[*] มี .env ใน .gitignore อยู่แล้ว")
+        print("[*] .env is already present in .gitignore")
         
     # 8. Register in Dashboard
     get_or_create_project_id(abs_project_path)
     
-    print("\n[+] เสร็จสิ้นการลงทะเบียนโครงการด่วนค่ะนายท่าน! บอสสามารถรันคำสั่งแดชบอร์ดต่อได้เลยนะคะ 🍹🍺")
+    print("\n[+] Project registration completed successfully, Boss! You can now start the dashboard. 🍹🍺")
 
 if __name__ == "__main__":
     main()

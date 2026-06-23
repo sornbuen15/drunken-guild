@@ -1,146 +1,142 @@
-# 🍻 Drunken AGY Inn: คู่มือการใช้งาน & คู่มือสายเมา (User Guide)
+# 🍻 Drunken AGY Inn: User Guide & Roster Manual
 
-ยินดีต้อนรับสู่คู่มือแนะนำการใช้งานของ **Drunken AGY Suite** เครื่องมือที่จะเปลี่ยนระบบ Agent ของ Google Antigravity ของคุณให้ใช้งานง่าย ปลอดภัย ไร้กังวล และมาพร้อมธีมโรงเตี๊ยม JRPG สุดแนว! 🎮🍺
-
----
-
-## 🧭 สารบัญ (Table of Contents)
-1. [📋 สิ่งที่ต้องเตรียมก่อนใช้งาน (Pre-requisites)](#1--สิ่งที่ต้องเตรียมก่อนใช้งาน-pre-requisites)
-2. [⚖️ สิ่งจำเป็น VS ออปชันเสริม (Required vs. Optional)](#2--สิ่งจำเป็น-vs-ออปชันเสริม-required-vs-optional)
-3. [🚀 ขั้นตอนการติดตั้ง (Installation)](#3--ขั้นตอนการติดตั้ง-installation)
-4. [🛠️ การตั้งค่าหลังติดตั้ง (Post-Install Configurations)](#4--การตั้งค่าหลังติดตั้ง-post-install-configurations)
-5. [💬 การเชื่อมต่อและเปิดระบบ Discord Listener](#5--การเชื่อมต่อและเปิดระบบ-discord-listener)
-6. [🎮 การใช้งาน JRPG Tavern Dashboard](#6--การใช้งาน-jrpg-tavern-dashboard)
-7. [🐳 การจำลองทดสอบผ่าน Docker (พอร์ต 8888)](#7--การจำลองทดสอบผ่าน-docker-พอร์ต-8888)
+Welcome to the official manual for the **Drunken AGY Suite**—a set of lightweight, token-optimized, and JRPG-tavern-themed utilities designed to extend Google's Antigravity agentic CLI. 🎮🍺
 
 ---
 
-## 📋 1. สิ่งที่ต้องเตรียมก่อนใช้งาน (Pre-requisites)
-เพื่อให้สามารถใช้งานได้เต็มระบบกรุณาเตรียมสิ่งเหล่านี้ไว้:
-*   **Python:** เวอร์ชัน `3.8` ขึ้นไป
-*   **Git:** สำหรับจัดการควบคุมเวอร์ชัน
-*   **Jira Cloud (หากใช้):** URL ของ Jira Tenant และ API Token ที่สร้างขึ้นจากหน้าโปรไฟล์ Atlassian
-*   **Discord Bot (หากใช้):** บัญชี Bot และ Token รวมถึงการเปิดใช้งาน **Message Content Intent** ในหน้า Discord Developer Portal
+## 🧭 Table of Contents
+1. [📋 Pre-requisites](#1-pre-requisites)
+2. [⚖️ Required vs. Optional Components](#2-required-vs-optional-components)
+3. [🚀 Installation](#3-installation)
+4. [🛠️ Post-Install Configuration](#4-post-install-configuration)
+5. [💬 Discord Integration & Listener Setup](#5-discord-integration--listener-setup)
+6. [🎮 Running the JRPG Tavern Dashboard](#6-running-the-jrpg-tavern-dashboard)
+7. [🐳 Simulating locally via Docker (Port 8888)](#7-simulating-locally-via-docker-port-8888)
 
 ---
 
-## ⚖️ 2. สิ่งจำเป็น VS ออปชันเสริม (Required vs. Optional)
+## 📋 1. Pre-requisites
+To get the most out of the suite, ensure you have:
+*   **Python:** version `3.8` or newer.
+*   **Git:** installed and configured.
+*   **Jira Cloud (Optional):** Your Atlassian Jira Cloud domain URL and an API Token generated from your security profile.
+*   **Discord Bot (Optional):** A Discord developer bot token, with **Message Content Intent** enabled in the Discord Developer Portal.
 
-| ส่วนประกอบ | ระดับความจำเป็น | ประโยชน์และฟังก์ชันเมื่อเปิดใช้งาน |
+---
+
+## ⚖️ 2. Required vs. Optional Components
+
+| Component | Status | Purpose & Enabled Features |
 | :--- | :--- | :--- |
-| **Python 3.8+** | **จำเป็น (Required)** | ใช้สำหรับรันสคริปต์ควบคุมทั้งหมดและรันแดชบอร์ดเซิร์ฟเวอร์ |
-| **Google Antigravity CLI** | **จำเป็น (Required)** | ระบบหลักของบอสในการรัน Agent (Drunken AGY ทำหน้าที่ต่อขยายจากระบบนี้) |
-| **1Password CLI (`op`)** | *ออปชัน (Optional)* | **(แนะนำ)** หากติดตั้งและเปิดใช้งาน Biometric Auth (Touch ID / Passkey) ระบบจะสามารถดึง API Token ของ Discord และ Jira ได้โดยตรงอย่างปลอดภัยสูง ไม่มีการบันทึก Plaintext Secret ไว้ในไฟล์หรือระบบ |
-| **Jira Integration** | *ออปชัน (Optional)* | หากเปิดใช้งาน จะช่วยแปลงข้อมูลจาก Jira API ขนาดใหญ่ (50KB+) ให้กลายเป็น shot ขนาดเล็ก (<0.5KB) ช่วยบอสประหยัด Token LLM ได้ถึง **95%**! |
-| **Discord Bot Integration** | *ออปชัน (Optional)* | ช่วยให้บอสสั่งงาน Agent จาก Discord หรือใช้สคริปต์ `ask_boss.py` ส่งคำขอสิทธิ์อนุมัติการทำงานที่เสี่ยงภัย (เช่น ลบ DB, Deploy ขึ้น Prod) ไปให้บอสกด 👍/👎 อนุมัติได้จากทุกที่ |
+| **Python 3.8+** | **Required** | Runs the CLI utilities, scripts, and JRPG web server. |
+| **Google Antigravity CLI** | **Required** | The parent framework that manages the agent directories (`.agents/`). |
+| **1Password CLI (`op`)** | *Optional* | **(Recommended)** If installed and configured with biometric auth (Touch ID / Passkey), tokens for Jira and Discord are dynamically retrieved from your vault. No plaintext credentials are saved on your disk. |
+| **Jira Integration** | *Optional* | Compresses large Jira API payloads (50KB+) into minimal shots of pure data (<0.5KB). Saves up to **95% of LLM Context Tokens**! |
+| **Discord Bot Integration** | *Optional* | Allows running remote agent commands and using `ask_boss.py` to trigger interactive approvals (👍/👎 reactions) from anywhere. |
 
 ---
 
-## 🚀 3. ขั้นตอนการติดตั้ง (Installation)
+## 🚀 3. Installation
 
-### การติดตั้งแบบปกติ (Local Development)
-ติดตั้ง Drunken AGY เป็นโมดูล CLI สากลบนเครื่องคอมพิวเตอร์ของคุณ โดยการใช้คำสั่งติดตั้งแบบ Editable mode:
+### Local Installation
+Install the package globally in editable mode so its command endpoints are exposed directly in your terminal path:
 
 ```bash
 cd /path/to/drunken-agy
 pip install -e .
 ```
 
-หลังจากเสร็จสิ้น คุณจะสามารถเข้าถึงคำสั่งควบคุมหลักของระบบได้ทันที:
-*   `drunken-register`
-*   `drunken-setup`
-*   `drunken-dashboard`
-*   `drunken-listen`
+This exposes the following commands:
+*   `drunken-register` — Register project workspaces.
+*   `drunken-setup` — Generate environment configurations.
+*   `drunken-dashboard` — Launch the visual dashboard.
+*   `drunken-listen` — Run the Discord command listener.
 
 ---
 
-## 🛠️ 4. การตั้งค่าหลังติดตั้ง (Post-Install Configurations)
+## 🛠️ 4. Post-Install Configuration
 
-หลังติดตั้งเสร็จสิ้น ให้รันคำสั่งเหล่านี้ในโฟลเดอร์โปรเจกต์เป้าหมายเพื่อตั้งค่า:
+After installation, navigate to your target project folder and run the setup scripts:
 
-### 1) การลงทะเบียนโปรเจกต์ใหม่ (`drunken-register`)
-รันคำสั่งนี้ที่ Root Directory ของโปรเจกต์ที่คุณต้องการตั้งค่าระบบ Agent:
+### 1) Registering a Workspace (`drunken-register`)
+Run the register command at the root of any target workspace:
 ```bash
 drunken-register
 ```
-**ระบบจะทำงานตามลำดับดังนี้:**
-1.  สร้างโฟลเดอร์สำหรับ Agent คือ `.agents/`
-2.  ตรวจสอบและสร้างกฎเราเตอร์ `ANTIGRAVITY.md` หากยังไม่มี
-3.  ตรวจสอบ 1Password CLI หากพบลายนิ้วมือ Touch ID จะดึง Token ของ Jira มาลงทะเบียน
-4.  **หากไม่มี 1Password:** ระบบจะถามความยินยอมเพื่อสลับไปเก็บข้อมูลใน Global Config ของเครื่องบอสแทน (`~/.gemini/config/jira_config.json`) และจะให้คุณกรอกข้อมูล Jira (URL, Email, API Token) ผ่านหน้าต่าง Terminal
-5.  ถามหมายเลข Discord Channel ID ที่ต้องการให้บอทไปทำงาน
-6.  สร้างไฟล์ `.env` ที่ปลอดภัยและเพิ่มเข้า `.gitignore` โดยอัตโนมัติ
+**This script will:**
+1.  Initialize the `.agents/` workspace folder.
+2.  Generate the `ANTIGRAVITY.md` routing rules if missing.
+3.  Check for 1Password CLI and biometric security setup.
+4.  **Fallback:** If 1Password is absent, it asks for consent to store configurations globally (`~/.gemini/config/jira_config.json`) and prompts you to input your Jira credentials manually.
+5.  Prompt you for your Discord Channel ID.
+6.  Generate a local `.env` and append it to `.gitignore` automatically.
 
-### 2) การตั้งค่าตัวแปรสภาพแวดล้อม (`drunken-setup`)
-หากต้องการดึงค่า Token และสร้างไฟล์สภาพแวดล้อมใหม่ สามารถรันคำสั่ง:
+### 2) Setting up Environment (`drunken-setup`)
+To rebuild or update your workspace credentials:
 ```bash
 drunken-setup
 ```
-ระบบจะช่วยดึง Credential สำคัญทั้งหมดจาก 1Password หรือ Config ท้องถิ่นออกมาสร้างไฟล์ `.env` ใน Root Directory ทันที
+This utility grabs tokens from your 1Password vaults or global configurations and compiles them into a local `.env` file at your current working directory.
 
 ---
 
-## 💬 5. การเชื่อมต่อและเปิดระบบ Discord Listener
+## 💬 5. Discord Integration & Listener Setup
 
-หากบอสติดตั้ง Discord Bot เรียบร้อยแล้วและต้องการเปิดระบบให้ Bot เข้ามารับฟังคำสั่งงาน:
+Once you have your Discord Bot Token configured:
 
-1.  ตรวจสอบว่าตั้งค่า `DISCORD_BOT_TOKEN` ในระบบหรือในไฟล์คอนฟิกแล้ว
-2.  เริ่มรันตัวดักรับฟังคำสั่ง (Gateway Transceiver) โดยใช้คำสั่ง:
+1.  Start the gateway listener command in your terminal:
     ```bash
     drunken-listen
     ```
-3.  **การสั่งงานใน Discord:**
-    *   บอสสามารถพิมพ์คำสั่งที่ปกติส่งให้ `agy` CLI ไปในช่องได้เลย (เช่น `models` หรือ `--print "ตรวจสอบโค้ดให้หน่อย"`)
-    *   พิมพ์ **`!detail`** เพื่อดึงล็อกการประมวลผลดิบ (`agy_discord_raw.log`) จากเครื่องเซิร์ฟเวอร์
-4.  **ระบบขออนุมัติความปลอดภัย (`ask_boss.py`):**
-    บอสสามารถนำสคริปต์นี้ไปเขียนแทรกในโปรแกรม CI/CD หรือ Task workflow ได้เพื่อป้องกันไม่ให้ AI ทำพัง เช่น:
+2.  **Discord Guild Commands:**
+    *   Directly type any command format you'd send to the `agy` CLI (e.g. `models` or `--print "Check my code structure"`). The bot runs it and answers in the chat.
+    *   Type **`!detail`** to dump the raw background execution logs (`agy_discord_raw.log`).
+3.  **Human-in-the-Loop Approvals (`ask_boss.py`):**
+    Embed the script in your automated pipelines or tasks to prompt the owner before running risky procedures:
     ```bash
-    python3 scripts/ask_boss.py "ต้องการ deploy โค้ดนี้ขึ้น production หรือไม่?"
+    python3 scripts/ask_boss.py "Do you approve deploying this commit to production?"
     ```
-    *สคริปต์จะหยุดรอ (block) จนกว่าบอสจะกด 👍 (ยินยอม - ส่งรหัสสำเร็จ `0`) หรือ 👎 (ยกเลิก - ส่งรหัสล้มเหลว `1`) ใน Discord*
+    *The script pauses and blocks further steps until the Boss reacts with 👍 (approves - exits with `0`) or 👎 (denies - exits with `1`) in Discord.*
 
 ---
 
-## 🎮 6. การใช้งาน JRPG Tavern Dashboard
+## 🎮 6. Running the JRPG Tavern Dashboard
 
-หน้าต่างจัดการแบบ GUI สวยงามในสไตล์เรโทรพิกเซลอาร์ต Tavern JRPG:
+To launch the retro visualizer dashboard:
 
-### 1) การเปิดแดชบอร์ด
-รันคำสั่งเปิดเซิร์ฟเวอร์โรงเตี๊ยม:
+### 1) Start the Server
 ```bash
 drunken-dashboard [port]
 ```
-*(หากไม่ระบุพอร์ต ระบบจะรันบนพอร์ตมาตรฐาน `8081` โดยอัตโนมัติ และจะเปิดหน้าต่างเบราว์เซอร์ไปที่ `http://localhost:8081` ทันที)*
+*(By default, runs at port `8888` or `8081` and automatically opens `http://localhost:<port>` in your web browser).*
 
 > [!TIP]
-> หากเซิร์ฟเวอร์รันอยู่แล้วบนพอร์ตนั้นๆ ระบบจะไม่ชนกัน แต่จะตรวจพบและนำลิงก์เดิมมาแสดงให้บอสคลิกเข้าใช้งานได้อย่างราบรื่น
+> If the port is already in use, the dashboard launcher detects the existing service and opens the active link without causing binding errors.
 
-### 2) การใช้งานในแดชบอร์ด:
-*   **Roster List:** บอสจะเห็นตัวละครของ Agent ในโปรเจกต์ เช่น Principal Engineer (จอมเวท), QA Engineer (นักธนู) หรือ Security (โจร)
-*   **Work Mode (ทำงาน):** ตัวละครจะสว่างขึ้น มีแอนิเมชันพิมพ์งาน และตอบกลับล็อกการรันงานอย่างเป็นทางการในคอนโซล
-*   **Rest Mode (พักผ่อน):** ตัวละครจะเซเมา ถือแก้วเบียร์ และก่นด่าบ่นเรื่องบั๊กและโค้ดแบบตลกขบขันเมื่อพิมพ์คุยด้วย
-*   **Tavern Bell:** สั่นกระดิ่งโรงเตี๊ยมเพื่อสลับโหมดการทำงานของสมาชิกในกิลด์ทุกคนพร้อมกัน
+### 2) Interactive Controls
+*   **Specialist Roster:** Click on any agent node (e.g. Ranger for QA, Rogue for Security, Archmage for Principal) to view character sheets.
+*   **Work Mode:** Agent glows cyan and prints strict engineering code/logs in the console.
+*   **Rest Mode:** Agent sways, drinks virtual ale, and screams funny programming rants when you chat with them.
+*   **Tavern Bell:** Ring the bell to toggle the active mode of all agents concurrently.
 
 ---
 
-## 🐳 7. การจำลองทดสอบผ่าน Docker (พอร์ต 8888)
+## 🐳 7. Simulating locally via Docker (Port 8888)
 
-หากบอสต้องการจำลองการรันแดชบอร์ดโดยไม่ต้องติดตั้ง Python Dependencies ลงในโฮสต์โดยตรง สามารถรันผ่าน Docker ที่พอร์ต **`8888`** ได้ดังนี้:
+To simulate the dashboard in an isolated environment without installing Python dependencies locally, run it via Docker:
 
-### 1) การสร้าง Docker Image
-รันคำสั่งสร้าง Image ในหน้า Root Directory ของ drunken-agy:
+### 1) Build the Image
 ```bash
 docker build -t drunken-agy .
 ```
 
-### 2) การเริ่มรัน Container บนพอร์ต 8888
-ใช้คำสั่งนี้เพื่อเปิดแดชบอร์ดและจับคู่พอร์ตในคอนเทนเนอร์เข้ากับพอร์ต `8888` ของเครื่องบอส:
+### 2) Run the Container on Port 8888
 ```bash
 docker run -d -p 8888:8888 --name drunken-tavern-test drunken-agy
 ```
 
-### 3) ตรวจสอบการใช้งาน
-เปิดเบราว์เซอร์แล้วเข้าไปที่:
+### 3) Test Connectivity
+Open your web browser and navigate to:
 👉 **[http://localhost:8888](http://localhost:8888)**
 
-*(หมายเหตุ: เมื่อรันในคอนเทนเนอร์ headless ฟังก์ชันเปิดเบราว์เซอร์อัตโนมัติจะถูกเพิกเฉย แต่บอสสามารถเข้าใช้งานผ่านลิงก์ด้านบนได้อย่างปกติครับ!)*
+*(Note: Webbrowser auto-open is ignored in headless Docker environments, but the dashboard is fully accessible via the link above).*
