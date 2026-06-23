@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=61.0.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "drunken-agy"
+version = "1.0.0"
+description = "Drunken AGY Inn gateway and dashboard utilities"
+readme = "README.md"
+requires-python = ">=3.8"
+license = { text = "MIT" }
+dependencies = [
+    "discord.py>=2.0.0",
+]
+
+[project.scripts]
+drunken-setup = "scripts.setup_env:main"
+drunken-dashboard = "scripts.serve_dashboard:main"
+drunken-listen = "scripts.discord_listener:main"
+
+[tool.setuptools]
+packages = ["scripts"]

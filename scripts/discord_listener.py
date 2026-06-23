@@ -598,8 +598,13 @@ async def on_message(message):
     )
     await message.channel.send(welcoming_text)
 
-try:
-    client.run(BOT_TOKEN)
-except Exception as e:
-    print(f"Error: {e}", flush=True)
+def main():
+    try:
+        client.run(BOT_TOKEN)
+    except Exception as e:
+        print(f"Error: {e}", flush=True)
+
+if __name__ == "__main__":
+    main()
+
 
