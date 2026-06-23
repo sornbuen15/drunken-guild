@@ -121,78 +121,57 @@ if len(sys.argv) < 2:
     sys.exit(1)
 
 question = sys.argv[1]
+req_id = str(import_uuid.uuid4()) if 'import_uuid' in locals() else str(__import__('uuid').uuid4())
 
-config = load_config()
-BOT_TOKEN = config["bot_token"]
-CHANNEL_ID = config["channel_id"]
+outbox_file = os.path.join(os.getcwd(), '.agents', 'discord_outbox.json')
+inbox_file = os.path.join(os.getcwd(), '.agents', 'discord_inbox.json')
+os.makedirs(os.path.dirname(outbox_file), exist_ok=True)
 
-if not BOT_TOKEN:
-    print("Error: Missing Discord Bot Token. Please set DISCORD_BOT_TOKEN in env or configure it.", file=sys.stderr)
-    sys.exit(1)
-
-if not CHANNEL_ID:
-    print("Error: Missing Discord Channel ID. Please set DISCORD_CHANNEL_ID in env or configure it.", file=sys.stderr)
-    sys.exit(1)
-
-intents = discord.Intents.default()
-intents.message_content = True
-client = discord.Client(intents=intents)
-
-@client.event
-async def on_ready():
-    channel = client.get_channel(CHANNEL_ID)
-    if not channel:
-        try:
-            channel = await client.fetch_channel(CHANNEL_ID)
-        except Exception as e:
-            print(f"Error fetching channel: {e}")
-            await client.close()
-            sys.exit(1)
-
+# Write to outbox
+outbox = {}
+if os.path.exists(outbox_file):
     try:
-        msg = await channel.send(question)
-        await msg.add_reaction("👍")
-        await msg.add_reaction("👎")
-    except Exception as e:
-        print(f"Error sending message or reactions: {e}")
-        await client.close()
-        sys.exit(1)
-
-    def check(reaction, user):
-        # Ignore bot's own reactions
-        if user.id == client.user.id:
-            return False
-        # Must be on the sent message
-        if reaction.message.id != msg.id:
-            return False
-        # Must be thumbs up or down emoji
-        if str(reaction.emoji) not in ["👍", "👎"]:
-            return False
-        # Must be from the server/guild owner
-        if msg.guild and user.id == msg.guild.owner_id:
-            return True
-        # Fallback if not a guild message
-        elif not msg.guild:
-            return True
-        return False
-
-    try:
-        reaction, user = await client.wait_for('reaction_add', check=check)
-        if str(reaction.emoji) == "👍":
-            print("Approved")
-            await client.close()
-            sys.exit(0)
-        elif str(reaction.emoji) == "👎":
-            print("Rejected")
-            await client.close()
-            sys.exit(1)
-    except Exception as e:
-        print(f"Error waiting for reaction: {e}")
-        await client.close()
-        sys.exit(1)
-
+        with open(outbox_file, 'r') as f:
+            outbox = json.load(f)
+    except Exception:
+        pass
+outbox[req_id] = {"question": question, "timestamp": __import__('time').time()}
 try:
-    client.run(BOT_TOKEN)
+    with open(outbox_file, 'w') as f:
+        json.dump(outbox, f)
 except Exception as e:
-    print(f"Error running Discord client: {e}")
-    sys.exit(1)
+    print(f"Failed to write to outbox: {e}")
+    os._exit(1)
+
+print("Question sent instantly. Waiting for Boss's reaction on Discord (👍/👎/🌟)...")
+
+# Poll inbox
+import time
+while True:
+    if os.path.exists(inbox_file):
+        try:
+            with open(inbox_file, 'r') as f:
+                inbox = json.load(f)
+            if req_id in inbox:
+                status = inbox[req_id]["status"]
+                
+                # Cleanup inbox
+                del inbox[req_id]
+                try:
+                    with open(inbox_file, 'w') as f:
+                        json.dump(inbox, f)
+                except Exception:
+                    pass
+                    
+                if status == "approved":
+                    print("Approved")
+                    os._exit(0)
+                elif status == "approved_always":
+                    print("Approved Always (🌟)")
+                    os._exit(0)
+                else:
+                    print("Rejected")
+                    os._exit(1)
+        except Exception:
+            pass
+    time.sleep(1)

@@ -236,6 +236,71 @@ client = discord.Client(intents=intents)
 @client.event
 async def on_ready():
     print(f"Logged in as {client.user.name}", flush=True)
+    asyncio.create_task(poll_outbox())
+
+async def poll_outbox():
+    outbox_file = os.path.join(os.getcwd(), '.agents', 'discord_outbox.json')
+    inbox_file = os.path.join(os.getcwd(), '.agents', 'discord_inbox.json')
+    
+    channel = client.get_channel(CHANNEL_ID)
+    if not channel:
+        try:
+            channel = await client.fetch_channel(CHANNEL_ID)
+        except Exception:
+            return
+            
+    while True:
+        try:
+            if os.path.exists(outbox_file):
+                with open(outbox_file, 'r') as f:
+                    outbox = json.load(f)
+                
+                if outbox:
+                    # Clear outbox immediately
+                    with open(outbox_file, 'w') as f:
+                        json.dump({}, f)
+                        
+                    for req_id, data in outbox.items():
+                        question = data.get('question')
+                        
+                        msg = await channel.send(question)
+                        await msg.add_reaction("👍")
+                        await msg.add_reaction("👎")
+                        await msg.add_reaction("🌟")
+                        
+                        asyncio.create_task(wait_for_boss_reaction(msg, req_id, inbox_file))
+        except Exception:
+            pass
+            
+        await asyncio.sleep(1)
+
+async def wait_for_boss_reaction(msg, req_id, inbox_file):
+    def check(reaction, user):
+        if user.id == client.user.id: return False
+        if reaction.message.id != msg.id: return False
+        if str(reaction.emoji) not in ["👍", "👎", "🌟"]: return False
+        if msg.guild and user.id == msg.guild.owner_id: return True
+        elif not msg.guild: return True
+        return False
+        
+    try:
+        reaction, user = await client.wait_for('reaction_add', check=check)
+        status = "rejected"
+        if str(reaction.emoji) == "👍": status = "approved"
+        elif str(reaction.emoji) == "🌟": status = "approved_always"
+        
+        inbox = {}
+        if os.path.exists(inbox_file):
+            try:
+                with open(inbox_file, 'r') as f: inbox = json.load(f)
+            except Exception: pass
+            
+        inbox[req_id] = {"status": status}
+        with open(inbox_file, 'w') as f:
+            json.dump(inbox, f)
+            
+    except Exception:
+        pass
 
 @client.event
 async def on_reaction_add(reaction, user):
