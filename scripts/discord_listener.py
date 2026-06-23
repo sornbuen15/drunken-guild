@@ -680,7 +680,10 @@ async def on_message(message):
                 "exactly what you did. Do not use AI clichés or preamble. Start directly.)"
             )
             escaped_prompt = (refined_prompt + suffix).replace('"', '\\"')
-            full_cmd = f'agy --dangerously-skip-permissions --print "{escaped_prompt}"'
+            
+            # Map GITHUB_MINABOT to GITHUB_TOKEN so gh CLI inside agy uses it
+            env_prefix = "GITHUB_TOKEN=\"$GITHUB_MINABOT\" " if os.environ.get("GITHUB_MINABOT") else ""
+            full_cmd = f'{env_prefix}agy --dangerously-skip-permissions --print "{escaped_prompt}"'
 
             asyncio.create_task(run_command_async(
                 message.channel, 
