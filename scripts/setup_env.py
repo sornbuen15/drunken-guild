@@ -108,9 +108,25 @@ def main():
             if fetched_token:
                 jira_token = fetched_token
                 op_success = True
-                print(f"[+] Biometric authentication successful! Unlocked and fetched token from {uri}")
+                print(f"[+] Successfully fetched Jira Token from 1Password ({uri})!")
+                
+                # Cache the token directly to the global config!
+                global_config_path = os.path.expanduser("~/.gemini/config/jira_config.json")
+                try:
+                    os.makedirs(os.path.dirname(global_config_path), exist_ok=True)
+                    existing_data = {}
+                    if os.path.exists(global_config_path):
+                        with open(global_config_path, "r") as f:
+                            existing_data = json.load(f)
+                    existing_data["jira_token"] = jira_token
+                    with open(global_config_path, "w") as f:
+                        json.dump(existing_data, f, indent=2)
+                    print("[+] Saved 1Password token to Global Config automatically.")
+                except Exception as e:
+                    print(f"Warning: Could not save to global config: {e}")
+                    
                 break
-        except subprocess.CalledProcessError:
+        except Exception:
             continue
 
     if not op_success:
