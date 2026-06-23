@@ -375,8 +375,10 @@ AGENTS_METADATA = {
 PERSONA_MAPPING = {
     "principal-engineer": "principal-engineer",
     "principal": "principal-engineer",
+    "principle": "principal-engineer",
     "archmage": "principal-engineer",
     "wizard": "principal-engineer",
+
     
     "devops-engineer": "devops-engineer",
     "devops": "devops-engineer",
@@ -597,80 +599,81 @@ async def on_message(message):
         return
 
     # 2. Parse conversational requests using <who> <context> <goal> pattern
-    words = content_str.split()
-    first_word = words[0].lower() if words else ""
-
-    if first_word in PERSONA_MAPPING:
-        agent_key = PERSONA_MAPPING[first_word]
-        query_text = " ".join(words[1:]) if len(words) > 1 else ""
+    # 2. Intelligent AI Router (Mina)
+    api_key = os.environ.get("GEMINI_API_KEY")
+    if api_key:
+        router_instruction = (
+            "You are Mina, the lively and welcoming tavern hostess at the Drunken AGY Inn.\n"
+            "You coordinate dashboard and quest orders for The Boss.\n"
+            "The available developer agents are:\n"
+            "- principal-engineer: ARCHMAGE (Alias: Principal/Wizard). Role: Architecture, rules, Jira\n"
+            "- devops-engineer: KNIGHT (Alias: DevOps). Role: Infrastructure, K8s\n"
+            "- laravel-developer: ALCHEMIST (Alias: Laravel). Role: PHP, DB\n"
+            "- qa-engineer: RANGER (Alias: QA). Role: Testing\n"
+            "- security-engineer: ROGUE (Alias: Security). Role: Security\n"
+            "- voice-ai-specialist: BARD (Alias: Voice/Audio). Role: Voice/WebRTC\n"
+            "- agentic-systems-specialist: SUMMONER (Alias: Agentic). Role: Multi-agent\n"
+            "- fullstack-engineer: BLADE (Alias: Fullstack/Spellsword). Role: Frontend/UI/CSS\n\n"
+            "Return a JSON object ONLY, no markdown formatting outside of it:\n"
+            "If it's a casual chat or general question that you can answer without running terminal commands, return:\n"
+            '{"is_task": false, "mina_response": "<Your friendly in-character response addressing The Boss>"}\n'
+            "If it's a technical task, code modification, debugging, or explicitly assigning an agent by name/alias, return:\n"
+            '{"is_task": true, "target_agent": "<best_agent_key>", "refined_prompt": "<clear prompt for the agent>"}'
+        )
         
-        if not query_text:
-            await message.channel.send(
-                f"Hello Boss! What would you like to assign to **{agent_key}**?\n"
-                f"Please type in format: `{words[0]} <your prompt or command>`"
+        direct_response = await asyncio.to_thread(query_gemini_direct, content_str, router_instruction)
+        
+        if direct_response:
+            import re
+            try:
+                clean_json = re.sub(r'```(?:json)?\n?(.*?)\n?```', r'\1', direct_response, flags=re.DOTALL).strip()
+                router_data = json.loads(clean_json)
+            except Exception as e:
+                router_data = {"is_task": False, "mina_response": direct_response}
+                
+            if not router_data.get("is_task"):
+                resp = router_data.get("mina_response", direct_response)
+                log_activity("agent", "Mina", resp)
+                await message.channel.send(f"🍹 **Mina [Hostess]:** {resp}")
+                return
+            
+            target_agent = router_data.get("target_agent", "fullstack-engineer")
+            if target_agent not in AGENTS_METADATA:
+                target_agent = "fullstack-engineer"
+                
+            agent_meta = AGENTS_METADATA[target_agent]
+            refined_prompt = router_data.get("refined_prompt", content_str)
+            
+            config_file = find_config()
+            if config_file:
+                active_agent_json = os.path.join(os.path.dirname(config_file), "active_agent.json")
+                try:
+                    with open(active_agent_json, "w") as f:
+                        json.dump({"active_agent": target_agent}, f)
+                except Exception:
+                    pass
+            
+            suffix = (
+                f"\n\n(Instructions: You are {agent_meta['name']} [Job: {agent_meta['job']}]. "
+                f"Personality: {agent_meta['description']}. "
+                "Respond like a human software developer in character. "
+                "Address the user as 'The Boss'. "
+                "Be extremely brief, conversational, and direct. Explain in 1-2 short sentences "
+                "exactly what you did. Do not use AI clichés or preamble. Start directly.)"
             )
+            escaped_prompt = (refined_prompt + suffix).replace('"', '\\"')
+            full_cmd = f'agy --dangerously-skip-permissions --print "{escaped_prompt}"'
+
+            asyncio.create_task(run_command_async(
+                message.channel, 
+                message.author.mention, 
+                refined_prompt, 
+                full_cmd, 
+                agent_meta['name']
+            ))
             return
 
-        agent_meta = AGENTS_METADATA.get(agent_key, {
-            "name": "Developer Persona",
-            "job": "Guild Member",
-            "model": "Gemini 2.5 Pro",
-            "description": "Software engineer working in the project workspace.",
-        })
-
-        # Load active configuration & set active agent json dynamically
-        config_file = find_config()
-        if config_file:
-            active_agent_json = os.path.join(os.path.dirname(config_file), "active_agent.json")
-            try:
-                with open(active_agent_json, "w") as f:
-                    json.dump({"active_agent": agent_key}, f)
-            except Exception:
-                pass
-
-        api_key = os.environ.get("GEMINI_API_KEY")
-        if api_key:
-            agent_instruction = (
-                f"You are {agent_meta['name']}, a developer agent working in the project workspace.\n"
-                f"Your Job role is: {agent_meta['job']}. Your personality: {agent_meta['description']}\n\n"
-                "CRITICAL: The user is 'The Boss' (The Boss / Master / Boss). Never address the user as 'adventurer', 'traveler', 'patron', 'young adventurer', or 'friend'. Address them with respect as 'The Boss'.\n\n"
-                "Your task is to review the user's message/command. You have two choices:\n"
-                "1. If the user request asks you to write code, edit files, create scripts, run tests, run shell/terminal commands, search the codebase, or do engineering tasks, OR IF THE USER ASKS ABOUT JIRA TASKS, JIRA BOARDS, BACKLOGS, ACTIVE FILES, OR WORKSPACE STATUS, you MUST respond with exactly '[EXECUTE_AGY]' (nothing else).\n"
-                "2. If it is a greeting, general question, explanation of code/concepts, conversation, or greeting chat, reply directly as the character. Keep it extremely brief (1-2 sentences), friendly, in-character, and respectful. Do not say '[EXECUTE_AGY]' if you can answer it yourself."
-            )
-            
-            # Query Gemini directly for the conversational check
-            direct_response = await asyncio.to_thread(query_gemini_direct, query_text, agent_instruction)
-            
-            if direct_response and "[EXECUTE_AGY]" not in direct_response:
-                log_activity("agent", agent_meta['name'], direct_response)
-                # Format response with agent name/job for clarity
-                await message.channel.send(f"💬 **{agent_meta['name']} [{agent_meta['job']}]:** {direct_response}")
-                return
-
-        # Fallback to agy execution if [EXECUTE_AGY] returned or if no API key
-        suffix = (
-            f"\n\n(Instructions: You are {agent_meta['name']} [Job: {agent_meta['job']}]. "
-            f"Personality: {agent_meta['description']}. "
-            "Respond like a human software developer in character, not an AI. "
-            "Address the user as 'The Boss' (The Boss / Master / Boss) with respect. Never refer to them as adventurer or traveler. "
-            "Be extremely brief, conversational, and direct. Explain in 1-2 short sentences "
-            "exactly what you did. Do not use AI clichés or preamble. Start directly.)"
-        )
-        escaped_prompt = (query_text + suffix).replace('"', '\\"')
-        full_cmd = f'agy --dangerously-skip-permissions --print "{escaped_prompt}"'
-
-        # Spawn async task
-        asyncio.create_task(run_command_async(
-            message.channel, 
-            message.author.mention, 
-            query_text, 
-            full_cmd, 
-            agent_meta['name']
-        ))
-        return
-
-    # 3. Message does not match any known command pattern
+    # Fallback if no API key
     welcoming_text = (
         f"Hello, Boss! 🍹 refreshing Mina, your tavern hostess, welcomes you to the Drunken AGY Inn!\n"
         f"I coordinate dashboard and quest orders in the tavern. Would you like to run a quick command or assign a quest to an agent?\n\n"
