@@ -4,13 +4,14 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "drunken-agy"
-version = "1.0.0"
+version = "1.1.0"
 description = "Drunken AGY Inn gateway and dashboard utilities"
 readme = "README.md"
 requires-python = ">=3.8"
 license = { text = "MIT" }
 dependencies = [
     "discord.py>=2.0.0",
+    "python-dotenv>=0.21.0",
 ]
 
 [project.scripts]
