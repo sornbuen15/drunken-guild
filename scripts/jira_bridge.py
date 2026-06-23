@@ -89,6 +89,19 @@ def get_jira_token():
             res = subprocess.run(["op", "read", uri], capture_output=True, text=True, check=True)
             token = res.stdout.strip()
             if token:
+                # Save it so we don't need fingerprint again
+                try:
+                    c_path = config_file if config_file else os.path.join(os.getcwd(), ".agents", "jira_config.json")
+                    os.makedirs(os.path.dirname(c_path), exist_ok=True)
+                    existing_data = {}
+                    if os.path.exists(c_path):
+                        with open(c_path, "r") as f:
+                            existing_data = json.load(f)
+                    existing_data["jira_token"] = token
+                    with open(c_path, "w") as f:
+                        json.dump(existing_data, f, indent=2)
+                except Exception:
+                    pass
                 return token
         except Exception:
             continue
