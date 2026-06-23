@@ -161,3 +161,6 @@ client_secret*.json
 
 # Local Agent Configurations and Logs
 .agents/
+
+# Docker simulation config (local test only, do not commit)
+Dockerfile
