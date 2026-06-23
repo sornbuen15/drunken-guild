@@ -6,6 +6,35 @@ import asyncio
 import subprocess
 import discord
 
+def load_dotenv():
+    # Look for .env in current directory or parent directories
+    curr_dir = os.getcwd()
+    while True:
+        dotenv_path = os.path.join(curr_dir, '.env')
+        if os.path.exists(dotenv_path):
+            try:
+                with open(dotenv_path, 'r', encoding='utf-8') as f:
+                    for line in f:
+                        line = line.strip()
+                        if not line or line.startswith('#'):
+                            continue
+                        if '=' in line:
+                            key, val = line.split('=', 1)
+                            key = key.strip()
+                            val = val.strip().strip('"').strip("'")
+                            if key and key not in os.environ:
+                                os.environ[key] = val
+            except Exception as e:
+                print(f"Warning: Failed to load .env file: {e}", file=sys.stderr)
+            break
+        parent = os.path.dirname(curr_dir)
+        if parent == curr_dir:
+            break
+        curr_dir = parent
+
+# Automatically load local .env variables at startup
+load_dotenv()
+
 # Defaults
 DEFAULT_BOT_TOKEN = None
 DEFAULT_CHANNEL_ID = 1518206617336811573
@@ -51,19 +80,28 @@ def load_config():
             
     # Try 1Password CLI ONLY if environment and config bot_token is empty
     if not config["bot_token"] or config["bot_token"] == DEFAULT_BOT_TOKEN:
-        try:
-            res = subprocess.run(["op", "read", "op://Private/Discord-TFF/token"], capture_output=True, text=True, check=True)
-            token = res.stdout.strip()
-            if token:
-                config["bot_token"] = token
-        except Exception:
-            pass
+        DISCORD_URIS = [
+            "op://Personal/Discord-TFF/token",
+            "op://Private/Discord-TFF/token",
+            "op://Personal/Discord-TFF/credential",
+            "op://Private/Discord-TFF/credential"
+        ]
+        for uri in DISCORD_URIS:
+            try:
+                res = subprocess.run(["op", "read", uri], capture_output=True, text=True, check=True)
+                token = res.stdout.strip()
+                if token:
+                    config["bot_token"] = token
+                    break
+            except Exception:
+                continue
 
     # Fallback to default channel ID if not set
     if config["channel_id"] is None:
         config["channel_id"] = DEFAULT_CHANNEL_ID
 
     return config
+
 
 if len(sys.argv) < 2:
     print("Error: Missing question argument.")

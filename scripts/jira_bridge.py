@@ -7,6 +7,35 @@ import urllib.request
 import urllib.parse
 import base64
 
+def load_dotenv():
+    # Look for .env in current directory or parent directories
+    curr_dir = os.getcwd()
+    while True:
+        dotenv_path = os.path.join(curr_dir, '.env')
+        if os.path.exists(dotenv_path):
+            try:
+                with open(dotenv_path, 'r', encoding='utf-8') as f:
+                    for line in f:
+                        line = line.strip()
+                        if not line or line.startswith('#'):
+                            continue
+                        if '=' in line:
+                            key, val = line.split('=', 1)
+                            key = key.strip()
+                            val = val.strip().strip('"').strip("'")
+                            if key and key not in os.environ:
+                                os.environ[key] = val
+            except Exception as e:
+                print(f"Warning: Failed to load .env file: {e}", file=sys.stderr)
+            break
+        parent = os.path.dirname(curr_dir)
+        if parent == curr_dir:
+            break
+        curr_dir = parent
+
+# Automatically load local .env variables at startup
+load_dotenv()
+
 def find_config():
     curr_dir = os.getcwd()
     while True:
@@ -20,21 +49,40 @@ def find_config():
     return None
 
 def get_jira_token():
-    # 1. Try environment variables
+    # 1. Try environment variables (from system or loaded .env)
     token = os.environ.get("JIRA_TOKEN") or os.environ.get("JIRA_API_TOKEN")
     if token:
         return token
     
-    # 2. Try 1Password CLI
-    try:
-        res = subprocess.run(["op", "read", "op://Private/Jira-TFF/password"], capture_output=True, text=True, check=True)
-        token = res.stdout.strip()
-        if token:
-            return token
-    except Exception:
-        pass
+    # 2. Try to read from jira_config.json
+    config_file = find_config()
+    if config_file:
+        try:
+            with open(config_file, "r") as f:
+                data = json.load(f)
+                if "jira_token" in data and data["jira_token"]:
+                    return data["jira_token"]
+        except Exception:
+            pass
+    
+    # 3. Try 1Password CLI as a fallback
+    JIRA_PASS_URIS = [
+        "op://Personal/Jira-TFF/credential",
+        "op://Private/Jira-TFF/credential",
+        "op://Personal/Jira-TFF/password",
+        "op://Private/Jira-TFF/password"
+    ]
+    for uri in JIRA_PASS_URIS:
+        try:
+            res = subprocess.run(["op", "read", uri], capture_output=True, text=True, check=True)
+            token = res.stdout.strip()
+            if token:
+                return token
+        except Exception:
+            continue
         
     return None
+
 
 def make_request(url, method="GET", payload=None, email=None, token=None):
     if not email or not token:
