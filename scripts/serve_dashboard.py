@@ -311,16 +311,31 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 log_file_path = os.path.join(log_dir, "discord_listener.log")
                 log_file = open(log_file_path, "w", encoding="utf-8")
                 
-                p = subprocess.Popen(
-                    [sys.executable, script_path],
-                    cwd=project_path,
-                    stdout=log_file,
-                    stderr=log_file
-                )
+                # Prefer running the globally installed CLI command if present
+                import shutil
+                listen_cmd = shutil.which("drunken-listen")
+                
+                if listen_cmd:
+                    print(f"[*] Starting Discord listener using global binary: {listen_cmd} in {project_path}")
+                    p = subprocess.Popen(
+                        [listen_cmd],
+                        cwd=project_path,
+                        stdout=log_file,
+                        stderr=log_file
+                    )
+                else:
+                    print(f"[*] Starting Discord listener using fallback script: {script_path}")
+                    p = subprocess.Popen(
+                        [sys.executable, script_path],
+                        cwd=project_path,
+                        stdout=log_file,
+                        stderr=log_file
+                    )
                 discord_processes[project_id] = p
                 self.send_json_response({"ok": True, "message": "Discord listener started."})
             except Exception as e:
                 self.send_error_response(f"Failed to start process: {e}")
+
 
         # 3. API: Stop Discord Listener
         elif self.path == "/api/discord/stop":
