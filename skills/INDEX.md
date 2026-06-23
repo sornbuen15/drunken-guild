@@ -12,3 +12,4 @@ This file indexes available global and workspace skills for Antigravity.
 - [system-design-rules/SKILL.md](system-design-rules/SKILL.md): System architecture design standard covering trade-off analysis, APIs, and diagrams.
 - [task-estimation/SKILL.md](task-estimation/SKILL.md): Estimating task complexity, description, and requirements.
 - [confluence-sync/SKILL.md](confluence-sync/SKILL.md): Synchronizes project documentation files (Architecture, Specs, ADRs, and API docs) to Confluence.
+- [git-workflow/SKILL.md](git-workflow/SKILL.md): Standardized Git branching, Pull Requests, releases, and GitHub CLI (gh) best practices.
