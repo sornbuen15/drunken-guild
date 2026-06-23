@@ -51,6 +51,17 @@ def find_config():
         curr_dir = parent
     return None
 
+def save_config(config):
+    config_file = find_config()
+    if not config_file:
+        config_file = os.path.join(os.getcwd(), '.agents', 'discord_config.json')
+        os.makedirs(os.path.dirname(config_file), exist_ok=True)
+    try:
+        with open(config_file, "w") as f:
+            json.dump(config, f, indent=2)
+    except Exception as e:
+        print(f"Warning: Failed to save config file: {e}", file=sys.stderr)
+
 def load_config():
     config = {
         "bot_token": os.environ.get("DISCORD_BOT_TOKEN") or DEFAULT_BOT_TOKEN,
@@ -92,6 +103,7 @@ def load_config():
                 token = res.stdout.strip()
                 if token:
                     config["bot_token"] = token
+                    save_config(config)  # Cache it so we don't ask for fingerprint again
                     break
             except Exception:
                 continue
