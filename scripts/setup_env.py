@@ -24,11 +24,11 @@ def main():
     print("[*] เพื่อปลดล็อคและดึง credential ที่จำเป็นมาสร้างไฟล์ .env")
     print("----------------------------------------------------")
     
-    # Load config template details
-    jira_email = "sornbuen15@gmail.com"
-    jira_url = "https://your-domain.atlassian.net"
-    project_key = "ALPHA"
-    discord_channel_id = "123456789012345678" # Default channel
+    # Load config template details (defaults to empty/generic)
+    jira_email = ""
+    jira_url = ""
+    project_key = ""
+    discord_channel_id = ""
     jira_token = None
     discord_token = None
     gemini_api_key = os.environ.get("GEMINI_API_KEY") or ""
@@ -56,14 +56,47 @@ def main():
         except Exception:
             pass
 
+    # Try reading from global configurations
+    global_jira = os.path.expanduser("~/.gemini/config/jira_config.json")
+    if os.path.exists(global_jira):
+        try:
+            with open(global_jira, "r") as f:
+                g_data = json.load(f)
+                jira_url = jira_url or g_data.get("jira_url")
+                jira_email = jira_email or g_data.get("jira_email")
+                project_key = project_key or g_data.get("project_key")
+                jira_token = jira_token or g_data.get("jira_token") or g_data.get("token")
+        except Exception:
+            pass
+
+    global_discord = os.path.expanduser("~/.gemini/config/discord_config.json")
+    if os.path.exists(global_discord):
+        try:
+            with open(global_discord, "r") as f:
+                g_data = json.load(f)
+                discord_channel_id = discord_channel_id or g_data.get("channel_id")
+                discord_token = discord_token or g_data.get("bot_token") or g_data.get("token")
+        except Exception:
+            pass
+
+    # Prompt interactive inputs if still missing
+    if not jira_url:
+        jira_url = input("[?] ระบุ JIRA URL (e.g. https://your-domain.atlassian.net): ").strip()
+    if not jira_email:
+        jira_email = input("[?] ระบุ JIRA Email: ").strip()
+    if not project_key:
+        project_key = input("[?] ระบุ JIRA Project Key: ").strip()
+    if not discord_channel_id:
+        discord_channel_id = input("[?] ระบุ Discord Channel ID: ").strip()
+
     # Always attempt to pull from 1Password CLI as biometric check
     print("[*] กำลังตรวจสอบความถูกต้องทางชีวภาพ (Touch ID / Passkey) ผ่าน 1Password...")
-    # Target the correct reference format: op://Vault/Jira-TFF/credential
-    JIRA_PASS_URIS = [
-        "op://Vault/Jira-TFF/credential",
-        "op://Private/Jira-TFF/credential",
-        "op://Vault/Jira-TFF/password",
-        "op://Private/Jira-TFF/password"
+    # Target the correct reference format: op://Vault/Jira/credential
+    JIRA_PASS_URIS = os.environ.get("JIRA_PASS_URIS", "").split(",") if os.environ.get("JIRA_PASS_URIS") else [
+        "op://Vault/Jira/credential",
+        "op://Private/Jira/credential",
+        "op://Vault/Jira/password",
+        "op://Private/Jira/password"
     ]
     
     op_success = False
