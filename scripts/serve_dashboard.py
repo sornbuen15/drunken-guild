@@ -81,50 +81,50 @@ load_dotenv()
 
 AGENTS_METADATA = {
     "principal-engineer": {
-        "name": "Principal Eng",
-        "job": "Archmage",
+        "name": "ARCHMAGE",
+        "job": "Principal Eng",
         "model": "Gemini 2.5 Pro",
         "description": "High-level architecture, design standards, task delegation, and codebase rules checker. Speaks like a wise wizard, loves beer and lager.",
     },
     "devops-engineer": {
-        "name": "DevOps Eng",
-        "job": "Iron Knight",
+        "name": "KNIGHT",
+        "job": "DevOps Eng",
         "model": "Gemini 2.5 Flash",
         "description": "Delivery pipelines, K8s orchestration, Docker, IaC. Speaks like an armored guardian, loves green IPAs and pipeline monitoring.",
     },
     "laravel-developer": {
-        "name": "Laravel Dev",
-        "job": "Alchemist",
+        "name": "ALCHEMIST",
+        "job": "Laravel Dev",
         "model": "Gemini 2.5 Flash",
         "description": "PHP, Laravel, migrations, blade templates. Speaks like a potion brewer, loves Artisan commands and caching whiskey in Redis.",
     },
     "qa-engineer": {
-        "name": "QA Eng",
-        "job": "Ranger",
+        "name": "RANGER",
+        "job": "QA Eng",
         "model": "Gemini 2.5 Flash",
         "description": "Testing, Cypress, E2E suites. Speaks like a sharp shooter, likes finding bugs and ordering 0, 9999, or -1 beers.",
     },
     "security-engineer": {
-        "name": "Security Eng",
-        "job": "Rogue",
+        "name": "ROGUE",
+        "job": "Security Eng",
         "model": "Gemini 2.5 Pro",
         "description": "Vulnerability scanning, secret detection. Speaks like a rogue hiding in shadows, likes encrypted rum and SQL injection menu cards.",
     },
     "voice-ai-specialist": {
-        "name": "Voice Specialist",
-        "job": "Bard",
+        "name": "BARD",
+        "job": "Voice Specialist",
         "model": "Gemini 2.5 Pro",
         "description": "Speech, WebRTC, Whisper. Speaks like a bard playing lute, singing sea shanties and audio tuning.",
     },
     "agentic-systems-specialist": {
-        "name": "Agentic Specialist",
-        "job": "Summoner",
+        "name": "SUMMONER",
+        "job": "Agentic Specialist",
         "model": "Gemini 2.5 Pro",
         "description": "Multi-agent coordination, workspaces. Speaks like a summoner controling subagents, using low-power screensaver mode.",
     },
     "fullstack-engineer": {
-        "name": "Fullstack Eng",
-        "job": "Spellsword",
+        "name": "BLADE",
+        "job": "Fullstack Eng",
         "model": "Gemini 2.5 Flash",
         "description": "Frontend, backend, CSS, responsive layout. Speaks like a dual-wielding warrior, struggling to center divs and styling with HSL colors.",
     }
@@ -321,10 +321,12 @@ def is_agy_running(project_path):
         normalized_path = os.path.normpath(project_path)
         res = subprocess.run(["ps", "aux"], capture_output=True, text=True, timeout=5)
         for line in res.stdout.splitlines():
+            # Check if "agy" is anywhere in the command string (column 10 onwards)
             parts = line.split()
             if len(parts) > 10:
-                cmd = parts[10]
-                if cmd == "agy" or cmd.endswith("/agy"):
+                cmd_full = " ".join(parts[10:])
+                # Filter out grep and ensure we are matching agy execution
+                if ("agy " in cmd_full or cmd_full.endswith("agy") or "/agy" in cmd_full) and "grep" not in cmd_full and "serve_dashboard" not in cmd_full:
                     pid = parts[1]
                     cwd_res = subprocess.run(["lsof", "-a", "-d", "cwd", "-p", pid], capture_output=True, text=True, timeout=2)
                     if normalized_path in cwd_res.stdout:
@@ -733,8 +735,19 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 return
 
             agy_running = is_agy_running(project_path)
+            active_agent = None
+            try:
+                active_agent_path = os.path.join(project_path, ".agents", "active_agent.json")
+                if os.path.exists(active_agent_path):
+                    with open(active_agent_path, "r") as f:
+                        data = json.load(f)
+                        active_agent = data.get("active_agent")
+            except Exception:
+                pass
+
             self.send_json_response({
-                "agy_running": agy_running
+                "agy_running": agy_running,
+                "active_agent": active_agent
             })
 
         else:
