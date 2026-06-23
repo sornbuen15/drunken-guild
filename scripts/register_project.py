@@ -12,7 +12,7 @@ DEFAULT_JIRA_PROJECT = "ALPHA"
 DEFAULT_DISCORD_CHANNEL = "123456789012345678"
 
 def get_or_create_project_id(project_path):
-    projects_dir = "/Users/operator/.gemini/config/projects"
+    projects_dir = os.path.expanduser("~/.gemini/config/projects")
     os.makedirs(projects_dir, exist_ok=True)
     abs_path = os.path.abspath(project_path)
     
@@ -136,7 +136,7 @@ def main():
     if not jira_token:
         print("[!] ไม่พบ 1Password CLI หรือดึงข้อมูลล้มเหลว")
         
-        global_config_path = "/Users/operator/.gemini/config/jira_config.json"
+        global_config_path = os.path.expanduser("~/.gemini/config/jira_config.json")
         use_global = False
         
         # Ask for consent to use global or save to global
@@ -218,7 +218,7 @@ def main():
             
     # Try backup config from drunken-agy if token not found
     if not discord_token:
-        backup_d_conf = "/Users/operator/Projects/drunken-agy/.agents/discord_config.json"
+        backup_d_conf = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".agents", "discord_config.json")
         if os.path.exists(backup_d_conf):
             try:
                 with open(backup_d_conf, "r") as f:
@@ -233,7 +233,7 @@ def main():
         discord_channel_id = chan_input
         
     # Save Discord Bot Token to Global Config instead of local project
-    global_d_conf = "/Users/operator/.gemini/config/discord_config.json"
+    global_d_conf = os.path.expanduser("~/.gemini/config/discord_config.json")
     if discord_token:
         try:
             with open(global_d_conf, "w", encoding="utf-8") as f:
