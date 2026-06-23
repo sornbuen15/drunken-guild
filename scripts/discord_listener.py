@@ -335,10 +335,10 @@ async def run_command_async(channel, user_mention, command_content, full_cmd, ag
     
     # Send immediate acknowledgement as Mina
     status_msg = await channel.send(
-        f"🎯 **รับออเดอร์ด่วนค่ะนายท่าน!** 🍺\n"
-        f"มินาส่งใบสั่งงานให้ **{agent_name}** ในห้องทำงานลับเรียบร้อยแล้วค่ะ \n"
-        f"เดี๋ยวเขาทำเสร็จแล้วมินาจะรีบวิ่งคาบรายงานมาแจ้งที่โต๊ะทันทีเลยค่ะ! \n"
-        f"⏳ **สถานะ:** กำลังทำงานหลังบ้าน... *(นายท่านกด ❌ เพื่อยกเลิกงานได้นะคะ)*"
+        f"🎯 **Quest order received, Boss!** 🍺\n"
+        f"Mina has dispatched the quest order to **{agent_name}** in the backroom office.\n"
+        f"I'll bring the report straight to your table once completed!\n"
+        f"⏳ **Status:** Processing behind the scenes... *(You can click ❌ to cancel the order anytime, Boss)*"
     )
     try:
         await status_msg.add_reaction("❌")
@@ -362,7 +362,7 @@ async def run_command_async(channel, user_mention, command_content, full_cmd, ag
             f.write(f"\nError executing command: {e}\n")
         log_activity("agent", "Agent", f"Failed: {e}")
         await status_msg.edit(
-            content=f"⚠️ **แย่แล้วค่ะนายท่าน!** งานของ **{agent_name}** เกิดข้อผิดพลาดเริ่มทำงานไม่ได้ค่ะ:\n`{e}`"
+            content=f"⚠️ **Oh no, Boss!** The quest order for **{agent_name}** failed to start:\n`{e}`"
         )
         try:
             await status_msg.clear_reactions()
@@ -376,7 +376,7 @@ async def run_command_async(channel, user_mention, command_content, full_cmd, ag
     if is_cancelled:
         log_activity("agent", "Agent", "Task cancelled by user.")
         await status_msg.edit(
-            content=f"🛑 **ออเดอร์ถูกยกเลิกแล้วค่ะนายท่าน!**\n🏁 **สถานะ:** นายท่านยกเลิกงานเรียบร้อยแล้วค่ะ"
+            content=f"🛑 **Order cancelled, Boss!**\n🏁 **Status:** Aborted by the Boss."
         )
         try:
             await status_msg.clear_reactions()
@@ -403,19 +403,19 @@ async def run_command_async(channel, user_mention, command_content, full_cmd, ag
 
     # Update status message to done
     await status_msg.edit(
-        content=f"🎯 **ออเดอร์เสร็จสิ้นแล้วค่ะนายท่าน!**\n🏁 **สถานะ:** เสร็จสมบูรณ์! รายงานผลส่งตรงถึงโต๊ะบอสเรียบร้อยค่ะ"
+        content=f"🎯 **Quest completed, Boss!**\n🏁 **Status:** Finished! The report is served at your table."
     )
 
     if clean_resp:
         log_activity("agent", "Agent", clean_resp)
-        formatted_content = f"🛎️ **นายท่านคะ! รายงานผลงานเสร็จแล้วค่ะ!** ({user_mention})\n\n{clean_resp}"
+        formatted_content = f"🛎️ **Boss! The report is served!** ({user_mention})\n\n{clean_resp}"
         if len(formatted_content) > 1950:
-            formatted_content = formatted_content[:1950] + "...\n*(เนื้อหารายงานยาวเกินไป พิมพ์ !detail เพื่อดึงไฟล์ประวัติการทำงานแบบเต็มนะคะ)*"
+            formatted_content = formatted_content[:1950] + "...\n*(Content too long. Type !detail to upload the full raw log file)*"
         await channel.send(formatted_content)
     else:
         log_activity("agent", "Agent", "Completed.")
         await channel.send(
-            f"🛎️ **นายท่านคะ! รายงานผลงานเสร็จแล้วค่ะ!** ({user_mention})\n🏁 **สถานะ:** เสร็จสิ้นเรียบร้อยแล้วค่ะ! *(พิมพ์ !detail เพื่อดู log เพิ่มเติมนะคะ)*"
+            f"🛎️ **Boss! The report is served!** ({user_mention})\n🏁 **Status:** Completed. *(Type !detail to check execution logs)*"
         )
 
 @client.event
@@ -441,13 +441,13 @@ async def on_message(message):
         if os.path.exists(RAW_LOG_FILE) and os.path.getsize(RAW_LOG_FILE) > 0:
             try:
                 await message.channel.send(
-                    content="นี่คือล็อกการทำงานดิบแบบเต็มรูปแบบค่ะนายท่าน:",
+                    content="Here is the raw execution log file, Boss:",
                     file=discord.File(RAW_LOG_FILE)
                 )
             except Exception as e:
-                await message.channel.send(f"มินาส่งล็อกไฟล์ดิบไม่ได้ค่ะเนื่องจากเกิดข้อผิดพลาด: {e}")
+                await message.channel.send(f"Mina failed to upload raw log file due to error: {e}")
         else:
-            await message.channel.send("ยังไม่มีประวัติการทำงานดิบในระบบค่ะบอส")
+            await message.channel.send("No raw execution history found in the tavern logbook, Boss.")
         return
 
     # 1. Handle Slash Commands starting with "/"
@@ -458,41 +458,41 @@ async def on_message(message):
 
         if slash_cmd == "/help":
             help_text = (
-                "สวัสดีค่ะนายท่าน! 🍺 มินา สาวดูแลโรงเตี๊ยมยินดีต้อนรับบอสสู่ **Drunken AGY Inn** ค่ะ!\n"
-                "หนูคอยช่วยประสานงานในห้องลับให้เอง นายท่านไม่ต้องนั่งรอผลลัพธ์ให้เหนื่อยค่ะ สั่งเสร็จไปนั่งจิบเบียร์รอได้เลยค่ะ!\n\n"
-                "**วิธีการสั่งงานมินามีดังนี้ค่ะ:**\n"
-                "1. **คำสั่งด่วนระบบ (Slash Commands):**\n"
-                "   - `/help` : แสดงความช่วยเหลือนี้ค่ะ\n"
-                "   - `/list-cmd` : ดูเมนูคำสั่งงานระบบด่วนที่รันได้ทันที\n"
-                "   - `/refine` : เริ่มจัดระเบียบ/กลั่นกรอง Backlog ของโครงการ\n"
-                "   - `/next` : ดึงงานความสำคัญสูงสุดถัดไปมาเริ่มทำทันที\n"
-                "   - `/audit` : ตรวจสอบความสมบูรณ์และสถาปัตยกรรมของโครงการ\n"
-                "   - `/confluence-sync` : ซิงค์เอกสาร ADRs/สเปกขึ้นระบบคลาวด์ Confluence\n\n"
-                "2. **สั่งงานทั่วไป/ชวนคุย (Async):**\n"
-                "   พิมพ์ในรูปแบบ: `<ใคร> <บริบท> <เป้าหมาย>`\n"
-                "   *ตัวอย่างเช่น:* `principal project-tff refine backlog`\n"
-                "   *รายชื่อสมาชิกในโรงเตี๊ยมที่สั่งงานได้ ( aliases ):*\n"
-                "   - `principal` (🧙‍♂️ Archmage - สถาปัตยกรรม & กฎระบบ)\n"
-                "   - `devops` (🛡️ Iron Knight - Server & K8s & Pipeline)\n"
-                "   - `laravel` (🧪 Alchemist - โค้ด PHP & Laravel)\n"
-                "   - `qa` (🏹 Ranger - ค้นหาบั๊ก & เขียน Test Suite)\n"
-                "   - `security` (👤 Rogue - ค้นหาช่องโหว่ความปลอดภัย)\n"
-                "   - `voice` (🎵 Bard - เสียง AI & WebRTC)\n"
-                "   - `agentic` (🌀 Summoner - ระบบ multi-agent)\n"
-                "   - `fullstack` (⚔️ Spellsword - หน้าบ้าน/หลังบ้าน/CSS)\n\n"
-                "มินารอรับออเดอร์อยู่ที่เคาน์เตอร์บาร์เสมอนะคะ! 🍹"
+                "Hello, Boss! 🍺 Mina, your tavern hostess, welcomes you to the **Drunken AGY Inn**!\n"
+                "I coordinate tasks in the backroom office so you don't have to wait. Grab a pint of ale and relax!\n\n"
+                "**How to order quests:**\n"
+                "1. **Quick Slash Commands:**\n"
+                "   - `/help` : Show this help menu.\n"
+                "   - `/list-cmd` : View list of fast executable system commands.\n"
+                "   - `/refine` : Refine and clean up Jira backlog.\n"
+                "   - `/next` : Pull and start the next highest priority task.\n"
+                "   - `/audit` : Audit codebase architecture and technical debt.\n"
+                "   - `/confluence-sync` : Sync ADRs/Specs to Confluence Cloud.\n\n"
+                "2. **Ask/Direct Quest Agents (Async):**\n"
+                "   Type in format: `<who> <context> <goal>`\n"
+                "   *Example:* `principal project-tff refine backlog`\n"
+                "   *Tavern Agents Roster (aliases):*\n"
+                "   - `principal` (🧙‍♂️ Archmage - Architecture & Rules)\n"
+                "   - `devops` (🛡️ Iron Knight - Infrastructure & Pipeline)\n"
+                "   - `laravel` (🧪 Alchemist - PHP & Laravel Core)\n"
+                "   - `qa` (🏹 Ranger - Bug Hunting & Test Suite)\n"
+                "   - `security` (👤 Rogue - Security Audit & Vulnerabilities)\n"
+                "   - `voice` (🎵 Bard - AI Voice & WebRTC)\n"
+                "   - `agentic` (🌀 Summoner - Multi-agent setup)\n"
+                "   - `fullstack` (⚔️ Spellsword - Frontend/Backend/CSS)\n\n"
+                "Mina is always waiting for your order at the counter! 🍹"
             )
             await message.channel.send(help_text)
             return
 
         elif slash_cmd == "/list-cmd":
             list_text = (
-                "นายท่านคะ! นี่คือเมนูคำสั่งด่วนที่มินาสามารถส่งคำสั่งตรงถึง agy ได้เลยค่ะ:\n"
-                "1. `/refine` : สั่งให้กลั่นกรองและเลื่อนสถานะ Backlog JIRA\n"
-                "2. `/next` : สั่งดึงงานสำคัญที่สุดมาทำทันที\n"
-                "3. `/audit` : สั่งรัน codebase health audit ตรวจเช็ค technical debt\n"
-                "4. `/confluence-sync` : สั่งอัปโหลด/ซิงค์เอกสารสเปกขึ้นระบบ Confluence Cloud\n\n"
-                "บอสสามารถพิมพ์ `/<คำสั่ง>` เพื่อรันได้ทันทีค่ะ!"
+                "Boss! Here is the menu of quick commands that I can relay to the agy CLI immediately:\n"
+                "1. `/refine` : Run JIRA Backlog refinement.\n"
+                "2. `/next` : Pull and start the highest priority task.\n"
+                "3. `/audit` : Run codebase health audit and trace technical debt.\n"
+                "4. `/confluence-sync` : Sync documentation files to Confluence Cloud.\n\n"
+                "You can type `/<command>` to execute it immediately!"
             )
             await message.channel.send(list_text)
             return
@@ -529,8 +529,8 @@ async def on_message(message):
         
         if not query_text:
             await message.channel.send(
-                f"สวัสดีค่ะนายท่าน! บอสต้องการคุยหรือสั่งอะไรกับ **{agent_key}** ดีคะ? \n"
-                f"กรุณาพิมพ์เพิ่มในรูปแบบ: `{words[0]} <คำสั่งหรือเรื่องที่อยากถาม>` นะคะ"
+                f"Hello Boss! What would you like to assign to **{agent_key}**?\n"
+                f"Please type in format: `{words[0]} <your prompt or command>`"
             )
             return
 
@@ -556,7 +556,7 @@ async def on_message(message):
             agent_instruction = (
                 f"You are {agent_meta['name']}, a developer agent working in the project workspace.\n"
                 f"Your Job role is: {agent_meta['job']}. Your personality: {agent_meta['description']}\n\n"
-                "CRITICAL: The user is 'The Boss' (บอส / นายท่าน / Boss). Never address the user as 'adventurer', 'traveler', 'patron', 'young adventurer', or 'friend'. Address them with respect as 'The Boss'.\n\n"
+                "CRITICAL: The user is 'The Boss' (The Boss / Master / Boss). Never address the user as 'adventurer', 'traveler', 'patron', 'young adventurer', or 'friend'. Address them with respect as 'The Boss'.\n\n"
                 "Your task is to review the user's message/command. You have two choices:\n"
                 "1. If the user request asks you to write code, edit files, create scripts, run tests, run shell/terminal commands, search the codebase, or do engineering tasks, OR IF THE USER ASKS ABOUT JIRA TASKS, JIRA BOARDS, BACKLOGS, ACTIVE FILES, OR WORKSPACE STATUS, you MUST respond with exactly '[EXECUTE_AGY]' (nothing else).\n"
                 "2. If it is a greeting, general question, explanation of code/concepts, conversation, or greeting chat, reply directly as the character. Keep it extremely brief (1-2 sentences), friendly, in-character, and respectful. Do not say '[EXECUTE_AGY]' if you can answer it yourself."
@@ -576,7 +576,7 @@ async def on_message(message):
             f"\n\n(Instructions: You are {agent_meta['name']} [Job: {agent_meta['job']}]. "
             f"Personality: {agent_meta['description']}. "
             "Respond like a human software developer in character, not an AI. "
-            "Address the user as 'The Boss' (บอส / นายท่าน / Boss) with respect. Never refer to them as adventurer or traveler. "
+            "Address the user as 'The Boss' (The Boss / Master / Boss) with respect. Never refer to them as adventurer or traveler. "
             "Be extremely brief, conversational, and direct. Explain in 1-2 short sentences "
             "exactly what you did. Do not use AI clichés or preamble. Start directly.)"
         )
@@ -595,10 +595,10 @@ async def on_message(message):
 
     # 3. Message does not match any known command pattern
     welcoming_text = (
-        f"สวัสดีค่ะนายท่าน! 🍹 มินา สาวดูแลโรงเตี๊ยมยินดีต้อนรับบอสสู่ Drunken AGY Inn ค่ะ!\n"
-        f"หนูคอยดูแลกระดานและออเดอร์ในโรงเตี๊ยมนี้ให้เองค่ะ บอสต้องการให้สั่งคำสั่งด่วนหรือมอบหมายงานให้นักผจญภัยคะ?\n\n"
-        f"💡 *คำแนะนำด่วน:* พิมพ์ `/help` เพื่อดูวิธีใช้และคำสั่งระบบ หรือลองใช้รูปแบบ `<ใคร> <บริบท> <เป้าหมาย>` เช่น: \n"
-        f"`principal project-tff refine backlog` เพื่อสั่งสถาปัตย์สูงสุดรันงานได้เลยค่ะ!"
+        f"Hello, Boss! 🍹 refreshing Mina, your tavern hostess, welcomes you to the Drunken AGY Inn!\n"
+        f"I coordinate dashboard and quest orders in the tavern. Would you like to run a quick command or assign a quest to an agent?\n\n"
+        f"💡 *Quick Tip:* Type `/help` to see instructions, or try the format `<who> <context> <goal>` such as: \n"
+        f"`principal project-tff refine backlog` to deploy the principal engineer immediately!"
     )
     await message.channel.send(welcoming_text)
 

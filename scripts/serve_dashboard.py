@@ -415,7 +415,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                     f"You are {agent_meta['name']}, a developer agent working in the project workspace.\n"
                     f"Your Job role is: {agent_meta['job']}. Your personality: {agent_meta['description']}\n"
                     f"Your current status is: {agent_status}.\n\n"
-                    "CRITICAL: The user is 'The Boss' (บอส / นายท่าน / Boss). Never address the user as 'adventurer', 'traveler', 'patron', 'young adventurer', or 'friend'. Address them with respect as 'The Boss'.\n\n"
+                    "CRITICAL: The user is 'The Boss'. Never address the user as 'adventurer', 'traveler', 'patron', 'young adventurer', or 'friend'. Address them with respect as 'The Boss'.\n\n"
                     "Your task is to review the user's message/command. You have two choices:\n"
                     "1. If the user request asks you to write code, edit files, create scripts, run tests, run shell/terminal commands, search the codebase, or do engineering tasks, OR IF THE USER ASKS ABOUT JIRA TASKS, JIRA BOARDS, BACKLOGS, ACTIVE FILES, OR WORKSPACE STATUS (since you do not have direct access to JIRA or the filesystem in this conversational mode), you MUST respond with exactly '[EXECUTE_AGY]' (nothing else).\n"
                     "2. If it is a greeting, general question, explanation of code/concepts, conversation, or greeting chat, reply directly as the character. Keep it extremely brief (1-2 sentences), friendly, in-character, and respectful. Do not say '[EXECUTE_AGY]' if you can answer it yourself."
@@ -435,7 +435,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                         f"\n\n(Instructions: You are {agent_meta['name']} [Job: {agent_meta['job']}]. "
                         f"Personality: {agent_meta['description']}. "
                         "Respond like a human software developer in character, not an AI. "
-                        "Address the user as 'The Boss' (บอส / นายท่าน / Boss) with respect. Never refer to them as adventurer or traveler. "
+                        "Address the user as 'The Boss' with respect. Never refer to them as adventurer or traveler. "
                         "Be extremely brief, conversational, and direct. Explain in 1-2 short sentences "
                         "exactly what you did. Do not use AI clichés or preamble. Start directly.)"
                     )
@@ -630,8 +630,8 @@ def main():
     except OSError as e:
         import errno
         if e.errno == errno.EADDRINUSE:
-            print(f"[!] *hic* พอร์ต {PORT} ถูกใช้งานอยู่แล้วค่ะ! โรงเตี๊ยมเปิดให้บริการอยู่แล้วนะคะบอส")
-            print(f"[*] กำลังเปิดประตูบานเดิมเพื่อต้อนรับนายท่านที่: http://localhost:{PORT}")
+            print(f"[!] *hic* Port {PORT} is already in use! The Tavern is already open, Boss!")
+            print(f"[*] Opening the existing door to welcome the Boss at: http://localhost:{PORT}")
             open_browser()
             sys.exit(0)
         else:
