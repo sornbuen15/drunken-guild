@@ -18,7 +18,7 @@ pip install -e .
 This registers the main command utilities in your `$PATH`:
 - **`drunken-register [path]`**: Register a project path, create `.agents/` folders, initialize `ANTIGRAVITY.md` router rules, and fetch/store credentials (supporting 1Password CLI biometrics or safe local global configurations).
 - **`drunken-dashboard [port]`**: Launch the retroactive retro Tavern JRPG dashboard visualizer (defaults to port `8081`). If the port is already occupied, it opens the existing link automatically.
-- **`drunken-listen`**: Starts the Discord gateway transceiver to listen for task queries and interact with agents via **Mina (ผู้ดูแลโรงเตี๊ยม)**.
+- **`drunken-listen`**: Starts the Discord gateway transceiver to listen for task queries and interact with agents via **Mina (Tavern Hostess)**.
 
 ### 🛎️ Registering a Project
 
@@ -100,8 +100,8 @@ This starts the local web server at `http://localhost:8080` and opens the tavern
 
 ### Tavern Interactions:
 *   **Specialist Nodes:** Click on any agent (e.g., Archmage for Principal Engineer, Rogue for Security Engineer, Ranger for QA) to view their character sheet.
-*   **Work Mode (ทำงาน):** The agent glows cyan, enters a focus animation, and outputs professional, technical logs or engineering code.
-*   **Rest Mode (ไอ้ขี้เมา):** The agent sways, drinks ale, and responds with humorous, incoherent programming rants.
+*   **Work Mode:** The agent glows cyan, enters a focus animation, and outputs professional, technical logs or engineering code.
+*   **Rest Mode (Drunkard):** The agent sways, drinks ale, and responds with humorous, incoherent programming rants.
 *   **Tavern Bell:** Ring the bell to put all agents to work, or send everyone to the bar!
 *   **Interactive Console:** Type messages to the active agent to see how they respond depending on their level of intoxication.
 

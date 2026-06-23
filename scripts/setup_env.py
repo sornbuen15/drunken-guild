@@ -20,8 +20,8 @@ def main():
     print("====================================================")
     print("🔑 Drunken AGY Inn Environment Setup & Biometric Auth")
     print("====================================================")
-    print("[*] บอสครับ ผมจะทำการยืนยันตัวตนด้วย Biometric ผ่าน 1Password CLI")
-    print("[*] เพื่อปลดล็อคและดึง credential ที่จำเป็นมาสร้างไฟล์ .env")
+    print("[*] Boss, I am performing Biometric authentication via 1Password CLI...")
+    print("[*] ...to unlock and fetch the required credentials to compile your local .env")
     print("----------------------------------------------------")
     
     # Load config template details (defaults to empty/generic)
@@ -81,16 +81,16 @@ def main():
 
     # Prompt interactive inputs if still missing
     if not jira_url:
-        jira_url = input("[?] ระบุ JIRA URL (e.g. https://your-domain.atlassian.net): ").strip()
+        jira_url = input("[?] Enter JIRA URL (e.g. https://your-domain.atlassian.net): ").strip()
     if not jira_email:
-        jira_email = input("[?] ระบุ JIRA Email: ").strip()
+        jira_email = input("[?] Enter JIRA Email: ").strip()
     if not project_key:
-        project_key = input("[?] ระบุ JIRA Project Key: ").strip()
+        project_key = input("[?] Enter JIRA Project Key: ").strip()
     if not discord_channel_id:
-        discord_channel_id = input("[?] ระบุ Discord Channel ID: ").strip()
+        discord_channel_id = input("[?] Enter Discord Channel ID: ").strip()
 
     # Always attempt to pull from 1Password CLI as biometric check
-    print("[*] กำลังตรวจสอบความถูกต้องทางชีวภาพ (Touch ID / Passkey) ผ่าน 1Password...")
+    print("[*] Verifying biometric authentication (Touch ID / Passkey) via 1Password...")
     # Target the correct reference format: op://Personal/Jira/credential
     JIRA_PASS_URIS = os.environ.get("JIRA_PASS_URIS", "").split(",") if os.environ.get("JIRA_PASS_URIS") else [
         "op://Personal/Jira/credential",
@@ -108,16 +108,16 @@ def main():
             if fetched_token:
                 jira_token = fetched_token
                 op_success = True
-                print(f"[+] ยืนยันตัวตนสำเร็จ! ปลดล็อคและดึง token จาก {uri} เรียบร้อย")
+                print(f"[+] Biometric authentication successful! Unlocked and fetched token from {uri}")
                 break
         except subprocess.CalledProcessError:
             continue
 
     if not op_success:
         if jira_token:
-            print("[!] ไม่สามารถติดต่อ 1Password CLI ได้, จะใช้ JIRA token เดิมจาก config ท้องถิ่น")
+            print("[!] Failed to communicate with 1Password CLI. Falling back to the existing JIRA token from local config.")
         else:
-            print("[-] ล้มเหลว: ไม่สามารถตรวจผ่าน biometrics หรือหา token ใน 1Password ได้เลยครับบอส", file=sys.stderr)
+            print("[-] Error: Failed biometric check and no token found in 1Password or local config, Boss.", file=sys.stderr)
             sys.exit(1)
             
     # Write to .env
@@ -136,7 +136,7 @@ JIRA_PROJECT_KEY="{project_key}"
     env_path = os.path.join(os.getcwd(), ".env")
     with open(env_path, "w", encoding="utf-8") as f:
         f.write(env_content.strip() + "\n")
-    print("[+] สร้างไฟล์ .env เรียบร้อยที่:", env_path)
+    print("[+] Local environment file .env compiled successfully at:", env_path)
     
     # Check and update .gitignore
     gitignore_path = os.path.join(os.getcwd(), ".gitignore")
@@ -150,12 +150,11 @@ JIRA_PROJECT_KEY="{project_key}"
     if ensure_gitignore not in gitignore_content.splitlines():
         with open(gitignore_path, "a", encoding="utf-8") as f:
             f.write(f"\n# Drunken AGY local credentials\n{ensure_gitignore}\n")
-        print("[+] เพิ่ม .env ลงใน .gitignore เรียบร้อย (ปลอดภัยไม่ติด git)")
+        print("[+] Added .env to .gitignore successfully (git-ignored for safety)")
     else:
-        print("[*] มี .env ใน .gitignore อยู่แล้ว")
+        print("[*] .env is already present in .gitignore")
         
-    print("[+] การตั้งค่าเสร็จสิ้น! ทุกบริการของ agy จะอ่านตัวแปรจากไฟล์ .env โดยตรงโดยไม่ต้องสแกนนิ้วซ้ำแล้วครับบอส")
+    print("[+] Setup complete! AGY services will now load parameters directly from the local .env file, Boss!")
 
 if __name__ == "__main__":
     main()
-
