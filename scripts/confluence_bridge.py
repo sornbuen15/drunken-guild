@@ -229,6 +229,13 @@ def update_page(page_id, current_version, title, body_html, token):
     url = f"https://sornbuen15.atlassian.net/wiki/api/v2/pages/{page_id}"
     return make_request(url, method="PUT", payload=payload, token=token)
 
+def strip_frontmatter(md_content):
+    if md_content.startswith('---'):
+        parts = md_content.split('---')
+        if len(parts) >= 3:
+            return '---'.join(parts[2:]).strip()
+    return md_content
+
 def push_document(title, file_path, parent_id=None):
     token = get_jira_token()
     if not os.path.exists(file_path):
@@ -239,10 +246,7 @@ def push_document(title, file_path, parent_id=None):
         md_content = f.read()
         
     # Strip YAML frontmatter if present
-    if md_content.startswith('---'):
-        parts = md_content.split('---')
-        if len(parts) >= 3:
-            md_content = '---'.join(parts[2:]).strip()
+    md_content = strip_frontmatter(md_content)
             
     print(f"Converting '{title}' ({file_path}) to XHTML storage format...")
     html_content = markdown_to_html(md_content)
