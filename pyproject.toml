@@ -27,4 +27,5 @@ drunken-register = "scripts.register_project:main"
 
 
 [tool.setuptools]
-packages = ["scripts"]
+packages = ["scripts", "drunken_agy", "drunken_agy.services", "drunken_agy.routes"]
+package-dir = {"drunken_agy" = "src/drunken_agy"}
