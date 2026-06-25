@@ -7,11 +7,31 @@ import urllib.request
 import urllib.parse
 import base64
 
-SPACE_KEY = "BETA"
-SPACE_ID = "524292"
-HOMEPAGE_ID = "524464"
+SPACE_KEY = "D"
+SPACE_ID = "2031618"
+HOMEPAGE_ID = "2031725"
+
+def load_dotenv():
+    curr_dir = os.getcwd()
+    while True:
+        dotenv_path = os.path.join(curr_dir, '.env')
+        if os.path.exists(dotenv_path):
+            try:
+                with open(dotenv_path, 'r', encoding='utf-8') as f:
+                    for line in f:
+                        line = line.strip()
+                        if not line or line.startswith('#'): continue
+                        if '=' in line:
+                            key, val = line.split('=', 1)
+                            os.environ.setdefault(key.strip(), val.strip().strip('"').strip("'"))
+            except Exception: pass
+            break
+        parent = os.path.dirname(curr_dir)
+        if parent == curr_dir: break
+        curr_dir = parent
 
 def get_jira_token():
+    load_dotenv()
     return os.environ.get("JIRA_TOKEN")
 
 def make_request(url, method="GET", payload=None, email="sornbuen15@gmail.com", token=None):
