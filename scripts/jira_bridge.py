@@ -273,7 +273,7 @@ def main():
     action = sys.argv[1]
     
     if action == "get-todo":
-        jql = f"project = {jira_config['project_key']} AND status = 'To Do' ORDER BY priority DESC, created ASC"
+        jql = f"project = {jira_config['project_key']} AND status in ('To Do', 'Selected for Development') ORDER BY priority DESC, created ASC"
         issues = search_issues(jira_config, jql)
         print(json.dumps(issues, indent=2))
         
