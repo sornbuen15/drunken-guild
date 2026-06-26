@@ -2,7 +2,7 @@
 
 ## Supported Versions
 
-We actively support and apply security patches to the following versions of Drunken AGY Inn:
+We actively support and apply security patches to the following versions of Drunken Team Inn:
 
 | Version | Supported          |
 | ------- | ------------------ |

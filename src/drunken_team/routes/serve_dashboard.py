@@ -383,8 +383,8 @@ def load_projects_mapping():
 
     # Ensure current workspace is mapped
     curr_workspace = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    if "drunken-agy" not in project_paths:
-        project_paths["drunken-agy"] = curr_workspace
+    if "drunken-team" not in project_paths:
+        project_paths["drunken-team"] = curr_workspace
 
 class Handler(http.server.SimpleHTTPRequestHandler):
     def __init__(self, *args, **kwargs):
@@ -628,7 +628,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         # 2. API: Get Discord Status & Redacted Config
         elif self.path.startswith("/api/discord/status"):
             # Parse query params
-            project_id = "drunken-agy"
+            project_id = "drunken-team"
             if "?" in self.path:
                 params = self.path.split("?")[1]
                 for p in params.split("&"):
@@ -689,7 +689,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         # 3. API: Get Discord Activity Logs
         elif self.path.startswith("/api/discord/activity"):
             # Parse query params
-            project_id = "drunken-agy"
+            project_id = "drunken-team"
             if "?" in self.path:
                 params = self.path.split("?")[1]
                 for p in params.split("&"):
@@ -720,7 +720,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         # 4. API: Get Project Status (whether agy is running)
         elif self.path.startswith("/api/project/status"):
             # Parse query params
-            project_id = "drunken-agy"
+            project_id = "drunken-team"
             if "?" in self.path:
                 params = self.path.split("?")[1]
                 for p in params.split("&"):
@@ -811,7 +811,7 @@ def main():
             raise e
 
     with httpd:
-        print(f"[*] Drunken AGY Inn JRPG Dashboard running at http://localhost:{PORT}/")
+        print(f"[*] Drunken Team Inn JRPG Dashboard running at http://localhost:{PORT}/")
         print("[*] Press Ctrl+C to close the Inn.")
 
         # Automatically start all registered Discord listeners

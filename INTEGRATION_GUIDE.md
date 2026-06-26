@@ -1,6 +1,6 @@
 # Third-Party AI Integration Guide
 
-The Drunken-Agy repository is configured to be seamlessly compatible with various third-party AI coding agents. By default, it employs a strict Jira and Confluence Single Source of Truth (SSOT) workflow.
+The Drunken-Team repository is configured to be seamlessly compatible with various third-party AI coding agents. By default, it employs a strict Jira and Confluence Single Source of Truth (SSOT) workflow.
 
 We have pre-configured native files to force third-party agents to adhere to these rules automatically.
 

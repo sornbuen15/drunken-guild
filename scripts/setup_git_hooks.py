@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Setup utility for Drunken AGY local Git hooks.
+Setup utility for Drunken Team local Git hooks.
 Installs a pre-push hook to prevent accidental direct pushes to protected branches.
 """
 
@@ -11,7 +11,7 @@ import sys
 HOOK_CONTENT = """#!/usr/bin/env python3
 import sys
 
-# Drunken AGY Git Pre-Push Hook
+# Drunken Team Git Pre-Push Hook
 # Prevents direct pushes to protected branches (main, develop)
 
 PROTECTED_REFS = {"refs/heads/main", "refs/heads/develop"}
@@ -26,7 +26,7 @@ for line in lines:
     # If remote branch being updated is main or develop, abort the push
     if remote_ref in PROTECTED_REFS:
         branch_name = remote_ref.split('/')[-1]
-        print(f"\\n[Drunken AGY Hook] 🛑 ERROR: Direct push to protected branch '{branch_name}' is prohibited!")
+        print(f"\\n[Drunken Team Hook] 🛑 ERROR: Direct push to protected branch '{branch_name}' is prohibited!")
         print("Please follow the standard Git workflow:")
         print("  1. Create a feature branch off 'develop'")
         print("  2. Push your feature branch to remote")

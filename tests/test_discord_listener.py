@@ -1,5 +1,5 @@
 import pytest
-from drunken_agy.services.discord_listener import extract_clean_response
+from drunken_team.services.discord_listener import extract_clean_response
 
 def test_extract_clean_response():
     raw_log = """

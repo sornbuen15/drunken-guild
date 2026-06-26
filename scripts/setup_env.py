@@ -18,7 +18,7 @@ def find_config(filename):
 
 def main():
     print("====================================================")
-    print("🔑 Drunken AGY Inn Environment Setup & Biometric Auth")
+    print("🔑 Drunken Team Inn Environment Setup & Biometric Auth")
     print("====================================================")
     print("[*] Boss, I am performing Biometric authentication via 1Password CLI...")
     print("[*] ...to unlock and fetch the required credentials to compile your local .env")
@@ -165,7 +165,7 @@ JIRA_PROJECT_KEY="{project_key}"
             
     if ensure_gitignore not in gitignore_content.splitlines():
         with open(gitignore_path, "a", encoding="utf-8") as f:
-            f.write(f"\n# Drunken AGY local credentials\n{ensure_gitignore}\n")
+            f.write(f"\n# Drunken Team local credentials\n{ensure_gitignore}\n")
         print("[+] Added .env to .gitignore successfully (git-ignored for safety)")
     else:
         print("[*] .env is already present in .gitignore")

@@ -1,6 +1,6 @@
-# Drunken Agy: Software Development Workflow Guide
+# Drunken Team: Software Development Workflow Guide
 
-Welcome to the Drunken-Agy project! This repository relies on an advanced, highly-automated agentic software development lifecycle (SDLC). To prevent data fragmentation (split-brain) and maintain a stable codebase, all human developers and AI Agents MUST strictly adhere to the following Single Source of Truth (SSOT) protocols.
+Welcome to the Drunken-Team project! This repository relies on an advanced, highly-automated agentic software development lifecycle (SDLC). To prevent data fragmentation (split-brain) and maintain a stable codebase, all human developers and AI Agents MUST strictly adhere to the following Single Source of Truth (SSOT) protocols.
 
 ---
 

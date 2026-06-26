@@ -1,6 +1,6 @@
-# Contributing to Drunken AGY Inn
+# Contributing to Drunken Team Inn
 
-First off, thank you for considering contributing to Drunken AGY Inn! It's people like you who make this toolkit better for everyone.
+First off, thank you for considering contributing to Drunken Team Inn! It's people like you who make this toolkit better for everyone.
 
 ---
 

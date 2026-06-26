@@ -1,4 +1,4 @@
-// Drunken AGY Inn Dashboard Engine - JRPG Edition
+// Drunken Team Inn Dashboard Engine - JRPG Edition
 document.addEventListener('DOMContentLoaded', () => {
     // 1. Agents JRPG Database
     const agentsData = {
@@ -389,7 +389,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 selectedAgentKey: "principal-engineer",
                 logs: [
                     { type: "system", text: `[System] Switched to Realm: ${projectId}` },
-                    { type: "system", text: "[System] Welcome to the Drunken AGY Inn." }
+                    { type: "system", text: "[System] Welcome to the Drunken Team Inn." }
                 ]
             };
         }
@@ -454,8 +454,8 @@ document.addEventListener('DOMContentLoaded', () => {
             console.error("Failed to load projects list:", e);
             const select = document.getElementById('project-select');
             if (select) {
-                select.innerHTML = '<option value="drunken-agy">drunken-agy</option>';
-                switchProject("drunken-agy");
+                select.innerHTML = '<option value="drunken-team">drunken-team</option>';
+                switchProject("drunken-team");
             }
         }
     }
