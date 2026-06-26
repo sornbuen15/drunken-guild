@@ -1,4 +1,4 @@
-# Drunken-Agy Coding Conventions
+# Drunken-Team Coding Conventions
 
 This file (`CONVENTIONS.md`) is natively parsed by **Aider** to enforce architectural and workflow rules.
 

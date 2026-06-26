@@ -1,4 +1,4 @@
-# Drunken-Agy Guidelines for Claude Code
+# Drunken-Team Guidelines for Claude Code
 
 This file (`CLAUDE.md`) is automatically loaded by the **Claude Code CLI** to provide project-specific instructions and command shortcuts.
 

@@ -1,1 +1,1 @@
-# Drunken AGY Inn scripts module
+# Drunken Team Inn scripts module

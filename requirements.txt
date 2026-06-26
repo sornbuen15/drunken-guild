@@ -15,7 +15,7 @@ attrs==26.1.0
 audioop-lts==0.2.2
     # via discord-py
 discord-py==2.7.1
-    # via drunken-agy (pyproject.toml)
+    # via drunken-team (pyproject.toml)
 frozenlist==1.8.0
     # via
     #   aiohttp
@@ -31,6 +31,6 @@ propcache==0.5.2
     #   aiohttp
     #   yarl
 python-dotenv==1.2.2
-    # via drunken-agy (pyproject.toml)
+    # via drunken-team (pyproject.toml)
 yarl==1.24.2
     # via aiohttp

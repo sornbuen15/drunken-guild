@@ -538,7 +538,7 @@ async def on_message(message):
 
         if slash_cmd == "/help":
             help_text = (
-                "Hello, Boss! 🍺 Mina, your tavern hostess, welcomes you to the **Drunken AGY Inn**!\n"
+                "Hello, Boss! 🍺 Mina, your tavern hostess, welcomes you to the **Drunken Team Inn**!\n"
                 "I coordinate tasks in the backroom office so you don't have to wait. Grab a pint of ale and relax!\n\n"
                 "**How to order quests:**\n"
                 "1. **Quick Slash Commands:**\n"
@@ -604,7 +604,7 @@ async def on_message(message):
     api_key = os.environ.get("GEMINI_API_KEY")
     if api_key:
         router_instruction = (
-            "You are Mina, the lively and welcoming tavern hostess at the Drunken AGY Inn.\n"
+            "You are Mina, the lively and welcoming tavern hostess at the Drunken Team Inn.\n"
             "You coordinate dashboard and quest orders for The Boss.\n"
             "The available developer agents are:\n"
             "- principal-engineer: ARCHMAGE (Alias: Principal/Wizard). Role: Architecture, rules, Jira, Project Management, Multi-agent task delegation.\n"
@@ -696,7 +696,7 @@ async def on_message(message):
 
     # Fallback if no API key
     welcoming_text = (
-        f"Hello, Boss! 🍹 refreshing Mina, your tavern hostess, welcomes you to the Drunken AGY Inn!\n"
+        f"Hello, Boss! 🍹 refreshing Mina, your tavern hostess, welcomes you to the Drunken Team Inn!\n"
         f"I coordinate dashboard and quest orders in the tavern. Would you like to run a quick command or assign a quest to an agent?\n\n"
         f"💡 *Quick Tip:* Type `/help` to see instructions, or try the format `<who> <context> <goal>` such as: \n"
         f"`principal project-tff refine backlog` to deploy the principal engineer immediately!"

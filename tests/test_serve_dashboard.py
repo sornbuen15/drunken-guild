@@ -1,5 +1,5 @@
 import pytest
-from drunken_agy.routes.serve_dashboard import AGENTS_METADATA
+from drunken_team.routes.serve_dashboard import AGENTS_METADATA
 
 def test_agents_metadata():
     """Ensure all required agents are correctly defined in metadata."""

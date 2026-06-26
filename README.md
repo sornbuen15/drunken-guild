@@ -1,17 +1,17 @@
-# Drunken AGY - Ultimate (Drunken) Antigravity Extension Suite
+# Drunken Team - Ultimate (Drunken) Antigravity Extension Suite
 *Brought to you by Drunken Programmer*
 
-Grab a pint, pull up a sturdy wooden stool, and welcome to **Drunken AGY**! This is the ultimate collection of lightweight, token-optimized, and tavern-tested utilities designed to supercharge your experience with **Google Antigravity** (and other agentic AI systems). 
+Grab a pint, pull up a sturdy wooden stool, and welcome to **Drunken Team**! This is the ultimate collection of lightweight, token-optimized, and tavern-tested utilities designed to supercharge your experience with **Google Antigravity** (and other agentic AI systems). 
 
 Instead of dealing with bloated payloads or sober, boring setups, this suite brings developer-focused workflows, interactive boss approvals, a real-time pixelated tavern visualizer, and lightweight third-party integrations with zero hangover.
 
 
 ## 🚀 Installation & Quick Start
 
-Drunken AGY is packaged as a global Python CLI tool. Install it once locally to make its commands accessible from anywhere in your terminal:
+Drunken Team is packaged as a global Python CLI tool. Install it once locally to make its commands accessible from anywhere in your terminal:
 
 ```bash
-cd /path/to/drunken-agy
+cd /path/to/drunken-team
 pip install -e .
 ```
 
@@ -22,7 +22,7 @@ This registers the main command utilities in your `$PATH`:
 
 ### 🛎️ Registering a Project
 
-To initialize and setup Drunken AGY for any project:
+To initialize and setup Drunken Team for any project:
 1. Open your terminal and `cd` to the target project directory.
 2. Run the register command:
    ```bash
@@ -43,7 +43,7 @@ To initialize and setup Drunken AGY for any project:
 
 
 1.  **Tavern Dashboard Visualizer** (`dashboard/`):
-    Step inside the **Drunken AGY Inn**—a cozy retro visual dashboard where all your specialized developer agents hang out. Ring the tavern bell to switch them from **Work Mode** (glowing cyan, writing strict type-safe code) to **Rest Mode** (getting completely hammered on virtual ale, swaying, and yelling hilarious programming rants) via an interactive console!
+    Step inside the **Drunken Team Inn**—a cozy retro visual dashboard where all your specialized developer agents hang out. Ring the tavern bell to switch them from **Work Mode** (glowing cyan, writing strict type-safe code) to **Rest Mode** (getting completely hammered on virtual ale, swaying, and yelling hilarious programming rants) via an interactive console!
 
 2.  **Workspace Customization Syncing** (`sync_customizations.py`):
     Pour your customized skills and specialized agent profiles directly into your local projects (`.agents/`) or dump them globally (`~/.gemini/config/`) without spilling a single drop.
@@ -60,7 +60,7 @@ To initialize and setup Drunken AGY for any project:
 ## 🗺️ Tavern Blueprint (Folder Structure)
 
 ```text
-drunken-agy/
+drunken-team/
 ├── README.md               # The Tavern Guidebook & Quest board
 ├── LICENSE                 # MIT License (Do whatever you want, but don't blame the bartender)
 ├── CODE_OF_CONDUCT.md      # Rules to keep the tavern safe and free of toxic trolls
@@ -72,7 +72,7 @@ drunken-agy/
 ├── skills/                 # Skills catalog (learned wizard spells)
 │   ├── INDEX.md            # Spells catalog index
 │   └── */SKILL.md          # Domain-specific skill configurations
-├── dashboard/              # The Drunken AGY Inn frontend portal
+├── dashboard/              # The Drunken Team Inn frontend portal
 │   ├── index.html          # Web portal interface
 │   ├── style.css           # Curated JRPG styling & swaying animations
 │   ├── app.js              # Roster database & agent dialogue generator
@@ -89,7 +89,7 @@ drunken-agy/
 
 ## 🎮 1. Tavern Dashboard Visualizer
 
-Step inside the "Drunken AGY Inn" to interact with your developer squad.
+Step inside the "Drunken Team Inn" to interact with your developer squad.
 
 ### Start the Tavern Server:
 Light the hearth by running the server launcher:
@@ -130,19 +130,19 @@ Installs the agents and skills globally for any Antigravity workspace to use.
 
 ### 🧙 Available Agent Skills
 
-The suite includes the following pre-configured skills (located in the [skills/](file:///Users/r.jakkawan/Projects/drunken-agy/skills/) directory) that can be loaded by your Antigravity agents:
+The suite includes the following pre-configured skills (located in the [skills/](file:///Users/r.jakkawan/Projects/drunken-team/skills/) directory) that can be loaded by your Antigravity agents:
 
-*   **[git-workflow](file:///Users/r.jakkawan/Projects/drunken-agy/skills/git-workflow/SKILL.md)**: Enforces Git branching rules, Pull Requests, release workflows, and GitHub CLI (`gh`) best practices.
-*   **[next-task](file:///Users/r.jakkawan/Projects/drunken-agy/skills/next-task/SKILL.md)**: Moves high-priority items from the backlog/todo to in-progress using the Jira bridge.
-*   **[backlog-refinement](file:///Users/r.jakkawan/Projects/drunken-agy/skills/backlog-refinement/SKILL.md)**: Refines backlog tasks and aligns local items with Jira.
-*   **[confluence-sync](file:///Users/r.jakkawan/Projects/drunken-agy/skills/confluence-sync/SKILL.md)**: Syncs local documentation files (Specs, ADRs, etc.) with Confluence Cloud.
-*   **[debug-mantra](file:///Users/r.jakkawan/Projects/drunken-agy/skills/debug-mantra/SKILL.md)**: A 4-step disciplined debugging approach (reproduce, trace, falsify, cross-reference).
-*   **[management-talk](file:///Users/r.jakkawan/Projects/drunken-agy/skills/management-talk/SKILL.md)**: Rewrites highly technical logs/messages for leadership (VPs, PMs, directors).
-*   **[post-mortem](file:///Users/r.jakkawan/Projects/drunken-agy/skills/post-mortem/SKILL.md)**: Standardizes bug post-mortem documentation once a fix is landed.
-*   **[project-audit-reviewer](file:///Users/r.jakkawan/Projects/drunken-agy/skills/project-audit-reviewer/SKILL.md)**: Audits codebase health, architecture compliance, and security posture.
-*   **[scrutinize](file:///Users/r.jakkawan/Projects/drunken-agy/skills/scrutinize/SKILL.md)**: An independent review flow to audit proposed changes and PRs.
-*   **[system-design-rules](file:///Users/r.jakkawan/Projects/drunken-agy/skills/system-design-rules/SKILL.md)**: Guidelines for system architecture, API contracts, and design trade-offs.
-*   **[task-estimation](file:///Users/r.jakkawan/Projects/drunken-agy/skills/task-estimation/SKILL.md)**: Standardizes task complexity, requirements, and estimation.
+*   **[git-workflow](file:///Users/r.jakkawan/Projects/drunken-team/skills/git-workflow/SKILL.md)**: Enforces Git branching rules, Pull Requests, release workflows, and GitHub CLI (`gh`) best practices.
+*   **[next-task](file:///Users/r.jakkawan/Projects/drunken-team/skills/next-task/SKILL.md)**: Moves high-priority items from the backlog/todo to in-progress using the Jira bridge.
+*   **[backlog-refinement](file:///Users/r.jakkawan/Projects/drunken-team/skills/backlog-refinement/SKILL.md)**: Refines backlog tasks and aligns local items with Jira.
+*   **[confluence-sync](file:///Users/r.jakkawan/Projects/drunken-team/skills/confluence-sync/SKILL.md)**: Syncs local documentation files (Specs, ADRs, etc.) with Confluence Cloud.
+*   **[debug-mantra](file:///Users/r.jakkawan/Projects/drunken-team/skills/debug-mantra/SKILL.md)**: A 4-step disciplined debugging approach (reproduce, trace, falsify, cross-reference).
+*   **[management-talk](file:///Users/r.jakkawan/Projects/drunken-team/skills/management-talk/SKILL.md)**: Rewrites highly technical logs/messages for leadership (VPs, PMs, directors).
+*   **[post-mortem](file:///Users/r.jakkawan/Projects/drunken-team/skills/post-mortem/SKILL.md)**: Standardizes bug post-mortem documentation once a fix is landed.
+*   **[project-audit-reviewer](file:///Users/r.jakkawan/Projects/drunken-team/skills/project-audit-reviewer/SKILL.md)**: Audits codebase health, architecture compliance, and security posture.
+*   **[scrutinize](file:///Users/r.jakkawan/Projects/drunken-team/skills/scrutinize/SKILL.md)**: An independent review flow to audit proposed changes and PRs.
+*   **[system-design-rules](file:///Users/r.jakkawan/Projects/drunken-team/skills/system-design-rules/SKILL.md)**: Guidelines for system architecture, API contracts, and design trade-offs.
+*   **[task-estimation](file:///Users/r.jakkawan/Projects/drunken-team/skills/task-estimation/SKILL.md)**: Standardizes task complexity, requirements, and estimation.
 
 ---
 
