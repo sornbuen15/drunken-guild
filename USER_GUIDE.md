@@ -1,6 +1,6 @@
-# 🍻 Drunken AGY Inn: User Guide & Roster Manual
+# 🍻 Drunken Team Inn: User Guide & Roster Manual
 
-Welcome to the official manual for the **Drunken AGY Suite**—a set of lightweight, token-optimized, and JRPG-tavern-themed utilities designed to extend Google's Antigravity agentic CLI. 🎮🍺
+Welcome to the official manual for the **Drunken Team Suite**—a set of lightweight, token-optimized, and JRPG-tavern-themed utilities designed to extend Google's Antigravity agentic CLI. 🎮🍺
 
 ---
 
@@ -41,7 +41,7 @@ To get the most out of the suite, ensure you have:
 Install the package globally in editable mode so its command endpoints are exposed directly in your terminal path:
 
 ```bash
-cd /path/to/drunken-agy
+cd /path/to/drunken-team
 pip install -e .
 ```
 
