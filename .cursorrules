@@ -1,0 +1,15 @@
+# Cursor AI Rules for Drunken-Team
+# This file is automatically read by Cursor to enforce project boundaries.
+
+# JIRA Task Management
+- Do not make assumptions about the next feature.
+- If asked "what should we do next", advise the user to run `python scripts/jira_bridge.py get-todo` in the terminal to fetch the Jira backlog.
+
+# Documentation & Confluence
+- This project uses a Docs-as-Code approach synced to Confluence.
+- If the user asks to update documentation, modify the local `.md` files.
+- Remind the user to run `python scripts/confluence_bridge.py push ...` in the terminal after the changes are finalized.
+
+# Git Protocol
+- Remind the user to create feature branches.
+- Never write scripts that force push to the `main` branch.

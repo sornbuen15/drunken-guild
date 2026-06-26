@@ -51,7 +51,7 @@ def get_or_create_project_id(project_path):
 def main():
     print("====================================================")
     # Drunken programmer style hiccup header
-    print("🍺 *hic* Drunken AGY Project Registration & Setup")
+    print("🍺 *hic* Drunken Team Project Registration & Setup")
     print("====================================================")
     
     # 1. Resolve Project Path
@@ -238,7 +238,7 @@ def main():
         except Exception:
             pass
             
-    # Try backup config from drunken-agy if token not found
+    # Try backup config from drunken-team if token not found
     if not discord_token:
         backup_d_conf = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".agents", "discord_config.json")
         if os.path.exists(backup_d_conf):
@@ -288,7 +288,7 @@ JIRA_PROJECT_KEY="{project_key}"
             
     if ensure_gitignore not in gitignore_content.splitlines():
         with open(gitignore_path, "a", encoding="utf-8") as f:
-            f.write(f"\n# Drunken AGY local configuration\n{ensure_gitignore}\n")
+            f.write(f"\n# Drunken Team local configuration\n{ensure_gitignore}\n")
         print("[+] Added .env to .gitignore successfully (git-ignored for safety)")
     else:
         print("[*] .env is already present in .gitignore")
