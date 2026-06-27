@@ -26,8 +26,8 @@ def test_telemetry_endpoint_authorization_fail_safe(
     mock_handler.headers = {"Content-Length": "2"}
     mock_handler.rfile.read.return_value = b"{}"
 
-    # Manually invoke do_POST
-    Handler.do_POST(mock_handler)
+    # Manually invoke handle_post_telemetry
+    Handler.handle_post_telemetry(mock_handler, {})
 
     mock_handler.send_error_response.assert_called_with(
         "Server is not configured to accept telemetry (missing API key).", code=500
@@ -47,7 +47,7 @@ def test_telemetry_endpoint_unauthorized(
     mock_handler.headers = {"Content-Length": "2", "Authorization": "Bearer wrong-key"}
     mock_handler.rfile.read.return_value = b"{}"
 
-    Handler.do_POST(mock_handler)
+    Handler.handle_post_telemetry(mock_handler, {})
 
     mock_handler.send_error_response.assert_called_with(
         "Unauthorized edge node.", code=401
@@ -67,6 +67,6 @@ def test_telemetry_endpoint_authorized(
     mock_handler.headers = {"Content-Length": "2", "X-API-Key": "secret-key-123"}
     mock_handler.rfile.read.return_value = b"{}"
 
-    Handler.do_POST(mock_handler)
+    Handler.handle_post_telemetry(mock_handler, {})
 
     mock_handler.send_json_response.assert_called_with({"status": "telemetry_accepted"})
