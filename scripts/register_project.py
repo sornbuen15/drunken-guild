@@ -132,7 +132,7 @@ def main():
                     capture_output=True,
                     text=True,
                     check=True,
-                    timeout=10,
+                    timeout=30,
                 )
                 fetched_token = res.stdout.strip()
                 if fetched_token:
