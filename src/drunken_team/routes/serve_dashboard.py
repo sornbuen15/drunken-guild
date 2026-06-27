@@ -222,7 +222,10 @@ def extract_clean_response(log_content: str) -> str:
 
 PORT = int(os.environ.get("PORT", 8081))
 DIRECTORY = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "dashboard"
+    os.path.dirname(
+        os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    ),
+    "dashboard",
 )
 
 # Global in-memory storage for project mappings and Discord processes
