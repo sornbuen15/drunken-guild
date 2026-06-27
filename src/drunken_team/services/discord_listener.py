@@ -233,9 +233,78 @@ if not CHANNEL_ID:
 intents = discord.Intents.default()
 intents.message_content = True
 client = discord.Client(intents=intents)
+tree = discord.app_commands.CommandTree(client)
+
+class BountyModal(discord.ui.Modal, title='Post a New Bounty'):
+    summary = discord.ui.TextInput(
+        label='Bounty Title',
+        placeholder='e.g., Slay the Dragon in the Backend',
+        required=True,
+        max_length=100
+    )
+    description = discord.ui.TextInput(
+        label='Quest Details',
+        style=discord.TextStyle.long,
+        placeholder='Describe the monster...',
+        required=True
+    )
+
+    async def on_submit(self, interaction: discord.Interaction):
+        try:
+            cmd = ["python", "scripts/jira_bridge.py", "create", self.summary.value, self.description.value]
+            res = await asyncio.create_subprocess_exec(*cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+            stdout, stderr = await res.communicate()
+            if "ok" in stdout.decode():
+                await interaction.response.send_message(f"📜 **Bounty Posted on the Tavern Board!**\n**Quest:** {self.summary.value}", ephemeral=False)
+            else:
+                await interaction.response.send_message(f"⚠️ Failed to post bounty: {stderr.decode()}", ephemeral=True)
+        except Exception as e:
+            await interaction.response.send_message(f"Error: {e}", ephemeral=True)
+
+@tree.command(name="bounty", description="Post a new bounty (Jira task) to the Guild Board")
+async def slash_bounty(interaction: discord.Interaction):
+    await interaction.response.send_modal(BountyModal())
+
+class ApprovalView(discord.ui.View):
+    def __init__(self, req_id, inbox_file):
+        super().__init__(timeout=None)
+        self.req_id = req_id
+        self.inbox_file = inbox_file
+
+    async def save_status(self, status):
+        inbox = {}
+        if os.path.exists(self.inbox_file):
+            try:
+                with open(self.inbox_file, 'r') as f:
+                    inbox = json.load(f)
+            except Exception:
+                pass
+        inbox[self.req_id] = {"status": status}
+        with open(self.inbox_file, 'w') as f:
+            json.dump(inbox, f)
+
+    @discord.ui.button(label="Approve", style=discord.ButtonStyle.success, emoji="⚔️")
+    async def approve(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self.save_status("approved")
+        await interaction.response.send_message("Quest approved! ⚔️ The agent will proceed.", ephemeral=False)
+        for child in self.children:
+            child.disabled = True
+        await interaction.message.edit(view=self)
+        self.stop()
+
+    @discord.ui.button(label="Reject", style=discord.ButtonStyle.danger, emoji="🛡️")
+    async def reject(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self.save_status("rejected")
+        await interaction.response.send_message("Quest rejected! 🛡️ The agent stands down.", ephemeral=False)
+        for child in self.children:
+            child.disabled = True
+        await interaction.message.edit(view=self)
+        self.stop()
+
 
 @client.event
 async def on_ready():
+    await tree.sync()
     print(f"Logged in as {client.user.name}", flush=True)
     asyncio.create_task(poll_outbox())
 
@@ -262,46 +331,13 @@ async def poll_outbox():
                         json.dump({}, f)
                         
                     for req_id, data in outbox.items():
-                        question = data.get('question')
+                        view = ApprovalView(req_id, inbox_file)
+                        await channel.send(f"📜 **A quest awaits your approval, Guildmaster!**\n\n{question}", view=view)
                         
-                        msg = await channel.send(question)
-                        await msg.add_reaction("👍")
-                        await msg.add_reaction("👎")
-                        await msg.add_reaction("🌟")
-                        
-                        asyncio.create_task(wait_for_boss_reaction(msg, req_id, inbox_file))
         except Exception:
             pass
             
         await asyncio.sleep(1)
-
-async def wait_for_boss_reaction(msg, req_id, inbox_file):
-    def check(reaction, user):
-        if user.id == client.user.id: return False
-        if reaction.message.id != msg.id: return False
-        if str(reaction.emoji) not in ["👍", "👎", "🌟"]: return False
-        if msg.guild and user.id == msg.guild.owner_id: return True
-        elif not msg.guild: return True
-        return False
-        
-    try:
-        reaction, user = await client.wait_for('reaction_add', check=check)
-        status = "rejected"
-        if str(reaction.emoji) == "👍": status = "approved"
-        elif str(reaction.emoji) == "🌟": status = "approved_always"
-        
-        inbox = {}
-        if os.path.exists(inbox_file):
-            try:
-                with open(inbox_file, 'r') as f: inbox = json.load(f)
-            except Exception: pass
-            
-        inbox[req_id] = {"status": status}
-        with open(inbox_file, 'w') as f:
-            json.dump(inbox, f)
-            
-    except Exception:
-        pass
 
 @client.event
 async def on_reaction_add(reaction, user):
