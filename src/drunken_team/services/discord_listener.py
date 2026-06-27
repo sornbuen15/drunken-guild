@@ -625,6 +625,78 @@ async def _handle_command_success(
         )
 
 
+async def _handle_repeated_failure(
+    channel: discord.abc.Messageable,
+    user_mention: str,
+    command_content: str,
+    agent_name: str,
+    status_msg: discord.Message,
+) -> None:
+    global current_process, current_status_msg
+    current_process = None
+    current_status_msg = None
+
+    log_content = ""
+    try:
+        if os.path.exists(RAW_LOG_FILE):
+            async with file_lock:
+                with open(RAW_LOG_FILE, "r", encoding="utf-8") as f:
+                    log_content = f.read()
+    except Exception:
+        pass
+
+    instruction = (
+        "You are Principal Engineer. Analyze the given execution log and explain WHY it failed. "
+        "Provide a short root cause (1-2 sentences). Do not use JSON."
+    )
+
+    analysis = "Unknown failure during execution (Log empty)."
+    if log_content:
+        tail = log_content[-4000:]
+        try:
+            res = await asyncio.to_thread(query_gemini_direct, tail, instruction)
+            if res:
+                analysis = res
+        except Exception as e:
+            analysis = f"Failed to analyze log: {e}"
+
+    title = f"Hotfix: {agent_name} repeatedly failed on task"
+    desc = f"Task: {command_content}\n\nCause:\n{analysis}"
+
+    ticket_key = "UNKNOWN"
+    try:
+        jira_script = os.path.join(os.getcwd(), "scripts", "jira_bridge.py")
+        proc = await asyncio.create_subprocess_exec(
+            "python",
+            jira_script,
+            "create",
+            title,
+            desc,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, _ = await proc.communicate()
+        if stdout:
+            out_json = json.loads(stdout.decode().strip())
+            ticket_key = out_json.get("key", "UNKNOWN")
+            if ticket_key != "UNKNOWN":
+                await asyncio.create_subprocess_exec(
+                    "python", jira_script, "transition", ticket_key, "In Progress"
+                )
+    except Exception as e:
+        print(f"Failed to create Hotfix ticket: {e}", file=sys.stderr)
+
+    await status_msg.edit(
+        content=(
+            f"🚨 **Emergency Report, {user_mention}!**\n"
+            f"**{agent_name}** failed to run successfully after 2 attempts.\n"
+            f"**Mina:** I've stopped the task and created a Hotfix ticket **{ticket_key}** in 'In Progress' for you!\n"
+            f"**Root Cause Analysis:**\n{analysis}"
+        )
+    )
+    log_activity("agent", "Mina", f"Created Hotfix {ticket_key} for {agent_name}")
+
+
 async def run_command_async(
     channel: discord.abc.Messageable,
     user_mention: str,
@@ -651,10 +723,24 @@ async def run_command_async(
     current_status_msg = status_msg
     is_cancelled = False
 
-    _, exc = await _execute_command(cmd_args, agent_name, env_vars)
-    if exc:
-        await _handle_command_error(exc, agent_name, status_msg)
-        return
+    max_attempts = 2
+    for attempt in range(1, max_attempts + 1):
+        _, exc = await _execute_command(cmd_args, agent_name, env_vars)
+        if is_cancelled:
+            break
+        if not exc:
+            break
+
+        if attempt < max_attempts:
+            await channel.send(
+                f"⚠️ **{agent_name}** encountered an issue (Attempt {attempt}/{max_attempts}). Retrying in 2 seconds..."
+            )
+            await asyncio.sleep(2)
+        else:
+            await _handle_repeated_failure(
+                channel, user_mention, command_content, agent_name, status_msg
+            )
+            return
 
     current_process = None
     current_status_msg = None
