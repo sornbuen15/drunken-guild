@@ -280,7 +280,7 @@ class BountyModal(discord.ui.Modal, title="Post a New Bounty"):
     async def on_submit(self, interaction: discord.Interaction):
         try:
             cmd = [
-                "python",
+                sys.executable,
                 "scripts/jira_bridge.py",
                 "create",
                 self.summary.value,
@@ -501,7 +501,7 @@ PERSONA_MAPPING = {
 
 
 async def run_command_async(
-    channel, user_mention, command_content, full_cmd, agent_name
+    channel, user_mention, command_content, cmd_args, agent_name, env_vars=None
 ):
     global current_process, current_status_msg, is_cancelled
 
@@ -521,11 +521,14 @@ async def run_command_async(
     is_cancelled = False
 
     try:
-        # Redirect stdout and stderr directly to raw log file
-        log_redirect_cmd = f"{full_cmd} > {RAW_LOG_FILE} 2>&1"
-        process = await asyncio.create_subprocess_shell(
-            log_redirect_cmd, stdin=asyncio.subprocess.DEVNULL
-        )
+        env = os.environ.copy()
+        if env_vars:
+            env.update(env_vars)
+
+        with open(RAW_LOG_FILE, "a", encoding="utf-8") as f:
+            process = await asyncio.create_subprocess_exec(
+                *cmd_args, stdout=f, stderr=asyncio.subprocess.STDOUT, env=env
+            )
         current_process = process
         await process.wait()
     except Exception as e:
@@ -690,7 +693,7 @@ async def on_message(message):
         }
 
         agy_cmd = cli_mapping.get(mapped_cmd, content_str)
-        full_cmd = f'agy --dangerously-skip-permissions --print "{agy_cmd}"'
+        cmd_args = ["agy", "--dangerously-skip-permissions", "--print", agy_cmd]
 
         # Spawn async task
         asyncio.create_task(
@@ -698,7 +701,7 @@ async def on_message(message):
                 message.channel,
                 message.author.mention,
                 content_str,
-                full_cmd,
+                cmd_args,
                 "System Agent",
             )
         )
@@ -820,23 +823,27 @@ async def on_message(message):
                         "Pre-commit is just a typo-catcher; the code MUST be structurally perfect and fully tested "
                         "before you finish the task. Zero defects!)"
                     )
-                    esc_p = (p + sfx).replace('"', '\\"')
-                    env_p = (
-                        'GITHUB_TOKEN="$GITHUB_MINABOT" '
+                    esc_p = p + sfx
+                    env_vars = (
+                        {"GITHUB_TOKEN": os.environ.get("GITHUB_MINABOT", "")}
                         if os.environ.get("GITHUB_MINABOT")
-                        else ""
+                        else None
                     )
-                    f_cmd = (
-                        f'{env_p}agy --dangerously-skip-permissions --print "{esc_p}"'
-                    )
+                    cmd_args = [
+                        "agy",
+                        "--dangerously-skip-permissions",
+                        "--print",
+                        esc_p,
+                    ]
 
                     tasks_to_run.append(
                         run_command_async(
                             message.channel,
                             message.author.mention,
                             p,
-                            f_cmd,
+                            cmd_args,
                             meta["name"],
+                            env_vars=env_vars,
                         )
                     )
 
@@ -877,22 +884,27 @@ async def on_message(message):
                     "Pre-commit is just a typo-catcher; the code MUST be structurally perfect and fully tested "
                     "before you finish the task. Zero defects!)"
                 )
-                escaped_prompt = (refined_prompt + suffix).replace('"', '\\"')
-
-                env_prefix = (
-                    'GITHUB_TOKEN="$GITHUB_MINABOT" '
+                escaped_prompt = refined_prompt + suffix
+                env_vars = (
+                    {"GITHUB_TOKEN": os.environ.get("GITHUB_MINABOT", "")}
                     if os.environ.get("GITHUB_MINABOT")
-                    else ""
+                    else None
                 )
-                full_cmd = f'{env_prefix}agy --dangerously-skip-permissions --print "{escaped_prompt}"'
+                cmd_args = [
+                    "agy",
+                    "--dangerously-skip-permissions",
+                    "--print",
+                    escaped_prompt,
+                ]
 
                 asyncio.create_task(
                     run_command_async(
                         message.channel,
                         message.author.mention,
                         refined_prompt,
-                        full_cmd,
+                        cmd_args,
                         agent_meta["name"],
+                        env_vars=env_vars,
                     )
                 )
                 return
