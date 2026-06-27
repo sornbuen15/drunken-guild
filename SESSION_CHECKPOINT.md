@@ -1,20 +1,24 @@
-# Session Checkpoint: Phase 1 Completion & MCP Integration
+# Session Checkpoint: The Guild Headquarters Architecture
 
-## 📌 Current State
-- **Phase 1 Complete**: All tasks for Phase 1 (DT-12, DT-13, DT-14, DT-15, DT-16, DT-35) have been completed and moved to `In Review` on the Jira Board.
-- **Git Branch**: All Phase 1 changes have been committed to the branch `feature/phase-1-completion`.
-- **System Services Status**:
-  - `discord_listener` has been refactored and is fully operational.
-  - `serve_dashboard` has been decoupled and successfully serves the web API.
-  - `jira_bridge` has been moved to `src/drunken_agy/clients/` and tested successfully.
-  - Dependencies have been locked down (`requirements-lock.txt`) and `pyproject.toml` has been fixed to build `src/`.
+## 📌 Current State & Accomplishments
+1. **E2E Stability Reached**: Fixed the infinite loop issue. `AGENTS.md` and `SKILL.md` (ค.ว.ย.) were updated with the **ANTI-LOOP MANDATE**. Agents will now abort and report to the Boss instead of retrying the same failure blindly.
+2. **Discord Radio Upgrades (Zero-Token Cost Commands)**:
+   - Implemented Native Slash Commands in `discord_listener.py`.
+   - `/stop` or `/kill`: Instantly kills all active agents (`pkill -f agy`) at the OS level without invoking the AI.
+   - `/status`: Provides a real-time tail of the OS-level log of the currently running agent.
+3. **PTY Buffering Fix**: Wrapped the `agy` execution in `discord_listener.py` with `script -q /dev/null` to fake a TTY. This forces unbuffered output, making the `/status` log streaming instant.
+4. **Jira Board Cleanup**: Removed BETA-related tasks (e.g., DT-39 to DT-44) from the Drunken Team board by transitioning them to `Done`.
 
-## 🚀 The `discord-mcp` (Ask Boss) Feature
-- A new MCP Server (`discord-mcp`) was implemented in `src/drunken_agy/mcp/discord_mcp.py` to allow AI agents to ask the Boss for permission via Discord without triggering the Terminal UI approval block.
-- The configuration `mcp.json` was successfully written to `~/.gemini/antigravity-cli/mcp/discord-mcp/`.
-- The `ask-boss` skill (`SKILL.md`) was updated to prioritize using the MCP tool before falling back to the shell script.
+## 🚀 The Paradigm Shift: "The Guild Headquarters"
+We have mutually agreed to radically shift the architecture to a **Centralized Hub Model**:
+1. **The Terminal is the Office**: This Antigravity IDE (Terminal) will act as the single "Main Office" for all operations. The Boss can command agents directly from here without needing Discord.
+2. **Discord & Dashboard are just Frontends**: Discord is now purely a "Walkie-Talkie" for remote monitoring (`/status`) and high-level async commands. It no longer represents the brain of the system.
+3. **Cross-Project Orchestrator (The Masterbrain)**:
+   - Instead of spinning up 10 separate Terminals for 10 projects (Drunken-Team, BETA, SHIELD), we will turn `drunken-team` into the central **Core OS (Command Center)**.
+   - We will implement a **Project Registry (`projects.json`)** to map paths to different "file cabinets" (repositories).
+   - This Master Terminal will dispatch agents to work on ANY project based on the context of the command, all while keeping a single Dashboard and a single Discord Bot alive.
 
-## ⏭️ Next Action (On Restart)
-1. **Restart CLI**: The Boss is restarting the `agy` CLI to load the newly created `discord-mcp` server into the agent's context.
-2. **Test MCP**: Once restarted, ask the agent to "ทดสอบ ask_boss ซิ" (Test ask_boss). The agent should now be able to ping the Boss on Discord **without** any terminal approval prompts.
-3. **Merge & Proceed**: If testing passes, `feature/phase-1-completion` can be merged into `main`, and Phase 2 can begin.
+## ⏭️ Next Actions (For the Next Session)
+1. **Implement Project Registry**: Create the mechanism (e.g., `projects.json`) so the central orchestrator knows where the other project folders (BETA, SHIELD) are located on the host OS.
+2. **Refactor Frontends for Cross-Project Context**: Modify `discord_listener.py` and `serve_dashboard.py` to accept and pass project contexts so they can command agents to operate in different Working Directories (`cwd`).
+3. **Guild Master Logic**: Setup the Terminal to easily parse which project the Boss is referring to, load the correct environment/board, and execute the quest.
