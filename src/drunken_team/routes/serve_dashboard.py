@@ -794,6 +794,56 @@ class Handler(http.server.SimpleHTTPRequestHandler):
 
             self.send_json_response(events)
 
+        # 3.5 API: Get Bounties (Jira Tasks)
+        elif self.path.startswith("/api/bounties"):
+            project_id = "drunken-team"
+            if "?" in self.path:
+                params = self.path.split("?")[1]
+                for p in params.split("&"):
+                    if "=" in p:
+                        k, v = p.split("=")
+                        if k == "project_id":
+                            project_id = v
+
+            project_path = project_paths.get(project_id)
+            if not project_path:
+                self.send_error_response("Project not found.")
+                return
+
+            try:
+                # Fetch In Progress
+                res_in_prog = subprocess.run(
+                    [sys.executable, "scripts/jira_bridge.py", "get-in-progress"],
+                    cwd=project_path,
+                    capture_output=True,
+                    text=True,
+                )
+                in_prog = []
+                if res_in_prog.returncode == 0:
+                    try:
+                        in_prog = json.loads(res_in_prog.stdout)
+                    except Exception:
+                        pass
+
+                # Fetch To Do
+                res_todo = subprocess.run(
+                    [sys.executable, "scripts/jira_bridge.py", "get-todo"],
+                    cwd=project_path,
+                    capture_output=True,
+                    text=True,
+                )
+                todo = []
+                if res_todo.returncode == 0:
+                    try:
+                        todo = json.loads(res_todo.stdout)
+                    except Exception:
+                        pass
+
+                bounties = in_prog + todo
+                self.send_json_response(bounties)
+            except Exception as e:
+                self.send_error_response(f"Failed to fetch bounties: {e}")
+
         # 4. API: Get Project Status (whether agy is running)
         elif self.path.startswith("/api/project/status"):
             # Parse query params
