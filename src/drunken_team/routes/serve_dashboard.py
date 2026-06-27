@@ -437,9 +437,25 @@ def load_projects_mapping() -> None:
 
 class Handler(http.server.SimpleHTTPRequestHandler):
     def __init__(self, *args: Any, **kwargs: Any) -> None:
+        self.POST_ROUTES = {
+            "/api/telemetry": self.handle_post_telemetry,
+            "/api/discord/save": self.handle_post_discord_save,
+            "/api/discord/start": self.handle_post_discord_start,
+            "/api/discord/stop": self.handle_post_discord_stop,
+            "/api/project/active-agent": self.handle_post_project_active_agent,
+            "/api/terminal/run": self.handle_post_terminal_run,
+        }
+        self.GET_ROUTES = {
+            "/api/projects": self.handle_get_projects,
+            "/api/discord/status": self.handle_get_discord_status,
+            "/api/discord/activity/all": self.handle_get_discord_activity_all,
+            "/api/discord/activity": self.handle_get_discord_activity,
+            "/api/bounties": self.handle_get_bounties,
+            "/api/project/status": self.handle_project_status,
+        }
         super().__init__(*args, directory=DIRECTORY, **kwargs)
 
-    def do_POST(self) -> None:  # noqa: C901  # TODO(DT-46): Technical Debt - Refactor to reduce McCabe complexity
+    def do_POST(self) -> None:
         content_length = int(self.headers["Content-Length"])
         post_data = self.rfile.read(content_length).decode("utf-8")
 
@@ -448,245 +464,202 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         except Exception:
             payload = {}
 
-        # 0. API: Edge Telemetry
-        if self.path == "/api/telemetry":
-            # Security: Token-based API key verification (DT-38)
-            api_key = os.environ.get("EDGE_TELEMETRY_API_KEY")
-            if not api_key:
-                # Fail-Safe: Reject if server has no key configured
-                self.send_error_response(
-                    "Server is not configured to accept telemetry (missing API key).",
-                    code=500,
-                )
-                return
+        handler = self.POST_ROUTES.get(self.path)
+        if handler:
+            handler(payload)
+        else:
+            self.send_response(404)
+            self.end_headers()
 
-            client_token = self.headers.get("Authorization") or self.headers.get(
-                "X-API-Key"
+    def do_GET(self) -> None:
+        base_path = self.path.split("?")[0]
+        handler = self.GET_ROUTES.get(base_path)
+        if handler:
+            handler()
+        else:
+            super().do_GET()
+
+    def handle_post_telemetry(self, payload: dict[str, Any]) -> None:
+        api_key = os.environ.get("EDGE_TELEMETRY_API_KEY")
+        if not api_key:
+            self.send_error_response(
+                "Server is not configured to accept telemetry (missing API key).",
+                code=500,
             )
-            if client_token and client_token.startswith("Bearer "):
-                client_token = client_token.split(" ")[1]
-
-            if client_token != api_key:
-                self.send_error_response("Unauthorized edge node.", code=401)
-                return
-
-            # Store telemetry (To be implemented by DT-39/DT-40)
-            self.send_json_response({"status": "telemetry_accepted"})
             return
 
-        # 1. API: Save Discord Configuration
-        if self.path == "/api/discord/save":
-            project_id = payload.get("project_id")
-            bot_token = payload.get("bot_token")
-            channel_id = payload.get("channel_id")
+        client_token = self.headers.get("Authorization") or self.headers.get(
+            "X-API-Key"
+        )
+        if client_token and client_token.startswith("Bearer "):
+            client_token = client_token.split(" ")[1]
 
-            project_path = project_paths.get(project_id)
-            if not project_path:
-                self.send_error_response("Project not found.")
-                return
+        if client_token != api_key:
+            self.send_error_response("Unauthorized edge node.", code=401)
+            return
 
+        self.send_json_response({"status": "telemetry_accepted"})
+
+    def handle_post_discord_save(self, payload: dict[str, Any]) -> None:
+        project_id = payload.get("project_id")
+        bot_token = payload.get("bot_token")
+        channel_id = payload.get("channel_id")
+
+        project_path = project_paths.get(project_id) if project_id else None
+        if not project_path:
+            self.send_error_response("Project not found.")
+            return
+
+        agents_dir = os.path.join(project_path, ".agents")
+        os.makedirs(agents_dir, exist_ok=True)
+        config_path = os.path.join(agents_dir, "discord_config.json")
+
+        config_data = {}
+        if os.path.exists(config_path):
+            try:
+                with open(config_path, "r") as f:
+                    config_data = json.load(f)
+            except Exception:
+                pass
+
+        if bot_token:
+            config_data["bot_token"] = bot_token
+        if channel_id is not None:
+            clean_channel_id = "".join(c for c in str(channel_id) if c.isdigit())
+            config_data["channel_id"] = clean_channel_id
+
+        try:
+            with open(config_path, "w") as f:
+                json.dump(config_data, f, indent=2)
+            self.send_json_response(
+                {"ok": True, "message": "Discord config saved successfully."}
+            )
+        except Exception as e:
+            self.send_error_response(f"Failed to write config: {e}")
+
+    def handle_post_discord_start(self, payload: dict[str, Any]) -> None:
+        project_id = payload.get("project_id")
+        project_path = project_paths.get(project_id) if project_id else None
+        if not project_path:
+            self.send_error_response("Project not found.")
+            return
+
+        success = start_discord_listener_for_project(str(project_id), project_path)
+        if success:
+            self.send_json_response(
+                {"ok": True, "message": "Discord listener started."}
+            )
+        else:
+            self.send_error_response(
+                "discord_listener.py not found in project scripts. Please run sync first."
+            )
+
+    def handle_post_discord_stop(self, payload: dict[str, Any]) -> None:
+        project_id = payload.get("project_id")
+        project_path = project_paths.get(project_id) if project_id else None
+        if not project_path:
+            self.send_error_response("Project not found.")
+            return
+
+        pid = get_running_discord_pid(project_path)
+        if pid:
+            try:
+                import signal
+
+                os.kill(pid, signal.SIGTERM)
+                import time
+
+                for _ in range(20):
+                    time.sleep(0.1)
+                    try:
+                        os.kill(pid, 0)
+                    except OSError:
+                        break
+                else:
+                    os.kill(pid, signal.SIGKILL)
+            except Exception:
+                pass
+            discord_processes[str(project_id)] = None
+            self.send_json_response(
+                {"ok": True, "message": "Discord listener stopped."}
+            )
+        else:
+            self.send_json_response(
+                {"ok": True, "message": "Discord listener is not running."}
+            )
+
+    def handle_post_project_active_agent(self, payload: dict[str, Any]) -> None:
+        project_id = payload.get("project_id")
+        agent_key = payload.get("agent_key")
+        project_path = project_paths.get(project_id) if project_id else None
+        if project_path and agent_key:
             agents_dir = os.path.join(project_path, ".agents")
             os.makedirs(agents_dir, exist_ok=True)
-            config_path = os.path.join(agents_dir, "discord_config.json")
-
-            config_data = {}
-            if os.path.exists(config_path):
-                try:
-                    with open(config_path, "r") as f:
-                        config_data = json.load(f)
-                except Exception:
-                    pass
-
-            if bot_token:
-                config_data["bot_token"] = bot_token
-            if channel_id is not None:
-                # Clean and save as string to prevent JS 64-bit precision loss
-                clean_channel_id = "".join(c for c in str(channel_id) if c.isdigit())
-                config_data["channel_id"] = clean_channel_id
-
+            active_agent_path = os.path.join(agents_dir, "active_agent.json")
             try:
-                with open(config_path, "w") as f:
-                    json.dump(config_data, f, indent=2)
-                self.send_json_response(
-                    {"ok": True, "message": "Discord config saved successfully."}
-                )
+                with open(active_agent_path, "w", encoding="utf-8") as f:
+                    json.dump({"active_agent": agent_key}, f, indent=2)
+                self.send_json_response({"ok": True})
             except Exception as e:
-                self.send_error_response(f"Failed to write config: {e}")
+                self.send_error_response(str(e))
+            return
+        self.send_error_response("Invalid request")
 
-        # 2. API: Start Discord Listener
-        elif self.path == "/api/discord/start":
-            project_id = payload.get("project_id")
-            project_path = project_paths.get(project_id)
-            if not project_path:
-                self.send_error_response("Project not found.")
-                return
+    def handle_post_terminal_run(self, payload: dict[str, Any]) -> None:
+        project_id = payload.get("project_id")
+        command = payload.get("command", "").strip()
+        agent_key = payload.get("agent", "")
+        agent_status = payload.get("status", "ACTIVE")
 
-            success = start_discord_listener_for_project(project_id, project_path)
-            if success:
-                self.send_json_response(
-                    {"ok": True, "message": "Discord listener started."}
-                )
-            else:
-                self.send_error_response(
-                    "discord_listener.py not found in project scripts. Please run sync first."
-                )
+        project_path = project_paths.get(project_id) if project_id else None
+        if not project_path:
+            self.send_error_response("Project not found.")
+            return
 
-        # 3. API: Stop Discord Listener
-        elif self.path == "/api/discord/stop":
-            project_id = payload.get("project_id")
-            project_path = project_paths.get(project_id)
-            if not project_path:
-                self.send_error_response("Project not found.")
-                return
+        if not command:
+            self.send_error_response("Command is empty.")
+            return
 
-            pid = get_running_discord_pid(project_path)
-            if pid:
-                try:
-                    import signal
+        api_key = os.environ.get("GEMINI_API_KEY")
+        response_text = None
 
-                    os.kill(pid, signal.SIGTERM)
-                    import time
+        if api_key:
+            agent_meta = AGENTS_METADATA.get(
+                agent_key,
+                {
+                    "name": "Companion",
+                    "job": "Adventurer",
+                    "model": "Gemini 2.5 Flash",
+                    "description": "A helpful tavern companion.",
+                },
+            )
 
-                    for _ in range(20):
-                        time.sleep(0.1)
-                        try:
-                            os.kill(pid, 0)
-                        except OSError:
-                            break
-                    else:
-                        os.kill(pid, signal.SIGKILL)
-                except Exception:
-                    pass
-                discord_processes[project_id] = None
-                self.send_json_response(
-                    {"ok": True, "message": "Discord listener stopped."}
-                )
-            else:
-                self.send_json_response(
-                    {"ok": True, "message": "Discord listener is not running."}
-                )
+            system_instruction = (
+                f"You are {agent_meta['name']}, a developer agent working in the project workspace.\n"
+                f"Your Job role is: {agent_meta['job']}. Your personality: {agent_meta['description']}\n"
+                f"Your current status is: {agent_status}.\n\n"
+                "CRITICAL: The user is 'The Boss'. Never address the user as 'adventurer', 'traveler', 'patron', 'young adventurer', or 'friend'. Address them with respect as 'The Boss'.\n\n"
+                "Your task is to review the user's message/command. You have two choices:\n"
+                "1. If the user request asks you to write code, edit files, create scripts, run tests, run shell/terminal commands, search the codebase, or do engineering tasks, OR IF THE USER ASKS ABOUT JIRA TASKS, JIRA BOARDS, BACKLOGS, ACTIVE FILES, OR WORKSPACE STATUS (since you do not have direct access to JIRA or the filesystem in this conversational mode), you MUST respond with exactly '[EXECUTE_AGY]' (nothing else).\n"
+                "2. If it is a greeting, general question, explanation of code/concepts, conversation, or greeting chat, reply directly as the character. Keep it extremely brief (1-2 sentences), friendly, in-character, and respectful. Do not say '[EXECUTE_AGY]' if you can answer it yourself."
+            )
 
-        # 3.5. API: Save Active Agent
-        elif self.path == "/api/project/active-agent":
-            project_id = payload.get("project_id")
-            agent_key = payload.get("agent_key")
-            project_path = project_paths.get(project_id)
-            if project_path and agent_key:
-                agents_dir = os.path.join(project_path, ".agents")
-                os.makedirs(agents_dir, exist_ok=True)
-                active_agent_path = os.path.join(agents_dir, "active_agent.json")
-                try:
-                    with open(active_agent_path, "w", encoding="utf-8") as f:
-                        json.dump({"active_agent": agent_key}, f, indent=2)
-                    self.send_json_response({"ok": True})
-                except Exception as e:
-                    self.send_error_response(str(e))
-                return
-            self.send_error_response("Invalid request")
+            response_text = query_gemini_direct(command, system_instruction)
 
-        # 4. API: Run dialogue prompt / terminal command
-        elif self.path == "/api/terminal/run":
-            project_id = payload.get("project_id")
-            command = payload.get("command", "").strip()
-            agent_key = payload.get("agent", "")
-            agent_status = payload.get("status", "ACTIVE")
+        if not response_text or "[EXECUTE_AGY]" in response_text:
+            agent_meta = AGENTS_METADATA.get(
+                agent_key,
+                {
+                    "name": "Principal Eng",
+                    "job": "Archmage",
+                    "model": "Gemini 2.5 Pro",
+                    "description": "High-level architecture, design standards, task delegation, and codebase rules checker. Speaks like a wise wizard, loves beer and lager.",
+                },
+            )
 
-            project_path = project_paths.get(project_id)
-            if not project_path:
-                self.send_error_response("Project not found.")
-                return
-
-            if not command:
-                self.send_error_response("Command is empty.")
-                return
-
-            api_key = os.environ.get("GEMINI_API_KEY")
-            response_text = None
-
-            if api_key:
-                agent_meta = AGENTS_METADATA.get(
-                    agent_key,
-                    {
-                        "name": "Companion",
-                        "job": "Adventurer",
-                        "model": "Gemini 2.5 Flash",
-                        "description": "A helpful tavern companion.",
-                    },
-                )
-
-                system_instruction = (
-                    f"You are {agent_meta['name']}, a developer agent working in the project workspace.\n"
-                    f"Your Job role is: {agent_meta['job']}. Your personality: {agent_meta['description']}\n"
-                    f"Your current status is: {agent_status}.\n\n"
-                    "CRITICAL: The user is 'The Boss'. Never address the user as 'adventurer', 'traveler', 'patron', 'young adventurer', or 'friend'. Address them with respect as 'The Boss'.\n\n"
-                    "Your task is to review the user's message/command. You have two choices:\n"
-                    "1. If the user request asks you to write code, edit files, create scripts, run tests, run shell/terminal commands, search the codebase, or do engineering tasks, OR IF THE USER ASKS ABOUT JIRA TASKS, JIRA BOARDS, BACKLOGS, ACTIVE FILES, OR WORKSPACE STATUS (since you do not have direct access to JIRA or the filesystem in this conversational mode), you MUST respond with exactly '[EXECUTE_AGY]' (nothing else).\n"
-                    "2. If it is a greeting, general question, explanation of code/concepts, conversation, or greeting chat, reply directly as the character. Keep it extremely brief (1-2 sentences), friendly, in-character, and respectful. Do not say '[EXECUTE_AGY]' if you can answer it yourself."
-                )
-
-                response_text = query_gemini_direct(command, system_instruction)
-
-            if not response_text or "[EXECUTE_AGY]" in response_text:
-                agent_meta = AGENTS_METADATA.get(
-                    agent_key,
-                    {
-                        "name": "Principal Eng",
-                        "job": "Archmage",
-                        "model": "Gemini 2.5 Pro",
-                        "description": "High-level architecture, design standards, task delegation, and codebase rules checker. Speaks like a wise wizard, loves beer and lager.",
-                    },
-                )
-
-                # Immediate response to UI
-                response_text = f"On it, Boss! I'll work on '{command}' asynchronously and let you know when it's done."
-                self.send_json_response({"ok": True, "output": response_text})
-
-                # Notify Discord that we started it
-                import threading
-
-                threading.Thread(
-                    target=send_to_discord,
-                    args=(project_path, command, response_text),
-                    daemon=True,
-                ).start()
-
-                # Start background thread to run agy
-                def run_agy_async() -> None:
-                    suffix = (
-                        f"\n\n(Instructions: You are {agent_meta['name']} [Job: {agent_meta['job']}]. "
-                        f"Personality: {agent_meta['description']}. "
-                        "Respond like a human software developer in character, not an AI. "
-                        "Address the user as 'The Boss' with respect. Never refer to them as adventurer or traveler. "
-                        "Be extremely brief, conversational, and direct. Explain in 1-2 short sentences "
-                        "exactly what you did. Do not use AI clichés or preamble. Start directly.)"
-                    )
-                    escaped_prompt = command + suffix
-                    args = [
-                        "agy",
-                        "--dangerously-skip-permissions",
-                        "--print",
-                        escaped_prompt,
-                    ]
-                    try:
-                        threading.Thread(
-                            target=subprocess.run,
-                            args=(args,),
-                            kwargs={"cwd": project_path, "check": True},
-                        ).start()
-                        final_result = f"✅ **Task Started:** `{command}`\n\nExecuting in background..."
-                    except Exception as e:
-                        final_result = f"❌ **Task Failed:** `{command}`\n\nError: {e}"
-
-                    # Notify Discord of completion!
-                    send_to_discord(project_path, "System Update", final_result)
-
-                threading.Thread(target=run_agy_async, daemon=True).start()
-                return
-
-            # If it's just a conversational reply (no EXECUTE_AGY)
+            response_text = f"On it, Boss! I'll work on '{command}' asynchronously and let you know when it's done."
             self.send_json_response({"ok": True, "output": response_text})
 
-            # Send mirror to Discord
             import threading
 
             threading.Thread(
@@ -695,212 +668,205 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 daemon=True,
             ).start()
 
-        else:
-            self.send_response(404)
-            self.end_headers()
-
-    def do_GET(self) -> None:  # noqa: C901  # TODO(DT-46): Technical Debt - Refactor to reduce McCabe complexity
-        # 1. API: List Projects (Without exposing absolute paths to frontend)
-        if self.path == "/api/projects":
-            load_projects_mapping()
-
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json")
-            self.send_header("Access-Control-Allow-Origin", "*")
-            self.end_headers()
-
-            projects = []
-            for p_id, p_path in project_paths.items():
-                projects.append({"id": p_id, "name": os.path.basename(p_path)})
-
-            self.wfile.write(json.dumps(projects).encode("utf-8"))
-
-        # 2. API: Get Discord Status & Redacted Config
-        elif self.path.startswith("/api/discord/status"):
-            # Parse query params
-            project_id = "drunken-team"
-            if "?" in self.path:
-                params = self.path.split("?")[1]
-                for p in params.split("&"):
-                    if "=" in p:
-                        k, v = p.split("=")
-                        if k == "project_id":
-                            project_id = v
-
-            project_path = project_paths.get(project_id)
-            if not project_path:
-                self.send_error_response("Project not found.")
-                return
-
-            config_path = os.path.join(project_path, ".agents", "discord_config.json")
-            has_token = False
-            channel_id = ""
-
-            if os.path.exists(config_path):
-                try:
-                    with open(config_path, "r") as f:
-                        data = json.load(f)
-                        raw_id = data.get("channel_id", "")
-                        channel_id = str(raw_id) if raw_id is not None else ""
-                        if data.get("bot_token"):
-                            has_token = True
-                except Exception:
-                    pass
-
-            pid = get_running_discord_pid(project_path)
-            is_running = pid is not None
-
-            self.send_json_response(
-                {
-                    "is_running": is_running,
-                    "has_token": has_token,
-                    "channel_id": channel_id,
-                }
-            )
-
-        # 2.5 API: Get All Projects Discord Activity Logs
-        elif self.path == "/api/discord/activity/all":
-            load_projects_mapping()
-            all_activities = {}
-            for p_id, p_path in project_paths.items():
-                activity_file = os.path.join(
-                    p_path, ".agents", "discord_activity.jsonl"
+            def run_agy_async() -> None:
+                suffix = (
+                    f"\n\n(Instructions: You are {agent_meta['name']} [Job: {agent_meta['job']}]. "
+                    f"Personality: {agent_meta['description']}. "
+                    "Respond like a human software developer in character, not an AI. "
+                    "Address the user as 'The Boss' with respect. Never refer to them as adventurer or traveler. "
+                    "Be extremely brief, conversational, and direct. Explain in 1-2 short sentences "
+                    "exactly what you did. Do not use AI clichés or preamble. Start directly.)"
                 )
-                events = []
-                if os.path.exists(activity_file):
-                    try:
-                        with open(activity_file, "r", encoding="utf-8") as f:
-                            lines = f.readlines()
-                            for line in lines[-20:]:
-                                line_stripped = line.strip()
-                                if line_stripped:
-                                    events.append(json.loads(line_stripped))
-                    except Exception:
-                        pass
-                all_activities[p_id] = events
-            self.send_json_response(all_activities)
+                escaped_prompt = command + suffix
+                args = [
+                    "agy",
+                    "--dangerously-skip-permissions",
+                    "--print",
+                    escaped_prompt,
+                ]
+                try:
+                    threading.Thread(
+                        target=subprocess.run,
+                        args=(args,),
+                        kwargs={"cwd": project_path, "check": True},
+                    ).start()
+                    final_result = f"✅ **Task Started:** `{command}`\n\nExecuting in background..."
+                except Exception as e:
+                    final_result = f"❌ **Task Failed:** `{command}`\n\nError: {e}"
 
-        # 3. API: Get Discord Activity Logs
-        elif self.path.startswith("/api/discord/activity"):
-            # Parse query params
-            project_id = "drunken-team"
-            if "?" in self.path:
-                params = self.path.split("?")[1]
-                for p in params.split("&"):
-                    if "=" in p:
-                        k, v = p.split("=")
-                        if k == "project_id":
-                            project_id = v
+                send_to_discord(project_path, "System Update", final_result)
 
-            project_path = project_paths.get(project_id)
-            if not project_path:
-                self.send_error_response("Project not found.")
-                return
+            threading.Thread(target=run_agy_async, daemon=True).start()
+            return
 
-            activity_file = os.path.join(
-                project_path, ".agents", "discord_activity.jsonl"
-            )
+        self.send_json_response({"ok": True, "output": response_text})
+
+        import threading
+
+        threading.Thread(
+            target=send_to_discord,
+            args=(project_path, command, response_text),
+            daemon=True,
+        ).start()
+
+    def handle_get_projects(self) -> None:
+        load_projects_mapping()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.end_headers()
+        projects = []
+        for p_id, p_path in project_paths.items():
+            projects.append({"id": p_id, "name": os.path.basename(p_path)})
+        self.wfile.write(json.dumps(projects).encode("utf-8"))
+
+    def get_project_id_from_path(self) -> str:
+        project_id = "drunken-team"
+        if "?" in self.path:
+            params = self.path.split("?")[1]
+            for p in params.split("&"):
+                if "=" in p:
+                    k, v = p.split("=")
+                    if k == "project_id":
+                        project_id = v
+        return project_id
+
+    def handle_get_discord_status(self) -> None:
+        project_id = self.get_project_id_from_path()
+        project_path = project_paths.get(project_id)
+        if not project_path:
+            self.send_error_response("Project not found.")
+            return
+
+        config_path = os.path.join(project_path, ".agents", "discord_config.json")
+        has_token = False
+        channel_id = ""
+
+        if os.path.exists(config_path):
+            try:
+                with open(config_path, "r") as f:
+                    data = json.load(f)
+                    raw_id = data.get("channel_id", "")
+                    channel_id = str(raw_id) if raw_id is not None else ""
+                    if data.get("bot_token"):
+                        has_token = True
+            except Exception:
+                pass
+
+        pid = get_running_discord_pid(project_path)
+        is_running = pid is not None
+
+        self.send_json_response(
+            {
+                "is_running": is_running,
+                "has_token": has_token,
+                "channel_id": channel_id,
+            }
+        )
+
+    def handle_get_discord_activity_all(self) -> None:
+        load_projects_mapping()
+        all_activities = {}
+        for p_id, p_path in project_paths.items():
+            activity_file = os.path.join(p_path, ".agents", "discord_activity.jsonl")
             events = []
             if os.path.exists(activity_file):
                 try:
                     with open(activity_file, "r", encoding="utf-8") as f:
-                        for line in f:
+                        lines = f.readlines()
+                        for line in lines[-20:]:
                             line_stripped = line.strip()
                             if line_stripped:
                                 events.append(json.loads(line_stripped))
                 except Exception:
                     pass
+            all_activities[p_id] = events
+        self.send_json_response(all_activities)
 
-            self.send_json_response(events)
+    def handle_get_discord_activity(self) -> None:
+        project_id = self.get_project_id_from_path()
+        project_path = project_paths.get(project_id)
+        if not project_path:
+            self.send_error_response("Project not found.")
+            return
 
-        # 3.5 API: Get Bounties (Jira Tasks)
-        elif self.path.startswith("/api/bounties"):
-            project_id = "drunken-team"
-            if "?" in self.path:
-                params = self.path.split("?")[1]
-                for p in params.split("&"):
-                    if "=" in p:
-                        k, v = p.split("=")
-                        if k == "project_id":
-                            project_id = v
-
-            project_path = project_paths.get(project_id)
-            if not project_path:
-                self.send_error_response("Project not found.")
-                return
-
+        activity_file = os.path.join(project_path, ".agents", "discord_activity.jsonl")
+        events = []
+        if os.path.exists(activity_file):
             try:
-                # Fetch In Progress
-                res_in_prog = subprocess.run(
-                    [sys.executable, "scripts/jira_bridge.py", "get-in-progress"],
-                    cwd=project_path,
-                    capture_output=True,
-                    text=True,
-                    timeout=30,
-                )
-                in_prog = []
-                if res_in_prog.returncode == 0:
-                    try:
-                        in_prog = json.loads(res_in_prog.stdout)
-                    except Exception:
-                        pass
-
-                # Fetch To Do
-                res_todo = subprocess.run(
-                    [sys.executable, "scripts/jira_bridge.py", "get-todo"],
-                    cwd=project_path,
-                    capture_output=True,
-                    text=True,
-                    timeout=30,
-                )
-                todo = []
-                if res_todo.returncode == 0:
-                    try:
-                        todo = json.loads(res_todo.stdout)
-                    except Exception:
-                        pass
-
-                bounties = in_prog + todo
-                self.send_json_response(bounties)
-            except Exception as e:
-                self.send_error_response(f"Failed to fetch bounties: {e}")
-
-        # 4. API: Get Project Status (whether agy is running)
-        elif self.path.startswith("/api/project/status"):
-            # Parse query params
-            project_id = "drunken-team"
-            if "?" in self.path:
-                params = self.path.split("?")[1]
-                for p in params.split("&"):
-                    if "=" in p:
-                        k, v = p.split("=")
-                        if k == "project_id":
-                            project_id = v
-
-            project_path = project_paths.get(project_id)
-            if not project_path:
-                self.send_error_response("Project not found.")
-                return
-
-            agy_running = is_agy_running(project_path)
-            active_agent = None
-            try:
-                active_agent_path = os.path.join(
-                    project_path, ".agents", "active_agent.json"
-                )
-                if os.path.exists(active_agent_path):
-                    with open(active_agent_path, "r") as f:
-                        data = json.load(f)
-                        active_agent = data.get("active_agent")
+                with open(activity_file, "r", encoding="utf-8") as f:
+                    for line in f:
+                        line_stripped = line.strip()
+                        if line_stripped:
+                            events.append(json.loads(line_stripped))
             except Exception:
                 pass
+        self.send_json_response(events)
 
-            self.send_json_response(
-                {"agy_running": agy_running, "active_agent": active_agent}
+    def handle_get_bounties(self) -> None:
+        project_id = self.get_project_id_from_path()
+        project_path = project_paths.get(project_id)
+        if not project_path:
+            self.send_error_response("Project not found.")
+            return
+
+        try:
+            res_in_prog = subprocess.run(
+                [sys.executable, "scripts/jira_bridge.py", "get-in-progress"],
+                cwd=project_path,
+                capture_output=True,
+                text=True,
+                timeout=30,
             )
+            in_prog = []
+            if res_in_prog.returncode == 0:
+                try:
+                    in_prog = json.loads(res_in_prog.stdout)
+                except Exception:
+                    pass
 
-        else:
-            super().do_GET()
+            res_todo = subprocess.run(
+                [sys.executable, "scripts/jira_bridge.py", "get-todo"],
+                cwd=project_path,
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+            todo = []
+            if res_todo.returncode == 0:
+                try:
+                    todo = json.loads(res_todo.stdout)
+                except Exception:
+                    pass
+
+            bounties = in_prog + todo
+            self.send_json_response(bounties)
+        except Exception as e:
+            self.send_error_response(f"Failed to fetch bounties: {e}")
+
+    def handle_project_status(self) -> None:
+        project_id = self.get_project_id_from_path()
+        project_path = project_paths.get(project_id)
+        if not project_path:
+            self.send_error_response("Project not found.")
+            return
+
+        agy_running = is_agy_running(project_path)
+        active_agent = None
+        try:
+            active_agent_path = os.path.join(
+                project_path, ".agents", "active_agent.json"
+            )
+            if os.path.exists(active_agent_path):
+                with open(active_agent_path, "r") as f:
+                    data = json.load(f)
+                    active_agent = data.get("active_agent")
+        except Exception:
+            pass
+
+        self.send_json_response(
+            {"agy_running": agy_running, "active_agent": active_agent}
+        )
 
     def send_json_response(self, data: Any) -> None:
         self.send_response(200)
