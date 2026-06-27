@@ -872,10 +872,78 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // Start Polling Discord Status
+    async function fetchBounties() {
+        if (!currentProjectId) return;
+        try {
+            const res = await fetch(`/api/bounties?project_id=${currentProjectId}&_=${Date.now()}`);
+            if (res.ok) {
+                const bounties = await res.json();
+                const grid = document.getElementById('bounty-grid');
+                if (!grid) return;
+
+                grid.innerHTML = '';
+                if (bounties.length === 0) {
+                    grid.innerHTML = '<div style="color: var(--gold); font-family: \'Press Start 2P\', monospace; font-size: 0.7rem;">No bounties found on the board.</div>';
+                    return;
+                }
+
+                bounties.forEach((b, index) => {
+                    const card = document.createElement('div');
+                    card.className = 'bounty-card';
+                    card.style.setProperty('--rand', Math.random());
+
+                    const statusClass = b.status === 'In Progress' ? 'in-progress' : '';
+                    let assigneeStr = b.assignee || 'Unassigned';
+
+                    // Match assignee to agent avatar if possible
+                    Object.values(agentsData).forEach(agent => {
+                        if (agent.name.toLowerCase() === assigneeStr.toLowerCase() ||
+                            agent.job.toLowerCase() === assigneeStr.toLowerCase()) {
+                            assigneeStr = `${agent.avatar} ${agent.name}`;
+                        }
+                    });
+
+                    // Extract text if description is Atlassian Document Format
+                    let descText = "";
+                    if (b.description && typeof b.description === 'object' && b.description.content) {
+                        try {
+                            descText = b.description.content.map(c => c.content ? c.content.map(t => t.text).join('') : '').join('\n');
+                        } catch(e) {
+                            descText = JSON.stringify(b.description);
+                        }
+                    } else {
+                        descText = b.description || 'No description available.';
+                    }
+
+                    card.innerHTML = `
+                        <div class="bounty-pin"></div>
+                        <div class="bounty-id">
+                            <span>QUEST: ${b.key}</span>
+                            <span>Rank: ${b.priority || 'Normal'}</span>
+                        </div>
+                        <div class="bounty-title">${b.summary}</div>
+                        <div class="bounty-desc">${descText}</div>
+                        <div class="bounty-footer">
+                            <span class="bounty-status ${statusClass}">${b.status}</span>
+                            <span class="bounty-assignee">${assigneeStr}</span>
+                        </div>
+                    `;
+                    grid.appendChild(card);
+                });
+            }
+        } catch (e) {
+            console.error("Failed to fetch bounties:", e);
+        }
+    }
+
     function startDiscordPolling() {
         if (discordStatusPollingInterval) clearInterval(discordStatusPollingInterval);
         checkDiscordStatus();
-        discordStatusPollingInterval = setInterval(checkDiscordStatus, 3000);
+        fetchBounties();
+        discordStatusPollingInterval = setInterval(() => {
+            checkDiscordStatus();
+            fetchBounties();
+        }, 5000);
     }
 
     // 8. Event Listeners
