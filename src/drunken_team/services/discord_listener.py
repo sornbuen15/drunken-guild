@@ -556,20 +556,7 @@ async def _execute_command(
                 *cmd_args, stdout=f, stderr=asyncio.subprocess.STDOUT, env=env
             )
         current_process = process
-        try:
-            await asyncio.wait_for(process.wait(), timeout=300)
-        except asyncio.TimeoutError as err:
-            try:
-                process.terminate()
-                await asyncio.sleep(1)
-                if process.returncode is None:
-                    process.kill()
-            except Exception:
-                pass
-            raise Exception(
-                "Agent execution timed out after 5 minutes (possible deadlock)."
-            ) from err
-
+        await process.wait()
         try:
             if os.path.exists(task_log):
                 async with file_lock:
@@ -613,13 +600,16 @@ async def _handle_command_success(
             clean_resp = extract_clean_response(raw_log)
         except Exception:
             pass
+
     try:
         await status_msg.clear_reactions()
     except Exception:
         pass
+
     await status_msg.edit(
         content="🎯 **Quest completed, Boss!**\n🏁 **Status:** Finished! The report is served at your table."
     )
+
     if clean_resp:
         log_activity("agent", "Agent", clean_resp)
         formatted_content = (
@@ -638,7 +628,7 @@ async def _handle_command_success(
         )
 
 
-async def _handle_repeated_failure(
+async def _handle_quest_failure(
     channel: discord.abc.Messageable,
     user_mention: str,
     command_content: str,
@@ -699,10 +689,11 @@ async def _handle_repeated_failure(
     except Exception as e:
         print(f"Failed to create Hotfix ticket: {e}", file=sys.stderr)
 
-    await status_msg.edit(
+    await status_msg.edit(content="🚨 **Task Failed!**")
+    await channel.send(
         content=(
             f"🚨 **Emergency Report, {user_mention}!**\n"
-            f"**{agent_name}** failed to run successfully after 2 attempts.\n"
+            f"**{agent_name}** wiped in the dungeon (Quest Failed).\n"
             f"**Mina:** I've stopped the task and created a Hotfix ticket **{ticket_key}** in 'In Progress' for you!\n"
             f"**Root Cause Analysis:**\n{analysis}"
         )
@@ -736,24 +727,7 @@ async def run_command_async(
     current_status_msg = status_msg
     is_cancelled = False
 
-    max_attempts = 2
-    for attempt in range(1, max_attempts + 1):
-        _, exc = await _execute_command(cmd_args, agent_name, env_vars)
-        if is_cancelled:
-            break
-        if not exc:
-            break
-
-        if attempt < max_attempts:
-            await channel.send(
-                f"⚠️ **{agent_name}** encountered an issue (Attempt {attempt}/{max_attempts}). Retrying in 2 seconds..."
-            )
-            await asyncio.sleep(2)
-        else:
-            await _handle_repeated_failure(
-                channel, user_mention, command_content, agent_name, status_msg
-            )
-            return
+    _, exc = await _execute_command(cmd_args, agent_name, env_vars)
 
     current_process = None
     current_status_msg = None
@@ -761,13 +735,19 @@ async def run_command_async(
     if is_cancelled:
         log_activity("agent", "Agent", "Task cancelled by user.")
         await status_msg.edit(
-            content="🛑 **Order cancelled, Boss!**\n🏁 **Status:** Aborted by the Boss."
+            content="🛑 **Order cancelled, Boss!**\n🏁 **Status:** Recalled by the Guild Master."
         )
         try:
             await status_msg.clear_reactions()
         except Exception:
             pass
         is_cancelled = False
+        return
+
+    if exc:
+        await _handle_quest_failure(
+            channel, user_mention, command_content, agent_name, status_msg
+        )
         return
 
     await _handle_command_success(channel, user_mention, status_msg)
