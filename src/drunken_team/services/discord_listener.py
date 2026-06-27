@@ -802,13 +802,25 @@ async def _handle_slash_command(message: discord.Message, content_str: str) -> N
         )
         await message.channel.send(help_text)
         return
+    elif slash_cmd in ("/stop", "/kill"):
+        import subprocess
+
+        try:
+            subprocess.run(["pkill", "-f", "agy"], check=False)
+            await message.channel.send(
+                "🛑 **Emergency Stop!** All active agents in the dungeon have been killed immediately."
+            )
+        except Exception as e:
+            await message.channel.send(f"⚠️ Failed to kill agents: {e}")
+        return
     elif slash_cmd == "/list-cmd":
         list_text = (
             "Boss! Here is the menu of quick commands that I can relay to the agy CLI immediately:\n"
             "1. `/refine` : Run JIRA Backlog refinement.\n"
             "2. `/next` : Pull and start the highest priority task.\n"
             "3. `/audit` : Run codebase health audit and trace technical debt.\n"
-            "4. `/confluence-sync` : Sync documentation files to Confluence Cloud.\n\n"
+            "4. `/confluence-sync` : Sync documentation files to Confluence Cloud.\n"
+            "5. `/stop` or `/kill` : Emergency stop all running agents instantly.\n\n"
             "You can type `/<command>` to execute it immediately!"
         )
         await message.channel.send(list_text)
