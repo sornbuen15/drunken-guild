@@ -11,6 +11,8 @@ import webbrowser
 from threading import Timer
 from typing import Any
 
+from drunken_team.core.registry import ProjectRegistry
+
 
 def load_dotenv() -> None:
     # Look for .env in current directory or parent directories
@@ -383,7 +385,7 @@ def is_agy_running(project_path: str) -> bool:
     return False
 
 
-def load_projects_mapping() -> None:
+def load_projects_mapping() -> None:  # noqa: C901  # TODO(DT-46): Technical Debt - Refactor to reduce McCabe complexity
     global project_paths
     project_paths = {}
     projects_dir = os.path.expanduser("~/.gemini/config/projects")
@@ -431,6 +433,15 @@ def load_projects_mapping() -> None:
             print(
                 f"[-] Failed to auto-register current directory: {e}", file=sys.stderr
             )
+
+    # Merge from central ProjectRegistry
+    try:
+        registry = ProjectRegistry()
+        for r_id, r_data in registry.get_projects().items():
+            if r_id not in project_paths and r_data.get("path"):
+                project_paths[r_id] = os.path.abspath(r_data["path"])
+    except Exception as e:
+        print(f"[-] Failed to load from central ProjectRegistry: {e}", file=sys.stderr)
 
     # Ensure current workspace is mapped
     curr_workspace = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))

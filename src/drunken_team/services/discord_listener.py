@@ -10,6 +10,8 @@ from typing import Any
 
 import discord
 
+from drunken_team.core.registry import ProjectRegistry
+
 file_lock = asyncio.Lock()
 
 
@@ -543,7 +545,10 @@ PERSONA_MAPPING = {
 
 
 async def _execute_command(
-    cmd_args: list[str], agent_name: str, env_vars: dict[str, Any] | None
+    cmd_args: list[str],
+    agent_name: str,
+    env_vars: dict[str, Any] | None,
+    cwd: str | None = None,
 ) -> tuple[int | None, Exception | None]:
     global current_process
     env = os.environ.copy()
@@ -554,7 +559,11 @@ async def _execute_command(
     try:
         with open(task_log, "w", encoding="utf-8") as f:
             process = await asyncio.create_subprocess_exec(
-                *script_args, stdout=f, stderr=asyncio.subprocess.STDOUT, env=env
+                *script_args,
+                stdout=f,
+                stderr=asyncio.subprocess.STDOUT,
+                env=env,
+                cwd=cwd,
             )
         current_process = process
         await process.wait()
@@ -709,6 +718,7 @@ async def run_command_async(
     cmd_args: list[str],
     agent_name: str,
     env_vars: dict[str, Any] | None = None,
+    cwd: str | None = None,
 ) -> None:
     global current_process, current_status_msg, is_cancelled
     if not cmd_args or cmd_args[0] not in ("agy",):
@@ -728,7 +738,7 @@ async def run_command_async(
     current_status_msg = status_msg
     is_cancelled = False
 
-    _, exc = await _execute_command(cmd_args, agent_name, env_vars)
+    _, exc = await _execute_command(cmd_args, agent_name, env_vars, cwd)
 
     current_process = None
     current_status_msg = None
@@ -937,6 +947,14 @@ async def _dispatch_swarm(
         "mina_response",
         f"🍹 **Mina [Hostess]:** Whoa, that's a big quest! I'm breaking it down into {len(sub_tasks)} sub-tasks and deploying the Swarm!",
     )
+
+    target_project = router_data.get("target_project")
+    project_cwd = None
+    if target_project:
+        proj_data = ProjectRegistry().get_project(target_project)
+        if proj_data:
+            project_cwd = proj_data["path"]
+
     log_activity("agent", "Mina", ack_msg)
     await message.channel.send(ack_msg)
     tasks_to_run = []
@@ -962,6 +980,7 @@ async def _dispatch_swarm(
                 cmd_args,
                 meta["name"],
                 env_vars=env_vars,
+                cwd=project_cwd,
             )
         )
     for t in tasks_to_run:
@@ -976,6 +995,14 @@ async def _dispatch_single_agent(
         target_agent = "fullstack-engineer"
     agent_meta = AGENTS_METADATA[target_agent]
     refined_prompt = router_data.get("refined_prompt", content_str)
+
+    target_project = router_data.get("target_project")
+    project_cwd = None
+    if target_project:
+        proj_data = ProjectRegistry().get_project(target_project)
+        if proj_data:
+            project_cwd = proj_data["path"]
+
     config_file = find_config()
     if config_file:
         active_agent_json = os.path.join(
@@ -1002,6 +1029,7 @@ async def _dispatch_single_agent(
             cmd_args,
             agent_meta["name"],
             env_vars=env_vars,
+            cwd=project_cwd,
         )
     )
 
@@ -1047,6 +1075,11 @@ async def on_message(message: discord.Message) -> None:
 
     api_key = os.environ.get("GEMINI_API_KEY")
     if api_key:
+        projects = ProjectRegistry().get_projects()
+        project_list = ", ".join(
+            [f"'{k}' ({v.get('description', '')})" for k, v in projects.items()]
+        )
+
         router_instruction = (
             "You are Mina, the lively and welcoming tavern hostess at the Drunken Team Inn.\n"
             "You coordinate dashboard and quest orders for The Boss.\n"
@@ -1063,12 +1096,13 @@ async def on_message(message: discord.Message) -> None:
             "If it's a casual chat or general question that you can answer without running terminal commands, return:\n"
             '{"is_task": false, "mina_response": "<Your friendly in-character response>"}\n'
             "If it is a SIMPLE task that requires only ONE agent, return:\n"
-            '{"is_task": true, "target_agent": "<best_agent_key>", "refined_prompt": "<clear prompt for the agent>"}\n'
+            '{"is_task": true, "target_agent": "<best_agent_key>", "target_project": "<project_id>", "refined_prompt": "<clear prompt for the agent>"}\n'
             "If the task is a BIG, COMPLEX goal (e.g. 'Build a whole feature', 'Deploy the entire app'), break it into specialized sub-tasks and assign them to the right agents. Return:\n"
-            '{"is_task": true, "mina_response": "<Acknowledge the big task and announce the team>", "sub_tasks": [{"target_agent": "<key1>", "prompt": "<task1>"}, {"target_agent": "<key2>", "prompt": "<task2>"}]}\n\n'
+            '{"is_task": true, "mina_response": "<Acknowledge the big task and announce the team>", "target_project": "<project_id>", "sub_tasks": [{"target_agent": "<key1>", "prompt": "<task1>"}, {"target_agent": "<key2>", "prompt": "<task2>"}]}\n\n'
             "CRITICAL ROUTING RULE:\n"
             "- If the task is explicitly assigned to a specific role/alias (e.g., 'give this to KNIGHT'), route it ONLY to that specific agent.\n"
             "- If the task is massive, YOU (Mina) are the Auto-Orchestrator Swarm. Break it down logically and return the `sub_tasks` array.\n"
+            f"- Available projects: {project_list}. Map the user's request to one of these project IDs if they mention a project, and include it as 'target_project'.\n"
         )
         direct_response = await asyncio.to_thread(
             query_gemini_direct, content_str, router_instruction
