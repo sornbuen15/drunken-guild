@@ -4,6 +4,7 @@ import sys
 import shutil
 import argparse
 
+
 def get_bootstrap_paths():
     script_dir = os.path.dirname(os.path.abspath(__file__))
     bootstrap_dir = os.path.dirname(script_dir)
@@ -11,13 +12,14 @@ def get_bootstrap_paths():
         "root": bootstrap_dir,
         "skills": os.path.join(bootstrap_dir, "skills"),
         "agents": os.path.join(bootstrap_dir, "agents"),
-        "bridge": os.path.join(bootstrap_dir, "scripts", "jira_bridge.py")
+        "bridge": os.path.join(bootstrap_dir, "scripts", "jira_bridge.py"),
     }
+
 
 def find_workspace_root():
     curr_dir = os.getcwd()
     while True:
-        agents_dir = os.path.join(curr_dir, '.agents')
+        agents_dir = os.path.join(curr_dir, ".agents")
         if os.path.exists(agents_dir) and os.path.isdir(agents_dir):
             return agents_dir
         parent = os.path.dirname(curr_dir)
@@ -26,12 +28,13 @@ def find_workspace_root():
         curr_dir = parent
     return None
 
+
 def sync_dir(src, dst):
     if not os.path.exists(src):
         return
-        
+
     os.makedirs(dst, exist_ok=True)
-    
+
     # 1. Sync skills (directories)
     src_skills = os.path.join(src, "skills")
     dst_skills = os.path.join(dst, "skills")
@@ -52,7 +55,7 @@ def sync_dir(src, dst):
                 else:
                     print(f"[+] Installing skill: {item}")
                 shutil.copytree(s_item, d_item, symlinks=False)
-            elif os.path.isfile(s_item) and item.endswith('.md'):
+            elif os.path.isfile(s_item) and item.endswith(".md"):
                 # E.g. INDEX.md
                 shutil.copy2(s_item, d_item)
                 print(f"[+] Syncing {item}")
@@ -80,7 +83,7 @@ def sync_dir(src, dst):
         for item in os.listdir(src_scripts):
             s_item = os.path.join(src_scripts, item)
             d_item = os.path.join(dst_scripts, item)
-            if os.path.isfile(s_item) and item.endswith('.py'):
+            if os.path.isfile(s_item) and item.endswith(".py"):
                 if os.path.exists(d_item):
                     print(f"[-] Updating script: {item}")
                 else:
@@ -88,19 +91,28 @@ def sync_dir(src, dst):
                 shutil.copy2(s_item, d_item)
                 os.chmod(d_item, 0o755)
 
+
 def main():
-    parser = argparse.ArgumentParser(description="Sync Antigravity skills, agents, and bridge script.")
+    parser = argparse.ArgumentParser(
+        description="Sync Antigravity skills, agents, and bridge script."
+    )
     group = parser.add_mutually_exclusive_group()
-    group.add_argument("--global", action="store_true", help="Sync to global configuration (~/.gemini/config)")
-    group.add_argument("--workspace", action="store_true", help="Sync to local workspace (.agents)")
-    
+    group.add_argument(
+        "--global",
+        action="store_true",
+        help="Sync to global configuration (~/.gemini/config)",
+    )
+    group.add_argument(
+        "--workspace", action="store_true", help="Sync to local workspace (.agents)"
+    )
+
     args = parser.parse_args()
     bootstrap = get_bootstrap_paths()
-    
+
     # Resolve target destination
     target_type = None
     target_path = None
-    
+
     if getattr(args, "global"):
         target_type = "global"
         target_path = os.path.expanduser("~/.gemini/config")
@@ -108,7 +120,9 @@ def main():
         target_type = "workspace"
         target_path = find_workspace_root()
         if not target_path:
-            print("Error: Local workspace (.agents) directory not found.", file=sys.stderr)
+            print(
+                "Error: Local workspace (.agents) directory not found.", file=sys.stderr
+            )
             sys.exit(1)
     else:
         # Auto-detect: if in a workspace, use workspace, else global
@@ -119,15 +133,18 @@ def main():
         else:
             target_type = "global"
             target_path = os.path.expanduser("~/.gemini/config")
-            
+
     print(f"[*] Target destination: {target_type.upper()} -> {target_path}")
-    
+
     try:
-        sync_dir(bootstrap["root"] if isinstance(bootstrap, dict) else bootstrap, target_path)
+        sync_dir(
+            bootstrap["root"] if isinstance(bootstrap, dict) else bootstrap, target_path
+        )
         print("[*] Sync completed successfully!")
     except Exception as e:
         print(f"Error during sync: {e}", file=sys.stderr)
         sys.exit(1)
+
 
 if __name__ == "__main__":
     main()
