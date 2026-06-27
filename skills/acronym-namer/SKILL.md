@@ -14,7 +14,7 @@ Generate a list of 3 to 5 highly creative, thematic, and technically accurate ac
 ## Execution Steps
 1. **Analyze the Subject**: Understand what the bot/project does, its domain (e.g., QA, DevOps, Security), and its underlying tech stack (e.g., Kubernetes, React, Python).
 2. **Select Thematic Base Words**: Brainstorm short, punchy words related to the theme (e.g., Fantasy: KNIGHT, MAGE, BLADE. Tactical: SHIELD, GUARD, AEGIS).
-3. **Reverse-Engineer Acronyms**: Assign technical, relevant terminology to each letter of the chosen base words. 
+3. **Reverse-Engineer Acronyms**: Assign technical, relevant terminology to each letter of the chosen base words.
    - *Example for DevOps*: **K.N.I.G.H.T.** -> **K**ubernetes **N**etwork **I**nfrastructure **G**overnance & **H**osting **T**echnology.
    - *Example for Router*: **M.I.N.A.** -> **M**aster **I**nterface & **N**etwork **A**ssistant.
 4. **Format the Output**: Present the generated names in a highly readable, premium markdown format.

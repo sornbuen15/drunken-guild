@@ -323,7 +323,7 @@ document.addEventListener('DOMContentLoaded', () => {
             setTimeout(() => toast.remove(), 300);
         }, 6000);
     }
-    
+
     let selectedAgentKey = "principal-engineer";
     let agentStates = {};
     Object.keys(agentsData).forEach(key => {
@@ -397,7 +397,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const state = projectStates[projectId];
         agentStates = state.agentStates;
         selectedAgentKey = state.selectedAgentKey || "principal-engineer";
-        
+
         restoreTerminalLines(state.logs);
 
         if (selectedAgentKey) {
@@ -413,13 +413,13 @@ document.addEventListener('DOMContentLoaded', () => {
             terminalInput.setAttribute('disabled', 'true');
             sendBtn.setAttribute('disabled', 'true');
             terminalInput.placeholder = "Enter input command for party member...";
-            
+
             document.querySelectorAll('.roster-card').forEach(c => c.classList.remove('selected'));
             spriteElements.forEach(s => s.classList.remove('selected'));
         }
 
         updateIndicators();
-        
+
         // Trigger immediate Discord transceiver status check
         checkDiscordStatus();
     }
@@ -441,7 +441,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         opt.setAttribute('data-raw-name', p.name); // Store raw name
                         select.appendChild(opt);
                     });
-                    
+
                     select.removeEventListener('change', handleProjectSelectChange);
                     select.addEventListener('change', handleProjectSelectChange);
 
@@ -469,17 +469,17 @@ document.addEventListener('DOMContentLoaded', () => {
     const drunkCountBadge = document.getElementById('drunk-count');
     const activityBadge = document.getElementById('tavern-activity');
     const toggleAllBtn = document.getElementById('toggle-all-btn');
-    
+
     const spriteElements = document.querySelectorAll('.agent-sprite');
     const rosterGrid = document.getElementById('roster-grid');
-    
+
     const selectedAgentName = document.getElementById('selected-agent-name');
     const selectedAgentModel = document.getElementById('selected-agent-model');
     const selectedAgentDesc = document.getElementById('selected-agent-desc');
     const selectedAgentTools = document.getElementById('selected-agent-tools');
     const stateBox = document.getElementById('state-box');
     const toggleStateBtn = document.getElementById('toggle-state-btn');
-    
+
     const terminalTitle = document.getElementById('terminal-title');
     const terminalBody = document.getElementById('terminal-body');
     const terminalInput = document.getElementById('terminal-input');
@@ -502,7 +502,7 @@ document.addEventListener('DOMContentLoaded', () => {
     function updateIndicators() {
         let workingCount = 0;
         let restingCount = 0;
-        
+
         Object.keys(agentStates).forEach(key => {
             if (agentStates[key]) {
                 workingCount++;
@@ -510,10 +510,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 restingCount++;
             }
         });
-        
+
         workingCountBadge.textContent = `PARTY ACTIVE: ${workingCount}`;
         drunkCountBadge.textContent = `PARTY DRUNK: ${restingCount}`;
-        
+
         // Calculate Activity
         let activity = "IDLE";
         if (workingCount > 0 && workingCount <= 2) {
@@ -536,7 +536,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const key = sprite.getAttribute('data-agent');
             const isWorking = agentStates[key];
             const bubble = sprite.querySelector('.sprite-bubble');
-            
+
             if (isWorking) {
                 sprite.classList.remove('resting');
                 sprite.classList.add('working');
@@ -557,11 +557,11 @@ document.addEventListener('DOMContentLoaded', () => {
         document.querySelectorAll('.roster-card').forEach(card => {
             const key = card.getAttribute('data-agent');
             const isWorking = agentStates[key];
-            
+
             const badge = card.querySelector('.roster-state-badge');
             const hpBar = card.querySelector('.roster-stats .stat-bar.hp');
             const hpValText = card.querySelector('.roster-stats .text-hp');
-            
+
             if (badge) {
                 if (isWorking) {
                     badge.className = "roster-state-badge working";
@@ -586,29 +586,29 @@ document.addEventListener('DOMContentLoaded', () => {
             console.error("selectAgent error: agent not found for key", key);
             return;
         }
-        
+
         try {
             // Update styling
             document.querySelectorAll('.roster-card').forEach(c => c.classList.remove('selected'));
             const rosterCard = document.querySelector(`.roster-card[data-agent="${key}"]`);
             if (rosterCard) rosterCard.classList.add('selected');
-            
+
             spriteElements.forEach(s => s.classList.remove('selected'));
             if (agent.spriteId) {
                 const sprite = document.getElementById(agent.spriteId);
                 if (sprite) sprite.classList.add('selected');
             }
-            
+
             // Update Parchment/Blue Panel
             selectedAgentName.textContent = agent.avatar + " " + agent.name;
             selectedAgentModel.textContent = `Job: ${agent.job} | Model: ${agent.model}`;
             selectedAgentDesc.textContent = agent.description;
             selectedAgentTools.textContent = `Skills: ${agent.tools}`;
-            
+
             stateBox.style.display = 'flex';
             const jrpgStats = document.getElementById('jrpg-stats');
             if (jrpgStats) jrpgStats.style.display = 'flex';
-            
+
             try {
                 updateSelectedStateDetails();
             } catch (err) {
@@ -617,7 +617,7 @@ document.addEventListener('DOMContentLoaded', () => {
         } catch (e) {
             console.error("Error updating JRPG agent sheet details:", e);
         }
-        
+
         // Enable Terminal Input (Ensure this runs regardless of JRPG UI rendering state)
         if (terminalTitle) terminalTitle.textContent = `DIALOGUE: ${agent.name}`;
         if (terminalInput) {
@@ -634,23 +634,23 @@ document.addEventListener('DOMContentLoaded', () => {
                 body: JSON.stringify({ project_id: currentProjectId, agent_key: key })
             }).catch(err => console.error("Failed to save active agent:", err));
         }
-        
+
         writeToTerminal("system", `[Inspect] Loaded character profile: ${agent.name} [Job: ${agent.job}].`);
     }
 
     function updateSelectedStateDetails() {
         if (!selectedAgentKey) return;
-        
+
         const isWorking = agentStates[selectedAgentKey];
         const agent = agentsData[selectedAgentKey];
-        
+
         const lvField = document.getElementById('stat-lv');
         const hpBar = document.getElementById('hp-bar');
         const hpTextVal = document.getElementById('stat-hp');
         const statusField = document.getElementById('stat-status-lbl');
-        
+
         if (lvField) lvField.textContent = agent.lv;
-        
+
         if (isWorking) {
             statusField.className = "stat-val status-lbl working";
             statusField.textContent = "ACTIVE";
@@ -674,7 +674,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const card = document.createElement('div');
             card.className = "roster-card";
             card.setAttribute('data-agent', key);
-            
+
             card.innerHTML = `
                 <div class="roster-card-header">
                     <div class="roster-info">
@@ -700,7 +700,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     </div>
                 </div>
             `;
-            
+
             card.addEventListener('click', () => selectAgent(key));
             rosterGrid.appendChild(card);
         });
@@ -722,7 +722,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const res = await fetch(`/api/discord/status?project_id=${currentProjectId}&_=${Date.now()}`);
             if (res.ok) {
                 const status = await res.json();
-                
+
                 // Update Link Badge
                 if (status.is_running) {
                     discordStatusBadge.className = "state-badge working";
@@ -754,7 +754,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const actRes = await fetch(`/api/discord/activity/all?_=${Date.now()}`);
             if (actRes.ok) {
                 const allActivities = await actRes.json();
-                
+
                 Object.keys(allActivities).forEach(projectId => {
                     const activities = allActivities[projectId];
                     const lastTime = lastActivityTimes[projectId] || 0;
@@ -784,7 +784,7 @@ document.addEventListener('DOMContentLoaded', () => {
                             }
                         }
                     });
-                    
+
                     if (hasNewMessage) {
                         lastActivityTimes[projectId] = newLastTime;
                         // Show notification if it is not the active project, and it's not the first loading initialization
@@ -816,11 +816,11 @@ document.addEventListener('DOMContentLoaded', () => {
             if (agyRes.ok) {
                 const agyStatus = await agyRes.json();
                 const wasRunning = document.body.classList.contains('agy-running');
-                
+
                 if (agyStatus.agy_running) {
                     document.body.classList.add('agy-running');
                     let updated = false;
-                    
+
                     if (agyStatus.active_agent && agentStates[agyStatus.active_agent] !== undefined) {
                         // Activate ONLY the target agent
                         Object.keys(agentStates).forEach(key => {
@@ -845,7 +845,7 @@ document.addEventListener('DOMContentLoaded', () => {
                             }
                         });
                     }
-                    
+
                     if (!wasRunning) {
                         writeToTerminal("system", `[Realm] Active agy process detected for "${currentProjectId}"!`);
                     }
@@ -893,7 +893,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const currentState = agentStates[selectedAgentKey];
         const nextState = !currentState;
         agentStates[selectedAgentKey] = nextState;
-        
+
         const agent = agentsData[selectedAgentKey];
         if (nextState) {
             writeToTerminal("system", `[System] Command received. ${agent.name} deployed to quest.`);
@@ -915,7 +915,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 }, (index + 1) * 600);
             });
         }
-        
+
         updateSelectedStateDetails();
         updateIndicators();
     });
@@ -923,11 +923,11 @@ document.addEventListener('DOMContentLoaded', () => {
     // Ring Inn Bell (Toggle All)
     toggleAllBtn.addEventListener('click', () => {
         const anyResting = Object.values(agentStates).some(state => state === false);
-        
+
         Object.keys(agentStates).forEach(key => {
             agentStates[key] = anyResting;
         });
-        
+
         if (anyResting) {
             writeToTerminal("system", "🔔 *CLANG CLANG*! The Inn bell rings! All party members equip gear and prepare for battle!");
             Object.keys(agentsData).forEach(key => {
@@ -945,7 +945,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
             });
         }
-        
+
         if (selectedAgentKey) {
             updateSelectedStateDetails();
         }
@@ -956,16 +956,16 @@ document.addEventListener('DOMContentLoaded', () => {
     async function handleSend() {
         const text = terminalInput.value.trim();
         if (!text || !selectedAgentKey) return;
-        
+
         writeToTerminal("user", `You: ${text}`);
         terminalInput.value = '';
-        
+
         const agent = agentsData[selectedAgentKey];
         const isWorking = agentStates[selectedAgentKey];
         const agentStatus = isWorking ? "ACTIVE" : "DRUNK";
-        
+
         writeToTerminal("system", `[${agent.name}] casting prompt response...`);
-        
+
         try {
             const res = await fetch('/api/terminal/run', {
                 method: 'POST',
@@ -977,7 +977,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     status: agentStatus
                 })
             });
-            
+
             if (res.ok) {
                 const data = await res.json();
                 writeToTerminal("system", `[${agent.name}]: ${data.output}`);
@@ -1045,8 +1045,8 @@ document.addEventListener('DOMContentLoaded', () => {
     discordToggleBtn.addEventListener('click', async () => {
         const isActive = discordStatusBadge.textContent === "ACTIVE";
         const endpoint = isActive ? '/api/discord/stop' : '/api/discord/start';
-        const systemMsg = isActive ? 
-            "[System] Transceiver deactivated. Discord listener terminated." : 
+        const systemMsg = isActive ?
+            "[System] Transceiver deactivated. Discord listener terminated." :
             "[System] Transceiver activated. Launching Discord command listener...";
 
         try {

@@ -1,7 +1,7 @@
 # Drunken Team - Ultimate (Drunken) Antigravity Extension Suite
 *Brought to you by Drunken Programmer*
 
-Grab a pint, pull up a sturdy wooden stool, and welcome to **Drunken Team**! This is the ultimate collection of lightweight, token-optimized, and tavern-tested utilities designed to supercharge your experience with **Google Antigravity** (and other agentic AI systems). 
+Grab a pint, pull up a sturdy wooden stool, and welcome to **Drunken Team**! This is the ultimate collection of lightweight, token-optimized, and tavern-tested utilities designed to supercharge your experience with **Google Antigravity** (and other agentic AI systems).
 
 Instead of dealing with bloated payloads or sober, boring setups, this suite brings developer-focused workflows, interactive boss approvals, a real-time pixelated tavern visualizer, and lightweight third-party integrations with zero hangover.
 
@@ -230,13 +230,13 @@ Choose your quest tracking style depending on your connectivity and team setup:
 ### Option A: The Local Mug (Kanban MCP) — *Offline & Local-Only*
 If you prefer a clean, private, offline-first workflow, track your tasks locally using the **Kanban MCP Server**.
 *   **How it works:** Stores tasks as simple Markdown files inside the `.agents/board/` directory, divided into lanes (`todo`, `doing`, `done`).
-*   **Why use it:** 
+*   **Why use it:**
     *   **Completely local:** No internet connections or external API tokens required.
     *   **AI Sandbox:** Perfect for letting the AI break down a massive prompt into sub-tasks and track its own progress without cluttering your company's shared board.
 
 ### Option B: The Shared Guild Board (Jira Cloud Bridge) — *Team Collaboration*
 If you are forced to work with other human beings, use the **Jira Cloud Bridge** (`jira_bridge.py`).
 *   **How it works:** Syncs directly with your Atlassian Jira Cloud instance.
-*   **Why use it:** 
+*   **Why use it:**
     *   **Single Source of Truth:** Integrates with the official company project tracker.
     *   **Zero-Overhead Parsing:** The bridge script automatically filters down large, token-heavy Jira payloads (50KB+) into minimal JSON (<0.5KB), saving up to **95% of LLM Context Tokens**.
