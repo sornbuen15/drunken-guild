@@ -525,12 +525,22 @@ async def run_command_async(
         if env_vars:
             env.update(env_vars)
 
-        with open(RAW_LOG_FILE, "a", encoding="utf-8") as f:
+        task_log = f"agy_discord_{agent_name.replace(' ', '_').lower()}_raw.log"
+        with open(task_log, "w", encoding="utf-8") as f:
             process = await asyncio.create_subprocess_exec(
                 *cmd_args, stdout=f, stderr=asyncio.subprocess.STDOUT, env=env
             )
         current_process = process
         await process.wait()
+        try:
+            if os.path.exists(task_log):
+                with open(task_log, "r", encoding="utf-8") as tf:
+                    log_content = tf.read()
+                with open(RAW_LOG_FILE, "w", encoding="utf-8") as rf:
+                    rf.write(log_content)
+                os.remove(task_log)
+        except Exception:
+            pass
     except Exception as e:
         with open(RAW_LOG_FILE, "a", encoding="utf-8") as f:
             f.write(f"\nError executing command: {e}\n")
