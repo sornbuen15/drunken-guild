@@ -875,7 +875,8 @@ def _build_agent_suffix(meta: dict[str, str]) -> str:
         "Write clean, anti-spaghetti SOLID code. Handle edge cases. "
         "Pre-commit is just a typo-catcher; the code MUST be structurally perfect and fully tested "
         "before you finish the task. Zero defects!\n"
-        "IMPORTANT: If you need to start a server or long-running process, use run_command with a small WaitMsBeforeAsync so it goes to the background. Do NOT block your execution!)"
+        "IMPORTANT: If you need to start a server or long-running process, use run_command with a small WaitMsBeforeAsync so it goes to the background. Do NOT block your execution!\n"
+        "ANTI-LOOP PROTOCOL (ค.ว.ย.): If you execute a command and it fails, and a subsequent fix results in the exact same failure, STOP IMMEDIATELY! Do NOT loop blindly. Return a failure report to the Boss explaining the roadblock.)"
     )
 
 

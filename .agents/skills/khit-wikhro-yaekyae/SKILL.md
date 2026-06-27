@@ -24,6 +24,7 @@ This skill enforces a strict, disciplined mindset for all agents in the **Drunke
    - If a failure occurs, **differentiate** the symptom from the disease.
    - Is it a code bug? A path issue? A permission block? A missing dependency?
    - Do not apply random fixes or blindly retry. Isolate the exact line of failure, implement the fix, and prove it works before proceeding.
+   - **ANTI-LOOP MANDATE:** If you execute a command and it fails, and you attempt a fix but the result is the EXACT SAME failure, **STOP IMMEDIATELY**. Do not loop! Flee the dungeon, abort the execution, and return a failure report to the Boss describing the dead-end so the team can discuss it.
 
 ## 🛠️ Execution Protocol (When to use this skill)
 
