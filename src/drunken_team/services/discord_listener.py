@@ -814,7 +814,11 @@ async def on_message(message):
                         "Respond like a human software developer in character. "
                         "Address the user as 'The Boss'. "
                         "Be extremely brief, conversational, and direct. Explain in 1-2 short sentences "
-                        "exactly what you did. Do not use AI clichés or preamble. Start directly.)"
+                        "exactly what you did. Do not use AI clichés or preamble. Start directly.\n"
+                        "CRITICAL MINDSET: 100% Quality & Security Shift-Left. Design before coding. "
+                        "Write clean, anti-spaghetti SOLID code. Handle edge cases. "
+                        "Pre-commit is just a typo-catcher; the code MUST be structurally perfect and fully tested "
+                        "before you finish the task. Zero defects!)"
                     )
                     esc_p = (p + sfx).replace('"', '\\"')
                     env_p = (
@@ -867,7 +871,11 @@ async def on_message(message):
                     "Respond like a human software developer in character. "
                     "Address the user as 'The Boss'. "
                     "Be extremely brief, conversational, and direct. Explain in 1-2 short sentences "
-                    "exactly what you did. Do not use AI clichés or preamble. Start directly.)"
+                    "exactly what you did. Do not use AI clichés or preamble. Start directly.\n"
+                    "CRITICAL MINDSET: 100% Quality & Security Shift-Left. Design before coding. "
+                    "Write clean, anti-spaghetti SOLID code. Handle edge cases. "
+                    "Pre-commit is just a typo-catcher; the code MUST be structurally perfect and fully tested "
+                    "before you finish the task. Zero defects!)"
                 )
                 escaped_prompt = (refined_prompt + suffix).replace('"', '\\"')
 
