@@ -668,22 +668,12 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                         escaped_prompt,
                     ]
                     try:
-                        res = subprocess.run(
-                            args,
-                            cwd=project_path,
-                            capture_output=True,
-                            text=True,
-                            # no timeout so it can run as long as it needs
-                        )
-                        raw_out = res.stdout + "\n" + res.stderr
-                        clean_resp = extract_clean_response(raw_out)
-                        if not clean_resp:
-                            clean_resp = (
-                                raw_out.strip() or "Task completed without output."
-                            )
-                        final_result = (
-                            f"✅ **Task Completed:** `{command}`\n\n{clean_resp}"
-                        )
+                        threading.Thread(
+                            target=subprocess.run,
+                            args=(args,),
+                            kwargs={"cwd": project_path, "check": True},
+                        ).start()
+                        final_result = f"✅ **Task Started:** `{command}`\n\nExecuting in background..."
                     except Exception as e:
                         final_result = f"❌ **Task Failed:** `{command}`\n\nError: {e}"
 

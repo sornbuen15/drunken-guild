@@ -1,10 +1,12 @@
 import json
 import os
-import requests
 import sys
+from typing import List
+
+import requests
 
 
-def delete_issues(issue_keys):
+def delete_issues(issue_keys: List[str]) -> None:
     global_conf = os.path.expanduser("~/.gemini/config/jira_config.json")
     if not os.path.exists(global_conf):
         print("Config not found")
