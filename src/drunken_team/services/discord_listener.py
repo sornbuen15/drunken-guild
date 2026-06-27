@@ -550,10 +550,11 @@ async def _execute_command(
     if env_vars:
         env.update(env_vars)
     task_log = f"agy_discord_{agent_name.replace(' ', '_').lower()}_raw.log"
+    script_args = ["script", "-q", "/dev/null"] + cmd_args
     try:
         with open(task_log, "w", encoding="utf-8") as f:
             process = await asyncio.create_subprocess_exec(
-                *cmd_args, stdout=f, stderr=asyncio.subprocess.STDOUT, env=env
+                *script_args, stdout=f, stderr=asyncio.subprocess.STDOUT, env=env
             )
         current_process = process
         await process.wait()
