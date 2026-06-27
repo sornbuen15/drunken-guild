@@ -723,11 +723,13 @@ async def on_message(message):
             "Return a JSON object ONLY, no markdown formatting outside of it:\n"
             "If it's a casual chat or general question that you can answer without running terminal commands, return:\n"
             '{"is_task": false, "mina_response": "<Your friendly in-character response>"}\n'
-            "If it's a technical task, code modification, debugging, or explicitly assigning an agent, return:\n"
-            '{"is_task": true, "target_agent": "<best_agent_key>", "refined_prompt": "<clear prompt for the agent>"}\n\n'
+            "If it is a SIMPLE task that requires only ONE agent, return:\n"
+            '{"is_task": true, "target_agent": "<best_agent_key>", "refined_prompt": "<clear prompt for the agent>"}\n'
+            "If the task is a BIG, COMPLEX goal (e.g. 'Build a whole feature', 'Deploy the entire app'), break it into specialized sub-tasks and assign them to the right agents. Return:\n"
+            '{"is_task": true, "mina_response": "<Acknowledge the big task and announce the team>", "sub_tasks": [{"target_agent": "<key1>", "prompt": "<task1>"}, {"target_agent": "<key2>", "prompt": "<task2>"}]}\n\n'
             "CRITICAL ROUTING RULE:\n"
-            "- If the task is explicitly assigned to a specific role/alias (e.g., 'give this to KNIGHT' or 'DevOps, do this'), route it to that specific agent.\n"
-            "- If the task is a BIG, COMPLEX goal, requires multiple steps, touches multiple domains, OR does NOT explicitly name an agent (e.g., 'Fix the camera issue', 'Deploy the whole app'), YOU MUST ROUTE IT TO 'principal-engineer' (ARCHMAGE) so they can analyze and delegate tasks to the team via Kanban.\n"
+            "- If the task is explicitly assigned to a specific role/alias (e.g., 'give this to KNIGHT'), route it ONLY to that specific agent.\n"
+            "- If the task is massive, YOU (Mina) are the Auto-Orchestrator Swarm. Break it down logically and return the `sub_tasks` array.\n"
         )
 
         direct_response = await asyncio.to_thread(
@@ -786,52 +788,106 @@ async def on_message(message):
                 await message.channel.send(f"🍹 **Mina [Hostess]:** {resp}")
                 return
 
-            target_agent = router_data.get("target_agent", "fullstack-engineer")
-            if target_agent not in AGENTS_METADATA:
-                target_agent = "fullstack-engineer"
-
-            agent_meta = AGENTS_METADATA[target_agent]
-            refined_prompt = router_data.get("refined_prompt", content_str)
-
-            config_file = find_config()
-            if config_file:
-                active_agent_json = os.path.join(
-                    os.path.dirname(config_file), "active_agent.json"
+            if "sub_tasks" in router_data and isinstance(
+                router_data["sub_tasks"], list
+            ):
+                # Multi-Agent Auto-Orchestrator Swarm
+                sub_tasks = router_data["sub_tasks"]
+                ack_msg = router_data.get(
+                    "mina_response",
+                    f"🍹 **Mina [Hostess]:** Whoa, that's a big quest! I'm breaking it down into {len(sub_tasks)} sub-tasks and deploying the Swarm!",
                 )
-                try:
-                    with open(active_agent_json, "w") as f:
-                        json.dump({"active_agent": target_agent}, f)
-                except Exception:
-                    pass
+                log_activity("agent", "Mina", ack_msg)
+                await message.channel.send(ack_msg)
 
-            suffix = (
-                f"\n\n(Instructions: You are {agent_meta['name']} [Job: {agent_meta['job']}]. "
-                f"Personality: {agent_meta['description']}. "
-                "Respond like a human software developer in character. "
-                "Address the user as 'The Boss'. "
-                "Be extremely brief, conversational, and direct. Explain in 1-2 short sentences "
-                "exactly what you did. Do not use AI clichés or preamble. Start directly.)"
-            )
-            escaped_prompt = (refined_prompt + suffix).replace('"', '\\"')
+                tasks_to_run = []
+                for st in sub_tasks:
+                    ta = st.get("target_agent", "fullstack-engineer")
+                    if ta not in AGENTS_METADATA:
+                        ta = "fullstack-engineer"
+                    meta = AGENTS_METADATA[ta]
+                    p = st.get("prompt", content_str)
 
-            # Map GITHUB_MINABOT to GITHUB_TOKEN so gh CLI inside agy uses it
-            env_prefix = (
-                'GITHUB_TOKEN="$GITHUB_MINABOT" '
-                if os.environ.get("GITHUB_MINABOT")
-                else ""
-            )
-            full_cmd = f'{env_prefix}agy --dangerously-skip-permissions --print "{escaped_prompt}"'
+                    sfx = (
+                        f"\n\n(Instructions: You are {meta['name']} [Job: {meta['job']}]. "
+                        f"Personality: {meta['description']}. "
+                        "Respond like a human software developer in character. "
+                        "Address the user as 'The Boss'. "
+                        "Be extremely brief, conversational, and direct. Explain in 1-2 short sentences "
+                        "exactly what you did. Do not use AI clichés or preamble. Start directly.)"
+                    )
+                    esc_p = (p + sfx).replace('"', '\\"')
+                    env_p = (
+                        'GITHUB_TOKEN="$GITHUB_MINABOT" '
+                        if os.environ.get("GITHUB_MINABOT")
+                        else ""
+                    )
+                    f_cmd = (
+                        f'{env_p}agy --dangerously-skip-permissions --print "{esc_p}"'
+                    )
 
-            asyncio.create_task(
-                run_command_async(
-                    message.channel,
-                    message.author.mention,
-                    refined_prompt,
-                    full_cmd,
-                    agent_meta["name"],
+                    tasks_to_run.append(
+                        run_command_async(
+                            message.channel,
+                            message.author.mention,
+                            p,
+                            f_cmd,
+                            meta["name"],
+                        )
+                    )
+
+                # Run all sub-agents in parallel
+                for t in tasks_to_run:
+                    asyncio.create_task(t)
+                return
+
+            else:
+                # Single Agent Route
+                target_agent = router_data.get("target_agent", "fullstack-engineer")
+                if target_agent not in AGENTS_METADATA:
+                    target_agent = "fullstack-engineer"
+
+                agent_meta = AGENTS_METADATA[target_agent]
+                refined_prompt = router_data.get("refined_prompt", content_str)
+
+                config_file = find_config()
+                if config_file:
+                    active_agent_json = os.path.join(
+                        os.path.dirname(config_file), "active_agent.json"
+                    )
+                    try:
+                        with open(active_agent_json, "w") as f:
+                            json.dump({"active_agent": target_agent}, f)
+                    except Exception:
+                        pass
+
+                suffix = (
+                    f"\n\n(Instructions: You are {agent_meta['name']} [Job: {agent_meta['job']}]. "
+                    f"Personality: {agent_meta['description']}. "
+                    "Respond like a human software developer in character. "
+                    "Address the user as 'The Boss'. "
+                    "Be extremely brief, conversational, and direct. Explain in 1-2 short sentences "
+                    "exactly what you did. Do not use AI clichés or preamble. Start directly.)"
                 )
-            )
-            return
+                escaped_prompt = (refined_prompt + suffix).replace('"', '\\"')
+
+                env_prefix = (
+                    'GITHUB_TOKEN="$GITHUB_MINABOT" '
+                    if os.environ.get("GITHUB_MINABOT")
+                    else ""
+                )
+                full_cmd = f'{env_prefix}agy --dangerously-skip-permissions --print "{escaped_prompt}"'
+
+                asyncio.create_task(
+                    run_command_async(
+                        message.channel,
+                        message.author.mention,
+                        refined_prompt,
+                        full_cmd,
+                        agent_meta["name"],
+                    )
+                )
+                return
 
     # Fallback if no API key
     welcoming_text = (
