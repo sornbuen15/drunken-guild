@@ -1,15 +1,17 @@
 #!/usr/bin/env python3
-import os
-import sys
-import json
 import asyncio
+import json
+import os
 import subprocess
-import urllib.request
+import sys
 import time
+import urllib.request
+from typing import Any
+
 import discord
 
 
-def load_dotenv():
+def load_dotenv() -> None:
     # Look for .env in current directory or parent directories
     curr_dir = os.getcwd()
     while True:
@@ -40,7 +42,9 @@ def load_dotenv():
 load_dotenv()
 
 
-def query_gemini_direct(prompt, system_instruction=None):
+def query_gemini_direct(
+    prompt: str, system_instruction: str | None = None
+) -> str | None:
     api_key = os.environ.get("GEMINI_API_KEY")
     if not api_key:
         return None
@@ -66,7 +70,7 @@ def query_gemini_direct(prompt, system_instruction=None):
         )
         with urllib.request.urlopen(req, timeout=10) as response:
             res_data = json.loads(response.read().decode("utf-8"))
-            return res_data["candidates"][0]["content"]["parts"][0]["text"].strip()
+            return str(res_data["candidates"][0]["content"]["parts"][0]["text"].strip())
     except Exception as e:
         print(f"Direct API call error: {e}", file=sys.stderr)
         return None
@@ -82,7 +86,7 @@ current_status_msg = None
 is_cancelled = False
 
 
-def extract_clean_response(log_content):
+def extract_clean_response(log_content: str) -> str:
     lines = log_content.split("\n")
     cleaned_lines = []
     in_thinking = False
@@ -132,7 +136,7 @@ def extract_clean_response(log_content):
     return "\n".join(result_lines).strip()
 
 
-def find_config():
+def find_config() -> str | None:
     curr_dir = os.getcwd()
     while True:
         config_path = os.path.join(curr_dir, ".agents", "discord_config.json")
@@ -145,7 +149,7 @@ def find_config():
     return None
 
 
-def log_activity(event_type, author, content):
+def log_activity(event_type: str, author: str, content: str) -> None:
     config_file = find_config()
     project_path = (
         os.path.dirname(os.path.dirname(config_file)) if config_file else os.getcwd()
@@ -166,7 +170,7 @@ def log_activity(event_type, author, content):
         pass
 
 
-def save_config(config):
+def save_config(config: dict[str, Any]) -> None:
     config_file = find_config()
     if not config_file:
         config_file = os.path.join(os.getcwd(), ".agents", "discord_config.json")
@@ -178,8 +182,8 @@ def save_config(config):
         print(f"Warning: Failed to save config file: {e}", file=sys.stderr)
 
 
-def load_config():
-    config = {
+def load_config() -> dict[str, Any]:  # noqa: C901  # TODO(DT-46): Technical Debt - Refactor to reduce McCabe complexity
+    config: dict[str, str | int | None] = {
         "bot_token": os.environ.get("DISCORD_BOT_TOKEN") or DEFAULT_BOT_TOKEN,
         "channel_id": None,
     }
@@ -263,21 +267,21 @@ client = discord.Client(intents=intents)
 tree = discord.app_commands.CommandTree(client)
 
 
-class BountyModal(discord.ui.Modal, title="Post a New Bounty"):
-    summary = discord.ui.TextInput(
+class BountyModal(discord.ui.Modal, title="Post a New Bounty"):  # type: ignore[misc,call-arg]
+    summary: discord.ui.TextInput = discord.ui.TextInput(
         label="Bounty Title",
         placeholder="e.g., Slay the Dragon in the Backend",
         required=True,
         max_length=100,
     )
-    description = discord.ui.TextInput(
+    description: discord.ui.TextInput = discord.ui.TextInput(
         label="Quest Details",
         style=discord.TextStyle.long,
         placeholder="Describe the monster...",
         required=True,
     )
 
-    async def on_submit(self, interaction: discord.Interaction):
+    async def on_submit(self, interaction: discord.Interaction) -> None:
         try:
             cmd = [
                 sys.executable,
@@ -305,18 +309,18 @@ class BountyModal(discord.ui.Modal, title="Post a New Bounty"):
 
 @tree.command(
     name="bounty", description="Post a new bounty (Jira task) to the Guild Board"
-)
-async def slash_bounty(interaction: discord.Interaction):
+)  # type: ignore[misc]
+async def slash_bounty(interaction: discord.Interaction) -> None:
     await interaction.response.send_modal(BountyModal())
 
 
-class ApprovalView(discord.ui.View):
-    def __init__(self, req_id, inbox_file):
+class ApprovalView(discord.ui.View):  # type: ignore[misc]
+    def __init__(self, req_id: str, inbox_file: str) -> None:
         super().__init__(timeout=None)
         self.req_id = req_id
         self.inbox_file = inbox_file
 
-    async def save_status(self, status):
+    async def save_status(self, status: str) -> None:
         inbox = {}
         if os.path.exists(self.inbox_file):
             try:
@@ -328,39 +332,49 @@ class ApprovalView(discord.ui.View):
         with open(self.inbox_file, "w") as f:
             json.dump(inbox, f)
 
-    @discord.ui.button(label="Approve", style=discord.ButtonStyle.success, emoji="⚔️")
+    @discord.ui.button(label="Approve", style=discord.ButtonStyle.success, emoji="⚔️")  # type: ignore[misc]
     async def approve(
-        self, interaction: discord.Interaction, button: discord.ui.Button
-    ):
+        self,
+        interaction: discord.Interaction,
+        button: discord.ui.Button[discord.ui.View],
+    ) -> None:
         await self.save_status("approved")
         await interaction.response.send_message(
             "Quest approved! ⚔️ The agent will proceed.", ephemeral=False
         )
         for child in self.children:
-            child.disabled = True
-        await interaction.message.edit(view=self)
+            if isinstance(child, discord.ui.Button):
+                child.disabled = True
+        if interaction.message:
+            await interaction.message.edit(view=self)
         self.stop()
 
-    @discord.ui.button(label="Reject", style=discord.ButtonStyle.danger, emoji="🛡️")
-    async def reject(self, interaction: discord.Interaction, button: discord.ui.Button):
+    @discord.ui.button(label="Reject", style=discord.ButtonStyle.danger, emoji="🛡️")  # type: ignore[misc]
+    async def reject(
+        self,
+        interaction: discord.Interaction,
+        button: discord.ui.Button[discord.ui.View],
+    ) -> None:
         await self.save_status("rejected")
         await interaction.response.send_message(
             "Quest rejected! 🛡️ The agent stands down.", ephemeral=False
         )
         for child in self.children:
-            child.disabled = True
-        await interaction.message.edit(view=self)
+            if isinstance(child, discord.ui.Button):
+                child.disabled = True
+        if interaction.message:
+            await interaction.message.edit(view=self)
         self.stop()
 
 
-@client.event
-async def on_ready():
+@client.event  # type: ignore[misc]
+async def on_ready() -> None:
     await tree.sync()
-    print(f"Logged in as {client.user.name}", flush=True)
+    print(f"Logged in as {client.user.name if client.user else 'Unknown'}", flush=True)
     asyncio.create_task(poll_outbox())
 
 
-async def poll_outbox():
+async def poll_outbox() -> None:
     outbox_file = os.path.join(os.getcwd(), ".agents", "discord_outbox.json")
     inbox_file = os.path.join(os.getcwd(), ".agents", "discord_inbox.json")
 
@@ -385,10 +399,11 @@ async def poll_outbox():
                     for req_id, data in outbox.items():
                         question = data.get("question")
                         view = ApprovalView(req_id, inbox_file)
-                        await channel.send(
-                            f"📜 **A quest awaits your approval, Guildmaster!**\n\n{question}",
-                            view=view,
-                        )
+                        if isinstance(channel, discord.abc.Messageable):
+                            await channel.send(
+                                f"📜 **A quest awaits your approval, Guildmaster!**\n\n{question}",
+                                view=view,
+                            )
 
         except Exception:
             pass
@@ -396,10 +411,12 @@ async def poll_outbox():
         await asyncio.sleep(1)
 
 
-@client.event
-async def on_reaction_add(reaction, user):
+@client.event  # type: ignore[misc]
+async def on_reaction_add(
+    reaction: discord.Reaction, user: discord.User | discord.Member
+) -> None:
     global current_process, current_status_msg, is_cancelled
-    if user.id == client.user.id:
+    if client.user and user.id == client.user.id:
         return
 
     if str(reaction.emoji) == "❌":
@@ -500,9 +517,14 @@ PERSONA_MAPPING = {
 }
 
 
-async def run_command_async(
-    channel, user_mention, command_content, cmd_args, agent_name, env_vars=None
-):
+async def run_command_async(  # noqa: C901  # TODO(DT-46): Technical Debt - Refactor to reduce McCabe complexity
+    channel: discord.abc.Messageable,
+    user_mention: str,
+    command_content: str,
+    cmd_args: list[str],
+    agent_name: str,
+    env_vars: dict[str, Any] | None = None,
+) -> None:  # noqa: C901  # TODO(DT-46): Technical Debt - Refactor to reduce McCabe complexity
     global current_process, current_status_msg, is_cancelled
 
     # Send immediate acknowledgement as Mina
@@ -608,8 +630,8 @@ async def run_command_async(
         )
 
 
-@client.event
-async def on_message(message):
+@client.event  # type: ignore[misc]
+async def on_message(message: discord.Message) -> None:  # noqa: C901  # TODO(DT-46): Technical Debt - Refactor to reduce McCabe complexity
     global current_process, current_status_msg, is_cancelled
     if message.author == client.user:
         return
@@ -929,11 +951,13 @@ async def on_message(message):
     await message.channel.send(welcoming_text)
 
 
-def main():
+def main() -> int:
     try:
         client.run(BOT_TOKEN)
     except Exception as e:
         print(f"Error: {e}", flush=True)
+        return 1
+    return 0
 
 
 if __name__ == "__main__":

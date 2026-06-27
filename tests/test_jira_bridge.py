@@ -1,7 +1,7 @@
 from scripts.jira_bridge import load_dotenv
 
 
-def test_load_dotenv_no_crash():
+def test_load_dotenv_no_crash() -> None:
     """
     Ensure load_dotenv runs without crashing even if .env is missing or malformed.
     """
@@ -14,7 +14,7 @@ def test_load_dotenv_no_crash():
     assert success is True
 
 
-def test_jira_jql_builder():
+def test_jira_jql_builder() -> None:
     """
     Test that JQL builder constructs the expected query based on lane.
     (This simulates testing the logic inside get-todo/get-in-progress without hitting the API).

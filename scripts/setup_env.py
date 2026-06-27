@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
-import os
-import sys
 import json
+import os
 import subprocess
+import sys
+from typing import Optional
 
 
-def find_config(filename):
+def find_config(filename: str) -> Optional[str]:
     curr_dir = os.getcwd()
     while True:
         path = os.path.join(curr_dir, ".agents", filename)
@@ -18,7 +19,7 @@ def find_config(filename):
     return None
 
 
-def main():
+def main() -> None:  # noqa: C901  # TODO(DT-46): Technical Debt - Refactor to reduce McCabe complexity
     print("====================================================")
     print("🔑 Drunken Team Inn Environment Setup & Biometric Auth")
     print("====================================================")

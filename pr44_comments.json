@@ -1,0 +1,761 @@
+[
+  {
+    "url": "https://api.github.com/repos/sornbuen15/drunken-team/pulls/comments/3485516694",
+    "pull_request_review_id": 4584491342,
+    "id": 3485516694,
+    "node_id": "PRRC_kwDOTBZlPc7PwMOW",
+    "diff_hunk": "@@ -12,6 +12,8 @@ license = { text = \"MIT\" }\n dependencies = [\n     \"discord.py>=2.0.0\",\n     \"python-dotenv>=0.21.0\",\n+    \"sqlalchemy[asyncio]>=2.0.0\",\n+    \"psycopg2-binary>=2.9.9\",",
+    "path": "pyproject.toml",
+    "commit_id": "afbea538128850da47ec72257876af378060c6de",
+    "original_commit_id": "afbea538128850da47ec72257876af378060c6de",
+    "user": {
+      "login": "gemini-code-assist[bot]",
+      "id": 176961590,
+      "node_id": "BOT_kgDOCow4Ng",
+      "avatar_url": "https://avatars.githubusercontent.com/in/956858?v=4",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/gemini-code-assist%5Bbot%5D",
+      "html_url": "https://github.com/apps/gemini-code-assist",
+      "followers_url": "https://api.github.com/users/gemini-code-assist%5Bbot%5D/followers",
+      "following_url": "https://api.github.com/users/gemini-code-assist%5Bbot%5D/following{/other_user}",
+      "gists_url": "https://api.github.com/users/gemini-code-assist%5Bbot%5D/gists{/gist_id}",
+      "starred_url": "https://api.github.com/users/gemini-code-assist%5Bbot%5D/starred{/owner}{/repo}",
+      "subscriptions_url": "https://api.github.com/users/gemini-code-assist%5Bbot%5D/subscriptions",
+      "organizations_url": "https://api.github.com/users/gemini-code-assist%5Bbot%5D/orgs",
+      "repos_url": "https://api.github.com/users/gemini-code-assist%5Bbot%5D/repos",
+      "events_url": "https://api.github.com/users/gemini-code-assist%5Bbot%5D/events{/privacy}",
+      "received_events_url": "https://api.github.com/users/gemini-code-assist%5Bbot%5D/received_events",
+      "type": "Bot",
+      "user_view_type": "public",
+      "site_admin": false
+    },
+    "body": "![medium](https://www.gstatic.com/codereviewagent/medium-priority.svg)\n\nYou have added `sqlalchemy[asyncio]` but are using `psycopg2-binary` as the PostgreSQL driver. `psycopg2` is a synchronous driver and does not support asyncio. If you plan to use asynchronous database operations with SQLAlchemy, you should use an async-compatible driver like `asyncpg`. If you intend to use synchronous operations, you can remove the `[asyncio]` extra from `sqlalchemy`.\n\nAdditionally, the `psycopg2-binary` package is discouraged for production use by its maintainers; `psycopg2` (built from source) is preferred for production environments.",
+    "created_at": "2026-06-27T07:04:54Z",
+    "updated_at": "2026-06-27T07:04:55Z",
+    "html_url": "https://github.com/sornbuen15/drunken-team/pull/44#discussion_r3485516694",
+    "pull_request_url": "https://api.github.com/repos/sornbuen15/drunken-team/pulls/44",
+    "_links": {
+      "self": {
+        "href": "https://api.github.com/repos/sornbuen15/drunken-team/pulls/comments/3485516694"
+      },
+      "html": {
+        "href": "https://github.com/sornbuen15/drunken-team/pull/44#discussion_r3485516694"
+      },
+      "pull_request": {
+        "href": "https://api.github.com/repos/sornbuen15/drunken-team/pulls/44"
+      }
+    },
+    "reactions": {
+      "url": "https://api.github.com/repos/sornbuen15/drunken-team/pulls/comments/3485516694/reactions",
+      "total_count": 0,
+      "+1": 0,
+      "-1": 0,
+      "laugh": 0,
+      "hooray": 0,
+      "confused": 0,
+      "heart": 0,
+      "rocket": 0,
+      "eyes": 0
+    },
+    "start_line": 15,
+    "original_start_line": 15,
+    "start_side": "RIGHT",
+    "line": 16,
+    "original_line": 16,
+    "side": "RIGHT",
+    "author_association": "NONE",
+    "original_position": 5,
+    "position": 5,
+    "subject_type": "line"
+  },
+  {
+    "url": "https://api.github.com/repos/sornbuen15/drunken-team/pulls/comments/3485516705",
+    "pull_request_review_id": 4584491342,
+    "id": 3485516705,
+    "node_id": "PRRC_kwDOTBZlPc7PwMOh",
+    "diff_hunk": "@@ -0,0 +1,22 @@\n+import uuid\n+from sqlalchemy.orm import Mapped, mapped_column, relationship\n+from sqlalchemy import String\n+import sqlalchemy.dialects.postgresql as pg",
+    "path": "src/drunken_team/models/tenant.py",
+    "commit_id": "afbea538128850da47ec72257876af378060c6de",
+    "original_commit_id": "afbea538128850da47ec72257876af378060c6de",
+    "user": {
+      "login": "gemini-code-assist[bot]",
+      "id": 176961590,
+      "node_id": "BOT_kgDOCow4Ng",
+      "avatar_url": "https://avatars.githubusercontent.com/in/956858?v=4",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/gemini-code-assist%5Bbot%5D",
+      "html_url": "https://github.com/apps/gemini-code-assist",
+      "followers_url": "https://api.github.com/users/gemini-code-assist%5Bbot%5D/followers",
+      "following_url": "https://api.github.com/users/gemini-code-assist%5Bbot%5D/following{/other_user}",
+      "gists_url": "https://api.github.com/users/gemini-code-assist%5Bbot%5D/gists{/gist_id}",
+      "starred_url": "https://api.github.com/users/gemini-code-assist%5Bbot%5D/starred{/owner}{/repo}",
+      "subscriptions_url": "https://api.github.com/users/gemini-code-assist%5Bbot%5D/subscriptions",
+      "organizations_url": "https://api.github.com/users/gemini-code-assist%5Bbot%5D/orgs",
+      "repos_url": "https://api.github.com/users/gemini-code-assist%5Bbot%5D/repos",
+      "events_url": "https://api.github.com/users/gemini-code-assist%5Bbot%5D/events{/privacy}",
+      "received_events_url": "https://api.github.com/users/gemini-code-assist%5Bbot%5D/received_events",
+      "type": "Bot",
+      "user_view_type": "public",
+      "site_admin": false
+    },
+    "body": "![medium](https://www.gstatic.com/codereviewagent/medium-priority.svg)\n\nInstead of using PostgreSQL-specific `pg.UUID`, use the dialect-agnostic `Uuid` type introduced in SQLAlchemy 2.0. This ensures compatibility with other databases like SQLite (which is used in your test suite) without needing dialect-specific workarounds.\n\n```suggestion\nfrom sqlalchemy import String, Uuid\n```",
+    "created_at": "2026-06-27T07:04:54Z",
+    "updated_at": "2026-06-27T07:04:55Z",
+    "html_url": "https://github.com/sornbuen15/drunken-team/pull/44#discussion_r3485516705",
+    "pull_request_url": "https://api.github.com/repos/sornbuen15/drunken-team/pulls/44",
+    "_links": {
+      "self": {
+        "href": "https://api.github.com/repos/sornbuen15/drunken-team/pulls/comments/3485516705"
+      },
+      "html": {
+        "href": "https://github.com/sornbuen15/drunken-team/pull/44#discussion_r3485516705"
+      },
+      "pull_request": {
+        "href": "https://api.github.com/repos/sornbuen15/drunken-team/pulls/44"
+      }
+    },
+    "reactions": {
+      "url": "https://api.github.com/repos/sornbuen15/drunken-team/pulls/comments/3485516705/reactions",
+      "total_count": 0,
+      "+1": 0,
+      "-1": 0,
+      "laugh": 0,
+      "hooray": 0,
+      "confused": 0,
+      "heart": 0,
+      "rocket": 0,
+      "eyes": 0
+    },
+    "start_line": 3,
+    "original_start_line": 3,
+    "start_side": "RIGHT",
+    "line": 4,
+    "original_line": 4,
+    "side": "RIGHT",
+    "author_association": "NONE",
+    "original_position": 4,
+    "position": 4,
+    "subject_type": "line"
+  },
+  {
+    "url": "https://api.github.com/repos/sornbuen15/drunken-team/pulls/comments/3485516721",
+    "pull_request_review_id": 4584491342,
+    "id": 3485516721,
+    "node_id": "PRRC_kwDOTBZlPc7PwMOx",
+    "diff_hunk": "@@ -0,0 +1,22 @@\n+import uuid\n+from sqlalchemy.orm import Mapped, mapped_column, relationship\n+from sqlalchemy import String\n+import sqlalchemy.dialects.postgresql as pg\n+from .base import Base, TimestampMixin\n+\n+\n+class Customer(Base, TimestampMixin):\n+    __tablename__ = \"customers\"\n+\n+    id: Mapped[uuid.UUID] = mapped_column(\n+        pg.UUID(as_uuid=True), primary_key=True, default=uuid.uuid4\n+    )",
+    "path": "src/drunken_team/models/tenant.py",
+    "commit_id": "afbea538128850da47ec72257876af378060c6de",
+    "original_commit_id": "afbea538128850da47ec72257876af378060c6de",
+    "user": {
+      "login": "gemini-code-assist[bot]",
+      "id": 176961590,
+      "node_id": "BOT_kgDOCow4Ng",
+      "avatar_url": "https://avatars.githubusercontent.com/in/956858?v=4",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/gemini-code-assist%5Bbot%5D",
+      "html_url": "https://github.com/apps/gemini-code-assist",
+      "followers_url": "https://api.github.com/users/gemini-code-assist%5Bbot%5D/followers",
+      "following_url": "https://api.github.com/users/gemini-code-assist%5Bbot%5D/following{/other_user}",
+      "gists_url": "https://api.github.com/users/gemini-code-assist%5Bbot%5D/gists{/gist_id}",
+      "starred_url": "https://api.github.com/users/gemini-code-assist%5Bbot%5D/starred{/owner}{/repo}",
+      "subscriptions_url": "https://api.github.com/users/gemini-code-assist%5Bbot%5D/subscriptions",
+      "organizations_url": "https://api.github.com/users/gemini-code-assist%5Bbot%5D/orgs",
+      "repos_url": "https://api.github.com/users/gemini-code-assist%5Bbot%5D/repos",
+      "events_url": "https://api.github.com/users/gemini-code-assist%5Bbot%5D/events{/privacy}",
+      "received_events_url": "https://api.github.com/users/gemini-code-assist%5Bbot%5D/received_events",
+      "type": "Bot",
+      "user_view_type": "public",
+      "site_admin": false
+    },
+    "body": "![medium](https://www.gstatic.com/codereviewagent/medium-priority.svg)\n\nUse the dialect-agnostic `Uuid` type instead of `pg.UUID(as_uuid=True)`.\n\n```suggestion\n    id: Mapped[uuid.UUID] = mapped_column(\n        Uuid, primary_key=True, default=uuid.uuid4\n    )\n```",
+    "created_at": "2026-06-27T07:04:54Z",
+    "updated_at": "2026-06-27T07:04:55Z",
+    "html_url": "https://github.com/sornbuen15/drunken-team/pull/44#discussion_r3485516721",
+    "pull_request_url": "https://api.github.com/repos/sornbuen15/drunken-team/pulls/44",
+    "_links": {
+      "self": {
+        "href": "https://api.github.com/repos/sornbuen15/drunken-team/pulls/comments/3485516721"
+      },
+      "html": {
+        "href": "https://github.com/sornbuen15/drunken-team/pull/44#discussion_r3485516721"
+      },
+      "pull_request": {
+        "href": "https://api.github.com/repos/sornbuen15/drunken-team/pulls/44"
+      }
+    },
+    "reactions": {
+      "url": "https://api.github.com/repos/sornbuen15/drunken-team/pulls/comments/3485516721/reactions",
+      "total_count": 0,
+      "+1": 0,
+      "-1": 0,
+      "laugh": 0,
+      "hooray": 0,
+      "confused": 0,
+      "heart": 0,
+      "rocket": 0,
+      "eyes": 0
+    },
+    "start_line": 11,
+    "original_start_line": 11,
+    "start_side": "RIGHT",
+    "line": 13,
+    "original_line": 13,
+    "side": "RIGHT",
+    "author_association": "NONE",
+    "original_position": 13,
+    "position": 13,
+    "subject_type": "line"
+  },
+  {
+    "url": "https://api.github.com/repos/sornbuen15/drunken-team/pulls/comments/3485516729",
+    "pull_request_review_id": 4584491342,
+    "id": 3485516729,
+    "node_id": "PRRC_kwDOTBZlPc7PwMO5",
+    "diff_hunk": "@@ -0,0 +1,22 @@\n+import uuid\n+from sqlalchemy.orm import Mapped, mapped_column, relationship\n+from sqlalchemy import String\n+import sqlalchemy.dialects.postgresql as pg\n+from .base import Base, TimestampMixin\n+\n+\n+class Customer(Base, TimestampMixin):\n+    __tablename__ = \"customers\"\n+\n+    id: Mapped[uuid.UUID] = mapped_column(\n+        pg.UUID(as_uuid=True), primary_key=True, default=uuid.uuid4\n+    )\n+    name: Mapped[str] = mapped_column(String(255), nullable=False)\n+    email: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)\n+\n+    devices = relationship(\n+        \"Device\", back_populates=\"customer\", cascade=\"all, delete-orphan\"\n+    )\n+    subscriptions = relationship(\n+        \"SubscriptionService\", back_populates=\"customer\", cascade=\"all, delete-orphan\"",
+    "path": "src/drunken_team/models/tenant.py",
+    "commit_id": "afbea538128850da47ec72257876af378060c6de",
+    "original_commit_id": "afbea538128850da47ec72257876af378060c6de",
+    "user": {
+      "login": "gemini-code-assist[bot]",
+      "id": 176961590,
+      "node_id": "BOT_kgDOCow4Ng",
+      "avatar_url": "https://avatars.githubusercontent.com/in/956858?v=4",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/gemini-code-assist%5Bbot%5D",
+      "html_url": "https://github.com/apps/gemini-code-assist",
+      "followers_url": "https://api.github.com/users/gemini-code-assist%5Bbot%5D/followers",
+      "following_url": "https://api.github.com/users/gemini-code-assist%5Bbot%5D/following{/other_user}",
+      "gists_url": "https://api.github.com/users/gemini-code-assist%5Bbot%5D/gists{/gist_id}",
+      "starred_url": "https://api.github.com/users/gemini-code-assist%5Bbot%5D/starred{/owner}{/repo}",
+      "subscriptions_url": "https://api.github.com/users/gemini-code-assist%5Bbot%5D/subscriptions",
+      "organizations_url": "https://api.github.com/users/gemini-code-assist%5Bbot%5D/orgs",
+      "repos_url": "https://api.github.com/users/gemini-code-assist%5Bbot%5D/repos",
+      "events_url": "https://api.github.com/users/gemini-code-assist%5Bbot%5D/events{/privacy}",
+      "received_events_url": "https://api.github.com/users/gemini-code-assist%5Bbot%5D/received_events",
+      "type": "Bot",
+      "user_view_type": "public",
+      "site_admin": false
+    },
+    "body": "![medium](https://www.gstatic.com/codereviewagent/medium-priority.svg)\n\nIn SQLAlchemy 2.0, it is highly recommended to fully type-annotate relationships using `Mapped` for better type safety and editor autocompletion.\n\n```suggestion\n    devices: Mapped[list[\"Device\"]] = relationship(\n        \"Device\", back_populates=\"customer\", cascade=\"all, delete-orphan\"\n    )\n    subscriptions: Mapped[list[\"SubscriptionService\"]] = relationship(\n        \"SubscriptionService\", back_populates=\"customer\", cascade=\"all, delete-orphan\"\n    )\n```",
+    "created_at": "2026-06-27T07:04:54Z",
+    "updated_at": "2026-06-27T07:04:55Z",
+    "html_url": "https://github.com/sornbuen15/drunken-team/pull/44#discussion_r3485516729",
+    "pull_request_url": "https://api.github.com/repos/sornbuen15/drunken-team/pulls/44",
+    "_links": {
+      "self": {
+        "href": "https://api.github.com/repos/sornbuen15/drunken-team/pulls/comments/3485516729"
+      },
+      "html": {
+        "href": "https://github.com/sornbuen15/drunken-team/pull/44#discussion_r3485516729"
+      },
+      "pull_request": {
+        "href": "https://api.github.com/repos/sornbuen15/drunken-team/pulls/44"
+      }
+    },
+    "reactions": {
+      "url": "https://api.github.com/repos/sornbuen15/drunken-team/pulls/comments/3485516729/reactions",
+      "total_count": 0,
+      "+1": 0,
+      "-1": 0,
+      "laugh": 0,
+      "hooray": 0,
+      "confused": 0,
+      "heart": 0,
+      "rocket": 0,
+      "eyes": 0
+    },
+    "start_line": 17,
+    "original_start_line": 17,
+    "start_side": "RIGHT",
+    "line": 21,
+    "original_line": 21,
+    "side": "RIGHT",
+    "author_association": "NONE",
+    "original_position": 21,
+    "position": 21,
+    "subject_type": "line"
+  },
+  {
+    "url": "https://api.github.com/repos/sornbuen15/drunken-team/pulls/comments/3485516732",
+    "pull_request_review_id": 4584491342,
+    "id": 3485516732,
+    "node_id": "PRRC_kwDOTBZlPc7PwMO8",
+    "diff_hunk": "@@ -0,0 +1,27 @@\n+import uuid\n+from sqlalchemy.orm import Mapped, mapped_column, relationship\n+from sqlalchemy import String, ForeignKey, DateTime\n+import sqlalchemy.dialects.postgresql as pg",
+    "path": "src/drunken_team/models/device.py",
+    "commit_id": "afbea538128850da47ec72257876af378060c6de",
+    "original_commit_id": "afbea538128850da47ec72257876af378060c6de",
+    "user": {
+      "login": "gemini-code-assist[bot]",
+      "id": 176961590,
+      "node_id": "BOT_kgDOCow4Ng",
+      "avatar_url": "https://avatars.githubusercontent.com/in/956858?v=4",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/gemini-code-assist%5Bbot%5D",
+      "html_url": "https://github.com/apps/gemini-code-assist",
+      "followers_url": "https://api.github.com/users/gemini-code-assist%5Bbot%5D/followers",
+      "following_url": "https://api.github.com/users/gemini-code-assist%5Bbot%5D/following{/other_user}",
+      "gists_url": "https://api.github.com/users/gemini-code-assist%5Bbot%5D/gists{/gist_id}",
+      "starred_url": "https://api.github.com/users/gemini-code-assist%5Bbot%5D/starred{/owner}{/repo}",
+      "subscriptions_url": "https://api.github.com/users/gemini-code-assist%5Bbot%5D/subscriptions",
+      "organizations_url": "https://api.github.com/users/gemini-code-assist%5Bbot%5D/orgs",
+      "repos_url": "https://api.github.com/users/gemini-code-assist%5Bbot%5D/repos",
+      "events_url": "https://api.github.com/users/gemini-code-assist%5Bbot%5D/events{/privacy}",
+      "received_events_url": "https://api.github.com/users/gemini-code-assist%5Bbot%5D/received_events",
+      "type": "Bot",
+      "user_view_type": "public",
+      "site_admin": false
+    },
+    "body": "![medium](https://www.gstatic.com/codereviewagent/medium-priority.svg)\n\nUse the dialect-agnostic `Uuid` type from `sqlalchemy` instead of PostgreSQL-specific `pg.UUID`.\n\n```suggestion\nfrom sqlalchemy import String, ForeignKey, DateTime, Uuid\n```",
+    "created_at": "2026-06-27T07:04:54Z",
+    "updated_at": "2026-06-27T07:04:55Z",
+    "html_url": "https://github.com/sornbuen15/drunken-team/pull/44#discussion_r3485516732",
+    "pull_request_url": "https://api.github.com/repos/sornbuen15/drunken-team/pulls/44",
+    "_links": {
+      "self": {
+        "href": "https://api.github.com/repos/sornbuen15/drunken-team/pulls/comments/3485516732"
+      },
+      "html": {
+        "href": "https://github.com/sornbuen15/drunken-team/pull/44#discussion_r3485516732"
+      },
+      "pull_request": {
+        "href": "https://api.github.com/repos/sornbuen15/drunken-team/pulls/44"
+      }
+    },
+    "reactions": {
+      "url": "https://api.github.com/repos/sornbuen15/drunken-team/pulls/comments/3485516732/reactions",
+      "total_count": 0,
+      "+1": 0,
+      "-1": 0,
+      "laugh": 0,
+      "hooray": 0,
+      "confused": 0,
+      "heart": 0,
+      "rocket": 0,
+      "eyes": 0
+    },
+    "start_line": 3,
+    "original_start_line": 3,
+    "start_side": "RIGHT",
+    "line": 4,
+    "original_line": 4,
+    "side": "RIGHT",
+    "author_association": "NONE",
+    "original_position": 4,
+    "position": 4,
+    "subject_type": "line"
+  },
+  {
+    "url": "https://api.github.com/repos/sornbuen15/drunken-team/pulls/comments/3485516741",
+    "pull_request_review_id": 4584491342,
+    "id": 3485516741,
+    "node_id": "PRRC_kwDOTBZlPc7PwMPF",
+    "diff_hunk": "@@ -0,0 +1,27 @@\n+import uuid\n+from sqlalchemy.orm import Mapped, mapped_column, relationship\n+from sqlalchemy import String, ForeignKey, DateTime\n+import sqlalchemy.dialects.postgresql as pg\n+from .base import Base, TimestampMixin\n+from datetime import datetime\n+\n+\n+class Device(Base, TimestampMixin):\n+    __tablename__ = \"devices\"\n+\n+    id: Mapped[uuid.UUID] = mapped_column(\n+        pg.UUID(as_uuid=True), primary_key=True, default=uuid.uuid4\n+    )",
+    "path": "src/drunken_team/models/device.py",
+    "commit_id": "afbea538128850da47ec72257876af378060c6de",
+    "original_commit_id": "afbea538128850da47ec72257876af378060c6de",
+    "user": {
+      "login": "gemini-code-assist[bot]",
+      "id": 176961590,
+      "node_id": "BOT_kgDOCow4Ng",
+      "avatar_url": "https://avatars.githubusercontent.com/in/956858?v=4",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/gemini-code-assist%5Bbot%5D",
+      "html_url": "https://github.com/apps/gemini-code-assist",
+      "followers_url": "https://api.github.com/users/gemini-code-assist%5Bbot%5D/followers",
+      "following_url": "https://api.github.com/users/gemini-code-assist%5Bbot%5D/following{/other_user}",
+      "gists_url": "https://api.github.com/users/gemini-code-assist%5Bbot%5D/gists{/gist_id}",
+      "starred_url": "https://api.github.com/users/gemini-code-assist%5Bbot%5D/starred{/owner}{/repo}",
+      "subscriptions_url": "https://api.github.com/users/gemini-code-assist%5Bbot%5D/subscriptions",
+      "organizations_url": "https://api.github.com/users/gemini-code-assist%5Bbot%5D/orgs",
+      "repos_url": "https://api.github.com/users/gemini-code-assist%5Bbot%5D/repos",
+      "events_url": "https://api.github.com/users/gemini-code-assist%5Bbot%5D/events{/privacy}",
+      "received_events_url": "https://api.github.com/users/gemini-code-assist%5Bbot%5D/received_events",
+      "type": "Bot",
+      "user_view_type": "public",
+      "site_admin": false
+    },
+    "body": "![medium](https://www.gstatic.com/codereviewagent/medium-priority.svg)\n\nUse the dialect-agnostic `Uuid` type instead of `pg.UUID(as_uuid=True)`.\n\n```suggestion\n    id: Mapped[uuid.UUID] = mapped_column(\n        Uuid, primary_key=True, default=uuid.uuid4\n    )\n```",
+    "created_at": "2026-06-27T07:04:54Z",
+    "updated_at": "2026-06-27T07:04:55Z",
+    "html_url": "https://github.com/sornbuen15/drunken-team/pull/44#discussion_r3485516741",
+    "pull_request_url": "https://api.github.com/repos/sornbuen15/drunken-team/pulls/44",
+    "_links": {
+      "self": {
+        "href": "https://api.github.com/repos/sornbuen15/drunken-team/pulls/comments/3485516741"
+      },
+      "html": {
+        "href": "https://github.com/sornbuen15/drunken-team/pull/44#discussion_r3485516741"
+      },
+      "pull_request": {
+        "href": "https://api.github.com/repos/sornbuen15/drunken-team/pulls/44"
+      }
+    },
+    "reactions": {
+      "url": "https://api.github.com/repos/sornbuen15/drunken-team/pulls/comments/3485516741/reactions",
+      "total_count": 0,
+      "+1": 0,
+      "-1": 0,
+      "laugh": 0,
+      "hooray": 0,
+      "confused": 0,
+      "heart": 0,
+      "rocket": 0,
+      "eyes": 0
+    },
+    "start_line": 12,
+    "original_start_line": 12,
+    "start_side": "RIGHT",
+    "line": 14,
+    "original_line": 14,
+    "side": "RIGHT",
+    "author_association": "NONE",
+    "original_position": 14,
+    "position": 14,
+    "subject_type": "line"
+  },
+  {
+    "url": "https://api.github.com/repos/sornbuen15/drunken-team/pulls/comments/3485516748",
+    "pull_request_review_id": 4584491342,
+    "id": 3485516748,
+    "node_id": "PRRC_kwDOTBZlPc7PwMPM",
+    "diff_hunk": "@@ -0,0 +1,27 @@\n+import uuid\n+from sqlalchemy.orm import Mapped, mapped_column, relationship\n+from sqlalchemy import String, ForeignKey, DateTime\n+import sqlalchemy.dialects.postgresql as pg\n+from .base import Base, TimestampMixin\n+from datetime import datetime\n+\n+\n+class Device(Base, TimestampMixin):\n+    __tablename__ = \"devices\"\n+\n+    id: Mapped[uuid.UUID] = mapped_column(\n+        pg.UUID(as_uuid=True), primary_key=True, default=uuid.uuid4\n+    )\n+    customer_id: Mapped[uuid.UUID] = mapped_column(\n+        ForeignKey(\"customers.id\", ondelete=\"CASCADE\"), index=True, nullable=False\n+    )\n+    node_uuid: Mapped[str] = mapped_column(\n+        String(100), unique=True, index=True, nullable=False\n+    )\n+    name: Mapped[str] = mapped_column(String(255), nullable=False)\n+    status: Mapped[str] = mapped_column(String(50), default=\"offline\")\n+    last_seen_at: Mapped[datetime] = mapped_column(\n+        DateTime(timezone=True), nullable=True\n+    )\n+\n+    customer = relationship(\"Customer\", back_populates=\"devices\")",
+    "path": "src/drunken_team/models/device.py",
+    "commit_id": "afbea538128850da47ec72257876af378060c6de",
+    "original_commit_id": "afbea538128850da47ec72257876af378060c6de",
+    "user": {
+      "login": "gemini-code-assist[bot]",
+      "id": 176961590,
+      "node_id": "BOT_kgDOCow4Ng",
+      "avatar_url": "https://avatars.githubusercontent.com/in/956858?v=4",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/gemini-code-assist%5Bbot%5D",
+      "html_url": "https://github.com/apps/gemini-code-assist",
+      "followers_url": "https://api.github.com/users/gemini-code-assist%5Bbot%5D/followers",
+      "following_url": "https://api.github.com/users/gemini-code-assist%5Bbot%5D/following{/other_user}",
+      "gists_url": "https://api.github.com/users/gemini-code-assist%5Bbot%5D/gists{/gist_id}",
+      "starred_url": "https://api.github.com/users/gemini-code-assist%5Bbot%5D/starred{/owner}{/repo}",
+      "subscriptions_url": "https://api.github.com/users/gemini-code-assist%5Bbot%5D/subscriptions",
+      "organizations_url": "https://api.github.com/users/gemini-code-assist%5Bbot%5D/orgs",
+      "repos_url": "https://api.github.com/users/gemini-code-assist%5Bbot%5D/repos",
+      "events_url": "https://api.github.com/users/gemini-code-assist%5Bbot%5D/events{/privacy}",
+      "received_events_url": "https://api.github.com/users/gemini-code-assist%5Bbot%5D/received_events",
+      "type": "Bot",
+      "user_view_type": "public",
+      "site_admin": false
+    },
+    "body": "![medium](https://www.gstatic.com/codereviewagent/medium-priority.svg)\n\nAdd type annotation to the `customer` relationship using `Mapped` for SQLAlchemy 2.0 compliance and better type safety.\n\n```suggestion\n    customer: Mapped[\"Customer\"] = relationship(\"Customer\", back_populates=\"devices\")\n```",
+    "created_at": "2026-06-27T07:04:54Z",
+    "updated_at": "2026-06-27T07:04:55Z",
+    "html_url": "https://github.com/sornbuen15/drunken-team/pull/44#discussion_r3485516748",
+    "pull_request_url": "https://api.github.com/repos/sornbuen15/drunken-team/pulls/44",
+    "_links": {
+      "self": {
+        "href": "https://api.github.com/repos/sornbuen15/drunken-team/pulls/comments/3485516748"
+      },
+      "html": {
+        "href": "https://github.com/sornbuen15/drunken-team/pull/44#discussion_r3485516748"
+      },
+      "pull_request": {
+        "href": "https://api.github.com/repos/sornbuen15/drunken-team/pulls/44"
+      }
+    },
+    "reactions": {
+      "url": "https://api.github.com/repos/sornbuen15/drunken-team/pulls/comments/3485516748/reactions",
+      "total_count": 0,
+      "+1": 0,
+      "-1": 0,
+      "laugh": 0,
+      "hooray": 0,
+      "confused": 0,
+      "heart": 0,
+      "rocket": 0,
+      "eyes": 0
+    },
+    "start_line": null,
+    "original_start_line": null,
+    "start_side": null,
+    "line": 27,
+    "original_line": 27,
+    "side": "RIGHT",
+    "author_association": "NONE",
+    "original_position": 27,
+    "position": 27,
+    "subject_type": "line"
+  },
+  {
+    "url": "https://api.github.com/repos/sornbuen15/drunken-team/pulls/comments/3485516753",
+    "pull_request_review_id": 4584491342,
+    "id": 3485516753,
+    "node_id": "PRRC_kwDOTBZlPc7PwMPR",
+    "diff_hunk": "@@ -0,0 +1,24 @@\n+import uuid\n+from sqlalchemy.orm import Mapped, mapped_column, relationship\n+from sqlalchemy import String, ForeignKey, DateTime\n+import sqlalchemy.dialects.postgresql as pg",
+    "path": "src/drunken_team/models/subscription.py",
+    "commit_id": "afbea538128850da47ec72257876af378060c6de",
+    "original_commit_id": "afbea538128850da47ec72257876af378060c6de",
+    "user": {
+      "login": "gemini-code-assist[bot]",
+      "id": 176961590,
+      "node_id": "BOT_kgDOCow4Ng",
+      "avatar_url": "https://avatars.githubusercontent.com/in/956858?v=4",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/gemini-code-assist%5Bbot%5D",
+      "html_url": "https://github.com/apps/gemini-code-assist",
+      "followers_url": "https://api.github.com/users/gemini-code-assist%5Bbot%5D/followers",
+      "following_url": "https://api.github.com/users/gemini-code-assist%5Bbot%5D/following{/other_user}",
+      "gists_url": "https://api.github.com/users/gemini-code-assist%5Bbot%5D/gists{/gist_id}",
+      "starred_url": "https://api.github.com/users/gemini-code-assist%5Bbot%5D/starred{/owner}{/repo}",
+      "subscriptions_url": "https://api.github.com/users/gemini-code-assist%5Bbot%5D/subscriptions",
+      "organizations_url": "https://api.github.com/users/gemini-code-assist%5Bbot%5D/orgs",
+      "repos_url": "https://api.github.com/users/gemini-code-assist%5Bbot%5D/repos",
+      "events_url": "https://api.github.com/users/gemini-code-assist%5Bbot%5D/events{/privacy}",
+      "received_events_url": "https://api.github.com/users/gemini-code-assist%5Bbot%5D/received_events",
+      "type": "Bot",
+      "user_view_type": "public",
+      "site_admin": false
+    },
+    "body": "![medium](https://www.gstatic.com/codereviewagent/medium-priority.svg)\n\nUse the dialect-agnostic `Uuid` type from `sqlalchemy` instead of PostgreSQL-specific `pg.UUID`.\n\n```suggestion\nfrom sqlalchemy import String, ForeignKey, DateTime, Uuid\n```",
+    "created_at": "2026-06-27T07:04:54Z",
+    "updated_at": "2026-06-27T07:04:55Z",
+    "html_url": "https://github.com/sornbuen15/drunken-team/pull/44#discussion_r3485516753",
+    "pull_request_url": "https://api.github.com/repos/sornbuen15/drunken-team/pulls/44",
+    "_links": {
+      "self": {
+        "href": "https://api.github.com/repos/sornbuen15/drunken-team/pulls/comments/3485516753"
+      },
+      "html": {
+        "href": "https://github.com/sornbuen15/drunken-team/pull/44#discussion_r3485516753"
+      },
+      "pull_request": {
+        "href": "https://api.github.com/repos/sornbuen15/drunken-team/pulls/44"
+      }
+    },
+    "reactions": {
+      "url": "https://api.github.com/repos/sornbuen15/drunken-team/pulls/comments/3485516753/reactions",
+      "total_count": 0,
+      "+1": 0,
+      "-1": 0,
+      "laugh": 0,
+      "hooray": 0,
+      "confused": 0,
+      "heart": 0,
+      "rocket": 0,
+      "eyes": 0
+    },
+    "start_line": 3,
+    "original_start_line": 3,
+    "start_side": "RIGHT",
+    "line": 4,
+    "original_line": 4,
+    "side": "RIGHT",
+    "author_association": "NONE",
+    "original_position": 4,
+    "position": 4,
+    "subject_type": "line"
+  },
+  {
+    "url": "https://api.github.com/repos/sornbuen15/drunken-team/pulls/comments/3485516757",
+    "pull_request_review_id": 4584491342,
+    "id": 3485516757,
+    "node_id": "PRRC_kwDOTBZlPc7PwMPV",
+    "diff_hunk": "@@ -0,0 +1,24 @@\n+import uuid\n+from sqlalchemy.orm import Mapped, mapped_column, relationship\n+from sqlalchemy import String, ForeignKey, DateTime\n+import sqlalchemy.dialects.postgresql as pg\n+from .base import Base, TimestampMixin\n+from datetime import datetime\n+\n+\n+class SubscriptionService(Base, TimestampMixin):\n+    __tablename__ = \"subscription_services\"\n+\n+    id: Mapped[uuid.UUID] = mapped_column(\n+        pg.UUID(as_uuid=True), primary_key=True, default=uuid.uuid4\n+    )",
+    "path": "src/drunken_team/models/subscription.py",
+    "commit_id": "afbea538128850da47ec72257876af378060c6de",
+    "original_commit_id": "afbea538128850da47ec72257876af378060c6de",
+    "user": {
+      "login": "gemini-code-assist[bot]",
+      "id": 176961590,
+      "node_id": "BOT_kgDOCow4Ng",
+      "avatar_url": "https://avatars.githubusercontent.com/in/956858?v=4",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/gemini-code-assist%5Bbot%5D",
+      "html_url": "https://github.com/apps/gemini-code-assist",
+      "followers_url": "https://api.github.com/users/gemini-code-assist%5Bbot%5D/followers",
+      "following_url": "https://api.github.com/users/gemini-code-assist%5Bbot%5D/following{/other_user}",
+      "gists_url": "https://api.github.com/users/gemini-code-assist%5Bbot%5D/gists{/gist_id}",
+      "starred_url": "https://api.github.com/users/gemini-code-assist%5Bbot%5D/starred{/owner}{/repo}",
+      "subscriptions_url": "https://api.github.com/users/gemini-code-assist%5Bbot%5D/subscriptions",
+      "organizations_url": "https://api.github.com/users/gemini-code-assist%5Bbot%5D/orgs",
+      "repos_url": "https://api.github.com/users/gemini-code-assist%5Bbot%5D/repos",
+      "events_url": "https://api.github.com/users/gemini-code-assist%5Bbot%5D/events{/privacy}",
+      "received_events_url": "https://api.github.com/users/gemini-code-assist%5Bbot%5D/received_events",
+      "type": "Bot",
+      "user_view_type": "public",
+      "site_admin": false
+    },
+    "body": "![medium](https://www.gstatic.com/codereviewagent/medium-priority.svg)\n\nUse the dialect-agnostic `Uuid` type instead of `pg.UUID(as_uuid=True)`.\n\n```suggestion\n    id: Mapped[uuid.UUID] = mapped_column(\n        Uuid, primary_key=True, default=uuid.uuid4\n    )\n```",
+    "created_at": "2026-06-27T07:04:55Z",
+    "updated_at": "2026-06-27T07:04:55Z",
+    "html_url": "https://github.com/sornbuen15/drunken-team/pull/44#discussion_r3485516757",
+    "pull_request_url": "https://api.github.com/repos/sornbuen15/drunken-team/pulls/44",
+    "_links": {
+      "self": {
+        "href": "https://api.github.com/repos/sornbuen15/drunken-team/pulls/comments/3485516757"
+      },
+      "html": {
+        "href": "https://github.com/sornbuen15/drunken-team/pull/44#discussion_r3485516757"
+      },
+      "pull_request": {
+        "href": "https://api.github.com/repos/sornbuen15/drunken-team/pulls/44"
+      }
+    },
+    "reactions": {
+      "url": "https://api.github.com/repos/sornbuen15/drunken-team/pulls/comments/3485516757/reactions",
+      "total_count": 0,
+      "+1": 0,
+      "-1": 0,
+      "laugh": 0,
+      "hooray": 0,
+      "confused": 0,
+      "heart": 0,
+      "rocket": 0,
+      "eyes": 0
+    },
+    "start_line": 12,
+    "original_start_line": 12,
+    "start_side": "RIGHT",
+    "line": 14,
+    "original_line": 14,
+    "side": "RIGHT",
+    "author_association": "NONE",
+    "original_position": 14,
+    "position": 14,
+    "subject_type": "line"
+  },
+  {
+    "url": "https://api.github.com/repos/sornbuen15/drunken-team/pulls/comments/3485516763",
+    "pull_request_review_id": 4584491342,
+    "id": 3485516763,
+    "node_id": "PRRC_kwDOTBZlPc7PwMPb",
+    "diff_hunk": "@@ -0,0 +1,24 @@\n+import uuid\n+from sqlalchemy.orm import Mapped, mapped_column, relationship\n+from sqlalchemy import String, ForeignKey, DateTime\n+import sqlalchemy.dialects.postgresql as pg\n+from .base import Base, TimestampMixin\n+from datetime import datetime\n+\n+\n+class SubscriptionService(Base, TimestampMixin):\n+    __tablename__ = \"subscription_services\"\n+\n+    id: Mapped[uuid.UUID] = mapped_column(\n+        pg.UUID(as_uuid=True), primary_key=True, default=uuid.uuid4\n+    )\n+    customer_id: Mapped[uuid.UUID] = mapped_column(\n+        ForeignKey(\"customers.id\", ondelete=\"CASCADE\"), index=True, nullable=False\n+    )\n+    plan_name: Mapped[str] = mapped_column(String(100), nullable=False)\n+    status: Mapped[str] = mapped_column(String(50), default=\"active\")\n+    valid_until: Mapped[datetime] = mapped_column(\n+        DateTime(timezone=True), nullable=True\n+    )\n+\n+    customer = relationship(\"Customer\", back_populates=\"subscriptions\")",
+    "path": "src/drunken_team/models/subscription.py",
+    "commit_id": "afbea538128850da47ec72257876af378060c6de",
+    "original_commit_id": "afbea538128850da47ec72257876af378060c6de",
+    "user": {
+      "login": "gemini-code-assist[bot]",
+      "id": 176961590,
+      "node_id": "BOT_kgDOCow4Ng",
+      "avatar_url": "https://avatars.githubusercontent.com/in/956858?v=4",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/gemini-code-assist%5Bbot%5D",
+      "html_url": "https://github.com/apps/gemini-code-assist",
+      "followers_url": "https://api.github.com/users/gemini-code-assist%5Bbot%5D/followers",
+      "following_url": "https://api.github.com/users/gemini-code-assist%5Bbot%5D/following{/other_user}",
+      "gists_url": "https://api.github.com/users/gemini-code-assist%5Bbot%5D/gists{/gist_id}",
+      "starred_url": "https://api.github.com/users/gemini-code-assist%5Bbot%5D/starred{/owner}{/repo}",
+      "subscriptions_url": "https://api.github.com/users/gemini-code-assist%5Bbot%5D/subscriptions",
+      "organizations_url": "https://api.github.com/users/gemini-code-assist%5Bbot%5D/orgs",
+      "repos_url": "https://api.github.com/users/gemini-code-assist%5Bbot%5D/repos",
+      "events_url": "https://api.github.com/users/gemini-code-assist%5Bbot%5D/events{/privacy}",
+      "received_events_url": "https://api.github.com/users/gemini-code-assist%5Bbot%5D/received_events",
+      "type": "Bot",
+      "user_view_type": "public",
+      "site_admin": false
+    },
+    "body": "![medium](https://www.gstatic.com/codereviewagent/medium-priority.svg)\n\nAdd type annotation to the `customer` relationship using `Mapped` for SQLAlchemy 2.0 compliance and better type safety.\n\n```suggestion\n    customer: Mapped[\"Customer\"] = relationship(\"Customer\", back_populates=\"subscriptions\")\n```",
+    "created_at": "2026-06-27T07:04:55Z",
+    "updated_at": "2026-06-27T07:04:55Z",
+    "html_url": "https://github.com/sornbuen15/drunken-team/pull/44#discussion_r3485516763",
+    "pull_request_url": "https://api.github.com/repos/sornbuen15/drunken-team/pulls/44",
+    "_links": {
+      "self": {
+        "href": "https://api.github.com/repos/sornbuen15/drunken-team/pulls/comments/3485516763"
+      },
+      "html": {
+        "href": "https://github.com/sornbuen15/drunken-team/pull/44#discussion_r3485516763"
+      },
+      "pull_request": {
+        "href": "https://api.github.com/repos/sornbuen15/drunken-team/pulls/44"
+      }
+    },
+    "reactions": {
+      "url": "https://api.github.com/repos/sornbuen15/drunken-team/pulls/comments/3485516763/reactions",
+      "total_count": 0,
+      "+1": 0,
+      "-1": 0,
+      "laugh": 0,
+      "hooray": 0,
+      "confused": 0,
+      "heart": 0,
+      "rocket": 0,
+      "eyes": 0
+    },
+    "start_line": null,
+    "original_start_line": null,
+    "start_side": null,
+    "line": 24,
+    "original_line": 24,
+    "side": "RIGHT",
+    "author_association": "NONE",
+    "original_position": 24,
+    "position": 24,
+    "subject_type": "line"
+  },
+  {
+    "url": "https://api.github.com/repos/sornbuen15/drunken-team/pulls/comments/3485516771",
+    "pull_request_review_id": 4584491342,
+    "id": 3485516771,
+    "node_id": "PRRC_kwDOTBZlPc7PwMPj",
+    "diff_hunk": "@@ -0,0 +1,68 @@\n+import pytest\n+from sqlalchemy import create_engine\n+from sqlalchemy.orm import sessionmaker\n+from drunken_team.models.base import Base\n+from drunken_team.models.tenant import Customer\n+from drunken_team.models.device import Device\n+from drunken_team.models.subscription import SubscriptionService\n+\n+\n+@pytest.fixture(scope=\"module\")\n+def engine():\n+    return create_engine(\"sqlite:///:memory:\")",
+    "path": "tests/test_models.py",
+    "commit_id": "afbea538128850da47ec72257876af378060c6de",
+    "original_commit_id": "afbea538128850da47ec72257876af378060c6de",
+    "user": {
+      "login": "gemini-code-assist[bot]",
+      "id": 176961590,
+      "node_id": "BOT_kgDOCow4Ng",
+      "avatar_url": "https://avatars.githubusercontent.com/in/956858?v=4",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/gemini-code-assist%5Bbot%5D",
+      "html_url": "https://github.com/apps/gemini-code-assist",
+      "followers_url": "https://api.github.com/users/gemini-code-assist%5Bbot%5D/followers",
+      "following_url": "https://api.github.com/users/gemini-code-assist%5Bbot%5D/following{/other_user}",
+      "gists_url": "https://api.github.com/users/gemini-code-assist%5Bbot%5D/gists{/gist_id}",
+      "starred_url": "https://api.github.com/users/gemini-code-assist%5Bbot%5D/starred{/owner}{/repo}",
+      "subscriptions_url": "https://api.github.com/users/gemini-code-assist%5Bbot%5D/subscriptions",
+      "organizations_url": "https://api.github.com/users/gemini-code-assist%5Bbot%5D/orgs",
+      "repos_url": "https://api.github.com/users/gemini-code-assist%5Bbot%5D/repos",
+      "events_url": "https://api.github.com/users/gemini-code-assist%5Bbot%5D/events{/privacy}",
+      "received_events_url": "https://api.github.com/users/gemini-code-assist%5Bbot%5D/received_events",
+      "type": "Bot",
+      "user_view_type": "public",
+      "site_admin": false
+    },
+    "body": "![medium](https://www.gstatic.com/codereviewagent/medium-priority.svg)\n\nBy default, SQLite does not enforce foreign key constraints. To ensure that foreign key constraints (such as `ondelete=\"CASCADE\"`) are actually active and tested, you should enable foreign keys on the SQLite connection using a listener.\n\n```suggestion\n@pytest.fixture(scope=\"module\")\ndef engine():\n    from sqlalchemy import event\n    eng = create_engine(\"sqlite:///:memory:\")\n    @event.listens_for(eng, \"connect\")\n    def set_sqlite_pragma(dbapi_connection, connection_record):\n        cursor = dbapi_connection.cursor()\n        cursor.execute(\"PRAGMA foreign_keys=ON\")\n        cursor.close()\n    return eng\n```",
+    "created_at": "2026-06-27T07:04:55Z",
+    "updated_at": "2026-06-27T07:04:55Z",
+    "html_url": "https://github.com/sornbuen15/drunken-team/pull/44#discussion_r3485516771",
+    "pull_request_url": "https://api.github.com/repos/sornbuen15/drunken-team/pulls/44",
+    "_links": {
+      "self": {
+        "href": "https://api.github.com/repos/sornbuen15/drunken-team/pulls/comments/3485516771"
+      },
+      "html": {
+        "href": "https://github.com/sornbuen15/drunken-team/pull/44#discussion_r3485516771"
+      },
+      "pull_request": {
+        "href": "https://api.github.com/repos/sornbuen15/drunken-team/pulls/44"
+      }
+    },
+    "reactions": {
+      "url": "https://api.github.com/repos/sornbuen15/drunken-team/pulls/comments/3485516771/reactions",
+      "total_count": 0,
+      "+1": 0,
+      "-1": 0,
+      "laugh": 0,
+      "hooray": 0,
+      "confused": 0,
+      "heart": 0,
+      "rocket": 0,
+      "eyes": 0
+    },
+    "start_line": 10,
+    "original_start_line": 10,
+    "start_side": "RIGHT",
+    "line": 12,
+    "original_line": 12,
+    "side": "RIGHT",
+    "author_association": "NONE",
+    "original_position": 12,
+    "position": 12,
+    "subject_type": "line"
+  }
+]

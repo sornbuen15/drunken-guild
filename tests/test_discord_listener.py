@@ -1,7 +1,7 @@
 from drunken_team.services.discord_listener import extract_clean_response
 
 
-def test_extract_clean_response():
+def test_extract_clean_response() -> None:
     raw_log = """
 <thinking>
 This is an internal thought process.

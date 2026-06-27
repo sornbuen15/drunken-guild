@@ -1,15 +1,16 @@
 #!/usr/bin/env python3
-import time
+import json
 
 #!/usr/bin/env python3
 import os
-import sys
-import json
-import uuid
 import subprocess
+import sys
+import time
+import uuid
+from typing import Any, Dict, Optional
 
 
-def load_dotenv():
+def load_dotenv() -> None:
     # Look for .env in current directory or parent directories
     curr_dir = os.getcwd()
     while True:
@@ -44,7 +45,7 @@ DEFAULT_BOT_TOKEN = None
 DEFAULT_CHANNEL_ID = None
 
 
-def find_config():
+def find_config() -> Optional[str]:
     curr_dir = os.getcwd()
     while True:
         config_path = os.path.join(curr_dir, ".agents", "discord_config.json")
@@ -57,7 +58,7 @@ def find_config():
     return None
 
 
-def save_config(config):
+def save_config(config: Dict[str, Any]) -> None:
     config_file = find_config()
     if not config_file:
         config_file = os.path.join(os.getcwd(), ".agents", "discord_config.json")
@@ -69,8 +70,8 @@ def save_config(config):
         print(f"Warning: Failed to save config file: {e}", file=sys.stderr)
 
 
-def load_config():
-    config = {
+def load_config() -> Dict[str, Any]:  # noqa: C901  # TODO(DT-46): Technical Debt - Refactor to reduce McCabe complexity
+    config: Dict[str, Any] = {
         "bot_token": os.environ.get("DISCORD_BOT_TOKEN") or DEFAULT_BOT_TOKEN,
         "channel_id": None,
     }
