@@ -1,5 +1,5 @@
-import pytest
 from drunken_team.services.discord_listener import extract_clean_response
+
 
 def test_extract_clean_response():
     raw_log = """
@@ -14,9 +14,9 @@ Executing command: ls
 Actual message here.
 Another line of the actual message.
 """
-    
+
     cleaned = extract_clean_response(raw_log)
-    
+
     assert "This is an internal thought process." not in cleaned
     assert "I will run a command." not in cleaned
     assert "[System]" not in cleaned

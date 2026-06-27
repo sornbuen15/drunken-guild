@@ -88,10 +88,10 @@ Documentation lives alongside the code. We do not edit documentation directly on
 
 ## 🛡️ 3. Git Protocol: Branching, PRs, and Safety Gates
 
-Direct commits to the `main` or `develop` branches are strictly prohibited. 
+Direct commits to the `main` or `develop` branches are strictly prohibited.
 
 - **Feature Branches:** All work must take place on a dedicated branch (e.g., `feature/workflow-guide`).
 - **Pull Requests (PR):** When work is completed, you must open a Pull Request against `main`.
-- **Merge Authorization Gate:** **Agents are strictly forbidden from merging PRs autonomously without explicit human oversight.** 
+- **Merge Authorization Gate:** **Agents are strictly forbidden from merging PRs autonomously without explicit human oversight.**
   - Before a merge, the Agent will ask: *"Will you review and merge this PR yourself, or do you want me to merge it for you?"*
 - **Release and Tagging:** Once merged into `main`, a Semantic Git Tag (e.g., `v1.3.0`) MUST be generated along with structured Release Notes.
