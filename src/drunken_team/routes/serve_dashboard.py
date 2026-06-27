@@ -843,6 +843,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                     cwd=project_path,
                     capture_output=True,
                     text=True,
+                    timeout=30,
                 )
                 in_prog = []
                 if res_in_prog.returncode == 0:
@@ -857,6 +858,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                     cwd=project_path,
                     capture_output=True,
                     text=True,
+                    timeout=30,
                 )
                 todo = []
                 if res_todo.returncode == 0:
