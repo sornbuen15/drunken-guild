@@ -1,7 +1,9 @@
+import pytest
+import pytest_mock
 from drunken_team.routes.serve_dashboard import AGENTS_METADATA
 
 
-def test_agents_metadata():
+def test_agents_metadata() -> None:
     """Ensure all required agents are correctly defined in metadata."""
     assert "principal-engineer" in AGENTS_METADATA
     assert "devops-engineer" in AGENTS_METADATA
@@ -11,7 +13,9 @@ def test_agents_metadata():
     assert "Gemini 2.5 Pro" in archmage["model"]
 
 
-def test_telemetry_endpoint_authorization_fail_safe(monkeypatch, mocker):
+def test_telemetry_endpoint_authorization_fail_safe(
+    monkeypatch: pytest.MonkeyPatch, mocker: pytest_mock.MockerFixture
+) -> None:
     """Fail-Safe: Should return 500 if server has no EDGE_TELEMETRY_API_KEY"""
     from drunken_team.routes.serve_dashboard import Handler
 
@@ -30,7 +34,9 @@ def test_telemetry_endpoint_authorization_fail_safe(monkeypatch, mocker):
     )
 
 
-def test_telemetry_endpoint_unauthorized(monkeypatch, mocker):
+def test_telemetry_endpoint_unauthorized(
+    monkeypatch: pytest.MonkeyPatch, mocker: pytest_mock.MockerFixture
+) -> None:
     """Should return 401 if client sends invalid API key"""
     from drunken_team.routes.serve_dashboard import Handler
 
@@ -48,7 +54,9 @@ def test_telemetry_endpoint_unauthorized(monkeypatch, mocker):
     )
 
 
-def test_telemetry_endpoint_authorized(monkeypatch, mocker):
+def test_telemetry_endpoint_authorized(
+    monkeypatch: pytest.MonkeyPatch, mocker: pytest_mock.MockerFixture
+) -> None:
     """Should return 200/success if client sends correct API key"""
     from drunken_team.routes.serve_dashboard import Handler
 
@@ -61,6 +69,4 @@ def test_telemetry_endpoint_authorized(monkeypatch, mocker):
 
     Handler.do_POST(mock_handler)
 
-    mock_handler.send_success_response.assert_called_with(
-        {"status": "telemetry_accepted"}
-    )
+    mock_handler.send_json_response.assert_called_with({"status": "telemetry_accepted"})

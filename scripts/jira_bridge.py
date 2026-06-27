@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
-import os
-import sys
-import json
-import subprocess
-import urllib.request
-import urllib.parse
 import base64
+import json
+import os
+import subprocess
+import sys
+import urllib.parse
+import urllib.request
+from typing import Any, Dict, List, Optional
 
 
-def load_dotenv():
+def load_dotenv() -> None:
     # Look for .env in current directory or parent directories
     curr_dir = os.getcwd()
     while True:
@@ -39,7 +40,7 @@ def load_dotenv():
 load_dotenv()
 
 
-def find_config():
+def find_config() -> Optional[str]:
     curr_dir = os.getcwd()
     while True:
         config_path = os.path.join(curr_dir, ".agents", "jira_config.json")
@@ -52,7 +53,7 @@ def find_config():
     return None
 
 
-def get_jira_token():
+def get_jira_token() -> Optional[str]:  # noqa: C901  # TODO(DT-46): Technical Debt - Refactor to reduce McCabe complexity
     # 1. Try environment variables (from system or loaded .env)
     token = os.environ.get("JIRA_TOKEN") or os.environ.get("JIRA_API_TOKEN")
     if token:
@@ -65,7 +66,7 @@ def get_jira_token():
             with open(global_conf, "r", encoding="utf-8") as f:
                 data = json.load(f)
                 if data.get("jira_token"):
-                    return data["jira_token"]
+                    return str(data["jira_token"])
         except Exception:
             pass
 
@@ -76,7 +77,7 @@ def get_jira_token():
             with open(config_file, "r") as f:
                 data = json.load(f)
                 if "jira_token" in data and data["jira_token"]:
-                    return data["jira_token"]
+                    return str(data["jira_token"])
         except Exception:
             pass
 
@@ -126,7 +127,13 @@ def get_jira_token():
     return None
 
 
-def make_request(url, method="GET", payload=None, email=None, token=None):
+def make_request(
+    url: str,
+    method: str = "GET",
+    payload: Optional[Dict[str, Any]] = None,
+    email: Optional[str] = None,
+    token: Optional[str] = None,
+) -> Dict[str, Any]:
     if not email or not token:
         print("Error: Missing credentials (email or token).", file=sys.stderr)
         sys.exit(1)
@@ -143,7 +150,7 @@ def make_request(url, method="GET", payload=None, email=None, token=None):
         data = json.dumps(payload).encode("utf-8") if payload else None
         with urllib.request.urlopen(req, data=data, timeout=10) as response:
             res_body = response.read().decode("utf-8")
-            return json.loads(res_body) if res_body else {}
+            return dict(json.loads(res_body)) if res_body else {}
     except Exception as e:
         print(f"Jira API Request failed: {e}", file=sys.stderr)
         if hasattr(e, "read"):
@@ -151,7 +158,7 @@ def make_request(url, method="GET", payload=None, email=None, token=None):
         sys.exit(1)
 
 
-def minify_issues(issues):
+def minify_issues(issues: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     minified = []
     for issue in issues:
         fields = issue.get("fields", {})
@@ -171,18 +178,20 @@ def minify_issues(issues):
     return minified
 
 
-def search_issues(config, jql):
+def search_issues(config: Dict[str, Any], jql: str) -> List[Dict[str, Any]]:
     url = f"{config['jira_url']}/rest/api/3/search/jql?jql={urllib.parse.quote(jql)}&fields=summary,description,status,priority,assignee"
     res = make_request(url, email=config["jira_email"], token=config["jira_token"])
     return minify_issues(res.get("issues", []))
 
 
-def get_transitions(config, issue_key):
+def get_transitions(config: Dict[str, Any], issue_key: str) -> Dict[str, Any]:
     url = f"{config['jira_url']}/rest/api/3/issue/{issue_key}/transitions"
     return make_request(url, email=config["jira_email"], token=config["jira_token"])
 
 
-def transition_issue(config, issue_key, target_status):
+def transition_issue(
+    config: Dict[str, Any], issue_key: str, target_status: str
+) -> None:
     transitions_res = get_transitions(config, issue_key)
     transitions = transitions_res.get("transitions", [])
 
@@ -225,7 +234,7 @@ def transition_issue(config, issue_key, target_status):
     )
 
 
-def create_issue(config, summary, description):
+def create_issue(config: Dict[str, Any], summary: str, description: Any) -> None:
     if isinstance(description, str):
         paragraphs = []
         for line in description.split("\n"):
@@ -258,7 +267,7 @@ def create_issue(config, summary, description):
     print(json.dumps({"ok": True, "key": res.get("key"), "self": res.get("self")}))
 
 
-def main():
+def main() -> None:  # noqa: C901  # TODO(DT-46): Technical Debt - Refactor to reduce McCabe complexity
     if len(sys.argv) < 2:
         print("Usage: jira_bridge.py <action> [args]", file=sys.stderr)
         sys.exit(1)
@@ -322,6 +331,11 @@ def main():
 
     elif action == "get-in-progress":
         jql = f"project = {jira_config['project_key']} AND status = 'In Progress'"
+        issues = search_issues(jira_config, jql)
+        print(json.dumps(issues, indent=2))
+
+    elif action == "get-in-review":
+        jql = f"project = {jira_config['project_key']} AND status = 'In Review'"
         issues = search_issues(jira_config, jql)
         print(json.dumps(issues, indent=2))
 

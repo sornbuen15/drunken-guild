@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-import os
-import sys
 import json
-import uuid
+import os
 import shutil
 import subprocess
+import sys
+import uuid
 
 DEFAULT_JIRA_URL = ""
 DEFAULT_JIRA_EMAIL = ""
@@ -12,7 +12,7 @@ DEFAULT_JIRA_PROJECT = ""
 DEFAULT_DISCORD_CHANNEL = ""
 
 
-def get_or_create_project_id(project_path):
+def get_or_create_project_id(project_path: str) -> str:
     projects_dir = os.path.expanduser("~/.gemini/config/projects")
     os.makedirs(projects_dir, exist_ok=True)
     abs_path = os.path.abspath(project_path)
@@ -28,7 +28,7 @@ def get_or_create_project_id(project_path):
                     print(
                         f"[+] Project configuration already registered in Dashboard. ID: {data.get('id')}"
                     )
-                    return data.get("id")
+                    return str(data.get("id"))
         except Exception:
             pass
 
@@ -49,7 +49,7 @@ def get_or_create_project_id(project_path):
     return project_id
 
 
-def main():
+def main() -> None:  # noqa: C901  # TODO(DT-46): Technical Debt - Refactor to reduce McCabe complexity
     print("====================================================")
     # Drunken programmer style hiccup header
     print("🍺 *hic* Drunken Team Project Registration & Setup")

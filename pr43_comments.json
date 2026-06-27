@@ -1,0 +1,140 @@
+[
+  {
+    "url": "https://api.github.com/repos/sornbuen15/drunken-team/pulls/comments/3485512837",
+    "pull_request_review_id": 4584487259,
+    "id": 3485512837,
+    "node_id": "PRRC_kwDOTBZlPc7PwLSF",
+    "diff_hunk": "@@ -0,0 +1,88 @@\n+import re\n+from typing import List, Dict, Any",
+    "path": "src/drunken_team/services/frontal_lobe.py",
+    "commit_id": "da41b640517112bce3441bf63516097d85fbcff6",
+    "original_commit_id": "da41b640517112bce3441bf63516097d85fbcff6",
+    "user": {
+      "login": "gemini-code-assist[bot]",
+      "id": 176961590,
+      "node_id": "BOT_kgDOCow4Ng",
+      "avatar_url": "https://avatars.githubusercontent.com/in/956858?v=4",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/gemini-code-assist%5Bbot%5D",
+      "html_url": "https://github.com/apps/gemini-code-assist",
+      "followers_url": "https://api.github.com/users/gemini-code-assist%5Bbot%5D/followers",
+      "following_url": "https://api.github.com/users/gemini-code-assist%5Bbot%5D/following{/other_user}",
+      "gists_url": "https://api.github.com/users/gemini-code-assist%5Bbot%5D/gists{/gist_id}",
+      "starred_url": "https://api.github.com/users/gemini-code-assist%5Bbot%5D/starred{/owner}{/repo}",
+      "subscriptions_url": "https://api.github.com/users/gemini-code-assist%5Bbot%5D/subscriptions",
+      "organizations_url": "https://api.github.com/users/gemini-code-assist%5Bbot%5D/orgs",
+      "repos_url": "https://api.github.com/users/gemini-code-assist%5Bbot%5D/repos",
+      "events_url": "https://api.github.com/users/gemini-code-assist%5Bbot%5D/events{/privacy}",
+      "received_events_url": "https://api.github.com/users/gemini-code-assist%5Bbot%5D/received_events",
+      "type": "Bot",
+      "user_view_type": "public",
+      "site_admin": false
+    },
+    "body": "![medium](https://www.gstatic.com/codereviewagent/medium-priority.svg)\n\nImport `deque` from `collections` to support an efficient double-ended queue for the telemetry buffer.\n\n```suggestion\nimport re\nfrom collections import deque\nfrom typing import List, Dict, Any\n```",
+    "created_at": "2026-06-27T07:03:56Z",
+    "updated_at": "2026-06-27T07:03:56Z",
+    "html_url": "https://github.com/sornbuen15/drunken-team/pull/43#discussion_r3485512837",
+    "pull_request_url": "https://api.github.com/repos/sornbuen15/drunken-team/pulls/43",
+    "_links": {
+      "self": {
+        "href": "https://api.github.com/repos/sornbuen15/drunken-team/pulls/comments/3485512837"
+      },
+      "html": {
+        "href": "https://github.com/sornbuen15/drunken-team/pull/43#discussion_r3485512837"
+      },
+      "pull_request": {
+        "href": "https://api.github.com/repos/sornbuen15/drunken-team/pulls/43"
+      }
+    },
+    "reactions": {
+      "url": "https://api.github.com/repos/sornbuen15/drunken-team/pulls/comments/3485512837/reactions",
+      "total_count": 0,
+      "+1": 0,
+      "-1": 0,
+      "laugh": 0,
+      "hooray": 0,
+      "confused": 0,
+      "heart": 0,
+      "rocket": 0,
+      "eyes": 0
+    },
+    "start_line": 1,
+    "original_start_line": 1,
+    "start_side": "RIGHT",
+    "line": 2,
+    "original_line": 2,
+    "side": "RIGHT",
+    "author_association": "NONE",
+    "original_position": 2,
+    "position": 2,
+    "subject_type": "line"
+  },
+  {
+    "url": "https://api.github.com/repos/sornbuen15/drunken-team/pulls/comments/3485512847",
+    "pull_request_review_id": 4584487259,
+    "id": 3485512847,
+    "node_id": "PRRC_kwDOTBZlPc7PwLSP",
+    "diff_hunk": "@@ -0,0 +1,88 @@\n+import re\n+from typing import List, Dict, Any\n+\n+\n+class SpeechEngine:\n+    def __init__(self):\n+        # In a real system, this could initialize espeak, pyttsx3 or aplay\n+        self.is_ready = True\n+        self.spoken_history = []\n+\n+    def sanitize_input(self, text: str) -> str:\n+        \"\"\"\n+        Sanitize input text to prevent command injection or malicious characters\n+        before passing it to a shell/OS level speech synthesizer.\n+        \"\"\"\n+        # Keep only alphanumeric characters, spaces, and basic punctuation\n+        sanitized = re.sub(r\"[^a-zA-Z0-9\\s.,?!]\", \"\", text)\n+        return sanitized.strip()\n+\n+    def speak(self, text: str) -> bool:\n+        \"\"\"\n+        Speak the sanitized text.\n+        Returns True if successful, False otherwise.\n+        \"\"\"\n+        sanitized_text = self.sanitize_input(text)\n+        if not sanitized_text:\n+            return False\n+\n+        # Simulate speech\n+        self.spoken_history.append(sanitized_text)\n+        return True\n+\n+\n+class TelemetryBuffer:\n+    def __init__(self, max_buffer_size: int = 1000):\n+        self.buffer: List[Dict[str, Any]] = []\n+        self.max_buffer_size = max_buffer_size\n+\n+    def add_event(self, event: Dict[str, Any]) -> bool:\n+        \"\"\"\n+        Add a telemetry event to the buffer.\n+        If the buffer is full, drops the oldest event to prevent memory exhaustion (LRU approach).\n+        \"\"\"\n+        if not event:\n+            return False\n+\n+        if len(self.buffer) >= self.max_buffer_size:\n+            # Drop the oldest event to prevent OOM\n+            self.buffer.pop(0)\n+\n+        self.buffer.append(event)\n+        return True\n+\n+    def flush(self) -> List[Dict[str, Any]]:\n+        \"\"\"\n+        Flushes the buffer and returns all events to be sent to the cloud.\n+        \"\"\"\n+        events = self.buffer.copy()\n+        self.buffer.clear()\n+        return events",
+    "path": "src/drunken_team/services/frontal_lobe.py",
+    "commit_id": "da41b640517112bce3441bf63516097d85fbcff6",
+    "original_commit_id": "da41b640517112bce3441bf63516097d85fbcff6",
+    "user": {
+      "login": "gemini-code-assist[bot]",
+      "id": 176961590,
+      "node_id": "BOT_kgDOCow4Ng",
+      "avatar_url": "https://avatars.githubusercontent.com/in/956858?v=4",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/gemini-code-assist%5Bbot%5D",
+      "html_url": "https://github.com/apps/gemini-code-assist",
+      "followers_url": "https://api.github.com/users/gemini-code-assist%5Bbot%5D/followers",
+      "following_url": "https://api.github.com/users/gemini-code-assist%5Bbot%5D/following{/other_user}",
+      "gists_url": "https://api.github.com/users/gemini-code-assist%5Bbot%5D/gists{/gist_id}",
+      "starred_url": "https://api.github.com/users/gemini-code-assist%5Bbot%5D/starred{/owner}{/repo}",
+      "subscriptions_url": "https://api.github.com/users/gemini-code-assist%5Bbot%5D/subscriptions",
+      "organizations_url": "https://api.github.com/users/gemini-code-assist%5Bbot%5D/orgs",
+      "repos_url": "https://api.github.com/users/gemini-code-assist%5Bbot%5D/repos",
+      "events_url": "https://api.github.com/users/gemini-code-assist%5Bbot%5D/events{/privacy}",
+      "received_events_url": "https://api.github.com/users/gemini-code-assist%5Bbot%5D/received_events",
+      "type": "Bot",
+      "user_view_type": "public",
+      "site_admin": false
+    },
+    "body": "![medium](https://www.gstatic.com/codereviewagent/medium-priority.svg)\n\nUsing a standard `list` for a FIFO buffer with `pop(0)` is an $O(N)$ operation, which can lead to performance degradation as the buffer size grows.\n\nUsing `collections.deque` with `maxlen` is the idiomatic and highly efficient ($O(1)$) way to implement a fixed-size circular buffer in Python. It also automatically discards the oldest elements when the maximum size is reached, simplifying the code.\n\n```python\n    def __init__(self, max_buffer_size: int = 1000):\n        self.buffer: deque = deque(maxlen=max_buffer_size)\n\n    def add_event(self, event: Dict[str, Any]) -> bool:\n        \"\"\"\n        Add a telemetry event to the buffer.\n        If the buffer is full, drops the oldest event to prevent memory exhaustion (LRU approach).\n        \"\"\"\n        if not event:\n            return False\n\n        self.buffer.append(event)\n        return True\n\n    def flush(self) -> List[Dict[str, Any]]:\n        \"\"\"\n        Flushes the buffer and returns all events to be sent to the cloud.\n        \"\"\"\n        events = list(self.buffer)\n        self.buffer.clear()\n        return events\n```",
+    "created_at": "2026-06-27T07:03:56Z",
+    "updated_at": "2026-06-27T07:03:56Z",
+    "html_url": "https://github.com/sornbuen15/drunken-team/pull/43#discussion_r3485512847",
+    "pull_request_url": "https://api.github.com/repos/sornbuen15/drunken-team/pulls/43",
+    "_links": {
+      "self": {
+        "href": "https://api.github.com/repos/sornbuen15/drunken-team/pulls/comments/3485512847"
+      },
+      "html": {
+        "href": "https://github.com/sornbuen15/drunken-team/pull/43#discussion_r3485512847"
+      },
+      "pull_request": {
+        "href": "https://api.github.com/repos/sornbuen15/drunken-team/pulls/43"
+      }
+    },
+    "reactions": {
+      "url": "https://api.github.com/repos/sornbuen15/drunken-team/pulls/comments/3485512847/reactions",
+      "total_count": 0,
+      "+1": 0,
+      "-1": 0,
+      "laugh": 0,
+      "hooray": 0,
+      "confused": 0,
+      "heart": 0,
+      "rocket": 0,
+      "eyes": 0
+    },
+    "start_line": 35,
+    "original_start_line": 35,
+    "start_side": "RIGHT",
+    "line": 60,
+    "original_line": 60,
+    "side": "RIGHT",
+    "author_association": "NONE",
+    "original_position": 60,
+    "position": 60,
+    "subject_type": "line"
+  }
+]

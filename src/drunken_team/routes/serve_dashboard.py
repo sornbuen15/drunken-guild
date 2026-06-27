@@ -1,17 +1,18 @@
 #!/usr/bin/env python3
-import os
-import sys
 import glob
+import http.server
 import json
+import os
+import socketserver
 import subprocess
+import sys
 import urllib.request
 import webbrowser
-import http.server
-import socketserver
 from threading import Timer
+from typing import Any
 
 
-def load_dotenv():
+def load_dotenv() -> None:
     # Look for .env in current directory or parent directories
     curr_dir = os.getcwd()
     while True:
@@ -38,7 +39,7 @@ def load_dotenv():
         curr_dir = parent
 
 
-def send_to_discord(project_path, user_msg, bot_msg):
+def send_to_discord(project_path: str, user_msg: str, bot_msg: str) -> None:
     env_path = os.path.join(project_path, ".env")
     if not os.path.exists(env_path):
         return
@@ -139,7 +140,9 @@ AGENTS_METADATA = {
 }
 
 
-def query_gemini_direct(prompt, system_instruction=None):
+def query_gemini_direct(
+    prompt: str, system_instruction: str | None = None
+) -> str | None:
     api_key = os.environ.get("GEMINI_API_KEY")
     if not api_key:
         return None
@@ -161,13 +164,13 @@ def query_gemini_direct(prompt, system_instruction=None):
         )
         with urllib.request.urlopen(req, timeout=10) as response:
             res_data = json.loads(response.read().decode("utf-8"))
-            return res_data["candidates"][0]["content"]["parts"][0]["text"].strip()
+            return str(res_data["candidates"][0]["content"]["parts"][0]["text"].strip())
     except Exception as e:
         print(f"Direct API call error: {e}", file=sys.stderr)
         return None
 
 
-def extract_clean_response(log_content):
+def extract_clean_response(log_content: str) -> str:
     lines = log_content.split("\n")
     cleaned_lines = []
     in_thinking = False
@@ -223,11 +226,11 @@ DIRECTORY = os.path.join(
 )
 
 # Global in-memory storage for project mappings and Discord processes
-project_paths = {}
-discord_processes = {}
+project_paths: dict[str, str] = {}
+discord_processes: dict[str, "subprocess.Popen[Any] | None"] = {}
 
 
-def get_running_discord_pid(project_path):
+def get_running_discord_pid(project_path: str) -> int | None:
     try:
         normalized_path = os.path.normpath(project_path)
         # Use ps aux on macOS
@@ -253,7 +256,7 @@ def get_running_discord_pid(project_path):
     return None
 
 
-def start_discord_listener_for_project(project_id, project_path):
+def start_discord_listener_for_project(project_id: str, project_path: str) -> bool:
     pid = get_running_discord_pid(project_path)
     if pid is not None:
         return True
@@ -300,7 +303,7 @@ def start_discord_listener_for_project(project_id, project_path):
         return False
 
 
-def is_discord_configured_for_project(p_path):
+def is_discord_configured_for_project(p_path: str) -> bool:
     # 1. Check config JSON file
     config_path = os.path.join(p_path, ".agents", "discord_config.json")
     if os.path.exists(config_path):
@@ -327,7 +330,7 @@ def is_discord_configured_for_project(p_path):
     return False
 
 
-def start_all_discord_listeners():
+def start_all_discord_listeners() -> None:
     load_projects_mapping()
     print("[*] Checking and auto-starting Discord transceivers for all realms...")
     for p_id, p_path in project_paths.items():
@@ -344,7 +347,7 @@ def start_all_discord_listeners():
                     )
 
 
-def is_agy_running(project_path):
+def is_agy_running(project_path: str) -> bool:
     try:
         normalized_path = os.path.normpath(project_path)
         res = subprocess.run(["ps", "aux"], capture_output=True, text=True, timeout=5)
@@ -377,7 +380,7 @@ def is_agy_running(project_path):
     return False
 
 
-def load_projects_mapping():
+def load_projects_mapping() -> None:
     global project_paths
     project_paths = {}
     projects_dir = os.path.expanduser("~/.gemini/config/projects")
@@ -433,10 +436,10 @@ def load_projects_mapping():
 
 
 class Handler(http.server.SimpleHTTPRequestHandler):
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, directory=DIRECTORY, **kwargs)
 
-    def do_POST(self):
+    def do_POST(self) -> None:  # noqa: C901  # TODO(DT-46): Technical Debt - Refactor to reduce McCabe complexity
         content_length = int(self.headers["Content-Length"])
         post_data = self.rfile.read(content_length).decode("utf-8")
 
@@ -468,7 +471,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 return
 
             # Store telemetry (To be implemented by DT-39/DT-40)
-            self.send_success_response({"status": "telemetry_accepted"})
+            self.send_json_response({"status": "telemetry_accepted"})
             return
 
         # 1. API: Save Discord Configuration
@@ -648,7 +651,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 ).start()
 
                 # Start background thread to run agy
-                def run_agy_async():
+                def run_agy_async() -> None:
                     suffix = (
                         f"\n\n(Instructions: You are {agent_meta['name']} [Job: {agent_meta['job']}]. "
                         f"Personality: {agent_meta['description']}. "
@@ -706,7 +709,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             self.send_response(404)
             self.end_headers()
 
-    def do_GET(self):
+    def do_GET(self) -> None:  # noqa: C901  # TODO(DT-46): Technical Debt - Refactor to reduce McCabe complexity
         # 1. API: List Projects (Without exposing absolute paths to frontend)
         if self.path == "/api/projects":
             load_projects_mapping()
@@ -909,7 +912,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         else:
             super().do_GET()
 
-    def send_json_response(self, data):
+    def send_json_response(self, data: Any) -> None:
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
         self.send_header("Access-Control-Allow-Origin", "*")
@@ -920,7 +923,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(json.dumps(data).encode("utf-8"))
 
-    def send_error_response(self, msg, code=400):
+    def send_error_response(self, msg: str, code: int = 400) -> None:
         self.send_response(code)
         self.send_header("Content-Type", "application/json")
         self.send_header("Access-Control-Allow-Origin", "*")
@@ -932,13 +935,13 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         self.wfile.write(json.dumps({"error": msg}).encode("utf-8"))
 
 
-def open_browser():
-    webbrowser.open_url = getattr(webbrowser, "open_url", None) or webbrowser.open
-    webbrowser.open_url(f"http://localhost:{PORT}")
+def open_browser() -> None:
+    webbrowser.open_url = getattr(webbrowser, "open_url", None) or webbrowser.open  # type: ignore[attr-defined]
+    webbrowser.open_url(f"http://localhost:{PORT}")  # type: ignore[attr-defined]
 
 
-def clean_up_subprocesses():
-    for p_id, proc in list(discord_processes.items()):
+def clean_up_subprocesses() -> None:
+    for _p_id, proc in list(discord_processes.items()):
         if proc and proc.poll() is None:
             try:
                 proc.terminate()
@@ -946,7 +949,7 @@ def clean_up_subprocesses():
                 pass
 
 
-def main():
+def main() -> None:
     global PORT
     load_projects_mapping()
     if not os.path.exists(DIRECTORY):
