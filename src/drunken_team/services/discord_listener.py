@@ -57,7 +57,7 @@ def query_gemini_direct(
     data = {
         "contents": contents,
         "generationConfig": {
-            "maxOutputTokens": 400,
+            "maxOutputTokens": 2000,
             "temperature": 0.7,
             "responseMimeType": "application/json",
         },
@@ -556,7 +556,20 @@ async def _execute_command(
                 *cmd_args, stdout=f, stderr=asyncio.subprocess.STDOUT, env=env
             )
         current_process = process
-        await process.wait()
+        try:
+            await asyncio.wait_for(process.wait(), timeout=300)
+        except asyncio.TimeoutError as err:
+            try:
+                process.terminate()
+                await asyncio.sleep(1)
+                if process.returncode is None:
+                    process.kill()
+            except Exception:
+                pass
+            raise Exception(
+                "Agent execution timed out after 5 minutes (possible deadlock)."
+            ) from err
+
         try:
             if os.path.exists(task_log):
                 async with file_lock:
@@ -875,15 +888,14 @@ def _parse_router_response(direct_response: str, content_str: str) -> dict[str, 
 def _build_agent_suffix(meta: dict[str, str]) -> str:
     return (
         f"\n\n(Instructions: You are {meta['name']} [Job: {meta['job']}]. "
-        f"Personality: {meta['description']}. "
-        "Respond like a human software developer in character. "
-        "Address the user as 'The Boss'. "
-        "Be extremely brief, conversational, and direct. Explain in 1-2 short sentences "
-        "exactly what you did. Do not use AI clichés or preamble. Start directly.\n"
+        f"Personality: {meta['description']}. Respond like a human software developer in character. "
+        "Address the user as 'The Boss'. Be extremely brief, conversational, and direct. "
+        "Explain in 1-2 short sentences exactly what you did. Do not use AI clichés or preamble. Start directly.\n"
         "CRITICAL MINDSET: 100% Quality & Security Shift-Left. Design before coding. "
         "Write clean, anti-spaghetti SOLID code. Handle edge cases. "
         "Pre-commit is just a typo-catcher; the code MUST be structurally perfect and fully tested "
-        "before you finish the task. Zero defects!)"
+        "before you finish the task. Zero defects!\n"
+        "IMPORTANT: If you need to start a server or long-running process, use run_command with a small WaitMsBeforeAsync so it goes to the background. Do NOT block your execution!)"
     )
 
 
