@@ -120,7 +120,11 @@ def main():
         try:
             print(f"[*] Trying to fetch: {uri} (Scan fingerprint if prompted)...")
             res = subprocess.run(
-                ["op", "read", uri], capture_output=True, text=True, check=True
+                ["op", "read", uri],
+                capture_output=True,
+                text=True,
+                check=True,
+                timeout=10,
             )
             fetched_token = res.stdout.strip()
             if fetched_token:
