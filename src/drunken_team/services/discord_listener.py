@@ -802,6 +802,41 @@ async def _handle_slash_command(message: discord.Message, content_str: str) -> N
         )
         await message.channel.send(help_text)
         return
+    elif slash_cmd == "/status":
+        if current_process and current_process.returncode is None:
+            import glob
+            import os
+
+            logs = glob.glob("agy_discord_*_raw.log")
+            if logs:
+                latest_log = max(logs, key=os.path.getmtime)
+                try:
+                    with open(latest_log, "r", encoding="utf-8") as f:
+                        lines = f.readlines()
+                    filtered = [
+                        line
+                        for line in lines
+                        if line.strip() not in ("<thinking>", "</thinking>")
+                    ]
+                    tail = "".join(filtered[-15:])
+                    if not tail.strip():
+                        tail = "(Just started or thinking deeply...)"
+                    await message.channel.send(
+                        f"🟢 **Tavern Status: BUSY**\nAn agent is currently active in the dungeon!\n**Latest Action:**\n```text\n{tail}\n```"
+                    )
+                except Exception as e:
+                    await message.channel.send(
+                        f"🟢 **Tavern Status: BUSY**\n(Agent is running, but couldn't read log: {e})"
+                    )
+            else:
+                await message.channel.send(
+                    "🟢 **Tavern Status: BUSY**\n(Agent just dispatched, waiting for first log entry...)"
+                )
+        else:
+            await message.channel.send(
+                "💤 **Tavern Status: IDLE**\nThe guild hall is quiet. No active quests."
+            )
+        return
     elif slash_cmd in ("/stop", "/kill"):
         import subprocess
 
@@ -820,7 +855,8 @@ async def _handle_slash_command(message: discord.Message, content_str: str) -> N
             "2. `/next` : Pull and start the highest priority task.\n"
             "3. `/audit` : Run codebase health audit and trace technical debt.\n"
             "4. `/confluence-sync` : Sync documentation files to Confluence Cloud.\n"
-            "5. `/stop` or `/kill` : Emergency stop all running agents instantly.\n\n"
+            "5. `/status` : Check the real-time status and logs of the active agent.\n"
+            "6. `/stop` or `/kill` : Emergency stop all running agents instantly.\n\n"
             "You can type `/<command>` to execute it immediately!"
         )
         await message.channel.send(list_text)
