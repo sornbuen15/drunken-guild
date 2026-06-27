@@ -26,7 +26,7 @@ def delete_issues(issue_keys):
 
     for key in issue_keys:
         res = requests.delete(
-            f"{url}/rest/api/3/issue/{key}", auth=auth, headers=headers
+            f"{url}/rest/api/3/issue/{key}", auth=auth, headers=headers, timeout=10
         )
         if res.status_code in [200, 204]:
             print(f"Deleted {key}")

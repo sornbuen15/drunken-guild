@@ -42,9 +42,15 @@ def get_jira_token():
     return os.environ.get("JIRA_TOKEN")
 
 
-def make_request(
-    url, method="GET", payload=None, email="sornbuen15@gmail.com", token=None
-):
+def make_request(url, method="GET", payload=None, email=None, token=None):
+    if not email:
+        email = os.environ.get("CONFLUENCE_EMAIL")
+    if not email:
+        print(
+            "Error: CONFLUENCE_EMAIL environment variable is not set.", file=sys.stderr
+        )
+        sys.exit(1)
+
     if not token:
         print("Error: JIRA_TOKEN environment variable not set.", file=sys.stderr)
         sys.exit(1)
