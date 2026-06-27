@@ -445,6 +445,32 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         except Exception:
             payload = {}
 
+        # 0. API: Edge Telemetry
+        if self.path == "/api/telemetry":
+            # Security: Token-based API key verification (DT-38)
+            api_key = os.environ.get("EDGE_TELEMETRY_API_KEY")
+            if not api_key:
+                # Fail-Safe: Reject if server has no key configured
+                self.send_error_response(
+                    "Server is not configured to accept telemetry (missing API key).",
+                    code=500,
+                )
+                return
+
+            client_token = self.headers.get("Authorization") or self.headers.get(
+                "X-API-Key"
+            )
+            if client_token and client_token.startswith("Bearer "):
+                client_token = client_token.split(" ")[1]
+
+            if client_token != api_key:
+                self.send_error_response("Unauthorized edge node.", code=401)
+                return
+
+            # Store telemetry (To be implemented by DT-39/DT-40)
+            self.send_success_response({"status": "telemetry_accepted"})
+            return
+
         # 1. API: Save Discord Configuration
         if self.path == "/api/discord/save":
             project_id = payload.get("project_id")
@@ -892,8 +918,8 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(json.dumps(data).encode("utf-8"))
 
-    def send_error_response(self, msg):
-        self.send_response(400)
+    def send_error_response(self, msg, code=400):
+        self.send_response(code)
         self.send_header("Content-Type", "application/json")
         self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header(
