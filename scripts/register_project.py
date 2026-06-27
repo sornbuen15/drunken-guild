@@ -128,7 +128,11 @@ def main():
         for uri in JIRA_PASS_URIS:
             try:
                 res = subprocess.run(
-                    ["op", "read", uri], capture_output=True, text=True, check=True
+                    ["op", "read", uri],
+                    capture_output=True,
+                    text=True,
+                    check=True,
+                    timeout=10,
                 )
                 fetched_token = res.stdout.strip()
                 if fetched_token:
