@@ -22,7 +22,7 @@ for line in lines:
     if len(parts) < 4:
         continue
     local_ref, local_sha, remote_ref, remote_sha = parts[:4]
-    
+
     # If remote branch being updated is main or develop, abort the push
     if remote_ref in PROTECTED_REFS:
         branch_name = remote_ref.split('/')[-1]
@@ -39,22 +39,26 @@ for line in lines:
 sys.exit(0)
 """
 
+
 def main():
     git_dir = os.path.join(os.getcwd(), ".git")
     if not os.path.isdir(git_dir):
-        print("[-] Error: Not a git repository or not in the project root directory.", file=sys.stderr)
+        print(
+            "[-] Error: Not a git repository or not in the project root directory.",
+            file=sys.stderr,
+        )
         sys.exit(1)
-        
+
     hooks_dir = os.path.join(git_dir, "hooks")
     os.makedirs(hooks_dir, exist_ok=True)
-    
+
     pre_push_path = os.path.join(hooks_dir, "pre-push")
-    
+
     # Write hook file
     try:
         with open(pre_push_path, "w", encoding="utf-8") as f:
             f.write(HOOK_CONTENT)
-            
+
         # Make the hook executable
         st = os.stat(pre_push_path)
         os.chmod(pre_push_path, st.st_mode | stat.S_IEXEC)
@@ -63,6 +67,7 @@ def main():
     except Exception as e:
         print(f"[-] Failed to install git hook: {e}", file=sys.stderr)
         sys.exit(1)
+
 
 if __name__ == "__main__":
     main()

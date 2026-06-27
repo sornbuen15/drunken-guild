@@ -29,7 +29,7 @@ Once tasks are pushed to Jira, Jira becomes the Absolute Source of Truth for pro
 - Every git commit message MUST start with the Jira Ticket ID (e.g., 'fix(PROJ-123): update logic in auth.js').
 
 ### PHASE 5: AUDIT TRAIL & COMPLETION
-- When you finish a task and use the lightweight script to transition it to [DONE], you MUST automatically send a brief comment to the Jira ticket. The comment must include: 
+- When you finish a task and use the lightweight script to transition it to [DONE], you MUST automatically send a brief comment to the Jira ticket. The comment must include:
   1. The files changed.
   2. A 1-sentence summary of the logic updated or bug fixed.
 
