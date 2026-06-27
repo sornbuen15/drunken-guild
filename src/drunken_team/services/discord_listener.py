@@ -10,6 +10,8 @@ from typing import Any
 
 import discord
 
+file_lock = asyncio.Lock()
+
 
 def load_dotenv() -> None:
     # Look for .env in current directory or parent directories
@@ -86,7 +88,13 @@ current_status_msg = None
 is_cancelled = False
 
 
-def extract_clean_response(log_content: str) -> str:
+def extract_clean_response(log_content: str) -> str:  # noqa: C901  # TODO(DT-46): Refactor
+    try:
+        data = json.loads(log_content)
+        if not isinstance(data, dict):
+            return "Fallback: Invalid JSON format"
+    except Exception:
+        pass
     lines = log_content.split("\n")
     cleaned_lines = []
     in_thinking = False
@@ -388,14 +396,17 @@ async def poll_outbox() -> None:
     while True:
         try:
             if os.path.exists(outbox_file):
-                with open(outbox_file, "r") as f:
-                    outbox = json.load(f)
+                outbox = {}
+                async with file_lock:
+                    with open(outbox_file, "r") as f:
+                        outbox = json.load(f)
+
+                    if outbox:
+                        # Clear outbox immediately
+                        with open(outbox_file, "w") as f:
+                            json.dump({}, f)
 
                 if outbox:
-                    # Clear outbox immediately
-                    with open(outbox_file, "w") as f:
-                        json.dump({}, f)
-
                     for req_id, data in outbox.items():
                         question = data.get("question")
                         view = ApprovalView(req_id, inbox_file)
@@ -527,6 +538,9 @@ async def run_command_async(  # noqa: C901  # TODO(DT-46): Technical Debt - Refa
 ) -> None:  # noqa: C901  # TODO(DT-46): Technical Debt - Refactor to reduce McCabe complexity
     global current_process, current_status_msg, is_cancelled
 
+    if not cmd_args or cmd_args[0] not in ("agy",):
+        return
+
     # Send immediate acknowledgement as Mina
     status_msg = await channel.send(
         f"🎯 **Quest order received, Boss!** 🍺\n"
@@ -556,16 +570,18 @@ async def run_command_async(  # noqa: C901  # TODO(DT-46): Technical Debt - Refa
         await process.wait()
         try:
             if os.path.exists(task_log):
-                with open(task_log, "r", encoding="utf-8") as tf:
-                    log_content = tf.read()
-                with open(RAW_LOG_FILE, "w", encoding="utf-8") as rf:
-                    rf.write(log_content)
+                async with file_lock:
+                    with open(task_log, "r", encoding="utf-8") as tf:
+                        log_content = tf.read()
+                    with open(RAW_LOG_FILE, "w", encoding="utf-8") as rf:
+                        rf.write(log_content)
                 os.remove(task_log)
         except Exception:
             pass
     except Exception as e:
-        with open(RAW_LOG_FILE, "a", encoding="utf-8") as f:
-            f.write(f"\nError executing command: {e}\n")
+        async with file_lock:
+            with open(RAW_LOG_FILE, "a", encoding="utf-8") as f:
+                f.write(f"\nError executing command: {e}\n")
         log_activity("agent", "Agent", f"Failed: {e}")
         await status_msg.edit(
             content=f"⚠️ **Oh no, Boss!** The quest order for **{agent_name}** failed to start:\n`{e}`"
@@ -595,9 +611,10 @@ async def run_command_async(  # noqa: C901  # TODO(DT-46): Technical Debt - Refa
     clean_resp = ""
     if os.path.exists(RAW_LOG_FILE):
         try:
-            with open(RAW_LOG_FILE, "r", encoding="utf-8") as f:
-                raw_log = f.read()
-                clean_resp = extract_clean_response(raw_log)
+            async with file_lock:
+                with open(RAW_LOG_FILE, "r", encoding="utf-8") as f:
+                    raw_log = f.read()
+            clean_resp = extract_clean_response(raw_log)
         except Exception:
             pass
 
