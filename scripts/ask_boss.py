@@ -115,7 +115,7 @@ def load_config():
                     capture_output=True,
                     text=True,
                     check=True,
-                    timeout=10,
+                    timeout=30,
                 )
                 token = res.stdout.strip()
                 if token:
