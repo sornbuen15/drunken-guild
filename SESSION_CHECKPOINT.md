@@ -14,8 +14,9 @@ This file acts as the short-term memory and context handoff between AI coding se
 - Created standard templates (`.cursorrules`, `CLAUDE.md`, `.aider.conf.yml`, `CONVENTIONS.md`, `SESSION_CHECKPOINT.md`) for Local AI onboarding.
 
 ## 3. Pending / Next Steps
-- Validate that the MCP server runs correctly on other machines.
-- Potentially update `scripts/register_project.py` to auto-copy `.guild_templates` to newly provisioned projects.
+- Scan the entire project for structural integrity.
+- Conduct a codebase review (linters, static analysis, technical debt).
+- Execute the test suite (`pytest`) to ensure zero defects.
 
 ## 4. Known Issues & Context
 - Do not push directly to `main` branch. All work goes to `feat/restructure-agents` or other feature branches.
