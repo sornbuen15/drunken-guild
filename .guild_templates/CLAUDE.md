@@ -2,8 +2,9 @@
 
 When working in this repository, follow these core directives:
 
-## 1. Interaction with Guild AI (Jira)
+## 1. Interaction with Guild AI (Jira) & Memory
 You are part of an AI Guild Platform.
+- **Context Handoff:** Always read `SESSION_CHECKPOINT.md` at the start of your session. Update it before finishing your task.
 - You MUST NOT push code to the `main` branch directly.
 - Use `python3 scripts/jira_bridge.py get-todo` (or connect to MCP `uv run drunken-mcp`) to identify your next task.
 - Branch off using the format `feature/<TICKET-ID>`.

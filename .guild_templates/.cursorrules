@@ -7,9 +7,10 @@
 - **Testing:** Generate `pytest` test cases. Ensure edge cases (Negative Testing) are covered, not just happy paths. All mocks must use `autospec=True`.
 - **Global Exception Architecture:** Return clean, UX-friendly JSON messages. Log stack traces but do not expose them to users.
 
-## 2. SDLC & Jira Integration (Guild MCP)
+## 2. SDLC, Jira Integration, and Memory
+- **Context Handoff:** Always read `SESSION_CHECKPOINT.md` at the start of your session to understand current context. Before ending your turn or finishing a task, update `SESSION_CHECKPOINT.md` with what was completed and what's next.
 - **Use the Guild MCP:** Use Cursor's MCP feature to connect to `uv run drunken-mcp` (or run it yourself in the terminal).
-- **Start of Session:** Always check for tasks first using the `get_jira_todo` MCP tool or by running `python3 scripts/jira_bridge.py get-todo`.
+- **Start of Session:** Check for tasks first using the `get_jira_todo` MCP tool or by running `python3 scripts/jira_bridge.py get-todo`.
 - **Execution:** Before starting work, transition the Jira issue to 'In Progress' via the `transition_issue` tool.
 - **Commit Format:** Every git branch MUST include the Jira Ticket ID (e.g., `feature/DT-123`). Every commit MUST start with the Jira Ticket ID (e.g., `feat(DT-123): ...`).
 - **Never Merge to Main:** Do not push or merge directly to the `main` branch. Always use Feature Branches and Pull Requests.

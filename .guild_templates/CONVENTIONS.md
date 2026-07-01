@@ -13,7 +13,8 @@ These are the strict coding conventions for Drunken-Team that Aider must follow:
 3. **Typing:** Strict Python type annotations (`mypy`) are required everywhere. No missing method calls.
 4. **Error Handling:** Centralize error handling. Do not swallow exceptions silently. Return UX-friendly JSON messages.
 
-## Integration with Guild
-1. Always base your work on tasks assigned from the Guild (via Jira).
+## Integration with Guild & Memory
+1. **Context Handoff:** Always read `SESSION_CHECKPOINT.md` at the start of your session. Update it before finishing your task.
+2. Always base your work on tasks assigned from the Guild (via Jira).
 2. When completing work, you are expected to stop, push the branch, and let the user open a Pull Request.
 3. If an issue requires Boss approval, instruct the user to run `python3 scripts/ask_boss.py "question"`.
