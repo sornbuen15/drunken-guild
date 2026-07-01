@@ -36,6 +36,11 @@ For Aider:
 - Aider automatically pulls coding guidelines from `CONVENTIONS.md` as linting rules.
 - Enforces an Auto-commit hook requiring Aider to always prefix commit messages with the `[ISSUE-KEY]` so Jira can track the Git branch.
 
+### 2.4 Context Handoff (`SESSION_CHECKPOINT.md`)
+To prevent AI from losing context between sessions, this file acts as the short-term memory.
+- The AI will read this file at the start of a session.
+- The AI will write/update this file at the end of its turn to leave breadcrumbs for the next session.
+
 ---
 
 ## 3. Workflow Handoff
@@ -75,6 +80,7 @@ For legacy projects written manually that you wish to integrate into the Drunken
    cp /path/to/drunken-team/.guild_templates/CLAUDE.md .
    cp /path/to/drunken-team/.guild_templates/.aider.conf.yml .
    cp /path/to/drunken-team/.guild_templates/CONVENTIONS.md .
+   cp /path/to/drunken-team/.guild_templates/SESSION_CHECKPOINT.md .
    ```
    These files will enforce the Local AI to adhere to the Zero-Defect standards.
 
