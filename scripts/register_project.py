@@ -1,8 +1,6 @@
 #!/usr/bin/env python3
 import json
 import os
-import shutil
-import subprocess
 import sys
 import uuid
 
@@ -110,209 +108,70 @@ def main() -> None:  # noqa: C901  # TODO(DT-46): Technical Debt - Refactor to r
     project_key = DEFAULT_JIRA_PROJECT
     jira_token = None
 
-    op_bin = shutil.which("op")
-    if op_bin:
-        print("[*] Found 1Password CLI (op). Checking biometric privileges...")
-        JIRA_PASS_URIS = (
-            os.environ.get("JIRA_PASS_URIS", "").split(",")
-            if os.environ.get("JIRA_PASS_URIS")
-            else [
-                "op://Personal/Jira/credential",
-                "op://Private/Jira/credential",
-                "op://Personal/Jira/password",
-                "op://Private/Jira/password",
-            ]
-        )
-
-        op_success = False
-        for uri in JIRA_PASS_URIS:
-            try:
-                res = subprocess.run(
-                    ["op", "read", uri],
-                    capture_output=True,
-                    text=True,
-                    check=True,
-                    timeout=30,
-                )
-                fetched_token = res.stdout.strip()
-                if fetched_token:
-                    jira_token = fetched_token
-                    op_success = True
-                    print(f"[+] Successfully fetched Token from 1Password ({uri})!")
-
-                    # Cache the token directly to the global config!
-                    global_config_path = os.path.expanduser(
-                        "~/.gemini/config/jira_config.json"
-                    )
-                    try:
-                        os.makedirs(os.path.dirname(global_config_path), exist_ok=True)
-                        existing_data = {}
-                        if os.path.exists(global_config_path):
-                            with open(global_config_path, "r") as f:
-                                existing_data = json.load(f)
-                        existing_data["jira_token"] = jira_token
-                        with open(global_config_path, "w") as f:
-                            json.dump(existing_data, f, indent=2)
-                        print(
-                            "[+] Saved 1Password token to Global Config automatically."
-                        )
-                    except Exception as e:
-                        print(f"Warning: Could not save to global config: {e}")
-
-                    break
-            except Exception:
-                continue
-
-        if not op_success:
-            print("[!] Target Token not found in 1Password")
-
-    # Fallback to Global agy config if no 1Password or 1Password read failed
+    # 4. Gather JIRA Credentials (Local Isolation)
     if not jira_token:
-        print("[!] 1Password CLI not found or biometric retrieve failed")
+        print("[*] Please provide JIRA Credentials details for local .env, Boss:")
 
-        global_config_path = os.path.expanduser("~/.gemini/config/jira_config.json")
-        use_global = False
+        jira_url_input = input(
+            f"JIRA URL (e.g. https://your-domain.atlassian.net) [{jira_url}]: "
+        ).strip()
+        if jira_url_input:
+            jira_url = jira_url_input
+        while not jira_url:
+            jira_url = input("JIRA URL (Required): ").strip()
 
-        # Ask for consent to use global or save to global
-        consent = (
-            input(
-                "[?] Store/Use JIRA credentials in agy Global Config instead? (~/.gemini/config/jira_config.json) (y/n): "
-            )
-            .strip()
-            .lower()
-        )
-        if consent in ["y", "yes"]:
-            use_global = True
+        jira_email_input = input(f"JIRA Email [{jira_email}]: ").strip()
+        if jira_email_input:
+            jira_email = jira_email_input
+        while not jira_email:
+            jira_email = input("JIRA Email (Required): ").strip()
 
-        if not use_global:
-            print(
-                "[-] User declined Global Config saving and 1Password is missing. Terminating execution, Boss.",
-                file=sys.stderr,
-            )
-            sys.exit(1)
+        project_key_input = input(f"Project Key [{project_key}]: ").strip()
+        if project_key_input:
+            project_key = project_key_input
+        while not project_key:
+            project_key = input("Project Key (Required): ").strip()
 
-        # Check if global file exists
-        if os.path.exists(global_config_path):
-            try:
-                with open(global_config_path, "r", encoding="utf-8") as f:
-                    g_data = json.load(f)
-                    print("[+] Existing Global JIRA Config details found:")
-                    print(f"    URL: {g_data.get('jira_url')}")
-                    print(f"    Email: {g_data.get('jira_email')}")
-
-                    confirm_use = (
-                        input("[?] Use these existing configurations? (y/n): ")
-                        .strip()
-                        .lower()
-                    )
-                    if confirm_use in ["y", "yes"]:
-                        jira_url = g_data.get("jira_url", jira_url)
-                        jira_email = g_data.get("jira_email", jira_email)
-                        jira_token = g_data.get("jira_token")
-                        project_key = g_data.get("project_key", project_key)
-            except Exception as e:
-                print(f"[-] Failed to read global config: {e}")
-
-        # Prompt user manually if still missing
-        if not jira_token:
-            print(
-                "[*] Please provide JIRA Credentials details to save in Global Config, Boss:"
-            )
-            jira_url_input = input(
-                f"JIRA URL (e.g. https://your-domain.atlassian.net) [{jira_url}]: "
-            ).strip()
-            if jira_url_input:
-                jira_url = jira_url_input
-            while not jira_url:
-                jira_url = input("JIRA URL (Required): ").strip()
-
-            jira_email_input = input(f"JIRA Email [{jira_email}]: ").strip()
-            if jira_email_input:
-                jira_email = jira_email_input
-            while not jira_email:
-                jira_email = input("JIRA Email (Required): ").strip()
-
-            project_key_input = input(f"Project Key [{project_key}]: ").strip()
-            if project_key_input:
-                project_key = project_key_input
-            while not project_key:
-                project_key = input("Project Key (Required): ").strip()
-
-            # Loop until we get a token
-            while not jira_token:
-                jira_token = input("JIRA API Token (Secret): ").strip()
-                if not jira_token:
-                    print("[-] JIRA API Token is required!")
-
-            # Save to global config
-            try:
-                g_save_data = {
-                    "jira_url": jira_url,
-                    "jira_email": jira_email,
-                    "jira_token": jira_token,
-                    "project_key": project_key,
-                }
-                with open(global_config_path, "w", encoding="utf-8") as f:
-                    json.dump(g_save_data, f, indent=2)
-                print(
-                    f"[+] Global JIRA credentials saved successfully at: {global_config_path}"
-                )
-            except Exception as e:
-                print(f"[-] Failed to write global config: {e}")
+        while not jira_token:
+            jira_token = input("JIRA API Token (Secret): ").strip()
+            if not jira_token:
+                print("[-] JIRA API Token is required!")
 
     # 5. Resolve Discord Configuration
     discord_token = None
     discord_channel_id = DEFAULT_DISCORD_CHANNEL
 
-    # Try reading local or central config first
-    d_conf_file = os.path.join(agents_dir, "discord_config.json")
-    if os.path.exists(d_conf_file):
+    # Try backup config from drunken-team if token not found
+    backup_d_conf = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+        ".agents",
+        "discord_config.json",
+    )
+    if os.path.exists(backup_d_conf):
         try:
-            with open(d_conf_file, "r") as f:
+            with open(backup_d_conf, "r") as f:
                 d_data = json.load(f)
                 discord_token = d_data.get("bot_token")
-                discord_channel_id = d_data.get("channel_id", discord_channel_id)
         except Exception:
             pass
 
-    # Try backup config from drunken-team if token not found
     if not discord_token:
-        backup_d_conf = os.path.join(
-            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-            ".agents",
-            "discord_config.json",
-        )
-        if os.path.exists(backup_d_conf):
-            try:
-                with open(backup_d_conf, "r") as f:
-                    d_data = json.load(f)
-                    discord_token = d_data.get("bot_token")
-            except Exception:
-                pass
+        discord_token = input("Discord Bot Token (Secret): ").strip()
 
-    # Prompt for Discord Channel ID
     chan_input = input(f"[?] Enter Discord Channel ID [{discord_channel_id}]: ").strip()
     if chan_input:
         discord_channel_id = chan_input
 
-    # Save Discord Bot Token to Global Config instead of local project
-    global_d_conf = os.path.expanduser("~/.gemini/config/discord_config.json")
-    if discord_token:
-        try:
-            with open(global_d_conf, "w", encoding="utf-8") as f:
-                json.dump({"bot_token": discord_token}, f, indent=2)
-            print(
-                f"[+] Saved Discord Bot Token successfully in Global Config: {global_d_conf}"
-            )
-        except Exception as e:
-            print(f"[-] Failed to write global Discord config: {e}")
-
-    # 6. Generate project-specific non-sensitive .env file
+    # 6. Generate project-specific .env file
     env_content = f"""# ⚠️ CONFIGURATION - GENERATED BY DRUNKEN-REGISTER
-# Project-specific non-sensitive configurations. SENSITIVE CREDENTIALS ARE STORED GLOBALLY.
+# Local Environment Variables for Drunken Team (ISOLATED)
 
 DISCORD_CHANNEL_ID="{discord_channel_id}"
+DISCORD_BOT_TOKEN="{discord_token or ''}"
+JIRA_URL="{jira_url}"
+JIRA_EMAIL="{jira_email}"
 JIRA_PROJECT_KEY="{project_key}"
+JIRA_TOKEN="{jira_token or ''}"
 """
 
     env_path = os.path.join(abs_project_path, ".env")

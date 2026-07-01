@@ -2,7 +2,6 @@
 import base64
 import json
 import os
-import subprocess
 import sys
 import urllib.parse
 import urllib.request
@@ -40,91 +39,8 @@ def load_dotenv() -> None:
 load_dotenv()
 
 
-def find_config() -> Optional[str]:
-    curr_dir = os.getcwd()
-    while True:
-        config_path = os.path.join(curr_dir, ".agents", "jira_config.json")
-        if os.path.exists(config_path):
-            return config_path
-        parent = os.path.dirname(curr_dir)
-        if parent == curr_dir:
-            break
-        curr_dir = parent
-    return None
-
-
-def get_jira_token() -> Optional[str]:  # noqa: C901  # TODO(DT-46): Technical Debt - Refactor to reduce McCabe complexity
-    # 1. Try environment variables (from system or loaded .env)
-    token = os.environ.get("JIRA_TOKEN") or os.environ.get("JIRA_API_TOKEN")
-    if token:
-        return token
-
-    # 2. Try to read from global config
-    global_conf = os.path.expanduser("~/.gemini/config/jira_config.json")
-    if os.path.exists(global_conf):
-        try:
-            with open(global_conf, "r", encoding="utf-8") as f:
-                data = json.load(f)
-                if data.get("jira_token"):
-                    return str(data["jira_token"])
-        except Exception:
-            pass
-
-    # 3. Try to read from local jira_config.json
-    config_file = find_config()
-    if config_file:
-        try:
-            with open(config_file, "r") as f:
-                data = json.load(f)
-                if "jira_token" in data and data["jira_token"]:
-                    return str(data["jira_token"])
-        except Exception:
-            pass
-
-    # 4. Try 1Password CLI as a fallback
-    JIRA_PASS_URIS = (
-        os.environ.get("JIRA_PASS_URIS", "").split(",")
-        if os.environ.get("JIRA_PASS_URIS")
-        else [
-            "op://Personal/Jira/credential",
-            "op://Private/Jira/credential",
-            "op://Personal/Jira/password",
-            "op://Private/Jira/password",
-        ]
-    )
-    for uri in JIRA_PASS_URIS:
-        try:
-            res = subprocess.run(
-                ["op", "read", uri],
-                capture_output=True,
-                text=True,
-                check=True,
-                timeout=30,
-            )
-            token = res.stdout.strip()
-            if token:
-                # Save it so we don't need fingerprint again
-                try:
-                    c_path = (
-                        config_file
-                        if config_file
-                        else os.path.join(os.getcwd(), ".agents", "jira_config.json")
-                    )
-                    os.makedirs(os.path.dirname(c_path), exist_ok=True)
-                    existing_data = {}
-                    if os.path.exists(c_path):
-                        with open(c_path, "r") as f:
-                            existing_data = json.load(f)
-                    existing_data["jira_token"] = token
-                    with open(c_path, "w") as f:
-                        json.dump(existing_data, f, indent=2)
-                except Exception:
-                    pass
-                return token
-        except Exception:
-            continue
-
-    return None
+def get_jira_token() -> Optional[str]:
+    return os.environ.get("JIRA_TOKEN") or os.environ.get("JIRA_API_TOKEN")
 
 
 def make_request(
@@ -272,42 +188,15 @@ def main() -> None:  # noqa: C901  # TODO(DT-46): Technical Debt - Refactor to r
         print("Usage: jira_bridge.py <action> [args]", file=sys.stderr)
         sys.exit(1)
 
-    jira_config = {}
-
-    # 1. Try to load from local config if it exists
-    config_path = find_config()
-    if config_path:
-        try:
-            with open(config_path, "r", encoding="utf-8") as f:
-                jira_config = json.load(f)
-        except Exception:
-            pass
-
-    # 2. Try to fill missing fields from global config
-    global_conf = os.path.expanduser("~/.gemini/config/jira_config.json")
-    if os.path.exists(global_conf):
-        try:
-            with open(global_conf, "r", encoding="utf-8") as f:
-                g_data = json.load(f)
-                for k in ["jira_url", "jira_email", "project_key"]:
-                    if k not in jira_config or not jira_config[k]:
-                        jira_config[k] = g_data.get(k)
-        except Exception:
-            pass
-
-    # 3. Try to fill from environment variables (loaded .env)
-    if "jira_url" not in jira_config or not jira_config["jira_url"]:
-        jira_config["jira_url"] = os.environ.get("JIRA_URL") or ""
-    if "jira_email" not in jira_config or not jira_config["jira_email"]:
-        jira_config["jira_email"] = os.environ.get("JIRA_EMAIL") or ""
-    if "project_key" not in jira_config or not jira_config["project_key"]:
-        jira_config["project_key"] = os.environ.get("JIRA_PROJECT_KEY") or ""
+    jira_config = {
+        "jira_url": os.environ.get("JIRA_URL") or "",
+        "jira_email": os.environ.get("JIRA_EMAIL") or "",
+        "project_key": os.environ.get("JIRA_PROJECT_KEY") or "",
+    }
 
     token = get_jira_token()
     if not token:
-        print(
-            "Error: Jira token not found in environment or 1Password.", file=sys.stderr
-        )
+        print("Error: Jira token not found in environment.", file=sys.stderr)
         sys.exit(1)
 
     jira_config["jira_token"] = token
@@ -318,7 +207,7 @@ def main() -> None:  # noqa: C901  # TODO(DT-46): Technical Debt - Refactor to r
         or not jira_config.get("project_key")
     ):
         print(
-            "Error: Missing Jira configuration (jira_url, jira_email, or project_key). Please set them in your .env or global config.",
+            "Error: Missing Jira configuration (JIRA_URL, JIRA_EMAIL, or JIRA_PROJECT_KEY). Please set them in your .env file.",
             file=sys.stderr,
         )
         sys.exit(1)

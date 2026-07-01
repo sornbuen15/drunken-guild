@@ -1,7 +1,7 @@
 # Drunken Team - Ultimate (Drunken) Antigravity Extension Suite
 *Brought to you by Drunken Programmer*
 
-Grab a pint, pull up a sturdy wooden stool, and welcome to **Drunken Team**! This is the ultimate collection of lightweight, token-optimized, and tavern-tested utilities designed to supercharge your experience with **Google Antigravity** (and other agentic AI systems).
+Grab a pint, pull up a sturdy wooden stool, and welcome to **Drunken Team (Aiขี้เมา)**! This is the ultimate collection of lightweight, token-optimized, and tavern-tested utilities designed to supercharge your experience with **Google Antigravity** (and other agentic AI systems).
 
 Instead of dealing with bloated payloads or sober, boring setups, this suite brings developer-focused workflows, interactive boss approvals, a real-time pixelated tavern visualizer, and lightweight third-party integrations with zero hangover.
 
