@@ -1,0 +1,26 @@
+# Drunken-Team Cursor Rules
+# This file governs Cursor AI's behavior when interacting with the Drunken-Team repository.
+
+## 1. Zero-Defect Pipeline & Code Quality
+- **Code Quality:** Adhere to SOLID principles, modular design, DRY, and high readability. Do not write spaghetti code.
+- **Type Checking:** Strict type hints (`mypy`) are required.
+- **Testing:** Generate `pytest` test cases. Ensure edge cases (Negative Testing) are covered, not just happy paths. All mocks must use `autospec=True`.
+- **Global Exception Architecture:** Return clean, UX-friendly JSON messages. Log stack traces but do not expose them to users.
+
+## 2. SDLC & Jira Integration (Guild MCP)
+- **Use the Guild MCP:** Use Cursor's MCP feature to connect to `uv run drunken-mcp` (or run it yourself in the terminal).
+- **Start of Session:** Always check for tasks first using the `get_jira_todo` MCP tool or by running `python3 scripts/jira_bridge.py get-todo`.
+- **Execution:** Before starting work, transition the Jira issue to 'In Progress' via the `transition_issue` tool.
+- **Commit Format:** Every git branch MUST include the Jira Ticket ID (e.g., `feature/DT-123`). Every commit MUST start with the Jira Ticket ID (e.g., `feat(DT-123): ...`).
+- **Never Merge to Main:** Do not push or merge directly to the `main` branch. Always use Feature Branches and Pull Requests.
+- **Handoff:** When finished, push your branch, open a PR, and call `request_qa_review(pr_url)` via MCP.
+
+## 3. Operations & Safety
+- **Destructive Commands:** DO NOT delete files (`rm`, `rm -rf`) without approval. Use the `ask_boss` MCP tool or run `python3 scripts/ask_boss.py "Can I delete <file>?"`. You MUST wait for the boss to approve via Discord.
+- **The "ค.ว.ย." Protocol:**
+  - คิด (Think): Validate paths, ports, env vars before executing.
+  - วิเคราะห์ (Analyze): Analyze logs. Do not assume success if it didn't instantly crash.
+  - แยกแยะ (Differentiate): Isolate root causes on failure. Do not blindly retry.
+
+## 4. Documentation boundaries
+- Do not mix architecture details into user guides. Respect the separation of `README.md`, `Drunken-Team-Guide.md`, `Integration-Guide.md`, `PROJECT_SPEC.md`, and `DESIGN.md`.
