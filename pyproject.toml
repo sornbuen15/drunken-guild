@@ -12,6 +12,7 @@ license = { text = "MIT" }
 dependencies = [
     "discord.py>=2.0.0",
     "python-dotenv>=0.21.0",
+    "mcp>=1.1.2",
 ]
 
 [project.optional-dependencies]
@@ -28,6 +29,7 @@ drunken-setup = "scripts.setup_env:main"
 drunken-dashboard = "scripts.serve_dashboard:main"
 drunken-listen = "scripts.discord_listener:main"
 drunken-register = "scripts.register_project:main"
+drunken-mcp = "service.guild_mcp:main"
 
 
 [tool.setuptools]
