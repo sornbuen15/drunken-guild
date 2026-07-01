@@ -92,6 +92,7 @@ Direct commits to the `main` or `develop` branches are strictly prohibited.
 
 - **Feature Branches:** All work must take place on a dedicated branch (e.g., `feature/workflow-guide`).
 - **Pull Requests (PR):** When work is completed, you must open a Pull Request against `main`.
-- **Merge Authorization Gate:** **Agents are strictly forbidden from merging PRs autonomously without explicit human oversight.**
-  - Before a merge, the Agent will ask: *"Will you review and merge this PR yourself, or do you want me to merge it for you?"*
+- **Merge Authorization Gate (Tier 2):** **Agents can merge PRs autonomously ONLY IF explicitly approved via Discord.**
+  - Before a merge, the Agent MUST use `ask_boss.py` to request authorization on Discord.
+  - If the Boss approves (👍), the Agent is authorized to automatically execute `gh pr merge` and complete the process. If rejected (👎), the Agent must abort.
 - **Release and Tagging:** Once merged into `main`, a Semantic Git Tag (e.g., `v1.3.0`) MUST be generated along with structured Release Notes.

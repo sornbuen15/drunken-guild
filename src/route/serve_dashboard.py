@@ -11,7 +11,7 @@ import webbrowser
 from threading import Timer
 from typing import Any
 
-from drunken_team.core.registry import ProjectRegistry
+from core.registry import ProjectRegistry
 
 
 def load_dotenv() -> None:

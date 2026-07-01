@@ -97,6 +97,6 @@ Whenever the user provides a list of bugs, feedback, or issues (no matter how ur
 
 ## Approval Channel
 
-Whenever a workflow requires an explicit Tech Lead or User approval gate (e.g., approving an execution plan, sprint backlog transition, or codebase audit cleanup):
+Whenever a workflow requires an explicit Tech Lead or User approval gate (e.g., approving an execution plan, sprint backlog transition, codebase audit cleanup, or merging a PR):
 - **Requirement:** You MUST send the approval request directly to Discord using the `ask_boss.py` script (e.g. `python3 scripts/ask_boss.py "Do you approve..."`).
 - **Wait for Response:** The script will block and wait for the user to react (👍 for Approval / 👎 for Rejection). Respect the exit status of the script (0 for Approved, 1 for Rejected) to proceed or abort.

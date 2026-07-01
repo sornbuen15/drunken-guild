@@ -1,6 +1,6 @@
 import pytest
 import pytest_mock
-from drunken_team.routes.serve_dashboard import AGENTS_METADATA
+from route.serve_dashboard import AGENTS_METADATA
 
 
 def test_agents_metadata() -> None:
@@ -17,7 +17,7 @@ def test_telemetry_endpoint_authorization_fail_safe(
     monkeypatch: pytest.MonkeyPatch, mocker: pytest_mock.MockerFixture
 ) -> None:
     """Fail-Safe: Should return 500 if server has no EDGE_TELEMETRY_API_KEY"""
-    from drunken_team.routes.serve_dashboard import Handler
+    from route.serve_dashboard import Handler
 
     monkeypatch.delenv("EDGE_TELEMETRY_API_KEY", raising=False)
 
@@ -38,7 +38,7 @@ def test_telemetry_endpoint_unauthorized(
     monkeypatch: pytest.MonkeyPatch, mocker: pytest_mock.MockerFixture
 ) -> None:
     """Should return 401 if client sends invalid API key"""
-    from drunken_team.routes.serve_dashboard import Handler
+    from route.serve_dashboard import Handler
 
     monkeypatch.setenv("EDGE_TELEMETRY_API_KEY", "secret-key-123")
 
@@ -58,7 +58,7 @@ def test_telemetry_endpoint_authorized(
     monkeypatch: pytest.MonkeyPatch, mocker: pytest_mock.MockerFixture
 ) -> None:
     """Should return 200/success if client sends correct API key"""
-    from drunken_team.routes.serve_dashboard import Handler
+    from route.serve_dashboard import Handler
 
     monkeypatch.setenv("EDGE_TELEMETRY_API_KEY", "secret-key-123")
 

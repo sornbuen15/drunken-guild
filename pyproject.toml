@@ -31,8 +31,8 @@ drunken-register = "scripts.register_project:main"
 
 
 [tool.setuptools]
-packages = ["scripts", "drunken_team", "drunken_team.services", "drunken_team.routes"]
-package-dir = {"drunken_team" = "src/drunken_team"}
+packages = ["scripts", "core", "route", "service"]
+package-dir = {"core" = "src/core", "route" = "src/route", "service" = "src/service"}
 
 [tool.ruff]
 select = ["E", "F", "B", "C90", "I"]
@@ -43,7 +43,7 @@ line-length = 88
 max-complexity = 10
 
 [tool.pytest.ini_options]
-addopts = "--cov=drunken_team --cov-report=term-missing --cov-fail-under=18"
+addopts = "--cov=core --cov=route --cov=service --cov-report=term-missing --cov-fail-under=18"
 testpaths = ["tests"]
 
 [tool.mypy]

@@ -3,7 +3,7 @@ from typing import Any
 from unittest import mock
 
 import pytest
-from drunken_team.core.registry import ProjectRegistry
+from core.registry import ProjectRegistry
 
 
 @pytest.fixture  # type: ignore[misc]

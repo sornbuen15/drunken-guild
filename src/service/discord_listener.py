@@ -2,15 +2,13 @@
 import asyncio
 import json
 import os
-import subprocess
 import sys
 import time
 import urllib.request
 from typing import Any
 
 import discord
-
-from drunken_team.core.registry import ProjectRegistry
+from core.registry import ProjectRegistry
 
 file_lock = asyncio.Lock()
 
@@ -215,36 +213,14 @@ def _read_config_file(config: dict[str, Any]) -> None:
             with open(config_file, "r") as f:
                 file_data = json.load(f)
                 if "bot_token" in file_data and file_data["bot_token"]:
-                    config["bot_token"] = file_data["bot_token"]
+                    if file_data["bot_token"] == "DISABLE_OP":
+                        config["bot_token"] = None
+                    else:
+                        config["bot_token"] = file_data["bot_token"]
                 if "channel_id" in file_data and file_data["channel_id"]:
                     config["channel_id"] = int(file_data["channel_id"])
         except Exception as e:
             print(f"Warning: Failed to parse config file: {e}", file=sys.stderr)
-
-
-def _read_1password_token(config: dict[str, Any]) -> None:
-    DISCORD_URIS = (
-        os.environ.get("DISCORD_PASS_URIS", "").split(",")
-        if os.environ.get("DISCORD_PASS_URIS")
-        else [
-            "op://Vault/Discord/token",
-            "op://Private/Discord/token",
-            "op://Vault/Discord/credential",
-            "op://Private/Discord/credential",
-        ]
-    )
-    for uri in DISCORD_URIS:
-        try:
-            res = subprocess.run(
-                ["op", "read", uri], capture_output=True, text=True, check=True
-            )
-            token = res.stdout.strip()
-            if token:
-                config["bot_token"] = token
-                save_config(config)  # Cache it so we don't ask for fingerprint again
-                break
-        except Exception:
-            continue
 
 
 def load_config() -> dict[str, Any]:
@@ -255,10 +231,6 @@ def load_config() -> dict[str, Any]:
 
     _read_env_channel_id(config)
     _read_config_file(config)
-
-    # Try 1Password CLI ONLY if environment and config bot_token is empty
-    if not config["bot_token"] or config["bot_token"] == DEFAULT_BOT_TOKEN:
-        _read_1password_token(config)
 
     # Fallback to default channel ID if not set
     if config["channel_id"] is None:
@@ -554,6 +526,14 @@ async def _execute_command(
     env = os.environ.copy()
     if env_vars:
         env.update(env_vars)
+
+    # Phase 2: Isolate from User's Global OS (1Password/Keychain)
+    env.pop("SSH_AUTH_SOCK", None)
+
+    # Force 'agy' to run within 'uv' isolated environment if it's the target command
+    if cmd_args and cmd_args[0] == "agy":
+        cmd_args = ["uv", "run"] + cmd_args
+
     task_log = f"agy_discord_{agent_name.replace(' ', '_').lower()}_raw.log"
     script_args = ["script", "-q", "/dev/null"] + cmd_args
     try:
@@ -599,7 +579,11 @@ async def _handle_command_error(
 
 
 async def _handle_command_success(
-    channel: discord.abc.Messageable, user_mention: str, status_msg: discord.Message
+    channel: discord.abc.Messageable,
+    user_mention: str,
+    status_msg: discord.Message,
+    agent_name: str,
+    project_id: str,
 ) -> None:
     clean_resp = ""
     if os.path.exists(RAW_LOG_FILE):
@@ -620,21 +604,23 @@ async def _handle_command_success(
         content="🎯 **Quest completed, Boss!**\n🏁 **Status:** Finished! The report is served at your table."
     )
 
+    footer = f"\n\n---\n*Reply to this message to continue working with **{agent_name}** in `{project_id}`*"
+
     if clean_resp:
         log_activity("agent", "Agent", clean_resp)
         formatted_content = (
             f"🛎️ **Boss! The report is served!** ({user_mention})\n\n{clean_resp}"
         )
-        if len(formatted_content) > 1950:
+        if len(formatted_content) + len(footer) > 1950:
             formatted_content = (
-                formatted_content[:1950]
+                formatted_content[: 1950 - len(footer)]
                 + "...\n*(Content too long. Type !detail to upload the full raw log file)*"
             )
-        await channel.send(formatted_content)
+        await channel.send(formatted_content + footer)
     else:
         log_activity("agent", "Agent", "Completed.")
         await channel.send(
-            f"🛎️ **Boss! The report is served!** ({user_mention})\n🏁 **Status:** Completed. *(Type !detail to check execution logs)*"
+            f"🛎️ **Boss! The report is served!** ({user_mention})\n🏁 **Status:** Completed. *(Type !detail to check execution logs)*{footer}"
         )
 
 
@@ -644,6 +630,7 @@ async def _handle_quest_failure(
     command_content: str,
     agent_name: str,
     status_msg: discord.Message,
+    project_id: str,
 ) -> None:
     global current_process, current_status_msg
     current_process = None
@@ -700,15 +687,16 @@ async def _handle_quest_failure(
         print(f"Failed to create Hotfix ticket: {e}", file=sys.stderr)
 
     await status_msg.edit(content="🚨 **Task Failed!**")
+    footer = f"\n\n---\n*Reply to this message to continue working with **{agent_name}** in `{project_id}`*"
     await channel.send(
         content=(
             f"🚨 **Emergency Report, {user_mention}!**\n"
             f"**{agent_name}** wiped in the dungeon (Quest Failed).\n"
-            f"**Mina:** I've stopped the task and created a Hotfix ticket **{ticket_key}** in 'In Progress' for you!\n"
-            f"**Root Cause Analysis:**\n{analysis}"
+            f"**Agy:** I've stopped the task and created a Hotfix ticket **{ticket_key}** in 'In Progress' for you!\n"
+            f"**Root Cause Analysis:**\n{analysis}{footer}"
         )
     )
-    log_activity("agent", "Mina", f"Created Hotfix {ticket_key} for {agent_name}")
+    log_activity("agent", "Agy", f"Created Hotfix {ticket_key} for {agent_name}")
 
 
 async def run_command_async(
@@ -719,14 +707,15 @@ async def run_command_async(
     agent_name: str,
     env_vars: dict[str, Any] | None = None,
     cwd: str | None = None,
+    project_id: str = "drunken-team",
 ) -> None:
     global current_process, current_status_msg, is_cancelled
     if not cmd_args or cmd_args[0] not in ("agy",):
         return
 
     status_msg = await channel.send(
-        f"🎯 **Quest order received, Boss!** 🍺\n"
-        f"Mina has dispatched the quest order to **{agent_name}** in the backroom office.\n"
+        f"🎯 **Quest order received, Boss!** 🚀\n"
+        f"Agy has dispatched the quest order to **{agent_name}** in the backroom office.\n"
         f"I'll bring the report straight to your table once completed!\n"
         f"⏳ **Status:** Processing behind the scenes... *(You can click ❌ to cancel the order anytime, Boss)*"
     )
@@ -757,11 +746,13 @@ async def run_command_async(
 
     if exc:
         await _handle_quest_failure(
-            channel, user_mention, command_content, agent_name, status_msg
+            channel, user_mention, command_content, agent_name, status_msg, project_id
         )
         return
 
-    await _handle_command_success(channel, user_mention, status_msg)
+    await _handle_command_success(
+        channel, user_mention, status_msg, agent_name, project_id
+    )
 
 
 @client.event  # type: ignore[misc]
@@ -774,11 +765,11 @@ async def _handle_detail_command(message: discord.Message) -> None:
             )
         except Exception as e:
             await message.channel.send(
-                f"Mina failed to upload raw log file due to error: {e}"
+                f"Agy failed to upload raw log file due to error: {e}"
             )
     else:
         await message.channel.send(
-            "No raw execution history found in the tavern logbook, Boss."
+            "No raw execution history found in the system logs, Boss."
         )
 
 
@@ -787,7 +778,7 @@ async def _handle_slash_command(message: discord.Message, content_str: str) -> N
     slash_cmd = parts[0].lower()
     if slash_cmd == "/help":
         help_text = (
-            "Hello, Boss! 🍺 Mina, your tavern hostess, welcomes you to the **Drunken Team Inn**!\n"
+            "Hello, Boss! 🚀 Agy, your system router, welcomes you to the **Antigravity Workspace**!\n"
             "I coordinate tasks in the backroom office so you don't have to wait. Grab a pint of ale and relax!\n\n"
             "**How to order quests:**\n"
             "1. **Quick Slash Commands:**\n"
@@ -800,7 +791,7 @@ async def _handle_slash_command(message: discord.Message, content_str: str) -> N
             "2. **Ask/Direct Quest Agents (Async):**\n"
             "   Type in format: `<who> <context> <goal>`\n"
             "   *Example:* `principal project-tff refine backlog`\n"
-            "   *Tavern Agents Roster (aliases):*\n"
+            "   *System Agents Roster (aliases):*\n"
             "   - `principal` (🧙‍♂️ Archmage - Architecture & Rules)\n"
             "   - `devops` (🛡️ Iron Knight - Infrastructure & Pipeline)\n"
             "   - `laravel` (🧪 Alchemist - PHP & Laravel Core)\n"
@@ -809,7 +800,7 @@ async def _handle_slash_command(message: discord.Message, content_str: str) -> N
             "   - `voice` (🎵 Bard - AI Voice & WebRTC)\n"
             "   - `agentic` (🌀 Summoner - Multi-agent setup)\n"
             "   - `fullstack` (⚔️ Spellsword - Frontend/Backend/CSS)\n\n"
-            "Mina is always waiting for your order at the counter! 🍹"
+            "Agy is always waiting for your order at the counter! ⚡"
         )
         await message.channel.send(help_text)
         return
@@ -833,19 +824,19 @@ async def _handle_slash_command(message: discord.Message, content_str: str) -> N
                     if not tail.strip():
                         tail = "(Just started or thinking deeply...)"
                     await message.channel.send(
-                        f"🟢 **Tavern Status: BUSY**\nAn agent is currently active in the dungeon!\n**Latest Action:**\n```text\n{tail}\n```"
+                        f"🟢 **Workspace Status: BUSY**\nAn agent is currently active in the dungeon!\n**Latest Action:**\n```text\n{tail}\n```"
                     )
                 except Exception as e:
                     await message.channel.send(
-                        f"🟢 **Tavern Status: BUSY**\n(Agent is running, but couldn't read log: {e})"
+                        f"🟢 **Workspace Status: BUSY**\n(Agent is running, but couldn't read log: {e})"
                     )
             else:
                 await message.channel.send(
-                    "🟢 **Tavern Status: BUSY**\n(Agent just dispatched, waiting for first log entry...)"
+                    "🟢 **Workspace Status: BUSY**\n(Agent just dispatched, waiting for first log entry...)"
                 )
         else:
             await message.channel.send(
-                "💤 **Tavern Status: IDLE**\nThe guild hall is quiet. No active quests."
+                "💤 **Workspace Status: IDLE**\nThe guild hall is quiet. No active quests."
             )
         return
     elif slash_cmd in ("/stop", "/kill"):
@@ -896,15 +887,20 @@ def _parse_router_response(direct_response: str, content_str: str) -> dict[str, 
     import re
 
     try:
-        clean_json = re.sub(
-            r"```(?:json)?\n?(.*?)\n?```",
-            r"\1",
-            direct_response,
-            flags=re.DOTALL,
-        ).strip()
-        return json.loads(clean_json)  # type: ignore[no-any-return]
-    except Exception:
-        mina_match = re.search(r'"mina_response"\s*:\s*"([^"]+)', direct_response)
+        # Extract everything between the first { and the last }
+        match = re.search(r"\{.*\}", direct_response, flags=re.DOTALL)
+        if match:
+            res = json.loads(match.group(0))
+            return res if isinstance(res, dict) else {}
+        # Fallback to pure json load
+        fallback = json.loads(direct_response)
+        return fallback if isinstance(fallback, dict) else {}
+    except Exception as e:
+        print(
+            f"[Debug] Failed to parse router response: {direct_response} | Error: {e}",
+            flush=True,
+        )
+        agy_match = re.search(r'"agy_response"\s*:\s*"([^"]+)', direct_response)
         agent_match = re.search(r'"target_agent"\s*:\s*"([^"]+)', direct_response)
         if agent_match:
             return {
@@ -912,15 +908,15 @@ def _parse_router_response(direct_response: str, content_str: str) -> dict[str, 
                 "target_agent": agent_match.group(1),
                 "refined_prompt": content_str,
             }
-        elif mina_match:
+        elif agy_match:
             return {
                 "is_task": False,
-                "mina_response": mina_match.group(1),
+                "agy_response": agy_match.group(1),
             }
         else:
             return {
                 "is_task": False,
-                "mina_response": "เอ่อ... บอสคะ สัญญาณขาดหาย มิน่าฟังไม่ค่อยถนัดเลยค่ะ รบกวนพิมพ์ใหม่อีกรอบได้ไหมคะ? 😅",
+                "agy_response": f"เอ่อ... บอสคะ สัญญาณขาดหาย มิน่าประมวลผลคำสั่งไม่ได้เลยค่ะ (Error JSON: {e})\nรบกวนบอสพิมพ์ใหม่อีกรอบได้ไหมคะ? 😅",
             }
 
 
@@ -935,7 +931,8 @@ def _build_agent_suffix(meta: dict[str, str]) -> str:
         "Pre-commit is just a typo-catcher; the code MUST be structurally perfect and fully tested "
         "before you finish the task. Zero defects!\n"
         "IMPORTANT: If you need to start a server or long-running process, use run_command with a small WaitMsBeforeAsync so it goes to the background. Do NOT block your execution!\n"
-        "ANTI-LOOP PROTOCOL (ค.ว.ย.): If you execute a command and it fails, and a subsequent fix results in the exact same failure, STOP IMMEDIATELY! Do NOT loop blindly. Return a failure report to the Boss explaining the roadblock.)"
+        "ANTI-LOOP PROTOCOL (ค.ว.ย.): If you execute a command and it fails, and a subsequent fix results in the exact same failure, STOP IMMEDIATELY! Do NOT loop blindly. Return a failure report to the Boss explaining the roadblock.\n"
+        "DESTRUCTIVE ACTIONS RULE (CRITICAL): If you need permission for ANYTHING (especially deleting files), YOU MUST USE THE `run_command` tool to run `python scripts/ask_boss.py \"your question\"`. DO NOT ask the Boss verbally in your text response. DO NOT print a table and wait. YOU MUST EXECUTE THE SCRIPT using `run_command`!)"
     )
 
 
@@ -944,8 +941,8 @@ async def _dispatch_swarm(
 ) -> None:
     sub_tasks = router_data["sub_tasks"]
     ack_msg = router_data.get(
-        "mina_response",
-        f"🍹 **Mina [Hostess]:** Whoa, that's a big quest! I'm breaking it down into {len(sub_tasks)} sub-tasks and deploying the Swarm!",
+        "agy_response",
+        f"⚡ **Agy [System]:** Whoa, that's a big quest! I'm breaking it down into {len(sub_tasks)} sub-tasks and deploying the Swarm!",
     )
 
     target_project = router_data.get("target_project")
@@ -955,7 +952,7 @@ async def _dispatch_swarm(
         if proj_data:
             project_cwd = proj_data["path"]
 
-    log_activity("agent", "Mina", ack_msg)
+    log_activity("agent", "Agy", ack_msg)
     await message.channel.send(ack_msg)
     tasks_to_run = []
     for st in sub_tasks:
@@ -981,6 +978,7 @@ async def _dispatch_swarm(
                 meta["name"],
                 env_vars=env_vars,
                 cwd=project_cwd,
+                project_id=target_project or "drunken-team",
             )
         )
     for t in tasks_to_run:
@@ -1030,6 +1028,7 @@ async def _dispatch_single_agent(
             agent_meta["name"],
             env_vars=env_vars,
             cwd=project_cwd,
+            project_id=target_project or "drunken-team",
         )
     )
 
@@ -1037,20 +1036,72 @@ async def _dispatch_single_agent(
 async def _handle_conversational_response(
     router_data: dict[str, Any], direct_response: str, message: discord.Message
 ) -> None:
-    resp = router_data.get("mina_response", direct_response)
+    resp = router_data.get("agy_response", direct_response)
     if isinstance(resp, dict):
         resp = str(resp)
     resp = (
-        resp.replace('{"is_task": false, "mina_response": "', "")
+        resp.replace('{"is_task": false, "agy_response": "', "")
         .replace('"}', "")
         .strip()
     )
-    log_activity("agent", "Mina", resp)
-    await message.channel.send(f"🍹 **Mina [Hostess]:** {resp}")
+    log_activity("agent", "Agy", resp)
+    await message.channel.send(f"⚡ **Agy [System]:** {resp}")
+
+
+async def _handle_reply_continuation(message: discord.Message) -> bool:
+    if not message.reference or not message.reference.message_id:
+        return False
+    try:
+        original_message = await message.channel.fetch_message(
+            message.reference.message_id
+        )
+        if original_message.author != client.user:
+            return False
+
+        import re
+
+        # Look for the footer: *Reply to this message to continue working with **{agent_name}** in `{project_id}`*
+        match = re.search(r"with \*\*(.*?)\*\* in `([^`]+)`", original_message.content)
+        if not match:
+            return False
+
+        agent_name = match.group(1)
+        target_project = match.group(2)
+
+        project_info = ProjectRegistry().get_project(target_project)
+        project_cwd = project_info.get("path") if project_info else None
+
+        prompt = message.content.replace(f"<@{client.user.id}>", "").strip()
+
+        await message.channel.send(
+            f"**Agy:** Relaying your reply directly back to **{agent_name}** in `{target_project}`... ⚙️"
+        )
+
+        cmd_args = ["agy", "--continue", "--print", prompt]
+        env_vars = {}
+        api_key = os.environ.get("GEMINI_API_KEY")
+        if api_key:
+            env_vars["GEMINI_API_KEY"] = api_key
+
+        asyncio.create_task(
+            run_command_async(
+                message.channel,
+                message.author.mention,
+                prompt,
+                cmd_args,
+                agent_name,
+                env_vars=env_vars,
+                cwd=project_cwd,
+            )
+        )
+        return True
+    except Exception as e:
+        print(f"Error handling reply: {e}", flush=True)
+        return False
 
 
 @client.event  # type: ignore[misc]
-async def on_message(message: discord.Message) -> None:
+async def on_message(message: discord.Message) -> None:  # noqa: C901
     global current_process, current_status_msg, is_cancelled
     if message.author == client.user:
         return
@@ -1073,58 +1124,53 @@ async def on_message(message: discord.Message) -> None:
         await _handle_slash_command(message, content_str)
         return
 
-    api_key = os.environ.get("GEMINI_API_KEY")
-    if api_key:
-        projects = ProjectRegistry().get_projects()
-        project_list = ", ".join(
-            [f"'{k}' ({v.get('description', '')})" for k, v in projects.items()]
-        )
+    # Check if this is a reply to an agent's output
+    if await _handle_reply_continuation(message):
+        return
 
-        router_instruction = (
-            "You are Mina, the lively and welcoming tavern hostess at the Drunken Team Inn.\n"
-            "You coordinate dashboard and quest orders for The Boss.\n"
-            "The available developer agents are:\n"
-            "- principal-engineer: ARCHMAGE (Alias: Principal/Wizard). Role: Architecture, rules, Jira, Project Management, Multi-agent task delegation.\n"
-            "- devops-engineer: KNIGHT (Alias: DevOps). Role: Infrastructure, K8s\n"
-            "- laravel-developer: ALCHEMIST (Alias: Laravel). Role: PHP, DB\n"
-            "- qa-engineer: RANGER (Alias: QA). Role: Testing\n"
-            "- security-engineer: ROGUE (Alias: Security). Role: Security\n"
-            "- voice-ai-specialist: BARD (Alias: Voice/Audio). Role: Voice/WebRTC\n"
-            "- agentic-systems-specialist: SUMMONER (Alias: Agentic). Role: Multi-agent workspaces\n"
-            "- fullstack-engineer: BLADE (Alias: Fullstack/Spellsword). Role: Frontend/UI/CSS\n\n"
-            "Return a JSON object ONLY, no markdown formatting outside of it:\n"
-            "If it's a casual chat or general question that you can answer without running terminal commands, return:\n"
-            '{"is_task": false, "mina_response": "<Your friendly in-character response>"}\n'
-            "If it is a SIMPLE task that requires only ONE agent, return:\n"
-            '{"is_task": true, "target_agent": "<best_agent_key>", "target_project": "<project_id>", "refined_prompt": "<clear prompt for the agent>"}\n'
-            "If the task is a BIG, COMPLEX goal (e.g. 'Build a whole feature', 'Deploy the entire app'), break it into specialized sub-tasks and assign them to the right agents. Return:\n"
-            '{"is_task": true, "mina_response": "<Acknowledge the big task and announce the team>", "target_project": "<project_id>", "sub_tasks": [{"target_agent": "<key1>", "prompt": "<task1>"}, {"target_agent": "<key2>", "prompt": "<task2>"}]}\n\n'
-            "CRITICAL ROUTING RULE:\n"
-            "- If the task is explicitly assigned to a specific role/alias (e.g., 'give this to KNIGHT'), route it ONLY to that specific agent.\n"
-            "- If the task is massive, YOU (Mina) are the Auto-Orchestrator Swarm. Break it down logically and return the `sub_tasks` array.\n"
-            f"- Available projects: {project_list}. Map the user's request to one of these project IDs if they mention a project, and include it as 'target_project'.\n"
+    # Deterministic Rule-Based Router (Replacing the LLM Gemini Router)
+    content_lower = content_str.lower()
+    first_word = content_lower.split()[0] if content_lower else ""
+
+    # 1. Determine the Target Agent
+    is_task = False
+    target_agent = "fullstack-engineer"  # Fallback agent
+    if first_word in PERSONA_MAPPING:
+        target_agent = PERSONA_MAPPING[first_word]
+        is_task = True
+
+    # 2. Determine the Target Project
+    target_project = "drunken-team"
+    projects = ProjectRegistry().get_projects()
+    for proj_key in projects.keys():
+        # Match "project-xxx" or exact "xxx" word
+        import re
+
+        if f"project-{proj_key.lower()}" in content_lower or re.search(
+            rf"\b{proj_key.lower()}\b", content_lower
+        ):
+            target_project = proj_key
+            break
+
+    if is_task:
+        router_data = {
+            "is_task": True,
+            "target_agent": target_agent,
+            "target_project": target_project,
+            "refined_prompt": content_str,
+        }
+        await _dispatch_single_agent(router_data, content_str, message)
+        return
+    else:
+        await message.channel.send(
+            "⚡ **Agy [System]:** Boss, if you want to assign a quest, please start your message with an agent's name!\n"
+            "*(Example: `principal project-alpha do something`)*\n"
+            "Since I am now running on deterministic rules (no LLM), I need you to be specific! ⚙️"
         )
-        direct_response = await asyncio.to_thread(
-            query_gemini_direct, content_str, router_instruction
-        )
-        if direct_response:
-            router_data = _parse_router_response(direct_response, content_str)
-            if not router_data.get("is_task"):
-                await _handle_conversational_response(
-                    router_data, direct_response, message
-                )
-                return
-            if "sub_tasks" in router_data and isinstance(
-                router_data["sub_tasks"], list
-            ):
-                await _dispatch_swarm(router_data, content_str, message)
-                return
-            else:
-                await _dispatch_single_agent(router_data, content_str, message)
-                return
+        return
 
     welcoming_text = (
-        "Hello, Boss! 🍹 refreshing Mina, your tavern hostess, welcomes you to the Drunken Team Inn!\n"
+        "Hello, Boss! ⚡ refreshing Agy, your system router, welcomes you to the Antigravity Workspace!\n"
         "I coordinate dashboard and quest orders in the tavern. Would you like to run a quick command or assign a quest to an agent?\n\n"
         "💡 *Quick Tip:* Type `/help` to see instructions, or try the format `<who> <context> <goal>` such as: \n"
         "`principal project-tff refine backlog` to deploy the principal engineer immediately!"
