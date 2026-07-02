@@ -11,7 +11,7 @@ To allow your Local AI to communicate directly with the Guild's systems, we prov
   - `get_jira_todo()`: Fetches ready-to-do tasks from the Jira board.
   - `transition_issue()`: Moves a Jira ticket status (e.g., In Progress -> Done).
   - `request_qa_review()`: Sends an alert to the Discord Listener to wake up the Guild's QA Agent to review a Pull Request.
-  - `ask_boss()`: Sends a prompt to ask the Boss (Admin/Tech Lead) for approval via Discord.
+  - **The Silent Wait Protocol**: Used when AI needs permission. Writes to `discord_outbox.json` and yields turn to await Boss's reaction.
 
 *(Note: The MCP system has been recently upgraded to FastMCP. You can now start the server natively!)*
 
@@ -71,7 +71,7 @@ For legacy projects written manually that you wish to integrate into the Drunken
    cd /path/to/existing-project
    drunken-register .
    ```
-   The system will prompt for Jira Token / URL and Discord Token, generate an `.env` file, and automatically add it to `.gitignore`.
+   The system will prompt for Jira Token / URL and Discord Token, and automatically generate local JSON configurations in the `.agents` folder.
 
 3. **Apply the AI Templates**
    Copy the Guild's rules from `.guild_templates/` in Drunken-Team and place them in the root of your existing project:

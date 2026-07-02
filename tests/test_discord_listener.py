@@ -1,100 +1,142 @@
+# mypy: ignore-errors
 from typing import Any
-from unittest.mock import AsyncMock
+from unittest import mock
+from unittest.mock import AsyncMock, MagicMock, mock_open, patch
 
 import pytest
-from service.discord_listener import extract_clean_response, on_message
+from service.discord_listener import (
+    main,
+    on_message,
+    on_reaction_add,
+    on_ready,
+    outbox_message_map,
+    watch_outbox,
+)
 
 
-def test_extract_clean_response() -> None:
-    raw_log = """
-<thinking>
-This is an internal thought process.
-It should be removed.
-</thinking>
-I will run a command.
-[System] Running task...
-[Warning] Something happened.
-Executing command: ls
-Actual message here.
-Another line of the actual message.
-"""
-
-    cleaned = extract_clean_response(raw_log)
-
-    assert "This is an internal thought process." not in cleaned
-    assert "I will run a command." not in cleaned
-    assert "[System]" not in cleaned
-    assert "Actual message here." in cleaned
-    assert "Another line of the actual message." in cleaned
+@pytest.mark.anyio
+@mock.patch("service.discord_listener.client")  # type: ignore[misc]
+async def test_on_ready(mock_client: Any) -> None:
+    mock_client.user = "test_user"
+    await on_ready()
 
 
-@pytest.mark.anyio  # type: ignore[misc]
-async def test_discord_project_routing_e2e(mocker: Any, monkeypatch: Any) -> None:
-    """
-    E2E Test: Verify that when a user mentions a project, Mina (the router)
-    extracts the target_project and dispatches the agent with the correct CWD.
-    """
-    # 1. Mock the environment and registry
-    monkeypatch.setenv("GEMINI_API_KEY", "mock-key")
+@pytest.mark.anyio
+@mock.patch("service.discord_listener.agent_runner")  # type: ignore[misc]
+async def test_on_reaction_add(mock_runner: Any) -> None:
+    user = mock.MagicMock()
+    reaction = mock.MagicMock()
 
-    mock_registry = mocker.MagicMock()
-    mock_registry.get_projects.return_value = {
-        "beta": {"path": "/mock/path/to/beta", "description": "BETA Project"}
-    }
-    mock_registry.get_project.return_value = {"path": "/mock/path/to/beta"}
-    mocker.patch("service.discord_listener.ProjectRegistry", return_value=mock_registry)
+    # Bot user
+    user.bot = True
+    await on_reaction_add(reaction, user)
 
-    # 2. (Removed Gemini Mock, now uses Deterministic Router)
+    # Reset map
+    outbox_message_map.clear()
 
-    # 3. Mock the execution so we don't really run agy
-    mock_execute = mocker.patch(
-        "service.discord_listener.run_command_async", new_callable=AsyncMock
-    )
+    # Outbox message 👍
+    user.bot = False
+    reaction.message.id = 999
+    outbox_message_map[999] = "req_test"
+    reaction.emoji = "👍"
+    reaction.message.reply = AsyncMock()
 
-    # 4. Mock the Discord Message
-    class MockAuthor:
-        def __init__(self) -> None:
-            self.bot = False
-            self.mention = "@boss"
-            self.name = "boss"
+    with patch("os.makedirs"):
+        with patch("builtins.open", mock_open()):
+            await on_reaction_add(reaction, user)
 
-    class MockChannel:
-        def __init__(self) -> None:
-            self.id = 12345
+    reaction.message.reply.assert_called_once_with("Boss has **approved** the request.")
+    assert 999 not in outbox_message_map
 
-        async def send(self, msg: str) -> None:
-            pass
+    # Not cross
+    user.bot = False
+    reaction.emoji = "✅"
+    await on_reaction_add(reaction, user)
 
-    class MockMessage:
-        def __init__(self) -> None:
-            self.author = MockAuthor()
-            self.channel = MockChannel()
-            self.content = "fullstack-engineer project-beta Fix the bug in BETA"
-            self.mentions = [mocker.MagicMock()]
-            self.reference = None
+    # Cross, but no current_status_msg
+    reaction.emoji = "❌"
+    mock_runner.current_status_msg = None
+    await on_reaction_add(reaction, user)
 
-    mock_client = mocker.MagicMock()
-    mock_client.user = mocker.MagicMock()
-    mock_client.user.id = 999
+    # Cross, with current_status_msg, diff id
+    mock_msg = mock.MagicMock()
+    mock_msg.id = 1
+    mock_runner.current_status_msg = mock_msg
+    reaction.message.id = 2
+    await on_reaction_add(reaction, user)
 
-    mocker.patch("service.discord_listener.CHANNEL_ID", 12345)
-    mocker.patch("service.discord_listener.client", mock_client)
+    # Cross, matching id, not busy
+    reaction.message.id = 1
+    mock_runner.is_busy.return_value = False
+    await on_reaction_add(reaction, user)
 
-    msg = MockMessage()
-    msg.content = "fullstack-engineer project-beta Fix the bug in BETA"
-    msg.mentions[0] = mock_client.user
+    # Cross, matching id, busy
+    mock_runner.is_busy.return_value = True
+    mock_runner.cancel_current_task = mock.AsyncMock()
+    await on_reaction_add(reaction, user)
+    mock_runner.cancel_current_task.assert_called_once()
 
-    # 5. Execute the discord listener on_message flow
+
+@pytest.mark.anyio
+@mock.patch("service.discord_listener.DiscordRouter")  # type: ignore[misc]
+async def test_on_message(mock_router: Any) -> None:
+    import service.discord_listener as dl
+
+    dl.router = None
+
+    msg = mock.MagicMock()
+    mock_inst = mock.MagicMock()
+    mock_inst.route = mock.AsyncMock()
+    mock_router.return_value = mock_inst
+
     await on_message(msg)
+    mock_inst.route.assert_called_once_with(msg)
 
-    import asyncio
+    # Router already initialized
+    await on_message(msg)
+    assert mock_inst.route.call_count == 2
 
-    await asyncio.sleep(0.01)  # let create_task run
 
-    # 6. Verify that the agent was spawned in the correct directory (/mock/path/to/beta)
-    assert mock_execute.called
-    kwargs = mock_execute.call_args.kwargs
+@mock.patch("service.discord_listener.client")
+@mock.patch("service.discord_listener.BOT_TOKEN", "fake_token")
+def test_main(mock_client: Any) -> None:
+    assert main() == 0
+    mock_client.run.assert_called_once_with("fake_token")
 
-    cwd_passed = kwargs.get("cwd")
 
-    assert cwd_passed == "/mock/path/to/beta"
+@pytest.mark.anyio
+@patch("service.discord_listener.os.path.exists")
+@patch("service.discord_listener.client")
+async def test_watch_outbox(mock_client: Any, mock_exists: Any) -> None:
+    # No file
+    mock_exists.return_value = False
+    await watch_outbox()
+
+    # File exists, invalid json
+    mock_exists.return_value = True
+    with patch("builtins.open", mock_open(read_data="invalid json")):
+        await watch_outbox()
+
+    # File exists, valid json
+    valid_data = '{"req_1": {"question": "Can I delete?"}}'
+    mock_channel = AsyncMock()
+    mock_client.get_channel.return_value = mock_channel
+
+    mock_msg = MagicMock()
+    mock_msg.id = 123
+    mock_msg.add_reaction = AsyncMock()
+    mock_channel.send.return_value = mock_msg
+
+    with patch("builtins.open", mock_open(read_data=valid_data)):
+        await watch_outbox()
+
+    mock_channel.send.assert_called_once()
+    mock_msg.add_reaction.assert_any_call("👍")
+    assert outbox_message_map[123] == "req_1"
+
+    # Run again, should not send again because req_1 is in map
+    mock_channel.send.reset_mock()
+    with patch("builtins.open", mock_open(read_data=valid_data)):
+        await watch_outbox()
+    mock_channel.send.assert_not_called()
+    outbox_message_map.clear()

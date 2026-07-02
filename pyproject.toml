@@ -25,9 +25,8 @@ dev = [
     "mypy>=1.0.0"
 ]
 [project.scripts]
-drunken-setup = "scripts.setup_env:main"
-drunken-dashboard = "scripts.serve_dashboard:main"
-drunken-listen = "scripts.discord_listener:main"
+drunken-dashboard = "route.serve_dashboard:main"
+drunken-listen = "service.discord_listener:main"
 drunken-register = "scripts.register_project:main"
 drunken-mcp = "service.guild_mcp:main"
 
@@ -36,12 +35,16 @@ drunken-mcp = "service.guild_mcp:main"
 packages = ["scripts", "core", "route", "service"]
 package-dir = {"core" = "src/core", "route" = "src/route", "service" = "src/service"}
 
-[tool.ruff]
+[tool.ruff.lint]
 select = ["E", "F", "B", "C90", "I"]
 ignore = ["E501"]
-line-length = 88
 
-[tool.ruff.mccabe]
+[tool.coverage.run]
+source = ["src"]
+
+[tool.coverage.report]
+
+[tool.ruff.lint.mccabe]
 max-complexity = 10
 
 [tool.pytest.ini_options]

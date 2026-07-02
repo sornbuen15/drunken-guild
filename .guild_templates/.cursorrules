@@ -17,7 +17,7 @@
 - **Handoff:** When finished, push your branch, open a PR, and call `request_qa_review(pr_url)` via MCP.
 
 ## 3. Operations & Safety
-- **Destructive Commands:** DO NOT delete files (`rm`, `rm -rf`) without approval. Use the `ask_boss` MCP tool or run `python3 scripts/ask_boss.py "Can I delete <file>?"`. You MUST wait for the boss to approve via Discord.
+- **Destructive Commands:** DO NOT delete files (`rm`, `rm -rf`) without approval. You MUST use **The Silent Wait Protocol**: Write your question to `.agents/discord_outbox.json` using `write_to_file`, use `schedule` tool, and END YOUR TURN. Do NOT use `run_command` for approvals!
 - **The "ค.ว.ย." Protocol:**
   - คิด (Think): Validate paths, ports, env vars before executing.
   - วิเคราะห์ (Analyze): Analyze logs. Do not assume success if it didn't instantly crash.

@@ -58,6 +58,14 @@ def load_config() -> Dict[str, Any]:
     return config
 
 
+if __name__ == "__main__":
+    print("WARNING: ask_boss.py is DEPRECATED! Do NOT use this script.")
+    print("Instead, use the Silent Wait Protocol:")
+    print("1. Write your question to .agents/discord_outbox.json")
+    print("2. Set a schedule timer and end your turn.")
+    print("This script will now exit with an error.")
+    sys.exit(1)
+
 if len(sys.argv) < 2:
     print("Error: Missing question argument.")
     print("Usage: python3 ask_boss.py <question>")

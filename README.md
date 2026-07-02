@@ -32,7 +32,7 @@ This guide explains how to connect your local IDEs to the Guild's backend infras
 
 1. Clone the repository.
 2. Install dependencies via `uv` or `pip`.
-3. Read the [Drunken-Team Guide](./Drunken-Team-Guide.md) for environment configuration (`.env`).
+3. Read the [Drunken-Team Guide](./Drunken-Team-Guide.md) for JSON configuration (`.agents/`).
 4. Boot up the Guild Master:
    ```bash
    uv run python src/service/discord_listener.py
