@@ -194,7 +194,50 @@ def main() -> None:  # noqa: C901  # TODO(DT-46): Technical Debt - Refactor to r
         "project_key": os.environ.get("JIRA_PROJECT_KEY") or "",
     }
 
+    # Fallback to local and global JSON configs if env variables are missing
+    local_jira = os.path.join(os.getcwd(), ".agents", "jira.json")
+    if os.path.exists(local_jira):
+        try:
+            with open(local_jira, "r") as f:
+                l_data = json.load(f)
+                jira_config["project_key"] = jira_config["project_key"] or l_data.get(
+                    "projectKey"
+                )
+                jira_config["jira_url"] = jira_config["jira_url"] or l_data.get(
+                    "jira_url"
+                )
+                jira_config["jira_email"] = jira_config["jira_email"] or l_data.get(
+                    "jira_email"
+                )
+        except Exception:
+            pass
+
+    global_jira = os.path.expanduser("~/.gemini/config/jira_config.json")
+    if os.path.exists(global_jira):
+        try:
+            with open(global_jira, "r") as f:
+                g_data = json.load(f)
+                jira_config["jira_url"] = jira_config["jira_url"] or g_data.get(
+                    "jira_url"
+                )
+                jira_config["jira_email"] = jira_config["jira_email"] or g_data.get(
+                    "jira_email"
+                )
+                jira_config["project_key"] = jira_config["project_key"] or g_data.get(
+                    "project_key"
+                )
+        except Exception:
+            pass
+
     token = get_jira_token()
+    if not token and os.path.exists(global_jira):
+        try:
+            with open(global_jira, "r") as f:
+                g_data = json.load(f)
+                token = g_data.get("jira_token") or g_data.get("token")
+        except Exception:
+            pass
+
     if not token:
         print("Error: Jira token not found in environment.", file=sys.stderr)
         sys.exit(1)
@@ -207,7 +250,7 @@ def main() -> None:  # noqa: C901  # TODO(DT-46): Technical Debt - Refactor to r
         or not jira_config.get("project_key")
     ):
         print(
-            "Error: Missing Jira configuration (JIRA_URL, JIRA_EMAIL, or JIRA_PROJECT_KEY). Please set them in your .env file.",
+            "Error: Missing Jira configuration (JIRA_URL, JIRA_EMAIL, or JIRA_PROJECT_KEY). Please set them in your .env file or JSON configs.",
             file=sys.stderr,
         )
         sys.exit(1)

@@ -30,7 +30,7 @@ To achieve Zero Friction Automation, the AI must strictly adhere to the Permissi
   - Before accessing cameras/microphones/special folders, the AI must warn the human that an OS Pop-up will appear.
 * **🟠 Tier 2: Team Protocol (Destructive Actions)**
   - Destructive commands (`rm -rf`, `drop db`) **MUST NOT be executed immediately**.
-  - Must be listed in a Markdown table and passed to the `ask_boss.py` script to wait for the Boss to react with 👍 / 👎 on Discord.
+  - Must be listed in a Markdown table and passed to the Discord channel using **The Silent Wait Protocol** to wait for the Boss to react with 👍 / 👎.
 * **🔴 Tier 3: OS Elevation (Strictly Forbidden)**
   - The `sudo` command is strictly forbidden for AI. AI should write a separate script for the human to execute manually.
 
@@ -51,7 +51,7 @@ We employ an advanced Agentic SDLC, relying on two SSOT points:
 ### 3.3 Git Protocol & PR Gates
 1. Always create a Feature Branch (never push directly to `main`).
 2. When finished, open a Pull Request (PR).
-3. **Merge Authorization:** AI can merge code ONLY IF it calls `ask_boss.py` to request permission from the Boss via Discord and receives a 👍!
+3. **Merge Authorization:** AI can merge code ONLY IF it uses **The Silent Wait Protocol** to request permission from the Boss via Discord and receives a 👍!
 
 ---
 
@@ -66,7 +66,7 @@ For Devs and Tech Leads, these are the primary commands to issue to Agents:
 
 ## 💻 5. Installation & Setup
 1. **Pre-requisites:** Python 3.8+, `uv` (Package Manager), and Git.
-2. **Setup Env:** Copy `sandbox.env.template` (if available) to `.env` and configure Discord Token / Jira Token.
+2. **Setup Env:** Use `drunken-register` to generate JSON configuration (`.agents/discord_config.json`, `.agents/jira.json`).
 3. **Running the Guild:**
    - Run the Discord Bot: `uv run python src/service/discord_listener.py`
    - Run the Dashboard: Open `dashboard/index.html` to view status.

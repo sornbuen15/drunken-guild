@@ -40,7 +40,41 @@ def load_dotenv() -> None:
 
 def get_jira_token() -> Optional[str]:
     load_dotenv()
-    return os.environ.get("JIRA_TOKEN")
+    token = os.environ.get("JIRA_TOKEN")
+
+    global_jira = os.path.expanduser("~/.gemini/config/jira_config.json")
+    if not token and os.path.exists(global_jira):
+        try:
+            with open(global_jira, "r") as f:
+                g_data = json.load(f)
+                token = g_data.get("jira_token") or g_data.get("token")
+        except Exception:
+            pass
+
+    return token
+
+
+def get_jira_email() -> Optional[str]:
+    load_dotenv()
+    email = os.environ.get("CONFLUENCE_EMAIL") or os.environ.get("JIRA_EMAIL")
+
+    local_jira = os.path.join(os.getcwd(), ".agents", "jira.json")
+    if not email and os.path.exists(local_jira):
+        try:
+            with open(local_jira, "r") as f:
+                email = json.load(f).get("jira_email")
+        except Exception:
+            pass
+
+    global_jira = os.path.expanduser("~/.gemini/config/jira_config.json")
+    if not email and os.path.exists(global_jira):
+        try:
+            with open(global_jira, "r") as f:
+                email = json.load(f).get("jira_email")
+        except Exception:
+            pass
+
+    return email
 
 
 def make_request(
@@ -51,10 +85,11 @@ def make_request(
     token: Optional[str] = None,
 ) -> Dict[str, Any]:
     if not email:
-        email = os.environ.get("CONFLUENCE_EMAIL") or os.environ.get("JIRA_EMAIL")
+        email = get_jira_email()
     if not email:
         print(
-            "Error: CONFLUENCE_EMAIL environment variable is not set.", file=sys.stderr
+            "Error: CONFLUENCE_EMAIL environment variable is not set and could not be found in config JSON files.",
+            file=sys.stderr,
         )
         sys.exit(1)
 

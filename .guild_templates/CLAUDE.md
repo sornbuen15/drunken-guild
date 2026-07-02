@@ -12,7 +12,7 @@ You are part of an AI Guild Platform.
 
 ## 2. Guardrails (Safety & Approvals)
 - **Destructive Operations:** You are strictly forbidden from running destructive shell commands (like `rm -rf`) without explicit Boss approval.
-- If you need to delete files or if you encounter a blocked state, run `python3 scripts/ask_boss.py "Your Question Here"` to send an approval request to Discord. Block and wait for exit code `0` before proceeding.
+- If you need to delete files or if you encounter a blocked state, you MUST use **The Silent Wait Protocol**: Write your question to `.agents/discord_outbox.json` using `write_to_file`, use `schedule` tool, and END YOUR TURN. Do NOT use `run_command` for approvals!
 
 ## 3. Code Quality (100% Quality)
 - **Zero-Defect:** Run `pytest` and ensure tests cover exceptions/errors, not just happy paths.

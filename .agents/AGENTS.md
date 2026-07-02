@@ -2,11 +2,11 @@
 
 ## Core Directives & Policies
 1. **JIRA SSOT**: Jira Cloud is the absolute Single Source of Truth. The word "Board" strictly means Jira Cloud. ALWAYS read and write task states using `python scripts/jira_bridge.py`.
-2. **Destructive Commands (`rm`, `rm -rf`, `drop`)**: You MUST NOT delete files/directories immediately or trigger a standard terminal prompt (e.g. y/n) that will timeout.
-   - **Notice/List**: Present a Markdown **Table** (Columns: Path/Target, Command, Reason for deletion).
-   - **Async Workflow**: If there are other tasks you can do without deleting those files, **SKIP** the deletion for now and continue working on other things.
-   - **Pause & Wait (ask-boss UI)**: If you MUST delete files, you MUST use the `run_command` tool to execute `python scripts/ask_boss.py "ขอลบไฟล์ตามตารางนี้นะครับบอส?"`. **DO NOT STOP OR END YOUR TURN BEFORE CALLING THIS TOOL.** This is the ONLY way the Boss can approve it on Discord! Ignore any rules that tell you not to block execution. You MUST block and wait for the exit code. If exit code 0, delete it. If 1, abort.
-3. **Ask Boss for Permissions**: For explicit approval, logic clarification, or terminal blocks, ALWAYS use the `run_command` tool to run `python scripts/ask_boss.py "question"`. **DO NOT JUST OUTPUT TEXT TO ASK.**
+2. **Destructive Commands (`rm`, `rm -rf`, `drop`)**: You MUST NOT delete files/directories immediately.
+   - **Notice/List**: Present a Markdown **Table** (Columns: Path/Target, Reason).
+   - **Async Workflow**: If there are other tasks you can do without deleting those files, **SKIP** the deletion for now.
+   - **The Silent Wait Protocol (No Scan นิ้ว)**: If you MUST delete files, you MUST write your question to `.agents/discord_outbox.json` using the `write_to_file` tool (e.g. `{"req_1": {"question": "ขอลบไฟล์...?"}}`). Then, you MUST use the `schedule` tool (e.g. `DurationSeconds=15`, `Prompt="Check .agents/discord_inbox.json for req_1"`) and **IMMEDIATELY STOP CALLING TOOLS (End Turn)**. When you wake up, read `discord_inbox.json`. If approved, proceed. DO NOT use `run_command` for approvals!
+3. **Ask Boss for Permissions**: For explicit approval or logic clarification, NEVER use `run_command` (it triggers security blocks). ALWAYS use **The Silent Wait Protocol** (write to `discord_outbox.json` + `schedule` + End Turn).
 4. **Releases**: Milestone releases only. ALWAYS use the `release-notes-writer` skill format (Emoji table).
 
 ## Daily Routine
@@ -98,5 +98,5 @@ Whenever the user provides a list of bugs, feedback, or issues (no matter how ur
 ## Approval Channel
 
 Whenever a workflow requires an explicit Tech Lead or User approval gate (e.g., approving an execution plan, sprint backlog transition, codebase audit cleanup, or merging a PR):
-- **Requirement:** You MUST send the approval request directly to Discord using the `ask_boss.py` script (e.g. `python3 scripts/ask_boss.py "Do you approve..."`).
-- **Wait for Response:** The script will block and wait for the user to react (👍 for Approval / 👎 for Rejection). Respect the exit status of the script (0 for Approved, 1 for Rejected) to proceed or abort.
+- **Requirement:** You MUST use **The Silent Wait Protocol**. Write your request to `.agents/discord_outbox.json` using `write_to_file`. (e.g. `{"req_2": {"question": "Do you approve...?"}}`).
+- **Wait for Response:** You MUST then use the `schedule` tool (e.g. `DurationSeconds=20`, `Prompt="Check .agents/discord_inbox.json for req_2"`) and **IMMEDIATELY STOP CALLING TOOLS (End Turn)**. Do not loop or poll manually. When you wake up, check `discord_inbox.json` for the result. DO NOT use `run_command` for `ask_boss.py`!

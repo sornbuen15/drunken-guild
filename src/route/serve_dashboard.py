@@ -12,52 +12,55 @@ from threading import Timer
 from typing import Any
 
 from core.registry import ProjectRegistry
+from service.discord_utils import (
+    load_dotenv,
+    query_gemini_direct,
+)
+
+# Call load_dotenv() before reading any env vars
+load_dotenv()
 
 
-def load_dotenv() -> None:
-    # Look for .env in current directory or parent directories
-    curr_dir = os.getcwd()
-    while True:
-        dotenv_path = os.path.join(curr_dir, ".env")
-        if os.path.exists(dotenv_path):
+def _get_discord_credentials(project_path: str) -> tuple[str | None, str | None]:
+    bot_token, channel_id = None, None
+    env_path = os.path.join(project_path, ".env")
+    if os.path.exists(env_path):
+        try:
+            with open(env_path, "r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if line.startswith("DISCORD_BOT_TOKEN="):
+                        bot_token = line.split("=", 1)[1].strip().strip('"').strip("'")
+                    elif line.startswith("DISCORD_CHANNEL_ID="):
+                        channel_id = line.split("=", 1)[1].strip().strip('"').strip("'")
+        except Exception:
+            pass
+    if not bot_token or not channel_id:
+        config_path = os.path.join(project_path, ".agents", "discord_config.json")
+        if os.path.exists(config_path):
             try:
-                with open(dotenv_path, "r", encoding="utf-8") as f:
-                    for line in f:
-                        line = line.strip()
-                        if not line or line.startswith("#"):
-                            continue
-                        if "=" in line:
-                            key, val = line.split("=", 1)
-                            key = key.strip()
-                            val = val.strip().strip('"').strip("'")
-                            if key and key not in os.environ:
-                                os.environ[key] = val
-            except Exception as e:
-                print(f"Warning: Failed to load .env file: {e}", file=sys.stderr)
-            break
-        parent = os.path.dirname(curr_dir)
-        if parent == curr_dir:
-            break
-        curr_dir = parent
+                with open(config_path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                    bot_token = bot_token or data.get("bot_token")
+                    channel_id = channel_id or data.get("channel_id")
+            except Exception:
+                pass
+    return bot_token, channel_id
 
 
 def send_to_discord(project_path: str, user_msg: str, bot_msg: str) -> None:
-    env_path = os.path.join(project_path, ".env")
-    if not os.path.exists(env_path):
-        return
+    bot_token, channel_id = _get_discord_credentials(project_path)
 
-    bot_token = None
-    channel_id = None
-    try:
-        with open(env_path, "r", encoding="utf-8") as f:
-            for line in f:
-                line = line.strip()
-                if line.startswith("DISCORD_BOT_TOKEN="):
-                    bot_token = line.split("=", 1)[1].strip().strip('"').strip("'")
-                elif line.startswith("DISCORD_CHANNEL_ID="):
-                    channel_id = line.split("=", 1)[1].strip().strip('"').strip("'")
-    except Exception:
-        pass
+    if not bot_token or not channel_id:
+        config_path = os.path.join(project_path, ".agents", "discord_config.json")
+        if os.path.exists(config_path):
+            try:
+                with open(config_path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                    bot_token = bot_token or data.get("bot_token")
+                    channel_id = channel_id or data.get("channel_id")
+            except Exception:
+                pass
 
     if bot_token and channel_id:
         url = f"https://discord.com/api/v10/channels/{channel_id}/messages"
@@ -142,91 +145,9 @@ AGENTS_METADATA = {
 }
 
 
-def query_gemini_direct(
-    prompt: str, system_instruction: str | None = None
-) -> str | None:
-    api_key = os.environ.get("GEMINI_API_KEY")
-    if not api_key:
-        return None
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={api_key}"
-    headers = {"Content-Type": "application/json"}
-
-    contents = [{"parts": [{"text": prompt}]}]
-    data = {
-        "contents": contents,
-        "generationConfig": {"maxOutputTokens": 400, "temperature": 0.7},
-    }
-
-    if system_instruction:
-        data["systemInstruction"] = {"parts": [{"text": system_instruction}]}
-
-    try:
-        req = urllib.request.Request(
-            url, data=json.dumps(data).encode("utf-8"), headers=headers, method="POST"
-        )
-        with urllib.request.urlopen(req, timeout=10) as response:
-            res_data = json.loads(response.read().decode("utf-8"))
-            return str(res_data["candidates"][0]["content"]["parts"][0]["text"].strip())
-    except Exception as e:
-        print(f"Direct API call error: {e}", file=sys.stderr)
-        return None
-
-
-def extract_clean_response(log_content: str) -> str:
-    lines = log_content.split("\n")
-    cleaned_lines = []
-    in_thinking = False
-
-    for line in lines:
-        stripped = line.strip()
-
-        # Track thinking tags
-        if stripped == "<thinking>":
-            in_thinking = True
-            continue
-        if stripped == "</thinking>":
-            in_thinking = False
-            continue
-        if in_thinking:
-            continue
-
-        # Filter out system logs or tool output marker lines
-        if (
-            stripped.startswith("I will ")
-            or stripped.startswith("I'm checking ")
-            or stripped.startswith("I'm initializing ")
-            or stripped.startswith("I am initializing ")
-            or stripped.startswith("Executing command: ")
-            or stripped.startswith("Running command: ")
-            or stripped.startswith("[System]")
-            or stripped.startswith("[Warning]")
-            or stripped.startswith("Warning:")
-            or stripped.startswith("[Info]")
-        ):
-            continue
-
-        cleaned_lines.append(line)
-
-    # Clean up consecutive blank lines
-    result_lines = []
-    prev_blank = False
-    for line in "\n".join(cleaned_lines).strip().split("\n"):
-        if not line.strip():
-            if not prev_blank:
-                result_lines.append(line)
-                prev_blank = True
-        else:
-            result_lines.append(line)
-            prev_blank = False
-
-    return "\n".join(result_lines).strip()
-
-
 PORT = int(os.environ.get("PORT", 8081))
 DIRECTORY = os.path.join(
-    os.path.dirname(
-        os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    ),
+    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
     "dashboard",
 )
 
@@ -266,11 +187,8 @@ def start_discord_listener_for_project(project_id: str, project_path: str) -> bo
     if pid is not None:
         return True
 
-    script_path = os.path.join(
-        project_path, ".agents", "scripts", "discord_listener.py"
-    )
-    if not os.path.exists(script_path):
-        script_path = os.path.join(project_path, "scripts", "discord_listener.py")
+    # Resolve path to the real discord_listener.py
+    script_path = os.path.join(project_path, "src", "service", "discord_listener.py")
 
     if not os.path.exists(script_path):
         return False
@@ -291,7 +209,10 @@ def start_discord_listener_for_project(project_id: str, project_path: str) -> bo
                 f"[*] Starting Discord listener using global binary: {listen_cmd} in {project_path}"
             )
             p = subprocess.Popen(
-                [listen_cmd], cwd=project_path, stdout=log_file, stderr=log_file
+                [listen_cmd],
+                cwd=project_path,
+                stdout=sys.stdout,
+                stderr=subprocess.STDOUT,
             )
         else:
             print(f"[*] Starting Discord listener using fallback script: {script_path}")
@@ -299,7 +220,7 @@ def start_discord_listener_for_project(project_id: str, project_path: str) -> bo
                 [sys.executable, script_path],
                 cwd=project_path,
                 stdout=log_file,
-                stderr=log_file,
+                stderr=subprocess.STDOUT,
             )
         discord_processes[project_id] = p
         return True
@@ -565,7 +486,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             )
         else:
             self.send_error_response(
-                "discord_listener.py not found in project scripts. Please run sync first."
+                "discord_listener not found. Please run drunken-listen or ensure the project is installed."
             )
 
     def handle_post_discord_stop(self, payload: dict[str, Any]) -> None:
@@ -635,6 +556,14 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             return
 
         api_key = os.environ.get("GEMINI_API_KEY")
+        if not api_key:
+            global_gemini = os.path.expanduser("~/.gemini/config/gemini_config.json")
+            if os.path.exists(global_gemini):
+                try:
+                    with open(global_gemini, "r") as f:
+                        api_key = json.load(f).get("gemini_api_key")
+                except Exception:
+                    pass
         response_text = None
 
         if api_key:

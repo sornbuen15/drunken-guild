@@ -1,28 +1,32 @@
 ---
 name: "ask-boss"
-description: "Actively asks the Boss for permission or clarification via Discord, blocking execution until the Boss reacts with 👍 (approve) or 👎 (reject)."
+description: "Actively asks the Boss for permission or clarification via Discord using the Silent Wait Protocol."
 ---
 
 # Skill: Ask Boss for Permission / Clarification
-**Version:** 1.0.0
+**Version:** 2.0.0
 
 ## When to use:
-- You are about to run a potentially dangerous command but want explicit approval that isn't covered by the system UI.
+- You are about to run a potentially dangerous command but want explicit approval.
 - You are blocked by a permission error and need the Boss to take action.
 - You have an architectural doubt and need a quick Yes/No from the Boss.
 
-## How to use:
-Run the `scripts/ask_boss.py` script via `run_command`:
-```bash
-python scripts/ask_boss.py "Boss, I want to run 'npm run destroy'. Do you approve?"
-```
+## How to use (The Silent Wait Protocol):
+DO NOT use `ask_boss.py`. Instead, follow these exact steps:
+
+1. Write your question to `.agents/discord_outbox.json` using the `write_to_file` tool.
+   Example content:
+   ```json
+   {
+     "req_123": {
+       "question": "Boss, I want to run 'npm run destroy'. Do you approve?"
+     }
+   }
+   ```
+2. Use the `schedule` tool to wait for the Boss's answer in `.agents/discord_inbox.json`. (Set `Prompt` to something like "Check .agents/discord_inbox.json for req_123").
+3. **IMMEDIATELY STOP CALLING TOOLS (End Turn)**. Do not loop or poll manually.
 
 ## Behavior:
-- The script will send a Discord message with your question and add 👍 and 👎 reactions.
-- The script will **block execution** and wait.
-- If the Boss clicks 👍, the script exits with code `0`. You may proceed.
-- If the Boss clicks 👎, the script exits with code `1`. You must abort the action.
-
-## Rules:
-- Do not use this for every tiny file permission if `run_command` can handle it naturally.
-- Use this when working in the Terminal and you need the Boss's attention immediately on Discord.
+- The system will read your Outbox and send a Discord message with your question.
+- When the Boss reacts (👍/👎), it will write the result to the Inbox.
+- Your scheduled timer will wake you up, and you can check the Inbox for the Boss's decision.

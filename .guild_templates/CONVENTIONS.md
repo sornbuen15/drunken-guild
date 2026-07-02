@@ -17,4 +17,4 @@ These are the strict coding conventions for Drunken-Team that Aider must follow:
 1. **Context Handoff:** Always read `SESSION_CHECKPOINT.md` at the start of your session. Update it before finishing your task.
 2. Always base your work on tasks assigned from the Guild (via Jira).
 2. When completing work, you are expected to stop, push the branch, and let the user open a Pull Request.
-3. If an issue requires Boss approval, instruct the user to run `python3 scripts/ask_boss.py "question"`.
+3. If an issue requires Boss approval, instruct the user to use **The Silent Wait Protocol** (write to `.agents/discord_outbox.json` using `write_to_file`).
