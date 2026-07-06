@@ -1,11 +1,34 @@
 #!/usr/bin/env python3
+import json
 import os
 import sys
-import json
-import subprocess
+from typing import Optional
 
 
-def find_config(filename):
+def load_dotenv() -> None:
+    curr_dir = os.getcwd()
+    dotenv_path = os.path.join(curr_dir, ".env")
+    if os.path.exists(dotenv_path):
+        try:
+            with open(dotenv_path, "r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line or line.startswith("#"):
+                        continue
+                    if "=" in line:
+                        key, val = line.split("=", 1)
+                        key = key.strip()
+                        val = val.strip().strip('"').strip("'")
+                        if key and key not in os.environ:
+                            os.environ[key] = val
+        except Exception:
+            pass
+
+
+load_dotenv()
+
+
+def find_config(filename: str) -> Optional[str]:
     curr_dir = os.getcwd()
     while True:
         path = os.path.join(curr_dir, ".agents", filename)
@@ -18,23 +41,20 @@ def find_config(filename):
     return None
 
 
-def main():
+def main() -> None:  # noqa: C901  # TODO(DT-46): Technical Debt - Refactor to reduce McCabe complexity
     print("====================================================")
-    print("🔑 Drunken Team Inn Environment Setup & Biometric Auth")
+    print("🔑 Drunken Team Inn Environment Setup")
     print("====================================================")
-    print("[*] Boss, I am performing Biometric authentication via 1Password CLI...")
-    print(
-        "[*] ...to unlock and fetch the required credentials to compile your local .env"
-    )
+    print("[*] Boss, I am fetching the required credentials to compile your local .env")
     print("----------------------------------------------------")
 
     # Load config template details (defaults to empty/generic)
-    jira_email = ""
-    jira_url = ""
-    project_key = ""
-    discord_channel_id = ""
-    jira_token = None
-    discord_token = None
+    jira_email = os.environ.get("JIRA_EMAIL") or ""
+    jira_url = os.environ.get("JIRA_URL") or ""
+    project_key = os.environ.get("JIRA_PROJECT_KEY") or ""
+    discord_channel_id = os.environ.get("DISCORD_CHANNEL_ID") or ""
+    jira_token = os.environ.get("JIRA_TOKEN") or None
+    discord_token = os.environ.get("DISCORD_BOT_TOKEN") or None
     gemini_api_key = os.environ.get("GEMINI_API_KEY") or ""
 
     # Try reading existing local configs to preserve details
@@ -99,70 +119,25 @@ def main():
     if not discord_channel_id:
         discord_channel_id = input("[?] Enter Discord Channel ID: ").strip()
 
-    # Always attempt to pull from 1Password CLI as biometric check
-    print(
-        "[*] Verifying biometric authentication (Touch ID / Passkey) via 1Password..."
-    )
-    # Target the correct reference format: op://Personal/Jira/credential
-    JIRA_PASS_URIS = (
-        os.environ.get("JIRA_PASS_URIS", "").split(",")
-        if os.environ.get("JIRA_PASS_URIS")
-        else [
-            "op://Personal/Jira/credential",
-            "op://Private/Jira/credential",
-            "op://Personal/Jira/password",
-            "op://Private/Jira/password",
-        ]
-    )
+    if not jira_token:
+        jira_token = input("[?] Enter JIRA API Token: ").strip()
+        if not jira_token:
+            print("[-] Error: No JIRA token provided.", file=sys.stderr)
+            sys.exit(1)
 
-    op_success = False
-    for uri in JIRA_PASS_URIS:
-        try:
-            print(f"[*] Trying to fetch: {uri} (Scan fingerprint if prompted)...")
-            res = subprocess.run(
-                ["op", "read", uri],
-                capture_output=True,
-                text=True,
-                check=True,
-                timeout=30,
-            )
-            fetched_token = res.stdout.strip()
-            if fetched_token:
-                jira_token = fetched_token
-                op_success = True
-                print(f"[+] Successfully fetched Jira Token from 1Password ({uri})!")
-
-                # Cache the token directly to the global config!
-                global_config_path = os.path.expanduser(
-                    "~/.gemini/config/jira_config.json"
-                )
-                try:
-                    os.makedirs(os.path.dirname(global_config_path), exist_ok=True)
-                    existing_data = {}
-                    if os.path.exists(global_config_path):
-                        with open(global_config_path, "r") as f:
-                            existing_data = json.load(f)
-                    existing_data["jira_token"] = jira_token
-                    with open(global_config_path, "w") as f:
-                        json.dump(existing_data, f, indent=2)
-                    print("[+] Saved 1Password token to Global Config automatically.")
-                except Exception as e:
-                    print(f"Warning: Could not save to global config: {e}")
-
-                break
-        except Exception:
-            continue
-
-    if not op_success:
-        if jira_token:
+    if not discord_token:
+        discord_token = input("[?] Enter Discord Bot Token: ").strip()
+        if not discord_token:
             print(
-                "[!] Failed to communicate with 1Password CLI. Falling back to the existing JIRA token from local config."
-            )
-        else:
-            print(
-                "[-] Error: Failed biometric check and no token found in 1Password or local config, Boss.",
+                "[-] Warning: No Discord Bot token provided. Discord integration may fail.",
                 file=sys.stderr,
             )
+
+    if not gemini_api_key:
+        print("[!] GEMINI_API_KEY is required to bypass Keychain/1Password.")
+        gemini_api_key = input("[?] Enter GEMINI API KEY (AI Studio): ").strip()
+        if not gemini_api_key:
+            print("[-] Error: No GEMINI API KEY provided.", file=sys.stderr)
             sys.exit(1)
 
     # Write to .env

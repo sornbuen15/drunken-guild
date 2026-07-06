@@ -164,3 +164,4 @@ client_secret*.json
 
 # Docker simulation config (local test only, do not commit)
 Dockerfile
+scratch_*.py

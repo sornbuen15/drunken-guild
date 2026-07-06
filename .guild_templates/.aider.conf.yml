@@ -1,0 +1,15 @@
+# Drunken-Team Aider Configuration
+# Copy this to the root of your project as `.aider.conf.yml`
+
+# Load Drunken-Team conventions
+conventions:
+  - .guild_templates/CONVENTIONS.md
+
+# Auto-commit configurations
+auto-commits: true
+
+# Use dark mode
+dark-mode: true
+
+# Check for updates
+check-update: false
