@@ -40,7 +40,7 @@ sys.exit(0)
 """
 
 
-def main():
+def main() -> None:
     git_dir = os.path.join(os.getcwd(), ".git")
     if not os.path.isdir(git_dir):
         print(

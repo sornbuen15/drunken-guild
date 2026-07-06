@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import sys
-from drunken_team.routes.serve_dashboard import main
+
+from service.discord_listener import main
 
 if __name__ == "__main__":
     sys.exit(main())

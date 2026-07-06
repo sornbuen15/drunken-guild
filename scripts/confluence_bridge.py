@@ -1,18 +1,19 @@
 #!/usr/bin/env python3
+import base64
+import json
 import os
 import re
 import sys
-import json
-import urllib.request
 import urllib.parse
-import base64
+import urllib.request
+from typing import Any, Dict, Optional
 
 SPACE_KEY = "D"
 SPACE_ID = "2031618"
 HOMEPAGE_ID = "2031725"
 
 
-def load_dotenv():
+def load_dotenv() -> None:
     curr_dir = os.getcwd()
     while True:
         dotenv_path = os.path.join(curr_dir, ".env")
@@ -37,17 +38,58 @@ def load_dotenv():
         curr_dir = parent
 
 
-def get_jira_token():
+def get_jira_token() -> Optional[str]:
     load_dotenv()
-    return os.environ.get("JIRA_TOKEN")
+    token = os.environ.get("JIRA_TOKEN")
+
+    global_jira = os.path.expanduser("~/.gemini/config/jira_config.json")
+    if not token and os.path.exists(global_jira):
+        try:
+            with open(global_jira, "r") as f:
+                g_data = json.load(f)
+                token = g_data.get("jira_token") or g_data.get("token")
+        except Exception:
+            pass
+
+    return token
 
 
-def make_request(url, method="GET", payload=None, email=None, token=None):
+def get_jira_email() -> Optional[str]:
+    load_dotenv()
+    email = os.environ.get("CONFLUENCE_EMAIL") or os.environ.get("JIRA_EMAIL")
+
+    local_jira = os.path.join(os.getcwd(), ".agents", "jira.json")
+    if not email and os.path.exists(local_jira):
+        try:
+            with open(local_jira, "r") as f:
+                email = json.load(f).get("jira_email")
+        except Exception:
+            pass
+
+    global_jira = os.path.expanduser("~/.gemini/config/jira_config.json")
+    if not email and os.path.exists(global_jira):
+        try:
+            with open(global_jira, "r") as f:
+                email = json.load(f).get("jira_email")
+        except Exception:
+            pass
+
+    return email
+
+
+def make_request(
+    url: str,
+    method: str = "GET",
+    payload: Optional[Dict[str, Any]] = None,
+    email: Optional[str] = None,
+    token: Optional[str] = None,
+) -> Dict[str, Any]:
     if not email:
-        email = os.environ.get("CONFLUENCE_EMAIL") or os.environ.get("JIRA_EMAIL")
+        email = get_jira_email()
     if not email:
         print(
-            "Error: CONFLUENCE_EMAIL environment variable is not set.", file=sys.stderr
+            "Error: CONFLUENCE_EMAIL environment variable is not set and could not be found in config JSON files.",
+            file=sys.stderr,
         )
         sys.exit(1)
 
@@ -67,7 +109,7 @@ def make_request(url, method="GET", payload=None, email=None, token=None):
         data = json.dumps(payload).encode("utf-8") if payload else None
         with urllib.request.urlopen(req, data=data, timeout=20) as response:
             res_body = response.read().decode("utf-8")
-            return json.loads(res_body) if res_body else {}
+            return dict(json.loads(res_body)) if res_body else {}
     except urllib.error.HTTPError as e:
         print(f"HTTP Error {e.code}: {e.reason}", file=sys.stderr)
         print(e.read().decode("utf-8"), file=sys.stderr)
@@ -77,7 +119,7 @@ def make_request(url, method="GET", payload=None, email=None, token=None):
         sys.exit(1)
 
 
-def inline_formatting(text):
+def inline_formatting(text: str) -> str:
     # Escape HTML special chars
     text = text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
     # Bold **text** or __text__
@@ -91,7 +133,7 @@ def inline_formatting(text):
     return text
 
 
-def markdown_to_html(md_text):
+def markdown_to_html(md_text: str) -> str:  # noqa: C901  # TODO(DT-46): Technical Debt - Refactor to reduce McCabe complexity
     html_lines = []
     lines = md_text.split("\n")
 
@@ -215,7 +257,7 @@ def markdown_to_html(md_text):
     return "\n".join(html_lines)
 
 
-def get_page_by_title(title, token):
+def get_page_by_title(title: str, token: str) -> Optional[Dict[str, Any]]:
     title_quoted = urllib.parse.quote(title)
     url = f"https://sornbuen15.atlassian.net/wiki/api/v2/spaces/{SPACE_ID}/pages?title={title_quoted}"
     res = make_request(url, token=token)
@@ -223,7 +265,9 @@ def get_page_by_title(title, token):
     return results[0] if results else None
 
 
-def create_page(title, body_html, parent_id, token):
+def create_page(
+    title: str, body_html: str, parent_id: Optional[str], token: str
+) -> Dict[str, Any]:
     payload = {
         "spaceId": SPACE_ID,
         "status": "current",
@@ -235,7 +279,9 @@ def create_page(title, body_html, parent_id, token):
     return make_request(url, method="POST", payload=payload, token=token)
 
 
-def update_page(page_id, current_version, title, body_html, token):
+def update_page(
+    page_id: str, current_version: int, title: str, body_html: str, token: str
+) -> Dict[str, Any]:
     payload = {
         "id": page_id,
         "status": "current",
@@ -251,7 +297,7 @@ def update_page(page_id, current_version, title, body_html, token):
     return make_request(url, method="PUT", payload=payload, token=token)
 
 
-def strip_frontmatter(md_content):
+def strip_frontmatter(md_content: str) -> str:
     if md_content.startswith("---"):
         parts = md_content.split("---")
         if len(parts) >= 3:
@@ -259,8 +305,12 @@ def strip_frontmatter(md_content):
     return md_content
 
 
-def push_document(title, file_path, parent_id=None):
+def push_document(title: str, file_path: str, parent_id: Optional[str] = None) -> None:
     token = get_jira_token()
+    if not token:
+        print("Error: Jira token not found.", file=sys.stderr)
+        sys.exit(1)
+
     if not os.path.exists(file_path):
         print(f"Error: Local file '{file_path}' not found.", file=sys.stderr)
         sys.exit(1)
@@ -278,7 +328,7 @@ def push_document(title, file_path, parent_id=None):
     existing_page = get_page_by_title(title, token)
 
     if existing_page:
-        page_id = existing_page.get("id")
+        page_id = str(existing_page.get("id"))
         current_version = existing_page.get("version", {}).get("number", 1)
         print(f"Page exists (ID: {page_id}, Version: {current_version}). Updating...")
         res = update_page(page_id, current_version, title, html_content, token)
@@ -307,7 +357,7 @@ def push_document(title, file_path, parent_id=None):
         )
 
 
-def main():
+def main() -> None:
     if len(sys.argv) < 4 or sys.argv[1] != "push":
         print(
             "Usage: confluence_bridge.py push <title> <file_path> [parent_id]",

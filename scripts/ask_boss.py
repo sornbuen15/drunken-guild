@@ -1,15 +1,13 @@
 #!/usr/bin/env python3
-import time
-
-#!/usr/bin/env python3
+import json
 import os
 import sys
-import json
+import time
 import uuid
-import subprocess
+from typing import Any, Dict
 
 
-def load_dotenv():
+def load_dotenv() -> None:
     # Look for .env in current directory or parent directories
     curr_dir = os.getcwd()
     while True:
@@ -44,38 +42,12 @@ DEFAULT_BOT_TOKEN = None
 DEFAULT_CHANNEL_ID = None
 
 
-def find_config():
-    curr_dir = os.getcwd()
-    while True:
-        config_path = os.path.join(curr_dir, ".agents", "discord_config.json")
-        if os.path.exists(config_path):
-            return config_path
-        parent = os.path.dirname(curr_dir)
-        if parent == curr_dir:
-            break
-        curr_dir = parent
-    return None
-
-
-def save_config(config):
-    config_file = find_config()
-    if not config_file:
-        config_file = os.path.join(os.getcwd(), ".agents", "discord_config.json")
-        os.makedirs(os.path.dirname(config_file), exist_ok=True)
-    try:
-        with open(config_file, "w") as f:
-            json.dump(config, f, indent=2)
-    except Exception as e:
-        print(f"Warning: Failed to save config file: {e}", file=sys.stderr)
-
-
-def load_config():
-    config = {
-        "bot_token": os.environ.get("DISCORD_BOT_TOKEN") or DEFAULT_BOT_TOKEN,
+def load_config() -> Dict[str, Any]:
+    config: Dict[str, Any] = {
+        "bot_token": os.environ.get("DISCORD_BOT_TOKEN"),
         "channel_id": None,
     }
 
-    # Try environment variable for Channel ID first
     env_channel_id = os.environ.get("DISCORD_CHANNEL_ID")
     if env_channel_id:
         try:
@@ -83,56 +55,16 @@ def load_config():
         except ValueError:
             pass
 
-    # Read configuration file first
-    config_file = find_config()
-    if config_file:
-        try:
-            with open(config_file, "r") as f:
-                file_data = json.load(f)
-                if "bot_token" in file_data and file_data["bot_token"]:
-                    config["bot_token"] = file_data["bot_token"]
-                if "channel_id" in file_data and file_data["channel_id"]:
-                    config["channel_id"] = int(file_data["channel_id"])
-        except Exception as e:
-            print(f"Warning: Failed to parse config file: {e}", file=sys.stderr)
-
-    # Try 1Password CLI ONLY if environment and config bot_token is empty
-    if not config["bot_token"] or config["bot_token"] == DEFAULT_BOT_TOKEN:
-        DISCORD_URIS = (
-            os.environ.get("DISCORD_PASS_URIS", "").split(",")
-            if os.environ.get("DISCORD_PASS_URIS")
-            else [
-                "op://Personal/Discord/token",
-                "op://Private/Discord/token",
-                "op://Personal/Discord/credential",
-                "op://Private/Discord/credential",
-            ]
-        )
-        for uri in DISCORD_URIS:
-            try:
-                res = subprocess.run(
-                    ["op", "read", uri],
-                    capture_output=True,
-                    text=True,
-                    check=True,
-                    timeout=30,
-                )
-                token = res.stdout.strip()
-                if token:
-                    config["bot_token"] = token
-                    save_config(
-                        config
-                    )  # Cache it so we don't ask for fingerprint again
-                    break
-            except Exception:
-                continue
-
-    # Fallback to default channel ID if not set
-    if config["channel_id"] is None:
-        config["channel_id"] = DEFAULT_CHANNEL_ID
-
     return config
 
+
+if __name__ == "__main__":
+    print("WARNING: ask_boss.py is DEPRECATED! Do NOT use this script.")
+    print("Instead, use the Silent Wait Protocol:")
+    print("1. Write your question to .agents/discord_outbox.json")
+    print("2. Set a schedule timer and end your turn.")
+    print("This script will now exit with an error.")
+    sys.exit(1)
 
 if len(sys.argv) < 2:
     print("Error: Missing question argument.")

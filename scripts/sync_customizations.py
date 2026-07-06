@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
-import os
-import sys
-import shutil
 import argparse
+import os
+import shutil
+import sys
+from typing import Dict, Optional
 
 
-def get_bootstrap_paths():
+def get_bootstrap_paths() -> Dict[str, str]:
     script_dir = os.path.dirname(os.path.abspath(__file__))
     bootstrap_dir = os.path.dirname(script_dir)
     return {
@@ -16,7 +17,7 @@ def get_bootstrap_paths():
     }
 
 
-def find_workspace_root():
+def find_workspace_root() -> Optional[str]:
     curr_dir = os.getcwd()
     while True:
         agents_dir = os.path.join(curr_dir, ".agents")
@@ -29,7 +30,7 @@ def find_workspace_root():
     return None
 
 
-def sync_dir(src, dst):
+def sync_dir(src: str, dst: str) -> None:  # noqa: C901  # TODO(DT-46): Technical Debt - Refactor to reduce McCabe complexity
     if not os.path.exists(src):
         return
 
@@ -92,7 +93,7 @@ def sync_dir(src, dst):
                 os.chmod(d_item, 0o755)
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(
         description="Sync Antigravity skills, agents, and bridge script."
     )

@@ -12,22 +12,45 @@ license = { text = "MIT" }
 dependencies = [
     "discord.py>=2.0.0",
     "python-dotenv>=0.21.0",
+    "mcp>=1.1.2",
 ]
 
 [project.optional-dependencies]
 dev = [
     "pytest>=7.0.0",
     "pytest-mock>=3.10.0",
+    "pytest-cov>=4.0.0",
     "ruff>=0.1.0",
-    "pre-commit>=3.5.0"
+    "pre-commit>=3.5.0",
+    "mypy>=1.0.0"
 ]
 [project.scripts]
-drunken-setup = "scripts.setup_env:main"
-drunken-dashboard = "scripts.serve_dashboard:main"
-drunken-listen = "scripts.discord_listener:main"
+drunken-dashboard = "route.serve_dashboard:main"
+drunken-listen = "service.discord_listener:main"
 drunken-register = "scripts.register_project:main"
+drunken-mcp = "service.guild_mcp:main"
 
 
 [tool.setuptools]
-packages = ["scripts", "drunken_team", "drunken_team.services", "drunken_team.routes"]
-package-dir = {"drunken_team" = "src/drunken_team"}
+packages = ["scripts", "core", "route", "service"]
+package-dir = {"core" = "src/core", "route" = "src/route", "service" = "src/service"}
+
+[tool.ruff.lint]
+select = ["E", "F", "B", "C90", "I"]
+ignore = ["E501"]
+
+[tool.coverage.run]
+source = ["src"]
+
+[tool.coverage.report]
+
+[tool.ruff.lint.mccabe]
+max-complexity = 10
+
+[tool.pytest.ini_options]
+addopts = "--cov=core --cov=route --cov=service --cov-report=term-missing --cov-fail-under=18"
+testpaths = ["tests"]
+
+[tool.mypy]
+strict = true
+ignore_missing_imports = true
