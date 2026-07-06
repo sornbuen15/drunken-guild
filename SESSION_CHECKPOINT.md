@@ -18,6 +18,8 @@ This file acts as the short-term memory and context handoff between AI coding se
 - **Executed Plan v2:** Implemented the Outbox/Inbox watcher inside the Discord Bot to facilitate the "Silent Wait Protocol".
 - Tested the full End-to-End Remote Control loop: Agent asks for permission (Outbox) -> Discord Bot sends to Boss -> Boss reacts (👍) -> Bot writes Inbox -> Agent resumes.
 - Extended test coverage to reach 88% for `discord_listener.py`.
+- **Security & Workflow:** Resolved 1Password CLI frequent popup issue. Replaced `op run` in MCP config files with an `op inject` template mechanism (`~/.secrets.env.tpl`). Secrets are now injected securely into the terminal session memory via `~/.zshrc` without touching disk, ensuring a zero-trust workflow without annoying constant biometric prompts.
+
 
 ## 3. Pending / Next Steps
 - Finalize Jira JQL Builder logic.
