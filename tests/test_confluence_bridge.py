@@ -1,7 +1,7 @@
 from scripts.confluence_bridge import strip_frontmatter
 
 
-def test_strip_frontmatter():
+def test_strip_frontmatter() -> None:
     markdown_with_frontmatter = """---
 title: "My Doc"
 date: "2024-01-01"

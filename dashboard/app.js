@@ -915,17 +915,30 @@ document.addEventListener('DOMContentLoaded', () => {
                         descText = b.description || 'No description available.';
                     }
 
+                    const escapeHTML = (str) => {
+                        if (!str) return '';
+                        return String(str).replace(/[&<>'"]/g,
+                            tag => ({
+                                '&': '&amp;',
+                                '<': '&lt;',
+                                '>': '&gt;',
+                                "'": '&#39;',
+                                '"': '&quot;'
+                            }[tag] || tag)
+                        );
+                    };
+
                     card.innerHTML = `
                         <div class="bounty-pin"></div>
                         <div class="bounty-id">
-                            <span>QUEST: ${b.key}</span>
-                            <span>Rank: ${b.priority || 'Normal'}</span>
+                            <span>QUEST: ${escapeHTML(b.key)}</span>
+                            <span>Rank: ${escapeHTML(b.priority || 'Normal')}</span>
                         </div>
-                        <div class="bounty-title">${b.summary}</div>
-                        <div class="bounty-desc">${descText}</div>
+                        <div class="bounty-title">${escapeHTML(b.summary)}</div>
+                        <div class="bounty-desc">${escapeHTML(descText)}</div>
                         <div class="bounty-footer">
-                            <span class="bounty-status ${statusClass}">${b.status}</span>
-                            <span class="bounty-assignee">${assigneeStr}</span>
+                            <span class="bounty-status ${escapeHTML(statusClass)}">${escapeHTML(b.status)}</span>
+                            <span class="bounty-assignee">${escapeHTML(assigneeStr)}</span>
                         </div>
                     `;
                     grid.appendChild(card);
