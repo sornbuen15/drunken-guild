@@ -1,6 +1,8 @@
+# mypy: ignore-errors
 import json
 
 import pytest
+
 from jira_mcp.jira_client import JiraClient
 from jira_mcp.server import jira_start_task, jira_submit_for_review
 

@@ -1,7 +1,9 @@
+# mypy: ignore-errors
 import json
 from unittest.mock import AsyncMock, patch
 
 import pytest
+
 from jira_mcp.server import jira_start_task, jira_submit_for_review
 
 

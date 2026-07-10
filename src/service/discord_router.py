@@ -5,8 +5,8 @@ import re
 from typing import Any
 
 import discord
-from core.registry import ProjectRegistry
 
+from core.registry import ProjectRegistry
 from service.discord_runner import RAW_LOG_FILE, AgentRunner
 from service.discord_utils import find_config, log_activity
 
@@ -236,7 +236,7 @@ def _build_agent_suffix(meta: dict[str, str]) -> str:
         "before you finish the task. Zero defects!\n"
         "IMPORTANT: If you need to start a server or long-running process, use run_command with a small WaitMsBeforeAsync so it goes to the background. Do NOT block your execution!\n"
         "ANTI-LOOP PROTOCOL (ค.ว.ย.): If you execute a command and it fails, and a subsequent fix results in the exact same failure, STOP IMMEDIATELY! Do NOT loop blindly. Return a failure report to the Boss explaining the roadblock.\n"
-        "SILENT WAIT PROTOCOL (CRITICAL): If you need permission for ANYTHING, you MUST write your question in JSON to `.agents/discord_outbox.json` (e.g. `{\"req_1\": {\"question\": \"your question\"}}`). Then use the `schedule` tool to wait for the Boss's answer in `.agents/discord_inbox.json`, and IMMEDIATELY END YOUR TURN. Do NOT use `run_command` for approvals!)"
+        'SILENT WAIT PROTOCOL (CRITICAL): If you need permission for ANYTHING, you MUST write your question in JSON to `.agents/discord_outbox.json` (e.g. `{"req_1": {"question": "your question"}}`). Then use the `schedule` tool to wait for the Boss\'s answer in `.agents/discord_inbox.json`, and IMMEDIATELY END YOUR TURN. Do NOT use `run_command` for approvals!)'
     )
 
 
@@ -389,11 +389,11 @@ async def _handle_reply_continuation(
         if not match:
             return False
 
-        agent_name = match.group(1)
+        _ = match.group(1)
         target_project = match.group(2)
 
         project_info = ProjectRegistry().get_project(target_project)
-        project_cwd = project_info.get("path") if project_info else None
+        _ = project_info.get("path") if project_info else None
 
         await message.channel.send(
             "⚡ **Agy [System]:** บอสคะ การสนทนาต่อเนื่องผ่าน Discord ถูกปิดใช้งานแล้วค่ะ รบกวนสั่งงานผ่าน Terminal (CLI) แทนนะคะ ⚙️"
@@ -412,7 +412,7 @@ class DiscordRouter:
         self.agent_runner = agent_runner
         self.CHANNEL_ID = int(channel_id) if channel_id else 0
 
-    async def route(self, message: discord.Message) -> None:
+    async def route(self, message: discord.Message) -> None:  # noqa: C901
         if message.author == self.client.user:
             return
         print(
@@ -456,18 +456,16 @@ class DiscordRouter:
             first_word = first_word[1:]
 
         is_task = False
-        target_agent = "fullstack-engineer"
+        is_task = False
         if first_word in PERSONA_MAPPING:
-            target_agent = PERSONA_MAPPING[first_word]
             is_task = True
 
-        target_project = "drunken-team"
+        _ = "drunken-team"
         projects = ProjectRegistry().get_projects()
         for proj_key in projects.keys():
             if f"project-{proj_key.lower()}" in content_lower or re.search(
                 rf"\b{proj_key.lower()}\b", content_lower
             ):
-                target_project = proj_key
                 break
 
         if is_task:

@@ -38,7 +38,7 @@ def _make_request_sync(
                 error_msg += " " + e.read().decode("utf-8")
             except Exception:
                 pass
-        raise RuntimeError(f"Jira API Request failed: {error_msg}")
+        raise RuntimeError(f"Jira API Request failed: {error_msg}") from None
 
 
 async def make_request(
