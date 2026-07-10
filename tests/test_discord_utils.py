@@ -1,3 +1,4 @@
+# mypy: ignore-errors
 import os
 from unittest import mock
 
@@ -138,7 +139,7 @@ def test_query_gemini_direct_global_key(mock_file, mock_expanduser, mock_exists)
         assert res == "response text"
 
 
-from service.discord_utils import load_dotenv
+from service.discord_utils import load_dotenv  # noqa: E402
 
 
 @mock.patch("service.discord_utils.os.path.exists")

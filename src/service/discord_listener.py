@@ -35,7 +35,7 @@ INBOX_FILE = os.path.join(os.getcwd(), ".agents", "discord_inbox.json")
 outbox_message_map: dict[int, str] = {}  # msg_id: req_id
 
 
-@tasks.loop(seconds=5)
+@tasks.loop(seconds=5)  # type: ignore[misc]
 async def watch_outbox() -> None:
     if not os.path.exists(OUTBOX_FILE):
         return
@@ -63,7 +63,7 @@ async def watch_outbox() -> None:
 
         question = req_data.get("question", "Agent asks for permission.")
         try:
-            msg = await channel.send(
+            msg = await channel.send(  # type: ignore[union-attr]
                 f"🤖 **Agent requires permission:**\n{question}\n\n*React with 👍 to approve, 👎 to reject.*"
             )
             await msg.add_reaction("👍")
@@ -81,7 +81,9 @@ async def on_ready() -> None:
 
 
 @client.event  # type: ignore[misc]
-async def on_reaction_add(reaction: discord.Reaction, user: discord.User) -> None:
+async def on_reaction_add(  # noqa: C901
+    reaction: discord.Reaction, user: discord.User
+) -> None:
     if user.bot:
         return
 

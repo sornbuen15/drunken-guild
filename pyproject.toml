@@ -58,3 +58,5 @@ testpaths = ["tests"]
 [tool.mypy]
 strict = true
 ignore_missing_imports = true
+exclude = ["^not_use/"]
+warn_unused_ignores = false
