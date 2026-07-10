@@ -32,6 +32,7 @@ The ultimate goal of this project is to use **Discord as the universal Remote Co
 - [ ] **Outbox/Inbox Watcher:** Implement a background task inside `drunken-listen` (or a separate worker) to monitor `.agents/discord_outbox.json` and send messages to Discord.
 - [ ] **Reaction Listener:** Implement an event listener in `drunken-listen` to capture Boss's 👍/👎 reactions and write to `.agents/discord_inbox.json`.
 - [ ] **E2E Test:** Run a full test. Boss sends a command -> Agent asks for permission via outbox -> Boss approves via Discord reaction -> Agent resumes work.
+- [ ] **Jira MCP Integration:** Finalize the custom `drunken-jira-mcp` (FastMCP) server located in `src/jira_mcp` and deploy it for the v2 Agent architecture.
 
 ## 💡 4. Conclusion
 By strictly adhering to this architecture, we completely eliminate the need for the Antigravity IDE UI to be visible during Discord operations. The Mac simply acts as the physical server, and Discord becomes the sole Interface for the Boss.

@@ -26,10 +26,8 @@ dev = [
     "mypy>=1.0.0"
 ]
 [project.scripts]
-drunken-dashboard = "route.serve_dashboard:main"
 drunken-listen = "service.discord_listener:main"
 drunken-register = "scripts.register_project:main"
-drunken-mcp = "service.guild_mcp:main"
 drunken-jira-mcp = "jira_mcp.server:main"
 
 
