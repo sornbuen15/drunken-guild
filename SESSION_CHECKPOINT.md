@@ -4,28 +4,25 @@ This file acts as the short-term memory and context handoff between AI coding se
 **AIs must read this file at the start of a session and update it before ending their turn.**
 
 ## 1. Current Objective
-- Build and refine the "AI Guild Platform" for `drunken-team`.
-- Establish Discord as the universal **Remote Control** for Agents, following the headless architecture defined in `Planv2.md`.
+- Realize the fully autonomous, frictionless "Agentic SDLC V2" pipeline for `drunken-team`.
+- Ensure strict Jira (SSOT) workflow adherence: `TODO` -> `IN PROGRESS` -> `IN REVIEW` -> `DONE`.
+- Implement End-to-End automated testing and validation gates involving the Boss (via Discord) and QA agents.
 
 ## 2. Completed in Last Session
-- Restructured documentation (`README.md`, `Drunken-Team-Guide.md`, `Integration-Guide.md`) and translated them to English.
-- Isolated Discord listener `SSH_AUTH_SOCK` issues.
-- Created `guild_mcp.py` using `FastMCP` exposing `get_jira_todo`, `transition_issue`. (Removed `ask_boss` and `request_qa_review` as they violate async architecture).
-- Created standard templates (`.cursorrules`, `CLAUDE.md`, `.aider.conf.yml`, `CONVENTIONS.md`, `SESSION_CHECKPOINT.md`) for Local AI onboarding.
-- Fixed Ruff Config in `pyproject.toml` and cleared Technical Debt (`C901` in `serve_dashboard.py`).
-- Implemented TDD: added `test_guild_mcp.py` utilizing `autospec=True`, boosting test coverage to >25% (Zero-Defect Pipeline).
-- **Architecture Correction:** Clarified that the Discord bot spawns Agents in the background (headless) rather than inside the IDE UI. Created `Planv2.md` to document the exact Remote Control workflow using `discord_outbox.json` / `discord_inbox.json`.
-- **Executed Plan v2:** Implemented the Outbox/Inbox watcher inside the Discord Bot to facilitate the "Silent Wait Protocol".
-- Tested the full End-to-End Remote Control loop: Agent asks for permission (Outbox) -> Discord Bot sends to Boss -> Boss reacts (👍) -> Bot writes Inbox -> Agent resumes.
-- Extended test coverage to reach 88% for `discord_listener.py`.
-- **Security & Workflow:** Resolved 1Password CLI frequent popup issue in headless background processes (MCP Servers). Transitioned from "Human Identity" (biometrics via `.zshrc`) to **"Machine Identity" (Service Account)**. The `OP_SERVICE_ACCOUNT_TOKEN` is securely stored in `~/.op_bot.env` (never pushed to Git) and sourced via `/bin/zsh` inside `mcp_config.json` before calling `op run`. This ensures a true Zero-Trust headless pipeline without compromising global macOS environment memory (`launchctl setenv`), avoiding constant biometric fatigue.
+- **Agentic SDLC V2 Implementation:** Created `src/jira_mcp/server.py` housing robust workflow prompts (`init-project`, `refinement`, `sprint-planning`, `review-retro`) and precise tools (`jira_start_task`, `jira_submit_for_review`).
+- **Real E2E Jira Testing:** Authored `test_jira_e2e.py` interacting with the real Atlassian Cloud API to validate state transitions and data retrieval.
+- **Merge & Branch Management:** Handled branch protection policies and successfully merged Pull Request #49 into `develop` utilizing `--admin` overrides following explicit Boss approval.
+- **Codebase Cleanup:** Conducted a comprehensive audit and moved deprecated/legacy components (`dashboard/`, `src/route/serve_dashboard.py`, `src/service/guild_mcp.py`, `scripts/ask_boss.py`) into the `not_use/` archive. Removed unused entry points from `pyproject.toml`.
+- **Plan Cleanup:** Moved fully executed plan files (`AGENTIC_SDLC_V2.md`, `NEW_PLANV2.md`, `Plan-Jira-Workflow.md`, `Planv2.md`) to `not_use/`.
+- **V2 E2E Gap Analysis:** Authored `V2_E2E_PLAN.md` identifying the need for formal Discord Approval MCP tools, a QA Automation mechanism, and leveraging the global GitHub MCP server for git tasks.
 
-
-## 3. Pending / Next Steps
-- Finalize Jira JQL Builder logic.
-- Extend test coverage for `serve_dashboard.py` to reach 50%.
+## 3. Pending / Next Steps (V2 E2E Plan)
+Next session must pick up the execution order outlined in `V2_E2E_PLAN.md`:
+1. **Phase 1: Discord Approval MCP Tool** - Build a tool so agents can invoke `request_boss_approval(action, reason)` instead of manually manipulating the `.agents/discord_outbox.json` file.
+2. **Phase 2: QA Validation Loop** - Build an autonomous QA mechanism that polls Jira for `IN REVIEW` tasks, uses the **GitHub MCP server** to fetch the PR branch, runs tests, and approves/rejects accordingly.
+3. **Phase 3: E2E Pipeline Script** - Write `tests/test_full_system_e2e.py` to seamlessly validate the entire SDLC lifecycle from Jira injection to GitHub merge.
 
 ## 4. Known Issues & Context
-- Do not push directly to `main` branch. All work goes to `feat/restructure-agents` or other feature branches.
-- `scripts/jira_bridge.py` requires `.env` with JIRA credentials.
-- **UI Expectation:** Background Agents spawned by Discord will NOT display their logs in the active Antigravity IDE UI. This is by design (Headless Remote Control).
+- **GitHub MCP Dependency:** Agents MUST use the globally loaded `github` MCP server for all source control tasks (`create_branch`, `create_pull_request`, `merge_pull_request`, etc.). Do NOT rely on raw bash scripts or terminal `git` commands.
+- **Branch Strategy:** `develop` is the active target. `feature/*` branches are used for work. Merges to `main`/`master` must be strictly requested by the Boss.
+- **Technical Debt:** Un-typed decorators from the `mcp` library require `# type: ignore[misc]`. A Jira ticket (`DT-65`) tracks this technical debt.
