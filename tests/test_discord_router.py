@@ -1,7 +1,9 @@
+# mypy: ignore-errors
 from unittest import mock
 
 import discord
 import pytest
+
 from service.discord_router import (
     DiscordRouter,
     _build_agent_suffix,
@@ -61,7 +63,7 @@ async def test_handle_slash_command(mock_mtime, mock_glob):
 
     # /help
     await _handle_slash_command(runner, msg, "/help")
-    assert "How to order quests" in msg.channel.send.call_args[0][0]
+    assert "Agy, your system router, welcomes you" in msg.channel.send.call_args[0][0]
 
     # /status IDLE
     await _handle_slash_command(runner, msg, "/status")
@@ -100,7 +102,8 @@ async def test_handle_slash_command(mock_mtime, mock_glob):
     # other slash cmd
     runner.run_command_async = mock.AsyncMock()
     await _handle_slash_command(runner, msg, "/refine")
-    runner.run_command_async.assert_called_once()
+    runner.run_command_async.assert_not_called()
+    assert "ถูกปิดใช้งาน" in msg.channel.send.call_args[0][0]
 
 
 def test_parse_router_response():
@@ -114,7 +117,7 @@ def test_parse_router_response():
 
     # Exceptions
     res = _parse_router_response("invalid json", "")
-    assert res["is_task"] == False
+    assert res["is_task"] is False
 
     # Regex fallback task
     res = _parse_router_response('invalid json "target_agent":"devops"', "cmd")
@@ -213,9 +216,10 @@ async def test_handle_reply_continuation():
         mock_reg.return_value = mock_proj
 
         res = await _handle_reply_continuation(client, runner, msg)
-        assert res == True
-        runner.run_command_async.assert_called_once()
-        assert "devops-engineer" in runner.run_command_async.call_args[0][4]
+        assert res is True
+        runner.run_command_async.assert_not_called()
+        msg.channel.send.assert_called_once()
+        assert "ถูกปิดใช้งาน" in msg.channel.send.call_args[0][0]
 
 
 @pytest.mark.anyio
@@ -279,9 +283,12 @@ async def test_router_route(mock_single, mock_detail, mock_reply, mock_slash):
         mock_reg.return_value = mock_proj
 
         await router.route(msg)
-        mock_single.assert_called_once()
+        mock_single.assert_not_called()
+        msg.channel.send.assert_called_once()
+        assert "ถูกปิดใช้งาน" in msg.channel.send.call_args[0][0]
 
     # 9. No target agent
+    msg.channel.send.reset_mock()
     msg.content = "do something without agent"
     await router.route(msg)
     # should send system message

@@ -1,6 +1,8 @@
+# mypy: ignore-errors
 from unittest import mock
 
 import pytest
+
 from service.discord_runner import AgentRunner
 
 
@@ -88,7 +90,7 @@ async def test_execute_command_uv(mock_create_subprocess, mock_which, mock_exist
 
     mock_exists.return_value = True
 
-    with mock.patch("builtins.open", new_callable=mock.mock_open) as mock_open:
+    with mock.patch("builtins.open", new_callable=mock.mock_open) as _:
         with mock.patch("service.discord_runner.os.remove"):
             ret, exc = await runner._execute_command(
                 ["agy", "cmd"], "test_agent", {"VAR": "1"}

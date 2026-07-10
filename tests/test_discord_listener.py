@@ -4,6 +4,7 @@ from unittest import mock
 from unittest.mock import AsyncMock, MagicMock, mock_open, patch
 
 import pytest
+
 from service.discord_listener import (
     main,
     on_message,
