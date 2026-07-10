@@ -65,7 +65,7 @@ async def jira_add_comment(issue_key: str, comment: str) -> str:
     return json.dumps(res, indent=2)
 
 
-@mcp.resource  # type: ignore[misc]  # Tech Debt: DT-65("jira://issue/{issue_key}")
+@mcp.resource("jira://issue/{issue_key}")  # type: ignore[misc]  # Tech Debt: DT-65
 async def get_issue_details(issue_key: str) -> str:
     """
     Get full JSON details of a specific Jira issue.
@@ -75,7 +75,7 @@ async def get_issue_details(issue_key: str) -> str:
     return json.dumps(res, indent=2)
 
 
-@mcp.resource  # type: ignore[misc]  # Tech Debt: DT-65("jira://board")
+@mcp.resource("jira://board")  # type: ignore[misc]  # Tech Debt: DT-65
 async def get_default_project_board() -> str:
     """
     Get a snapshot of the current active board for the default project.
@@ -87,7 +87,7 @@ async def get_default_project_board() -> str:
     return json.dumps(issues, indent=2)
 
 
-@mcp.resource  # type: ignore[misc]  # Tech Debt: DT-65("jira://project/{project_key}/board")
+@mcp.resource("jira://project/{project_key}/board")  # type: ignore[misc]  # Tech Debt: DT-65
 async def get_project_board(project_key: str) -> str:
     """
     Get a snapshot of the current active board for the project (returns To Do, In Progress, In Review issues).
