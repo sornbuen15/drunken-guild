@@ -1,10 +1,12 @@
+import asyncio
 import base64
 import json
 import urllib.parse
 import urllib.request
-import asyncio
 from typing import Any, Dict, List, Optional
+
 from .config import get_jira_config
+
 
 def _make_request_sync(
     url: str,
@@ -38,6 +40,7 @@ def _make_request_sync(
                 pass
         raise RuntimeError(f"Jira API Request failed: {error_msg}")
 
+
 async def make_request(
     url: str,
     method: str = "GET",
@@ -45,7 +48,10 @@ async def make_request(
     email: Optional[str] = None,
     token: Optional[str] = None,
 ) -> Dict[str, Any]:
-    return await asyncio.to_thread(_make_request_sync, url, method, payload, email, token)
+    return await asyncio.to_thread(
+        _make_request_sync, url, method, payload, email, token
+    )
+
 
 def minify_issues(issues: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     minified = []
@@ -59,10 +65,13 @@ def minify_issues(issues: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
                 "status": (fields.get("status") or {}).get("name"),
                 "priority": (fields.get("priority") or {}).get("name"),
                 "description": fields.get("description"),
-                "assignee": assignee.get("displayName") or assignee.get("emailAddress") or "Unassigned",
+                "assignee": assignee.get("displayName")
+                or assignee.get("emailAddress")
+                or "Unassigned",
             }
         )
     return minified
+
 
 class JiraClient:
     def __init__(self) -> None:
@@ -85,7 +94,9 @@ class JiraClient:
         url = f"{self.base_url}/rest/api/3/issue/{issue_key}/transitions"
         return await make_request(url, email=self.email, token=self.token)
 
-    async def transition_issue(self, issue_key: str, target_status: str) -> Dict[str, Any]:
+    async def transition_issue(
+        self, issue_key: str, target_status: str
+    ) -> Dict[str, Any]:
         transitions_res = await self.get_transitions(issue_key)
         transitions = transitions_res.get("transitions", [])
 
@@ -107,20 +118,34 @@ class JiraClient:
 
         payload = {"transition": {"id": transition_id}}
         url = f"{self.base_url}/rest/api/3/issue/{issue_key}/transitions"
-        await make_request(url, method="POST", payload=payload, email=self.email, token=self.token)
-        return {"ok": True, "message": f"Successfully transitioned {issue_key} to '{target_status}'"}
+        await make_request(
+            url, method="POST", payload=payload, email=self.email, token=self.token
+        )
+        return {
+            "ok": True,
+            "message": f"Successfully transitioned {issue_key} to '{target_status}'",
+        }
 
-    async def create_issue(self, summary: str, description: Any, issue_type: str = "Task") -> Dict[str, Any]:
+    async def create_issue(
+        self, summary: str, description: Any, issue_type: str = "Task"
+    ) -> Dict[str, Any]:
         if isinstance(description, str):
             paragraphs = []
             for line in description.split("\\n"):
                 line = line.strip()
                 if line:
-                    paragraphs.append({"type": "paragraph", "content": [{"type": "text", "text": line}]})
+                    paragraphs.append(
+                        {
+                            "type": "paragraph",
+                            "content": [{"type": "text", "text": line}],
+                        }
+                    )
             if not paragraphs:
-                paragraphs.append({"type": "paragraph", "content": [{"type": "text", "text": ""}]})
+                paragraphs.append(
+                    {"type": "paragraph", "content": [{"type": "text", "text": ""}]}
+                )
             description = {"version": 1, "type": "doc", "content": paragraphs}
-            
+
         payload = {
             "fields": {
                 "project": {"key": self.project_key},
@@ -130,7 +155,9 @@ class JiraClient:
             }
         }
         url = f"{self.base_url}/rest/api/3/issue"
-        res = await make_request(url, method="POST", payload=payload, email=self.email, token=self.token)
+        res = await make_request(
+            url, method="POST", payload=payload, email=self.email, token=self.token
+        )
         return {"ok": True, "key": res.get("key"), "self": res.get("self")}
 
     async def add_comment(self, issue_key: str, comment: str) -> Dict[str, Any]:
@@ -138,15 +165,13 @@ class JiraClient:
         for line in comment.split("\\n"):
             line = line.strip()
             if line:
-                paragraphs.append({"type": "paragraph", "content": [{"type": "text", "text": line}]})
-        
-        payload = {
-            "body": {
-                "version": 1,
-                "type": "doc",
-                "content": paragraphs
-            }
-        }
+                paragraphs.append(
+                    {"type": "paragraph", "content": [{"type": "text", "text": line}]}
+                )
+
+        payload = {"body": {"version": 1, "type": "doc", "content": paragraphs}}
         url = f"{self.base_url}/rest/api/3/issue/{issue_key}/comment"
-        res = await make_request(url, method="POST", payload=payload, email=self.email, token=self.token)
+        res = await make_request(
+            url, method="POST", payload=payload, email=self.email, token=self.token
+        )
         return {"ok": True, "id": res.get("id")}

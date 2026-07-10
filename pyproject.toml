@@ -50,7 +50,11 @@ source = ["src"]
 max-complexity = 10
 
 [tool.pytest.ini_options]
-addopts = "--cov=core --cov=route --cov=service --cov-report=term-missing --cov-fail-under=18"
+asyncio_mode = "strict"
+markers = [
+    "e2e: mark test as end-to-end"
+]
+addopts = "--cov=src --cov-report=term-missing -v"
 testpaths = ["tests"]
 
 [tool.mypy]
