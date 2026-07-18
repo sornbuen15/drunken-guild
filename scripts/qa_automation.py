@@ -47,6 +47,35 @@ def get_open_prs() -> list[dict[str, Any]]:
         return []
 
 
+_UV_ENV_ERROR_MARKERS = (
+    "No solution found when resolving",
+    "requirements are unsatisfiable",
+    "error: Failed to",
+)
+
+
+def _uv_env_error(stderr: str) -> str | None:
+    """If `uv run` failed because it couldn't resolve the branch's own
+    environment (not because the tool it ran reported a real failure),
+    return an explanatory message; otherwise None.
+
+    This is reachable in practice: `review_issue()` checks out each
+    ticket's OWN branch and tests it in isolation, before it's been merged
+    onto current develop. A branch cut before a dependency/Python-version
+    fix landed (this repo has several) won't resolve under `uv run` at
+    all -- that's an environment problem, not a defect in the ticket's
+    code, and must not be reported as one.
+    """
+    if any(marker in stderr for marker in _UV_ENV_ERROR_MARKERS):
+        return (
+            "Could not resolve this branch's project environment via `uv run` "
+            "(error below) -- this usually means the branch was cut before a "
+            "dependency/tooling fix landed on develop and needs to be rebased, "
+            "not that the ticket's own code is broken:\n" + stderr
+        )
+    return None
+
+
 def run_tests() -> tuple[bool, str]:
     print("Running QA checks (pytest, ruff, mypy)...")
     # `uv run` on purpose, not bare commands: this gate must check against
@@ -57,6 +86,9 @@ def run_tests() -> tuple[bool, str]:
     # do with the actual code change being validated).
     test_code, test_out, test_err = run_command(["uv", "run", "pytest"])
     if test_code != 0:
+        env_error = _uv_env_error(test_err)
+        if env_error:
+            return False, env_error
         return False, f"Pytest failed:\n{test_out}\n{test_err}"
 
     ruff_code, ruff_out, ruff_err = run_command(["uv", "run", "ruff", "check", "."])
