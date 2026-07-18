@@ -68,5 +68,20 @@ For Devs and Tech Leads, these are the primary commands to issue to Agents:
 1. **Pre-requisites:** Python 3.8+, `uv` (Package Manager), and Git.
 2. **Setup Env:** Use `drunken-register` to generate JSON configuration (`.agents/discord_config.json`, `.agents/jira.json`).
 3. **Running the Guild:**
-   - Run the Discord Bot: `uv run python src/service/discord_listener.py`
+   - Run the Discord Bot manually: `uv run python src/service/discord_listener.py`
+   - **Or, recommended:** install it as an always-on background service (macOS
+     launchd) so Discord approvals reach you without keeping a terminal open:
+     `python scripts/setup_daemon_service.py install`. This starts the bot at
+     login and restarts it if it crashes. It's still local-machine-only — if
+     the Mac is off or asleep, approvals won't reach Discord. Check status
+     with `python scripts/setup_daemon_service.py status`, remove with
+     `... uninstall`.
    - Run the Dashboard: Open `dashboard/index.html` to view status.
+4. **Discord approvals:** agents call the `request_boss_approval` MCP tool
+   (registered via `.mcp.json`) and it blocks until you react 👍/👎 on
+   Discord. If you don't respond, you get a reminder once, then after a
+   second unanswered wait the task auto-stops, the Jira ticket gets a
+   comment explaining what it was waiting on (without closing the ticket),
+   and you get a Discord summary pointing at the ticket. A pre-commit hook
+   blocks commits on a ticket with an unresolved approval, so nothing gets
+   committed while a request is still hanging.

@@ -1,6 +1,7 @@
 import asyncio
 import json
 import os
+import signal
 import sys
 from typing import Any
 
@@ -15,12 +16,71 @@ from service.discord_utils import (
 RAW_LOG_FILE = "agy_discord_raw.log"
 file_lock = asyncio.Lock()
 
+# Registry of spawned agy PIDs, on disk so it survives a daemon crash/restart
+# — a fresh AgentRunner's current_process starts at None and has no way to
+# know about a child orphaned by the previous process instance otherwise.
+_REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+PID_REGISTRY_FILE = os.path.join(_REPO_ROOT, ".agents", "agy_pids.json")
+
+
+def _read_pid_registry() -> list[int]:
+    try:
+        with open(PID_REGISTRY_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+            return [int(p) for p in data] if isinstance(data, list) else []
+    except Exception:
+        return []
+
+
+def _write_pid_registry(pids: list[int]) -> None:
+    try:
+        os.makedirs(os.path.dirname(PID_REGISTRY_FILE), exist_ok=True)
+        with open(PID_REGISTRY_FILE, "w", encoding="utf-8") as f:
+            json.dump(pids, f)
+    except Exception:
+        pass
+
+
+def _register_pid(pid: int) -> None:
+    pids = _read_pid_registry()
+    if pid not in pids:
+        pids.append(pid)
+        _write_pid_registry(pids)
+
+
+def _unregister_pid(pid: int) -> None:
+    pids = [p for p in _read_pid_registry() if p != pid]
+    _write_pid_registry(pids)
+
+
+def kill_orphaned_agy_processes() -> list[int]:
+    """Kill any registered agy PID that's still alive but not tracked by the
+    current process (e.g. orphaned by a daemon crash-restart under launchd's
+    KeepAlive). Returns the PIDs actually killed."""
+    killed = []
+    for pid in _read_pid_registry():
+        try:
+            os.kill(pid, 0)  # liveness check, raises if the process is gone
+            os.kill(pid, signal.SIGTERM)
+            killed.append(pid)
+        except ProcessLookupError:
+            pass
+        except Exception:
+            pass
+    _write_pid_registry([])
+    return killed
+
 
 class AgentRunner:
     def __init__(self) -> None:
         self.current_process: asyncio.subprocess.Process | None = None
         self.current_status_msg: discord.Message | None = None
         self.is_cancelled: bool = False
+        # Incremented every time a new task starts. Lets a caller (e.g. an
+        # approval escalation) confirm the task it's about to kill is still
+        # the same one that was running when it captured this value, rather
+        # than blindly killing whatever happens to be running now.
+        self.task_generation: int = 0
 
     def is_busy(self) -> bool:
         return (
@@ -67,6 +127,8 @@ class AgentRunner:
                 cwd=cwd,
             )
             self.current_process = process
+            self.task_generation += 1
+            _register_pid(process.pid)
 
             with open(task_log, "w", encoding="utf-8") as f:
                 if process.stdout:
@@ -81,6 +143,7 @@ class AgentRunner:
                         f.flush()
 
             await process.wait()
+            _unregister_pid(process.pid)
             try:
                 if os.path.exists(task_log):
                     async with file_lock:

@@ -1,7 +1,16 @@
 #!/usr/bin/env python3
 import json
+import re
 import subprocess
+import time
 from typing import Any, cast
+
+
+def _matches_ticket_key(issue_key: str, text: str) -> bool:
+    """True if `issue_key` appears in `text` as a whole ticket key, not as a
+    substring of a longer one (e.g. "DT-6" must not match "DT-65")."""
+    pattern = rf"(?<![A-Za-z0-9-]){re.escape(issue_key)}(?!\d)"
+    return re.search(pattern, text) is not None
 
 
 def run_command(cmd: list[str]) -> tuple[int, str, str]:
@@ -40,22 +49,166 @@ def get_open_prs() -> list[dict[str, Any]]:
 
 def run_tests() -> tuple[bool, str]:
     print("Running QA checks (pytest, ruff, mypy)...")
-    # Run tests
     test_code, test_out, test_err = run_command(["pytest"])
     if test_code != 0:
         return False, f"Pytest failed:\n{test_out}\n{test_err}"
 
-    # Run ruff
     ruff_code, ruff_out, ruff_err = run_command(["ruff", "check", "."])
     if ruff_code != 0:
         return False, f"Ruff failed:\n{ruff_out}\n{ruff_err}"
 
-    # Run mypy
     mypy_code, mypy_out, mypy_err = run_command(["mypy", "."])
     if mypy_code != 0:
         return False, f"Mypy failed:\n{mypy_out}\n{mypy_err}"
 
     return True, "All QA checks passed successfully."
+
+
+def review_issue(issue: dict[str, Any], prs: list[dict[str, Any]]) -> dict[str, Any]:
+    """Run the per-ticket QA gate: checkout its branch, run the suite in isolation,
+    and leave a review on its PR. This alone does NOT clear the ticket for Done --
+    see run_integration_check for the round-level gate that does.
+    """
+    issue_key = issue["key"]
+    print(f"Processing issue: {issue_key}")
+
+    matching_pr = None
+    for pr in prs:
+        if _matches_ticket_key(issue_key, pr["headRefName"]) or _matches_ticket_key(
+            issue_key, pr["title"]
+        ):
+            matching_pr = pr
+            break
+
+    if not matching_pr:
+        print(f"No open PR found for {issue_key}")
+        return {
+            "key": issue_key,
+            "pr_number": None,
+            "branch": None,
+            "passed": False,
+            "skipped": True,
+            "message": "No open PR found for this ticket.",
+        }
+
+    pr_number = str(matching_pr["number"])
+    branch_name = matching_pr["headRefName"]
+    print(f"Found PR #{pr_number} on branch {branch_name} for {issue_key}")
+
+    run_command(["git", "fetch", "origin", branch_name])
+    # -B forces the local branch to match origin/branch_name exactly (create
+    # or reset), instead of `checkout branch_name` which silently keeps
+    # stale local commits if the local branch already existed — this QA
+    # runner is persistent across rounds, so that staleness is reachable.
+    run_command(["git", "checkout", "-B", branch_name, f"origin/{branch_name}"])
+
+    passed, message = run_tests()
+
+    if passed:
+        print(f"Individual QA passed for {issue_key}")
+        run_command(
+            [
+                "gh",
+                "pr",
+                "review",
+                pr_number,
+                "--approve",
+                "-b",
+                "✅ QA Automation: Individual checks passed. "
+                "Holding for round-level integration test before Done.",
+            ]
+        )
+    else:
+        print(f"Individual QA failed for {issue_key}")
+        run_command(
+            [
+                "gh",
+                "pr",
+                "review",
+                pr_number,
+                "--request-changes",
+                "-b",
+                f"❌ QA Automation: Checks failed.\n```\n{message}\n```",
+            ]
+        )
+        run_command(
+            ["python", "scripts/jira_bridge.py", "transition", issue_key, "In Progress"]
+        )
+
+    run_command(["git", "checkout", "develop"])
+    print("-" * 40)
+
+    return {
+        "key": issue_key,
+        "pr_number": pr_number,
+        "branch": branch_name,
+        "passed": passed,
+        "skipped": False,
+        "message": message,
+    }
+
+
+def run_integration_check(passed_results: list[dict[str, Any]]) -> tuple[bool, str]:
+    """Merge every branch that passed its individual QA gate onto one scratch
+    branch off develop and re-run the full suite there. This is the mandatory
+    proof that the round works together, not just that each ticket passes alone
+    -- a ticket only reaches Done once this passes.
+    """
+    integration_branch = f"qa/integration-{int(time.time())}"
+
+    # fetch + hard reset instead of `git pull`: pull can fail or create an
+    # unexpected merge commit if local develop has diverged/has local
+    # changes; this runner only ever needs develop to exactly match origin.
+    run_command(["git", "fetch", "origin", "develop"])
+    run_command(["git", "checkout", "-B", "develop", "origin/develop"])
+    code, _, err = run_command(["git", "checkout", "-b", integration_branch])
+    if code != 0:
+        return False, f"Failed to create integration branch:\n{err}"
+
+    for result in passed_results:
+        code, out, err = run_command(
+            ["git", "merge", "--no-ff", "--no-edit", f"origin/{result['branch']}"]
+        )
+        if code != 0:
+            run_command(["git", "merge", "--abort"])
+            run_command(["git", "checkout", "develop"])
+            run_command(["git", "branch", "-D", integration_branch])
+            return (
+                False,
+                f"Merge conflict combining {result['key']} ({result['branch']}) "
+                f"with the rest of the round:\n{out}\n{err}",
+            )
+
+    passed, message = run_tests()
+
+    run_command(["git", "checkout", "develop"])
+    run_command(["git", "branch", "-D", integration_branch])
+
+    return passed, message
+
+
+def build_round_report(
+    all_results: list[dict[str, Any]],
+    integration_passed: bool,
+    integration_message: str,
+) -> str:
+    lines = ["QA Round Report", ""]
+    lines.append("Tasks in this round:")
+    for r in all_results:
+        if r["skipped"]:
+            status = "skipped (no open PR)"
+        elif r["passed"]:
+            status = "individual QA passed"
+        else:
+            status = "individual QA failed"
+        lines.append(f"- {r['key']}: {status}")
+    lines.append("")
+    lines.append("Integration test (all round changes combined):")
+    if integration_passed:
+        lines.append("Passed -- the round works together end-to-end, no bugs found.")
+    else:
+        lines.append(f"Failed:\n{integration_message}")
+    return "\n".join(lines)
 
 
 def main() -> None:
@@ -67,59 +220,31 @@ def main() -> None:
 
     prs = get_open_prs()
 
-    for issue in issues:
-        issue_key = issue["key"]
-        print(f"Processing issue: {issue_key}")
+    all_results = [review_issue(issue, prs) for issue in issues]
+    passed_results = [r for r in all_results if r["passed"] and not r["skipped"]]
 
-        # Find matching PR
-        matching_pr = None
-        for pr in prs:
-            if issue_key in pr["headRefName"] or issue_key in pr["title"]:
-                matching_pr = pr
-                break
+    if not passed_results:
+        print("No issues passed individual QA this round. Nothing to integrate.")
+        return
 
-        if not matching_pr:
-            print(f"No open PR found for {issue_key}")
-            continue
+    print("=" * 40)
+    print(
+        f"Running round-level integration test across {len(passed_results)} branch(es)..."
+    )
+    integration_passed, integration_message = run_integration_check(passed_results)
 
-        pr_number = str(matching_pr["number"])
-        branch_name = matching_pr["headRefName"]
-        print(f"Found PR #{pr_number} on branch {branch_name} for {issue_key}")
+    report = build_round_report(all_results, integration_passed, integration_message)
+    print(report)
 
-        # Fetch and checkout branch
-        run_command(["git", "fetch", "origin", branch_name])
-        run_command(["git", "checkout", branch_name])
-
-        # Run tests
-        passed, message = run_tests()
-
-        if passed:
-            print(f"QA Passed for {issue_key}")
+    for result in passed_results:
+        issue_key = result["key"]
+        run_command(["python", "scripts/jira_bridge.py", "comment", issue_key, report])
+        if integration_passed:
             run_command(
-                [
-                    "gh",
-                    "pr",
-                    "review",
-                    pr_number,
-                    "--approve",
-                    "-b",
-                    "✅ QA Automation: All tests passed. Code looks good!",
-                ]
+                ["python", "scripts/jira_bridge.py", "transition", issue_key, "Done"]
             )
+            print(f"{issue_key}: transitioned to Done.")
         else:
-            print(f"QA Failed for {issue_key}")
-            run_command(
-                [
-                    "gh",
-                    "pr",
-                    "review",
-                    pr_number,
-                    "--request-changes",
-                    "-b",
-                    f"❌ QA Automation: Checks failed.\n```\n{message}\n```",
-                ]
-            )
-            # Transition back to In Progress
             run_command(
                 [
                     "python",
@@ -129,10 +254,7 @@ def main() -> None:
                     "In Progress",
                 ]
             )
-
-        # Checkout develop again
-        run_command(["git", "checkout", "develop"])
-        print("-" * 40)
+            print(f"{issue_key}: integration failed -- sent back to In Progress.")
 
 
 if __name__ == "__main__":

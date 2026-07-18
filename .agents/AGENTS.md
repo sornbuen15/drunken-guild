@@ -5,8 +5,8 @@
 2. **Destructive Commands (`rm`, `rm -rf`, `drop`)**: You MUST NOT delete files/directories immediately.
    - **Notice/List**: Present a Markdown **Table** (Columns: Path/Target, Reason).
    - **Async Workflow**: If there are other tasks you can do without deleting those files, **SKIP** the deletion for now.
-   - **The Silent Wait Protocol (No Scan นิ้ว)**: If you MUST delete files, you MUST write your question to `.agents/discord_outbox.json` using the `write_to_file` tool (e.g. `{"req_1": {"question": "ขอลบไฟล์...?"}}`). Then, you MUST use the `schedule` tool (e.g. `DurationSeconds=15`, `Prompt="Check .agents/discord_inbox.json for req_1"`) and **IMMEDIATELY STOP CALLING TOOLS (End Turn)**. When you wake up, read `discord_inbox.json`. If approved, proceed. DO NOT use `run_command` for approvals!
-3. **Ask Boss for Permissions**: For explicit approval or logic clarification, NEVER use `run_command` (it triggers security blocks). ALWAYS use **The Silent Wait Protocol** (write to `discord_outbox.json` + `schedule` + End Turn).
+   - **If you MUST delete files**: call the `request_boss_approval` MCP tool (`action`, `reason`, `ticket_key`). It blocks and returns a final answer — see the `ask-boss` skill. Do NOT write to `.agents/discord_outbox.json` directly; that file is internal daemon state, not an API.
+3. **Ask Boss for Permissions**: For explicit approval or logic clarification, NEVER use `run_command` (it triggers security blocks). If the Boss is watching this conversation live, just ask directly. Otherwise call `request_boss_approval` (see the `ask-boss` skill) — it blocks until answered, no polling or manual waiting required.
 4. **Releases**: Milestone releases only. ALWAYS use the `release-notes-writer` skill format (Emoji table).
 
 ## Daily Routine
@@ -98,5 +98,6 @@ Whenever the user provides a list of bugs, feedback, or issues (no matter how ur
 ## Approval Channel
 
 Whenever a workflow requires an explicit Tech Lead or User approval gate (e.g., approving an execution plan, sprint backlog transition, codebase audit cleanup, or merging a PR):
-- **Requirement:** You MUST use **The Silent Wait Protocol**. Write your request to `.agents/discord_outbox.json` using `write_to_file`. (e.g. `{"req_2": {"question": "Do you approve...?"}}`).
-- **Wait for Response:** You MUST then use the `schedule` tool (e.g. `DurationSeconds=20`, `Prompt="Check .agents/discord_inbox.json for req_2"`) and **IMMEDIATELY STOP CALLING TOOLS (End Turn)**. Do not loop or poll manually. When you wake up, check `discord_inbox.json` for the result. DO NOT use `run_command` for `ask_boss.py`!
+- **Requirement:** Call the `request_boss_approval` MCP tool (`action`, `reason`, `ticket_key`) — see the `ask-boss` skill for details. It blocks and returns a final answer (`"Approved by Boss."` / `"Rejected by Boss."` / an escalation notice if unanswered after 2 reminders).
+- **If the Boss is watching this conversation live**, skip the tool entirely and just ask them directly — Discord is only needed when nobody may be reading this conversation right now.
+- Do NOT write to `.agents/discord_outbox.json` or read `.agents/discord_inbox.json` directly; those are internal daemon state, not an API, and this protocol (write file + `schedule` + end turn) is retired.

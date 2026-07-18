@@ -13,25 +13,32 @@ SPACE_ID = "2031618"
 HOMEPAGE_ID = "2031725"
 
 
+def _load_env_file(path: str) -> None:
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                if "=" in line:
+                    key, val = line.split("=", 1)
+                    os.environ.setdefault(
+                        key.strip(), val.strip().strip('"').strip("'")
+                    )
+    except Exception:
+        pass
+
+
 def load_dotenv() -> None:
+    # .env-dev (transitional, credential-migration-in-progress) takes
+    # priority over .env while it exists.
     curr_dir = os.getcwd()
     while True:
-        dotenv_path = os.path.join(curr_dir, ".env")
-        if os.path.exists(dotenv_path):
-            try:
-                with open(dotenv_path, "r", encoding="utf-8") as f:
-                    for line in f:
-                        line = line.strip()
-                        if not line or line.startswith("#"):
-                            continue
-                        if "=" in line:
-                            key, val = line.split("=", 1)
-                            os.environ.setdefault(
-                                key.strip(), val.strip().strip('"').strip("'")
-                            )
-            except Exception:
-                pass
-            break
+        for filename in (".env-dev", ".env"):
+            dotenv_path = os.path.join(curr_dir, filename)
+            if os.path.exists(dotenv_path):
+                _load_env_file(dotenv_path)
+                return
         parent = os.path.dirname(curr_dir)
         if parent == curr_dir:
             break
