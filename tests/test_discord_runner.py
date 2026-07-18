@@ -2,7 +2,6 @@
 from unittest import mock
 
 import pytest
-
 from service.discord_runner import AgentRunner
 
 
@@ -417,3 +416,76 @@ async def test_handle_quest_failure_read_exception(
         "Unknown failure" in mock_channel.send.call_args[1]["content"]
         or "Unknown failure" in mock_channel.send.call_args[0][0]
     )
+
+
+@pytest.mark.anyio
+async def test_pid_registry_register_unregister(monkeypatch, tmp_path):
+    from service import discord_runner
+
+    registry_file = tmp_path / "agy_pids.json"
+    monkeypatch.setattr(discord_runner, "PID_REGISTRY_FILE", str(registry_file))
+
+    discord_runner._register_pid(111)
+    discord_runner._register_pid(222)
+    assert discord_runner._read_pid_registry() == [111, 222]
+
+    # Registering the same pid twice doesn't duplicate it.
+    discord_runner._register_pid(111)
+    assert discord_runner._read_pid_registry() == [111, 222]
+
+    discord_runner._unregister_pid(111)
+    assert discord_runner._read_pid_registry() == [222]
+
+
+@pytest.mark.anyio
+async def test_kill_orphaned_agy_processes(monkeypatch, tmp_path):
+    from service import discord_runner
+
+    registry_file = tmp_path / "agy_pids.json"
+    monkeypatch.setattr(discord_runner, "PID_REGISTRY_FILE", str(registry_file))
+    discord_runner._write_pid_registry([111, 222])
+
+    killed_pids = []
+
+    def fake_kill(pid, sig):
+        if sig == 0:
+            if pid == 222:
+                raise ProcessLookupError()
+            return None
+        killed_pids.append(pid)
+
+    monkeypatch.setattr(discord_runner.os, "kill", fake_kill)
+
+    killed = discord_runner.kill_orphaned_agy_processes()
+
+    assert killed == [111]  # 222 was already gone (liveness check failed)
+    assert killed_pids == [111]
+    # Registry is cleared either way, so a stale/gone pid doesn't linger.
+    assert discord_runner._read_pid_registry() == []
+
+
+@pytest.mark.anyio
+@mock.patch("service.discord_runner.asyncio.create_subprocess_exec", autospec=True)
+async def test_task_generation_increments_per_task(
+    mock_create_subprocess, monkeypatch, tmp_path
+):
+    from service import discord_runner
+
+    monkeypatch.setattr(
+        discord_runner, "PID_REGISTRY_FILE", str(tmp_path / "agy_pids.json")
+    )
+
+    runner = AgentRunner()
+    assert runner.task_generation == 0
+
+    mock_proc = mock.MagicMock()
+    mock_proc.returncode = 0
+    mock_proc.pid = 999
+    mock_proc.wait = mock.AsyncMock()
+    mock_proc.stdout = mock.AsyncMock()
+    mock_proc.stdout.readline = mock.AsyncMock(side_effect=[b""])
+    mock_create_subprocess.return_value = mock_proc
+
+    await runner._execute_command(["agy", "test"], "agent", None)
+
+    assert runner.task_generation == 1

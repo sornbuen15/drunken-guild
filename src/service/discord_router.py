@@ -5,8 +5,8 @@ import re
 from typing import Any
 
 import discord
-
 from core.registry import ProjectRegistry
+
 from service.discord_runner import RAW_LOG_FILE, AgentRunner
 from service.discord_utils import find_config, log_activity
 
@@ -108,6 +108,35 @@ async def _handle_detail_command(message: discord.Message) -> None:
         )
 
 
+async def _handle_stop_command(
+    agent_runner: AgentRunner, message: discord.Message
+) -> None:
+    from service.discord_runner import kill_orphaned_agy_processes
+
+    stopped_tracked = agent_runner.is_busy()
+    if stopped_tracked:
+        await agent_runner.cancel_current_task()
+
+    # Also sweep the on-disk PID registry: if a previous daemon instance
+    # crashed and was restarted (e.g. under launchd), a fresh AgentRunner
+    # has no memory of a still-running child from before the crash.
+    orphans_killed = kill_orphaned_agy_processes()
+
+    if stopped_tracked or orphans_killed:
+        parts = []
+        if stopped_tracked:
+            parts.append("the active agent task")
+        if orphans_killed:
+            parts.append(f"{len(orphans_killed)} orphaned process(es)")
+        await message.channel.send(
+            f"🛑 **Emergency Stop!** Terminated {' and '.join(parts)}."
+        )
+    else:
+        await message.channel.send(
+            "💤 No active agent task is being tracked right now — nothing to stop."
+        )
+
+
 async def _handle_slash_command(
     agent_runner: AgentRunner, message: discord.Message, content_str: str
 ) -> None:
@@ -163,15 +192,7 @@ async def _handle_slash_command(
             )
         return
     elif slash_cmd in ("/stop", "/kill"):
-        import subprocess
-
-        try:
-            subprocess.run(["pkill", "-f", "agy"], check=False)
-            await message.channel.send(
-                "🛑 **Emergency Stop!** All active agents in the dungeon have been killed immediately."
-            )
-        except Exception as e:
-            await message.channel.send(f"⚠️ Failed to kill agents: {e}")
+        await _handle_stop_command(agent_runner, message)
         return
     elif slash_cmd == "/list-cmd":
         list_text = (
@@ -236,7 +257,9 @@ def _build_agent_suffix(meta: dict[str, str]) -> str:
         "before you finish the task. Zero defects!\n"
         "IMPORTANT: If you need to start a server or long-running process, use run_command with a small WaitMsBeforeAsync so it goes to the background. Do NOT block your execution!\n"
         "ANTI-LOOP PROTOCOL (ค.ว.ย.): If you execute a command and it fails, and a subsequent fix results in the exact same failure, STOP IMMEDIATELY! Do NOT loop blindly. Return a failure report to the Boss explaining the roadblock.\n"
-        'SILENT WAIT PROTOCOL (CRITICAL): If you need permission for ANYTHING, you MUST write your question in JSON to `.agents/discord_outbox.json` (e.g. `{"req_1": {"question": "your question"}}`). Then use the `schedule` tool to wait for the Boss\'s answer in `.agents/discord_inbox.json`, and IMMEDIATELY END YOUR TURN. Do NOT use `run_command` for approvals!)'
+        "APPROVALS: If you need permission for ANYTHING, call the `request_boss_approval` MCP tool "
+        "(action, reason, ticket_key). It blocks and returns a final answer — do not poll files, "
+        "do not use `schedule`, do not end your turn to wait.)"
     )
 
 
@@ -455,7 +478,6 @@ class DiscordRouter:
         if first_word.startswith("!") or first_word.startswith("@"):
             first_word = first_word[1:]
 
-        is_task = False
         is_task = False
         if first_word in PERSONA_MAPPING:
             is_task = True

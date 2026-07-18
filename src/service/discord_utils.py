@@ -6,26 +6,33 @@ import urllib.request
 from typing import Any
 
 
+def _load_env_file(path: str) -> None:
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                if "=" in line:
+                    key, val = line.split("=", 1)
+                    key = key.strip()
+                    val = val.strip().strip('"').strip("'")
+                    if key and key not in os.environ:
+                        os.environ[key] = val
+    except Exception as e:
+        print(f"Warning: Failed to load {path}: {e}", file=sys.stderr)
+
+
 def load_dotenv() -> None:
+    # .env-dev (transitional, credential-migration-in-progress) takes
+    # priority over .env while it exists.
     curr_dir = os.getcwd()
     while True:
-        dotenv_path = os.path.join(curr_dir, ".env")
-        if os.path.exists(dotenv_path):
-            try:
-                with open(dotenv_path, "r", encoding="utf-8") as f:
-                    for line in f:
-                        line = line.strip()
-                        if not line or line.startswith("#"):
-                            continue
-                        if "=" in line:
-                            key, val = line.split("=", 1)
-                            key = key.strip()
-                            val = val.strip().strip('"').strip("'")
-                            if key and key not in os.environ:
-                                os.environ[key] = val
-            except Exception as e:
-                print(f"Warning: Failed to load .env file: {e}", file=sys.stderr)
-            break
+        for filename in (".env-dev", ".env"):
+            dotenv_path = os.path.join(curr_dir, filename)
+            if os.path.exists(dotenv_path):
+                _load_env_file(dotenv_path)
+                return
         parent = os.path.dirname(curr_dir)
         if parent == curr_dir:
             break
@@ -178,11 +185,27 @@ def save_config(config: dict[str, Any]) -> None:
 
 
 def load_config() -> dict[str, Any]:
+    # Env vars (.env-dev / .env) take priority per field, matching the
+    # jira_mcp config pattern — falls back to the local JSON file's own
+    # value for whichever field isn't set in the environment. Deliberately
+    # per-field (not "both or neither"): a file with a stale bot_token key
+    # must not shadow a freshly-set DISCORD_BOT_TOKEN env var just because
+    # DISCORD_CHANNEL_ID wasn't also set (dict.setdefault would get this
+    # wrong, since it only fills in keys the file is missing entirely).
+    load_dotenv()
+    bot_token = os.environ.get("DISCORD_BOT_TOKEN")
+    channel_id = os.environ.get("DISCORD_CHANNEL_ID")
+
+    file_config: dict[str, Any] = {}
     config_file = find_config()
     if config_file:
         try:
             with open(config_file, "r", encoding="utf-8") as f:
-                return dict(json.load(f))
+                file_config = dict(json.load(f))
         except Exception:
-            pass
-    return {"bot_token": None, "channel_id": None}
+            file_config = {}
+
+    return {
+        "bot_token": bot_token or file_config.get("bot_token"),
+        "channel_id": channel_id or file_config.get("channel_id"),
+    }

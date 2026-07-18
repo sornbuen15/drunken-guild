@@ -1,25 +1,72 @@
-from unittest.mock import mock_open, patch
+# mypy: ignore-errors
+from unittest.mock import AsyncMock, patch
 
 import pytest
-
 from discord_mcp.server import request_boss_approval
 
 
 @pytest.mark.asyncio
-async def test_request_boss_approval_success() -> None:
-    action = "Delete file"
-    reason = "File is useless"
-    
-    mock_file_data = "{}"
-    
-    with patch("os.path.exists", return_value=True):
-        with patch("builtins.open", mock_open(read_data=mock_file_data)) as m:
-            with patch("os.makedirs"):
-                res = await request_boss_approval(action, reason)
-                
-                # Check that it wrote something
-                m.assert_called()
-                
-                # Verify that it returns the expected wait string
-                assert "Successfully sent request req_" in res
-                assert "CRITICAL NEXT STEP: You MUST use the `schedule` tool" in res
+async def test_request_boss_approval_daemon_not_running() -> None:
+    with patch("discord_mcp.server.os.path.exists", return_value=False):
+        res = await request_boss_approval("Delete file", "cleanup", "DT-1")
+    assert "unavailable" in res
+    assert "not running" in res
+    # Must degrade to "ask directly", not silently permit skipping approval.
+    assert "ask the Boss directly" in res
+
+
+@pytest.mark.asyncio
+async def test_request_boss_approval_approved() -> None:
+    with patch("discord_mcp.server.os.path.exists", return_value=True):
+        with patch(
+            "discord_mcp.server.call_daemon",
+            AsyncMock(return_value={"status": "approved"}),
+        ):
+            res = await request_boss_approval("Delete file", "cleanup", "DT-1")
+    assert res == "Approved by Boss."
+
+
+@pytest.mark.asyncio
+async def test_request_boss_approval_rejected() -> None:
+    with patch("discord_mcp.server.os.path.exists", return_value=True):
+        with patch(
+            "discord_mcp.server.call_daemon",
+            AsyncMock(return_value={"status": "rejected"}),
+        ):
+            res = await request_boss_approval("Delete file", "cleanup", "DT-1")
+    assert res == "Rejected by Boss."
+
+
+@pytest.mark.asyncio
+async def test_request_boss_approval_escalated() -> None:
+    with patch("discord_mcp.server.os.path.exists", return_value=True):
+        with patch(
+            "discord_mcp.server.call_daemon",
+            AsyncMock(return_value={"status": "escalated"}),
+        ):
+            res = await request_boss_approval("Delete file", "cleanup", "DT-1")
+    assert "escalated" in res.lower() or "No response" in res
+    assert "Do not" in res
+
+
+@pytest.mark.asyncio
+async def test_request_boss_approval_unexpected_status() -> None:
+    with patch("discord_mcp.server.os.path.exists", return_value=True):
+        with patch(
+            "discord_mcp.server.call_daemon",
+            AsyncMock(return_value={"status": "???"}),
+        ):
+            res = await request_boss_approval("Delete file", "cleanup", "DT-1")
+    assert "Unexpected daemon response" in res
+
+
+@pytest.mark.asyncio
+async def test_request_boss_approval_daemon_unreachable() -> None:
+    with patch("discord_mcp.server.os.path.exists", return_value=True):
+        with patch(
+            "discord_mcp.server.call_daemon",
+            AsyncMock(side_effect=ConnectionError("boom")),
+        ):
+            res = await request_boss_approval("Delete file", "cleanup", "DT-1")
+    assert "unavailable" in res
+    assert "ask the Boss directly" in res

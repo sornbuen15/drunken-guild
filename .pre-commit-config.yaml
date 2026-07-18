@@ -6,6 +6,7 @@ repos:
       - id: end-of-file-fixer
       - id: check-yaml
       - id: check-added-large-files
+        exclude: ^uv\.lock$
 
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.1.6
@@ -21,3 +22,12 @@ repos:
     hooks:
       - id: mypy
         additional_dependencies: [types-requests]
+
+  - repo: local
+    hooks:
+      - id: check-pending-approval
+        name: Block commits with an unresolved Discord approval
+        entry: python scripts/check_pending_approval.py
+        language: system
+        pass_filenames: false
+        always_run: true

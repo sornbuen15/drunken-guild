@@ -8,27 +8,35 @@ import urllib.request
 from typing import Any, Dict, List, Optional
 
 
+def _load_env_file(path: str) -> None:
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                if "=" in line:
+                    key, val = line.split("=", 1)
+                    key = key.strip()
+                    val = val.strip().strip('"').strip("'")
+                    if key and key not in os.environ:
+                        os.environ[key] = val
+    except Exception as e:
+        print(f"Warning: Failed to load {path}: {e}", file=sys.stderr)
+
+
 def load_dotenv() -> None:
-    # Look for .env in current directory or parent directories
+    # Look for .env-dev (transitional, credential-migration-in-progress) or
+    # .env in current directory or parent directories. .env-dev takes
+    # priority while it exists; drop it once secrets are confirmed complete
+    # and folded into .env.
     curr_dir = os.getcwd()
     while True:
-        dotenv_path = os.path.join(curr_dir, ".env")
-        if os.path.exists(dotenv_path):
-            try:
-                with open(dotenv_path, "r", encoding="utf-8") as f:
-                    for line in f:
-                        line = line.strip()
-                        if not line or line.startswith("#"):
-                            continue
-                        if "=" in line:
-                            key, val = line.split("=", 1)
-                            key = key.strip()
-                            val = val.strip().strip('"').strip("'")
-                            if key and key not in os.environ:
-                                os.environ[key] = val
-            except Exception as e:
-                print(f"Warning: Failed to load .env file: {e}", file=sys.stderr)
-            break
+        for filename in (".env-dev", ".env"):
+            dotenv_path = os.path.join(curr_dir, filename)
+            if os.path.exists(dotenv_path):
+                _load_env_file(dotenv_path)
+                return
         parent = os.path.dirname(curr_dir)
         if parent == curr_dir:
             break
@@ -148,6 +156,57 @@ def transition_issue(
             }
         )
     )
+
+
+def add_comment(config: Dict[str, Any], issue_key: str, body: str) -> None:
+    paragraphs = []
+    for line in body.split("\n"):
+        # rstrip, not strip: preserves leading indentation (tracebacks,
+        # pytest output, code snippets) while still dropping trailing
+        # whitespace/newline artifacts.
+        line = line.rstrip()
+        if line:
+            paragraphs.append(
+                {"type": "paragraph", "content": [{"type": "text", "text": line}]}
+            )
+    if not paragraphs:
+        paragraphs.append(
+            {"type": "paragraph", "content": [{"type": "text", "text": ""}]}
+        )
+    payload = {"body": {"version": 1, "type": "doc", "content": paragraphs}}
+    url = f"{config['jira_url']}/rest/api/3/issue/{issue_key}/comment"
+    make_request(
+        url,
+        method="POST",
+        payload=payload,
+        email=config["jira_email"],
+        token=config["jira_token"],
+    )
+    print(json.dumps({"ok": True, "message": f"Commented on {issue_key}"}))
+
+
+def add_label(config: Dict[str, Any], issue_key: str, label: str) -> None:
+    payload = {"update": {"labels": [{"add": label}]}}
+    url = f"{config['jira_url']}/rest/api/3/issue/{issue_key}"
+    make_request(
+        url,
+        method="PUT",
+        payload=payload,
+        email=config["jira_email"],
+        token=config["jira_token"],
+    )
+    print(json.dumps({"ok": True, "message": f"Labeled {issue_key} with '{label}'"}))
+
+
+def delete_issue(config: Dict[str, Any], issue_key: str) -> None:
+    url = f"{config['jira_url']}/rest/api/3/issue/{issue_key}"
+    make_request(
+        url,
+        method="DELETE",
+        email=config["jira_email"],
+        token=config["jira_token"],
+    )
+    print(json.dumps({"ok": True, "message": f"Deleted {issue_key}"}))
 
 
 def create_issue(config: Dict[str, Any], summary: str, description: Any) -> None:
@@ -272,7 +331,19 @@ def main() -> None:  # noqa: C901  # TODO(DT-46): Technical Debt - Refactor to r
         print(json.dumps(issues, indent=2))
 
     elif action == "get-backlog":
-        jql = f"project = {jira_config['project_key']} AND status = 'Backlog' ORDER BY priority DESC"
+        # This project has no native 'Backlog' status (team-managed/next-gen Jira
+        # projects don't expose the Board's Backlog panel via API). Backlog here
+        # means: not Done, and not tagged into an active round via label.
+        jql = f"project = {jira_config['project_key']} AND status != 'Done' AND labels is EMPTY ORDER BY priority DESC"
+        issues = search_issues(jira_config, jql)
+        print(json.dumps(issues, indent=2))
+
+    elif action == "get-by-label":
+        if len(sys.argv) < 3:
+            print("Usage: jira_bridge.py get-by-label <label>", file=sys.stderr)
+            sys.exit(1)
+        label = sys.argv[2]
+        jql = f"project = {jira_config['project_key']} AND labels = '{label}' AND status != 'Done' ORDER BY priority DESC"
         issues = search_issues(jira_config, jql)
         print(json.dumps(issues, indent=2))
 
@@ -286,6 +357,29 @@ def main() -> None:  # noqa: C901  # TODO(DT-46): Technical Debt - Refactor to r
         issue_key = sys.argv[2]
         target_status = sys.argv[3]
         transition_issue(jira_config, issue_key, target_status)
+
+    elif action == "comment":
+        if len(sys.argv) < 4:
+            print("Usage: jira_bridge.py comment <issue_key> <body>", file=sys.stderr)
+            sys.exit(1)
+        issue_key = sys.argv[2]
+        body = sys.argv[3]
+        add_comment(jira_config, issue_key, body)
+
+    elif action == "label":
+        if len(sys.argv) < 4:
+            print("Usage: jira_bridge.py label <issue_key> <label>", file=sys.stderr)
+            sys.exit(1)
+        issue_key = sys.argv[2]
+        label = sys.argv[3]
+        add_label(jira_config, issue_key, label)
+
+    elif action == "delete":
+        if len(sys.argv) < 3:
+            print("Usage: jira_bridge.py delete <issue_key>", file=sys.stderr)
+            sys.exit(1)
+        issue_key = sys.argv[2]
+        delete_issue(jira_config, issue_key)
 
     elif action == "create":
         if len(sys.argv) < 4:
