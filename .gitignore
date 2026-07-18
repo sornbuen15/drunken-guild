@@ -149,6 +149,7 @@ Thumbs.db
 # Sensitive configurations & Credentials
 .env
 .env.*
+.env-*
 .git-credentials
 *token*
 *credential*

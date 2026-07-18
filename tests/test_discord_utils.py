@@ -58,17 +58,52 @@ def test_find_config(mock_getcwd, mock_exists):
     assert find_config() == "/test/dir/.agents/discord_config.json"
 
 
+@mock.patch.dict(os.environ, {}, clear=True)
+@mock.patch("service.discord_utils.load_dotenv")
 @mock.patch("service.discord_utils.find_config")
 @mock.patch(
-    "builtins.open", new_callable=mock.mock_open, read_data='{"bot_token": "token"}'
+    "builtins.open",
+    new_callable=mock.mock_open,
+    read_data='{"bot_token": "token", "channel_id": "chan"}',
 )
-def test_load_config(mock_file, mock_find):
+def test_load_config(mock_file, mock_find, mock_load_dotenv):
     mock_find.return_value = "/fake.json"
-    assert load_config() == {"bot_token": "token"}
+    assert load_config() == {"bot_token": "token", "channel_id": "chan"}
 
     # Test fallback
     mock_find.return_value = None
     assert load_config() == {"bot_token": None, "channel_id": None}
+
+
+@mock.patch.dict(
+    os.environ,
+    {"DISCORD_BOT_TOKEN": "env_token", "DISCORD_CHANNEL_ID": "env_chan"},
+    clear=True,
+)
+@mock.patch("service.discord_utils.load_dotenv")
+def test_load_config_env_priority(mock_load_dotenv):
+    # Env vars (.env-dev / .env) win over the JSON file when both are set.
+    assert load_config() == {"bot_token": "env_token", "channel_id": "env_chan"}
+
+
+@mock.patch.dict(os.environ, {"DISCORD_BOT_TOKEN": "env_token"}, clear=True)
+@mock.patch("service.discord_utils.load_dotenv")
+@mock.patch("service.discord_utils.find_config")
+@mock.patch(
+    "builtins.open",
+    new_callable=mock.mock_open,
+    read_data='{"bot_token": "stale_file_token", "channel_id": "file_chan"}',
+)
+def test_load_config_partial_env_overrides_only_that_field(
+    mock_file, mock_find, mock_load_dotenv
+):
+    # Regression test: only DISCORD_BOT_TOKEN is set in env (not
+    # DISCORD_CHANNEL_ID), and a config file already has both keys. The env
+    # var must still win for bot_token — an earlier version used
+    # dict.setdefault(), which only fills in a key the file is missing
+    # entirely, silently keeping the stale file value instead.
+    mock_find.return_value = "/fake.json"
+    assert load_config() == {"bot_token": "env_token", "channel_id": "file_chan"}
 
 
 @mock.patch("service.discord_utils.find_config")
@@ -177,9 +212,11 @@ def test_save_config_no_config(mock_getcwd, mock_makedirs, mock_open, mock_find)
     )
 
 
+@mock.patch.dict(os.environ, {}, clear=True)
+@mock.patch("service.discord_utils.load_dotenv")
 @mock.patch("service.discord_utils.find_config")
 @mock.patch("builtins.open", new_callable=mock.mock_open)
-def test_load_config_exception(mock_open, mock_find):
+def test_load_config_exception(mock_open, mock_find, mock_load_dotenv):
     mock_find.return_value = "/fake.json"
     mock_open.side_effect = Exception("Read error")
     assert load_config() == {"bot_token": None, "channel_id": None}

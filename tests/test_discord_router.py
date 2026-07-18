@@ -3,7 +3,6 @@ from unittest import mock
 
 import discord
 import pytest
-
 from service.discord_router import (
     DiscordRouter,
     _build_agent_suffix,
@@ -90,10 +89,30 @@ async def test_handle_slash_command(mock_mtime, mock_glob):
     await _handle_slash_command(runner, msg, "/status")
     assert "waiting for first log entry" in msg.channel.send.call_args[0][0]
 
-    # /stop
-    with mock.patch("subprocess.run") as mock_run:
+    # /stop while busy (runner.current_process still set from the BUSY case above)
+    runner.cancel_current_task = mock.AsyncMock()
+    with mock.patch(
+        "service.discord_runner.kill_orphaned_agy_processes", return_value=[]
+    ):
         await _handle_slash_command(runner, msg, "/stop")
-        mock_run.assert_called_once()
+    runner.cancel_current_task.assert_called_once()
+    assert "Terminated" in msg.channel.send.call_args[0][0]
+
+    # /stop while idle, no orphans either
+    runner.current_process = None
+    with mock.patch(
+        "service.discord_runner.kill_orphaned_agy_processes", return_value=[]
+    ):
+        await _handle_slash_command(runner, msg, "/stop")
+    assert "nothing to stop" in msg.channel.send.call_args[0][0]
+
+    # /stop while idle, but an orphaned process is found and killed
+    with mock.patch(
+        "service.discord_runner.kill_orphaned_agy_processes", return_value=[1234]
+    ):
+        await _handle_slash_command(runner, msg, "/stop")
+    assert "Terminated" in msg.channel.send.call_args[0][0]
+    assert "orphaned" in msg.channel.send.call_args[0][0]
 
     # /list-cmd
     await _handle_slash_command(runner, msg, "/list-cmd")
@@ -133,6 +152,8 @@ def test_build_agent_suffix():
     res = _build_agent_suffix(meta)
     assert "test" in res
     assert "job" in res
+    assert "request_boss_approval" in res
+    assert "SILENT WAIT PROTOCOL" not in res
 
 
 @pytest.mark.anyio
