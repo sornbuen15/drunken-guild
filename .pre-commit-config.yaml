@@ -9,7 +9,7 @@ repos:
         exclude: ^uv\.lock$
 
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.1.6
+    rev: v0.15.20
     hooks:
       # Run the linter.
       - id: ruff

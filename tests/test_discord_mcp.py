@@ -2,6 +2,7 @@
 from unittest.mock import AsyncMock, patch
 
 import pytest
+
 from discord_mcp.server import request_boss_approval
 
 

@@ -1,6 +1,7 @@
 import os
 
 from mcp.server.fastmcp import FastMCP
+
 from service.daemon_client import call_daemon
 
 mcp = FastMCP("drunken-discord-mcp")
