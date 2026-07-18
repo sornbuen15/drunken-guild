@@ -5,8 +5,8 @@ import re
 from typing import Any
 
 import discord
-from core.registry import ProjectRegistry
 
+from core.registry import ProjectRegistry
 from service.discord_runner import RAW_LOG_FILE, AgentRunner
 from service.discord_utils import find_config, log_activity
 

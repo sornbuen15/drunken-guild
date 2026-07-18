@@ -5,8 +5,8 @@ import os
 import sys
 
 import discord
-from jira_mcp.jira_client import JiraClient
 
+from jira_mcp.jira_client import JiraClient
 from service.approval_manager import ApprovalManager
 from service.discord_router import DiscordRouter
 from service.discord_runner import AgentRunner

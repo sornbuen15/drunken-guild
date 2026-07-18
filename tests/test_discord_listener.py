@@ -6,6 +6,7 @@ from unittest import mock
 from unittest.mock import AsyncMock
 
 import pytest
+
 from service.discord_listener import (
     _handle_socket_client,
     main,

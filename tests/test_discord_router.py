@@ -3,6 +3,7 @@ from unittest import mock
 
 import discord
 import pytest
+
 from service.discord_router import (
     DiscordRouter,
     _build_agent_suffix,
