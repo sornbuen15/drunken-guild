@@ -13,8 +13,8 @@ from dataclasses import dataclass, field
 from typing import Any, Optional
 
 import discord
-from jira_mcp.jira_client import JiraClient
 
+from jira_mcp.jira_client import JiraClient
 from service.discord_runner import AgentRunner
 
 OUTBOX_FILE = os.path.join(os.getcwd(), ".agents", "discord_outbox.json")

@@ -49,15 +49,21 @@ def get_open_prs() -> list[dict[str, Any]]:
 
 def run_tests() -> tuple[bool, str]:
     print("Running QA checks (pytest, ruff, mypy)...")
-    test_code, test_out, test_err = run_command(["pytest"])
+    # `uv run` on purpose, not bare commands: this gate must check against
+    # the exact tool versions this project's dependencies resolve to, not
+    # whatever happens to be on the runner's PATH (a global/pyenv-shimmed
+    # ruff can disagree with the project's pinned version on lint rules
+    # like import grouping, producing a false failure that has nothing to
+    # do with the actual code change being validated).
+    test_code, test_out, test_err = run_command(["uv", "run", "pytest"])
     if test_code != 0:
         return False, f"Pytest failed:\n{test_out}\n{test_err}"
 
-    ruff_code, ruff_out, ruff_err = run_command(["ruff", "check", "."])
+    ruff_code, ruff_out, ruff_err = run_command(["uv", "run", "ruff", "check", "."])
     if ruff_code != 0:
         return False, f"Ruff failed:\n{ruff_out}\n{ruff_err}"
 
-    mypy_code, mypy_out, mypy_err = run_command(["mypy", "."])
+    mypy_code, mypy_out, mypy_err = run_command(["uv", "run", "mypy", "."])
     if mypy_code != 0:
         return False, f"Mypy failed:\n{mypy_out}\n{mypy_err}"
 

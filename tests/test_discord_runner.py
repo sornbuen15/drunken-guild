@@ -2,6 +2,7 @@
 from unittest import mock
 
 import pytest
+
 from service.discord_runner import AgentRunner
 
 
