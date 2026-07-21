@@ -1,40 +1,37 @@
-# 🍻 Drunken Team (Aiขี้เมา)
+# Drunken Team
 
-**Drunken Team** is an "AI Guild Platform for Devs". It acts as a centralized Masterbrain and Command Center to orchestrate autonomous agents across multiple projects, helping human developers collaborate seamlessly with their AI counterparts using a standard Discord interface and a Jira SSOT workflow.
+**Drunken Team** orchestrates autonomous coding agents across multiple projects, using Jira as the single source of truth for tasks and a Discord bot for monitoring and approvals.
 
 ---
 
-## 📖 Official Documentation
-
-To keep this project clean and well-organized, our documentation is split into targeted guides:
+## Documentation
 
 ### 1. [Drunken-Team Guide](./Drunken-Team-Guide.md)
-*For Team Members, Tech Leads, and Guild NPCs (AI Agents)*
-This is the core rulebook and **Single Source of Truth** for operating within the Guild. It covers:
-- The Centralized Hub Architecture (Project Registry & Discord Listener)
-- AI Permission Tiers & Core Directives (Rules for safety and automation)
-- The Jira-driven Software Development Lifecycle (SDLC)
-- Slash commands for agent workflows (e.g., `/refine`, `/next-task`)
-- Local Installation and Setup instructions
+*For team members, tech leads, and AI agents working in this repo.*
+Architecture, installation, the Jira workflow, the full Discord command reference (with examples), the approval flow, multi-project orchestration, and the QA gate.
 
 ### 2. [AI Integration Guide](./Integration-Guide.md)
-*For Devs looking to connect external tools (Cursor, Aider, Claude Code)*
-This guide explains how to connect your local IDEs to the Guild's backend infrastructure. It covers:
-- Connecting to the Guild MCP Server (`jira_mcp.py`)
-- Standardizing `.cursorrules`, `CLAUDE.md`, and `.aider.conf.yml`
-- The Local AI to Guild AI Handoff Workflow
-
-*(Note: Documentation specifically detailing application features, system design, or UI/UX specs should be maintained in `PROJECT_SPEC.md` and `DESIGN.md`.)*
+*For connecting an external tool (Cursor, Aider, Claude Code) to this project, or bringing another project under the same workflow.*
+The two MCP servers, the local-AI rule templates in `.guild_templates/`, and the handoff lifecycle from task intake to Done.
 
 ---
 
-## 🚀 Quick Start (TL;DR)
+## Quick Start
 
-1. Clone the repository.
-2. Install dependencies via `uv` or `pip`.
-3. Read the [Drunken-Team Guide](./Drunken-Team-Guide.md) for JSON configuration (`.agents/`).
-4. Boot up the Guild Master:
+1. Clone the repository and install dependencies:
+   ```bash
+   git clone https://github.com/sornbuen15/drunken-team.git
+   cd drunken-team
+   uv sync
+   ```
+2. Configure Jira and Discord credentials:
+   ```bash
+   uv run drunken-register
+   ```
+3. Run the Discord bot:
    ```bash
    uv run python src/service/discord_listener.py
    ```
-5. Interact with the Guild Agents via your designated Discord channel!
+4. In your configured Discord channel, type `/help` to see what you can do.
+
+See the [Drunken-Team Guide](./Drunken-Team-Guide.md) for the full setup (including running the bot as a persistent background service) and command reference.
