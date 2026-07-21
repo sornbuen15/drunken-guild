@@ -9,15 +9,15 @@
 
 ## 2. SDLC, Jira Integration, and Memory
 - **Context Handoff:** Always read `SESSION_CHECKPOINT.md` at the start of your session to understand current context. Before ending your turn or finishing a task, update `SESSION_CHECKPOINT.md` with what was completed and what's next.
-- **Use the Guild MCP:** Use Cursor's MCP feature to connect to `uv run drunken-mcp` (or run it yourself in the terminal).
-- **Start of Session:** Check for tasks first using the `get_jira_todo` MCP tool or by running `python3 scripts/jira_bridge.py get-todo`.
-- **Execution:** Before starting work, transition the Jira issue to 'In Progress' via the `transition_issue` tool.
+- **Use the Guild MCP:** Use Cursor's MCP feature to connect to the `drunken-jira-mcp` and `drunken-discord-mcp` servers (see `.mcp.json`), or run them yourself with `uv run python -m jira_mcp.server` / `uv run python -m discord_mcp.server`.
+- **Start of Session:** Check for tasks first using the `jira_search_issues` MCP tool or by running `python3 scripts/jira_bridge.py get-todo`.
+- **Execution:** Before starting work, transition the Jira issue to 'In Progress' via the `jira_start_task` or `jira_transition_issue` tool.
 - **Commit Format:** Every git branch MUST include the Jira Ticket ID (e.g., `feature/DT-123`). Every commit MUST start with the Jira Ticket ID (e.g., `feat(DT-123): ...`).
 - **Never Merge to Main:** Do not push or merge directly to the `main` branch. Always use Feature Branches and Pull Requests.
-- **Handoff:** When finished, push your branch, open a PR, and call `request_qa_review(pr_url)` via MCP.
+- **Handoff:** When finished, push your branch, open a PR, and call `jira_submit_for_review(issue_key, pr_link, files_changed)` via MCP.
 
 ## 3. Operations & Safety
-- **Destructive Commands:** DO NOT delete files (`rm`, `rm -rf`) without approval. You MUST use **The Silent Wait Protocol**: Write your question to `.agents/discord_outbox.json` using `write_to_file`, use `schedule` tool, and END YOUR TURN. Do NOT use `run_command` for approvals!
+- **Destructive Commands:** DO NOT delete files (`rm`, `rm -rf`) without approval. You MUST call the `request_boss_approval` MCP tool (`action`, `reason`, `ticket_key`) -- it blocks in-process until the Boss reacts on Discord. Do not poll files, do not use `schedule`, do not end your turn to wait.
 - **The "ค.ว.ย." Protocol:**
   - คิด (Think): Validate paths, ports, env vars before executing.
   - วิเคราะห์ (Analyze): Analyze logs. Do not assume success if it didn't instantly crash.
