@@ -193,6 +193,96 @@ async def test_is_pending_or_escalated(manager) -> None:
 
 
 @pytest.mark.asyncio
+async def test_clear_escalated_returns_and_removes_request(manager) -> None:
+    mgr, channel, agent_runner, jira_client, outbox = manager
+
+    result = await mgr.request("run destroy", "cleanup", "DT-42")
+    assert result == {"status": "escalated"}
+    assert mgr.is_pending_or_escalated("DT-42") == "escalated"
+
+    cleared = mgr.clear_escalated("DT-42")
+    assert cleared is not None
+    assert cleared.ticket_key == "DT-42"
+    assert cleared.action == "run destroy"
+    assert cleared.reason == "cleanup"
+
+    # Clearing removes it entirely -- no longer pending/escalated/blocking.
+    assert mgr.is_pending_or_escalated("DT-42") is None
+    assert mgr.list_pending() == []
+
+
+@pytest.mark.asyncio
+async def test_clear_escalated_unknown_ticket_returns_none(manager) -> None:
+    mgr, *_ = manager
+    assert mgr.clear_escalated("DT-999") is None
+
+
+@pytest.mark.asyncio
+async def test_clear_escalated_ignores_still_pending_request(manager) -> None:
+    mgr, channel, agent_runner, jira_client, outbox = manager
+
+    task = asyncio.create_task(mgr.request("do thing", "because", "DT-1"))
+    await asyncio.sleep(0.01)
+
+    # Still pending (not escalated yet) -- clear_escalated must not touch it.
+    assert mgr.clear_escalated("DT-1") is None
+    assert mgr.is_pending_or_escalated("DT-1") == "pending"
+
+    req_id = next(iter(mgr._requests))
+    msg_id = mgr._requests[req_id].discord_message_id
+    await mgr.resolve(msg_id, approved=True)
+    await task
+
+
+@pytest.mark.asyncio
+async def test_list_pending(manager) -> None:
+    mgr, channel, agent_runner, jira_client, outbox = manager
+
+    assert mgr.list_pending() == []
+
+    task1 = asyncio.create_task(mgr.request("do thing 1", "because 1", "DT-1"))
+    await asyncio.sleep(0.01)
+    task2 = asyncio.create_task(mgr.request("do thing 2", "because 2", "DT-2"))
+    await asyncio.sleep(0.01)
+
+    pending = mgr.list_pending()
+    assert len(pending) == 2
+    # Newest first.
+    assert pending[0]["ticket_key"] == "DT-2"
+    assert pending[0]["action"] == "do thing 2"
+    assert pending[0]["status"] == "pending"
+    assert pending[1]["ticket_key"] == "DT-1"
+
+    req_id_1 = next(rid for rid, r in mgr._requests.items() if r.ticket_key == "DT-1")
+    msg_id_1 = mgr._requests[req_id_1].discord_message_id
+    await mgr.resolve(msg_id_1, approved=True)
+    await task1
+
+    # Resolved requests are popped entirely -- only DT-2 remains.
+    pending = mgr.list_pending()
+    assert len(pending) == 1
+    assert pending[0]["ticket_key"] == "DT-2"
+
+    req_id_2 = next(iter(mgr._requests))
+    msg_id_2 = mgr._requests[req_id_2].discord_message_id
+    await mgr.resolve(msg_id_2, approved=True)
+    await task2
+
+
+@pytest.mark.asyncio
+async def test_list_pending_includes_escalated(manager) -> None:
+    mgr, channel, agent_runner, jira_client, outbox = manager
+
+    result = await mgr.request("do thing", "because", "DT-1")
+    assert result == {"status": "escalated"}
+
+    pending = mgr.list_pending()
+    assert len(pending) == 1
+    assert pending[0]["status"] == "escalated"
+    assert pending[0]["ticket_key"] == "DT-1"
+
+
+@pytest.mark.asyncio
 async def test_concurrent_snapshots_do_not_interleave(manager) -> None:
     # Regression test: _snapshot() offloads its write via asyncio.to_thread,
     # which gives no FIFO guarantee across threads on its own — two snapshot
