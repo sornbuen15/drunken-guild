@@ -277,6 +277,37 @@ class ApprovalManager:
                 return req.status
         return None
 
+    def list_pending(self) -> list[dict[str, Any]]:
+        """Requests still awaiting a human, newest first — for the /pending
+        Discord command. Only pending/escalated: approved/rejected requests
+        are already popped from self._requests by resolve()."""
+        return [
+            {
+                "ticket_key": req.ticket_key,
+                "action": req.action,
+                "status": req.status,
+                "created_at": req.created_at,
+            }
+            for req in sorted(
+                self._requests.values(), key=lambda r: r.created_at, reverse=True
+            )
+            if req.status in ("pending", "escalated")
+        ]
+
+    def clear_escalated(self, ticket_key: str) -> Optional[ApprovalRequest]:
+        """Clear the escalated request for `ticket_key`, if any, so
+        is_pending_or_escalated() stops blocking commits for it. Used by the
+        /approve Discord command -- the original agent process that made
+        this request is long gone (escalation already killed it), so there
+        is nothing to resume; the caller re-dispatches a fresh run instead.
+        Returns the cleared request for its action/reason context, or None
+        if there's no escalated request for that ticket."""
+        for req_id, req in list(self._requests.items()):
+            if req.ticket_key == ticket_key and req.status == "escalated":
+                del self._requests[req_id]
+                return req
+        return None
+
     async def _snapshot(self) -> None:
         # Only "pending" is persisted. "escalated" is a terminal state that's
         # already been fully actioned (Jira commented, Discord notified) —
