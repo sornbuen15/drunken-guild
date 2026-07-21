@@ -1,4 +1,6 @@
 # mypy: ignore-errors
+import asyncio
+import json
 from unittest import mock
 
 import discord
@@ -7,15 +9,41 @@ import pytest
 from service.discord_router import (
     DiscordRouter,
     _build_agent_suffix,
+    _build_refine_report,
     _dispatch_single_agent,
     _dispatch_swarm,
+    _format_issue_list,
+    _get_target_project,
+    _handle_approve_command,
     _handle_conversational_response,
     _handle_detail_command,
+    _handle_jira_list_command,
+    _handle_next_command,
+    _handle_pending_command,
+    _handle_pr_list_command,
+    _handle_project_command,
+    _handle_qa_command,
+    _handle_refine_command,
     _handle_reply_continuation,
     _handle_slash_command,
     _parse_router_response,
+    _run_jira_bridge,
+    _run_qa_gate_and_reply,
+    _set_target_project,
+    _target_project_cwd,
+    _try_handle_workflow_command,
 )
 from service.discord_runner import AgentRunner
+
+
+class FakeProcess:
+    def __init__(self, stdout: bytes, stderr: bytes, returncode: int):
+        self._stdout = stdout
+        self._stderr = stderr
+        self.returncode = returncode
+
+    async def communicate(self):
+        return self._stdout, self._stderr
 
 
 class MockMessage:
@@ -119,9 +147,9 @@ async def test_handle_slash_command(mock_mtime, mock_glob):
     await _handle_slash_command(runner, msg, "/list-cmd")
     assert "menu of quick commands" in msg.channel.send.call_args[0][0]
 
-    # other slash cmd
+    # unimplemented slash cmd falls back to the disabled message
     runner.run_command_async = mock.AsyncMock()
-    await _handle_slash_command(runner, msg, "/refine")
+    await _handle_slash_command(runner, msg, "/nonexistent-command")
     runner.run_command_async.assert_not_called()
     assert "ถูกปิดใช้งาน" in msg.channel.send.call_args[0][0]
 
@@ -296,23 +324,596 @@ async def test_router_route(mock_single, mock_detail, mock_reply, mock_slash):
     await router.route(msg)
     mock_reply.assert_called_once()
 
-    # 8. Deterministic single agent task
+    # 8. Any free-form, non-slash message gets the same fixed redirect to
+    # /help -- free-form task commanding is disabled pending DT-94, so there
+    # is nothing left to branch on (no persona/project matching).
     mock_reply.return_value = False
     msg.content = "principal-engineer do something"
-    with mock.patch("service.discord_router.ProjectRegistry") as mock_reg:
-        mock_proj = mock.MagicMock()
-        mock_proj.get_projects.return_value = {"drunken-team": {}}
-        mock_reg.return_value = mock_proj
+    await router.route(msg)
+    mock_single.assert_not_called()
+    msg.channel.send.assert_called_once()
+    assert "/help" in msg.channel.send.call_args[0][0]
 
-        await router.route(msg)
-        mock_single.assert_not_called()
-        msg.channel.send.assert_called_once()
-        assert "ถูกปิดใช้งาน" in msg.channel.send.call_args[0][0]
-
-    # 9. No target agent
+    # 9. Same fixed redirect regardless of content.
     msg.channel.send.reset_mock()
     msg.content = "do something without agent"
     await router.route(msg)
-    # should send system message
     msg.channel.send.assert_called_once()
-    assert "start your message with an agent's name" in msg.channel.send.call_args[0][0]
+    assert "/help" in msg.channel.send.call_args[0][0]
+
+
+@pytest.mark.anyio
+async def test_run_jira_bridge_success():
+    issues = [{"key": "DT-1", "summary": "s", "priority": "High"}]
+    fake = FakeProcess(json.dumps(issues).encode(), b"", 0)
+    with mock.patch(
+        "service.discord_router.asyncio.create_subprocess_exec",
+        new=mock.AsyncMock(return_value=fake),
+    ):
+        result, error = await _run_jira_bridge("get-todo")
+    assert error is None
+    assert result == issues
+
+
+@pytest.mark.anyio
+async def test_run_jira_bridge_nonzero_exit():
+    fake = FakeProcess(b"", b"boom", 1)
+    with mock.patch(
+        "service.discord_router.asyncio.create_subprocess_exec",
+        new=mock.AsyncMock(return_value=fake),
+    ):
+        result, error = await _run_jira_bridge("get-todo")
+    assert result == []
+    assert error == "boom"
+
+
+@pytest.mark.anyio
+async def test_run_jira_bridge_bad_json():
+    fake = FakeProcess(b"not json", b"", 0)
+    with mock.patch(
+        "service.discord_router.asyncio.create_subprocess_exec",
+        new=mock.AsyncMock(return_value=fake),
+    ):
+        result, error = await _run_jira_bridge("get-todo")
+    assert result == []
+    assert "parse" in error
+
+
+def test_format_issue_list_empty():
+    assert "no issues" in _format_issue_list([], "To Do")
+
+
+def test_format_issue_list_truncates_to_max_items():
+    issues = [
+        {"key": f"DT-{i}", "summary": "x" * 100, "priority": "High"} for i in range(12)
+    ]
+    text = _format_issue_list(issues, "To Do")
+    assert "(12)" in text
+    assert "...and 4 more" in text
+    assert len(text) <= 2000
+    # Long summaries are shortened, not dumped raw.
+    assert "x" * 100 not in text
+
+
+@pytest.mark.anyio
+async def test_handle_jira_list_command_error():
+    msg = MockMessage()
+    with mock.patch(
+        "service.discord_router._run_jira_bridge",
+        mock.AsyncMock(return_value=([], "boom")),
+    ):
+        await _handle_jira_list_command(msg, "get-todo", "To Do")
+    assert "Couldn't fetch" in msg.channel.send.call_args[0][0]
+
+
+@pytest.mark.anyio
+async def test_handle_jira_list_command_success():
+    msg = MockMessage()
+    issues = [{"key": "DT-1", "summary": "do a thing", "priority": "High"}]
+    with mock.patch(
+        "service.discord_router._run_jira_bridge",
+        mock.AsyncMock(return_value=(issues, None)),
+    ):
+        await _handle_jira_list_command(msg, "get-todo", "To Do")
+    sent = msg.channel.send.call_args[0][0]
+    assert "DT-1" in sent
+    assert "do a thing" in sent
+
+
+@pytest.mark.anyio
+async def test_handle_pr_list_command_success():
+    msg = MockMessage()
+    prs = [{"number": 12, "title": "fix bug", "url": "https://x/12", "isDraft": False}]
+    fake = FakeProcess(json.dumps(prs).encode(), b"", 0)
+    with mock.patch(
+        "service.discord_router.asyncio.create_subprocess_exec",
+        new=mock.AsyncMock(return_value=fake),
+    ):
+        await _handle_pr_list_command(msg)
+    sent = msg.channel.send.call_args[0][0]
+    assert "#12" in sent
+    assert "fix bug" in sent
+
+
+@pytest.mark.anyio
+async def test_handle_pr_list_command_none_open():
+    msg = MockMessage()
+    fake = FakeProcess(b"[]", b"", 0)
+    with mock.patch(
+        "service.discord_router.asyncio.create_subprocess_exec",
+        new=mock.AsyncMock(return_value=fake),
+    ):
+        await _handle_pr_list_command(msg)
+    assert "none open" in msg.channel.send.call_args[0][0]
+
+
+@pytest.mark.anyio
+async def test_handle_pr_list_command_gh_error():
+    msg = MockMessage()
+    fake = FakeProcess(b"", b"gh not authenticated", 1)
+    with mock.patch(
+        "service.discord_router.asyncio.create_subprocess_exec",
+        new=mock.AsyncMock(return_value=fake),
+    ):
+        await _handle_pr_list_command(msg)
+    assert "Couldn't fetch open PRs" in msg.channel.send.call_args[0][0]
+
+
+@pytest.mark.anyio
+async def test_handle_pending_command_no_manager():
+    msg = MockMessage()
+    await _handle_pending_command(None, msg)
+    assert "isn't wired up" in msg.channel.send.call_args[0][0]
+
+
+@pytest.mark.anyio
+async def test_handle_pending_command_empty():
+    msg = MockMessage()
+    mgr = mock.MagicMock()
+    mgr.list_pending.return_value = []
+    await _handle_pending_command(mgr, msg)
+    assert "Nothing waiting" in msg.channel.send.call_args[0][0]
+
+
+@pytest.mark.anyio
+async def test_handle_pending_command_with_items():
+    msg = MockMessage()
+    mgr = mock.MagicMock()
+    mgr.list_pending.return_value = [
+        {"ticket_key": "DT-1", "action": "delete stuff", "status": "pending"},
+        {"ticket_key": "DT-2", "action": "run destroy", "status": "escalated"},
+    ]
+    await _handle_pending_command(mgr, msg)
+    sent = msg.channel.send.call_args[0][0]
+    assert "DT-1" in sent
+    assert "DT-2" in sent
+    assert "escalated" in sent
+
+
+@pytest.mark.anyio
+@mock.patch("glob.glob")
+@mock.patch("os.path.getmtime")
+async def test_handle_slash_command_new_query_commands(mock_mtime, mock_glob):
+    runner = AgentRunner()
+    msg = MockMessage()
+
+    issues = [{"key": "DT-1", "summary": "do a thing", "priority": "High"}]
+    with mock.patch(
+        "service.discord_router._run_jira_bridge",
+        mock.AsyncMock(return_value=(issues, None)),
+    ):
+        for cmd in ("/tasks", "/inprogress", "/review", "/backlog"):
+            msg.channel.send.reset_mock()
+            await _handle_slash_command(runner, msg, cmd)
+            assert "DT-1" in msg.channel.send.call_args[0][0]
+
+    msg.channel.send.reset_mock()
+    with mock.patch(
+        "service.discord_router._handle_pr_list_command", mock.AsyncMock()
+    ) as mock_pr:
+        await _handle_slash_command(runner, msg, "/pr")
+    mock_pr.assert_called_once()
+
+    msg.channel.send.reset_mock()
+    approval_manager = mock.MagicMock()
+    approval_manager.list_pending.return_value = []
+    await _handle_slash_command(runner, msg, "/pending", approval_manager)
+    assert "Nothing waiting" in msg.channel.send.call_args[0][0]
+
+    # /pending with no approval_manager wired up (default None)
+    msg.channel.send.reset_mock()
+    await _handle_slash_command(runner, msg, "/pending")
+    assert "isn't wired up" in msg.channel.send.call_args[0][0]
+
+    # /help documents the new commands
+    msg.channel.send.reset_mock()
+    await _handle_slash_command(runner, msg, "/help")
+    help_text = msg.channel.send.call_args[0][0]
+    for cmd in ("/tasks", "/inprogress", "/review", "/backlog", "/pending", "/pr"):
+        assert cmd in help_text
+
+    # /list-cmd documents the new commands too
+    msg.channel.send.reset_mock()
+    await _handle_slash_command(runner, msg, "/list-cmd")
+    list_text = msg.channel.send.call_args[0][0]
+    assert "/tasks" in list_text
+    assert "/pending" in list_text
+    assert "/pr" in list_text
+
+
+@pytest.mark.anyio
+@mock.patch("service.discord_router._handle_slash_command")
+async def test_router_route_passes_approval_manager(mock_slash):
+    client = mock.MagicMock()
+    client.user.id = 999
+    runner = mock.MagicMock()
+    approval_manager = mock.MagicMock()
+    router = DiscordRouter(client, runner, 123, approval_manager)
+
+    msg = MockMessage("/pending")
+    msg.channel.id = 123
+
+    await router.route(msg)
+    mock_slash.assert_called_once_with(runner, msg, "/pending", approval_manager)
+
+
+# --- round 2: /project, /next, /refine, /approve, /qa ---
+
+
+@pytest.fixture()
+def target_project_config(tmp_path):
+    """Points find_config() (and therefore the target-project state file)
+    at an isolated tmp_path so tests never touch the real .agents/ dir."""
+    config_file = tmp_path / ".agents" / "discord_config.json"
+    config_file.parent.mkdir(parents=True, exist_ok=True)
+    config_file.write_text("{}")
+    with mock.patch(
+        "service.discord_router.find_config", return_value=str(config_file)
+    ):
+        yield tmp_path
+
+
+def test_get_set_target_project_default(target_project_config):
+    assert _get_target_project() == "drunken-team"
+
+
+def test_set_then_get_target_project_roundtrips(target_project_config):
+    _set_target_project("beta")
+    assert _get_target_project() == "beta"
+
+
+def test_target_project_cwd_default_is_none(target_project_config):
+    assert _target_project_cwd() is None
+
+
+def test_target_project_cwd_resolves_registered_path(target_project_config):
+    _set_target_project("beta")
+    with mock.patch("service.discord_router.ProjectRegistry") as mock_reg:
+        mock_proj = mock.MagicMock()
+        mock_proj.get_project.return_value = {"path": "/fake/beta"}
+        mock_reg.return_value = mock_proj
+        assert _target_project_cwd() == "/fake/beta"
+
+
+def test_target_project_cwd_unregistered_project_is_none(target_project_config):
+    _set_target_project("ghost-project")
+    with mock.patch("service.discord_router.ProjectRegistry") as mock_reg:
+        mock_proj = mock.MagicMock()
+        mock_proj.get_project.return_value = None
+        mock_reg.return_value = mock_proj
+        assert _target_project_cwd() is None
+
+
+@pytest.mark.anyio
+async def test_handle_project_command_shows_current(target_project_config):
+    msg = MockMessage()
+    await _handle_project_command(msg, "/project")
+    assert "drunken-team" in msg.channel.send.call_args[0][0]
+
+
+@pytest.mark.anyio
+async def test_handle_project_command_switches_to_known_project(
+    target_project_config,
+):
+    msg = MockMessage()
+    with mock.patch("service.discord_router.ProjectRegistry") as mock_reg:
+        mock_proj = mock.MagicMock()
+        mock_proj.get_project.return_value = {"path": "/fake/beta"}
+        mock_reg.return_value = mock_proj
+        await _handle_project_command(msg, "/project beta")
+    assert "beta" in msg.channel.send.call_args[0][0]
+    assert _get_target_project() == "beta"
+
+
+@pytest.mark.anyio
+async def test_handle_project_command_rejects_unknown_project(
+    target_project_config,
+):
+    msg = MockMessage()
+    with mock.patch("service.discord_router.ProjectRegistry") as mock_reg:
+        mock_proj = mock.MagicMock()
+        mock_proj.get_project.return_value = None
+        mock_proj.get_projects.return_value = {"drunken-team": {}, "beta": {}}
+        mock_reg.return_value = mock_proj
+        await _handle_project_command(msg, "/project nope")
+    assert "ไม่พบโปรเจกต์" in msg.channel.send.call_args[0][0]
+    # Unchanged -- still the default.
+    assert _get_target_project() == "drunken-team"
+
+
+@pytest.mark.anyio
+async def test_handle_next_command_refuses_when_in_progress_busy():
+    msg = MockMessage()
+    with mock.patch(
+        "service.discord_router._run_jira_bridge",
+        mock.AsyncMock(return_value=([{"key": "DT-1"}], None)),
+    ):
+        await _handle_next_command(msg)
+    assert "In Progress ค้างอยู่แล้ว" in msg.channel.send.call_args[0][0]
+
+
+@pytest.mark.anyio
+async def test_handle_next_command_no_todo_left():
+    msg = MockMessage()
+
+    async def fake_bridge(action, cwd=None):
+        if action == "get-in-progress":
+            return [], None
+        return [], None
+
+    with mock.patch("service.discord_router._run_jira_bridge", side_effect=fake_bridge):
+        await _handle_next_command(msg)
+    assert "ไม่มีงานเหลือใน To Do" in msg.channel.send.call_args[0][0]
+
+
+@pytest.mark.anyio
+async def test_handle_next_command_picks_top_todo_and_transitions():
+    msg = MockMessage()
+
+    async def fake_bridge(action, cwd=None):
+        if action == "get-in-progress":
+            return [], None
+        return [{"key": "DT-42", "summary": "Do the thing"}], None
+
+    with (
+        mock.patch("service.discord_router._run_jira_bridge", side_effect=fake_bridge),
+        mock.patch(
+            "service.discord_router._transition_issue",
+            mock.AsyncMock(return_value=(True, "ok")),
+        ) as mock_transition,
+    ):
+        await _handle_next_command(msg)
+
+    mock_transition.assert_called_once_with("DT-42", "In Progress", None)
+    sent = msg.channel.send.call_args[0][0]
+    assert "DT-42" in sent
+    assert "Do the thing" in sent
+
+
+@pytest.mark.anyio
+async def test_handle_next_command_transition_failure():
+    msg = MockMessage()
+
+    async def fake_bridge(action, cwd=None):
+        if action == "get-in-progress":
+            return [], None
+        return [{"key": "DT-42", "summary": "Do the thing"}], None
+
+    with (
+        mock.patch("service.discord_router._run_jira_bridge", side_effect=fake_bridge),
+        mock.patch(
+            "service.discord_router._transition_issue",
+            mock.AsyncMock(return_value=(False, "no such transition")),
+        ),
+    ):
+        await _handle_next_command(msg)
+    assert "ไม่สำเร็จ" in msg.channel.send.call_args[0][0]
+
+
+def test_build_refine_report_promotes_and_groups():
+    backlog = [
+        {"key": "DT-1", "priority": "Critical"},
+        {"key": "DT-2", "priority": "High"},
+        {"key": "DT-3", "priority": "High"},
+        {"key": "DT-4", "priority": "Low"},
+    ]
+    critical = [backlog[0]]
+    report = _build_refine_report(backlog, critical, promoted=["DT-1"], failed=[])
+    assert "DT-1" in report
+    assert "High" in report and "DT-2" in report and "DT-3" in report
+    assert "Low" in report and "DT-4" in report
+    assert len(report) <= 2000
+
+
+@pytest.mark.anyio
+async def test_handle_refine_command_empty_backlog():
+    msg = MockMessage()
+    with mock.patch(
+        "service.discord_router._run_jira_bridge",
+        mock.AsyncMock(return_value=([], None)),
+    ):
+        await _handle_refine_command(msg)
+    assert "ว่างค่ะ" in msg.channel.send.call_args[0][0]
+
+
+@pytest.mark.anyio
+async def test_handle_refine_command_promotes_critical():
+    msg = MockMessage()
+    backlog = [{"key": "DT-1", "priority": "Critical"}]
+    with (
+        mock.patch(
+            "service.discord_router._run_jira_bridge",
+            mock.AsyncMock(return_value=(backlog, None)),
+        ),
+        mock.patch(
+            "service.discord_router._transition_issue",
+            mock.AsyncMock(return_value=(True, "ok")),
+        ) as mock_transition,
+    ):
+        await _handle_refine_command(msg)
+    mock_transition.assert_called_once_with("DT-1", "To Do", None)
+    assert "Auto-promoted" in msg.channel.send.call_args[0][0]
+
+
+@pytest.mark.anyio
+async def test_handle_approve_command_missing_ticket_arg():
+    msg = MockMessage()
+    await _handle_approve_command(mock.MagicMock(), mock.MagicMock(), msg, "/approve")
+    assert "ใช้แบบนี้" in msg.channel.send.call_args[0][0]
+
+
+@pytest.mark.anyio
+async def test_handle_approve_command_no_manager():
+    msg = MockMessage()
+    await _handle_approve_command(mock.MagicMock(), None, msg, "/approve DT-1")
+    assert "isn't wired up" in msg.channel.send.call_args[0][0]
+
+
+@pytest.mark.anyio
+async def test_handle_approve_command_ticket_not_escalated():
+    msg = MockMessage()
+    approval_manager = mock.MagicMock()
+    approval_manager.clear_escalated.return_value = None
+    await _handle_approve_command(
+        mock.MagicMock(), approval_manager, msg, "/approve DT-1"
+    )
+    assert "ไม่พบ escalated request" in msg.channel.send.call_args[0][0]
+
+
+@pytest.mark.anyio
+async def test_handle_approve_command_clears_and_redispatches():
+    msg = MockMessage()
+    approval_manager = mock.MagicMock()
+    cleared_req = mock.MagicMock()
+    cleared_req.action = "run destroy"
+    cleared_req.reason = "cleanup"
+    approval_manager.clear_escalated.return_value = cleared_req
+    runner = mock.MagicMock()
+    runner.run_command_async = mock.AsyncMock()
+
+    await _handle_approve_command(runner, approval_manager, msg, "/approve DT-1")
+
+    approval_manager.clear_escalated.assert_called_once_with("DT-1")
+    assert "เคลียร์ block" in msg.channel.send.call_args_list[0][0][0]
+    runner.run_command_async.assert_called_once()
+    call_kwargs = runner.run_command_async.call_args
+    assert "DT-1" in call_kwargs[0][2]  # refined_prompt/content_str arg
+
+
+@pytest.mark.anyio
+async def test_run_qa_gate_and_reply_success():
+    msg = MockMessage()
+    ack = mock.AsyncMock()
+    ack.reply = mock.AsyncMock()
+    fake = FakeProcess(b"All good.\n", b"", 0)
+    with mock.patch(
+        "service.discord_router.asyncio.create_subprocess_exec",
+        new=mock.AsyncMock(return_value=fake),
+    ):
+        await _run_qa_gate_and_reply(msg, ack)
+    ack.reply.assert_called_once()
+    assert "All good" in ack.reply.call_args[0][0]
+
+
+@pytest.mark.anyio
+async def test_run_qa_gate_and_reply_error():
+    msg = MockMessage()
+    ack = mock.AsyncMock()
+    ack.reply = mock.AsyncMock()
+    fake = FakeProcess(b"", b"boom", 1)
+    with mock.patch(
+        "service.discord_router.asyncio.create_subprocess_exec",
+        new=mock.AsyncMock(return_value=fake),
+    ):
+        await _run_qa_gate_and_reply(msg, ack)
+    assert "errored" in ack.reply.call_args[0][0]
+
+
+@pytest.mark.anyio
+async def test_run_qa_gate_and_reply_falls_back_to_channel_send():
+    msg = MockMessage()
+    ack = mock.AsyncMock()
+    ack.reply = mock.AsyncMock(side_effect=Exception("message gone"))
+    fake = FakeProcess(b"ok", b"", 0)
+    with mock.patch(
+        "service.discord_router.asyncio.create_subprocess_exec",
+        new=mock.AsyncMock(return_value=fake),
+    ):
+        await _run_qa_gate_and_reply(msg, ack)
+    msg.channel.send.assert_called_once()
+
+
+@pytest.mark.anyio
+async def test_handle_qa_command_sends_ack_and_schedules_background_task():
+    msg = MockMessage()
+    with mock.patch(
+        "service.discord_router._run_qa_gate_and_reply", mock.AsyncMock()
+    ) as mock_run:
+        await _handle_qa_command(msg)
+        # Let the scheduled background task actually run.
+        await asyncio.sleep(0)
+    msg.channel.send.assert_called_once()
+    assert "Running the QA" in msg.channel.send.call_args[0][0]
+    mock_run.assert_called_once()
+
+
+@pytest.mark.anyio
+async def test_try_handle_workflow_command_dispatches_each_command():
+    msg = MockMessage()
+    runner = mock.MagicMock()
+    approval_manager = mock.MagicMock()
+
+    with mock.patch(
+        "service.discord_router._handle_project_command", mock.AsyncMock()
+    ) as m:
+        assert await _try_handle_workflow_command(
+            "/project", "/project beta", runner, approval_manager, msg
+        )
+        m.assert_called_once()
+
+    with mock.patch(
+        "service.discord_router._handle_next_command", mock.AsyncMock()
+    ) as m:
+        assert await _try_handle_workflow_command(
+            "/next", "/next", runner, approval_manager, msg
+        )
+        m.assert_called_once()
+
+    with mock.patch(
+        "service.discord_router._handle_refine_command", mock.AsyncMock()
+    ) as m:
+        assert await _try_handle_workflow_command(
+            "/refine", "/refine", runner, approval_manager, msg
+        )
+        m.assert_called_once()
+
+    with mock.patch(
+        "service.discord_router._handle_approve_command", mock.AsyncMock()
+    ) as m:
+        assert await _try_handle_workflow_command(
+            "/approve", "/approve DT-1", runner, approval_manager, msg
+        )
+        m.assert_called_once()
+
+    with mock.patch("service.discord_router._handle_qa_command", mock.AsyncMock()) as m:
+        assert await _try_handle_workflow_command(
+            "/qa", "/qa", runner, approval_manager, msg
+        )
+        m.assert_called_once()
+
+    assert (
+        await _try_handle_workflow_command(
+            "/nonexistent", "/nonexistent", runner, approval_manager, msg
+        )
+        is False
+    )
+
+
+@pytest.mark.anyio
+async def test_handle_slash_command_help_documents_round_2_commands():
+    runner = AgentRunner()
+    msg = MockMessage()
+    await _handle_slash_command(runner, msg, "/help")
+    help_text = msg.channel.send.call_args[0][0]
+    for cmd in ("/project", "/next", "/refine", "/approve", "/qa"):
+        assert cmd in help_text
