@@ -180,7 +180,7 @@ async def on_reaction_add(reaction: discord.Reaction, user: discord.User) -> Non
 async def on_message(message: discord.Message) -> None:
     global router
     if not router:
-        router = DiscordRouter(client, agent_runner, CHANNEL_ID)
+        router = DiscordRouter(client, agent_runner, CHANNEL_ID, approval_manager)
     await router.route(message)
     return
 
