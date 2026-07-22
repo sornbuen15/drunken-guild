@@ -46,13 +46,22 @@ DT-94 and DT-90 both manually transitioned to Done with full summary comments af
 
 Backlog (label-less, not this round): **DT-95** -- token/cost tracking tech debt, still deferred.
 
-Also flagged as a spawned background task, not yet landed: a stale "Silent Wait Protocol" string still live inside `src/jira_mcp/server.py`'s `init_project` MCP prompt (found while auditing docs -- it's source code, not a doc, so it was scoped out of DT-90 and handed off separately). Check its status next session.
+The stale "Silent Wait Protocol" string inside `src/jira_mcp/server.py`'s `init_project` MCP prompt (found while auditing docs, scoped out of DT-90 as source code rather than a doc) was fixed by a separate spawned session and merged via **PR #64**. No other stale protocol references remain anywhere tracked (`git grep` confirms -- the only two remaining "Silent Wait Protocol" mentions are `approval_manager.py`'s own docstring and this file, both correctly describing it in the past tense as retired/replaced).
+
+### `.env-dev` folded into `.env`, plus two real onboarding bugs found and fixed
+Later the same session, the Boss confirmed all needed vars were already migrated, so `.env-dev` was renamed to `.env` and the transitional fallback removed from all 5 places that had it. Before merging, verified the whole system actually works for a new user by cloning the branch into an isolated directory with zero local state and following the documented setup literally -- this found two real bugs:
+- `register_project.py` writes `.agents/jira.json` with a snake_case `project_key` field, but `jira_bridge.py` and `jira_mcp/config.py` both read it back as camelCase `projectKey` -- silently dropped the project key for anyone who registered via `drunken-register` without also setting `JIRA_PROJECT_KEY` as an env var. Reproduced, fixed both readers, reproduced again to confirm resolution. Added regression tests (`tests/test_jira_mcp_config.py`, zero prior coverage of this path). Fixed the matching wrong doc example too.
+- `register_project.py`'s success message told users to "start the dashboard" (removed earlier session) -- pointed at the real next step instead.
+
+Also added `.env.example` (every real env var the project reads, `.gitignore` negation so it's actually trackable) since previously there was only inline markdown, no copyable template. Re-audited the full git history across all branches for leaked secrets after every change this session -- clean throughout, including after these last fixes.
+
+Landed via **PR #63** (`chore/fold-env-dev-into-env` -> `develop`).
 
 ## 4. Pending / Next Steps
 1. **Decide round-2 vs. `beta` pivot** -- round-1 has no open tickets left. This is the first thing to raise with the Boss.
 2. **`/qa` has never been live-tested.** Every other Discord command (round 1 + round 2) was verified against the real bot; `/qa` does real `git checkout`/merge/branch-delete operations on the working tree, so it needs a ticket that's In Review with a genuinely open, unmerged PR to test meaningfully (DT-94/DT-90 no longer qualify -- their branches are gone). Follow DT-93's own precedent: a disposable scratch ticket + scratch PR, not a live one.
 3. The Discord approval daemon is live and running merged `develop` code as of this session (`launchctl list com.drunkenteam.agy-daemon` to check; `launchctl kickstart -k gui/$(id -u)/com.drunkenteam.agy-daemon` to restart after a code change -- note this specific command has been blocked by the auto-mode permission classifier before; the Boss may need to run it manually).
-4. Nothing is currently open/unmerged -- PRs #60 and #61 both merged to `develop`.
+4. Nothing is currently open/unmerged -- PRs #60, #61, #63, and #64 (the last from a separate spawned session, see above) all merged to `develop`. Full suite/ruff/mypy clean on `develop` as of this checkpoint.
 
 ## 5. Known Issues & Context
 - **Review discipline:** tests passing is necessary but not sufficient -- see this session's `.agents/`-tracking mistake (caught and corrected only because the Boss questioned it, not because of a test) and prior sessions' DT-93 regression-in-the-fix. Keep treating "it passed CI" as a floor, not a ceiling.
