@@ -30,15 +30,13 @@ def _load_env_file(path: str) -> None:
 
 
 def load_dotenv() -> None:
-    # .env-dev (transitional, credential-migration-in-progress) takes
-    # priority over .env while it exists.
+    # Look for .env in the current directory or any parent directory.
     curr_dir = os.getcwd()
     while True:
-        for filename in (".env-dev", ".env"):
-            dotenv_path = os.path.join(curr_dir, filename)
-            if os.path.exists(dotenv_path):
-                _load_env_file(dotenv_path)
-                return
+        dotenv_path = os.path.join(curr_dir, ".env")
+        if os.path.exists(dotenv_path):
+            _load_env_file(dotenv_path)
+            return
         parent = os.path.dirname(curr_dir)
         if parent == curr_dir:
             break

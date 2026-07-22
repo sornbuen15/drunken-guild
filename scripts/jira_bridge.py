@@ -26,17 +26,13 @@ def _load_env_file(path: str) -> None:
 
 
 def load_dotenv() -> None:
-    # Look for .env-dev (transitional, credential-migration-in-progress) or
-    # .env in current directory or parent directories. .env-dev takes
-    # priority while it exists; drop it once secrets are confirmed complete
-    # and folded into .env.
+    # Look for .env in the current directory or any parent directory.
     curr_dir = os.getcwd()
     while True:
-        for filename in (".env-dev", ".env"):
-            dotenv_path = os.path.join(curr_dir, filename)
-            if os.path.exists(dotenv_path):
-                _load_env_file(dotenv_path)
-                return
+        dotenv_path = os.path.join(curr_dir, ".env")
+        if os.path.exists(dotenv_path):
+            _load_env_file(dotenv_path)
+            return
         parent = os.path.dirname(curr_dir)
         if parent == curr_dir:
             break
@@ -260,7 +256,7 @@ def main() -> None:  # noqa: C901  # TODO(DT-46): Technical Debt - Refactor to r
             with open(local_jira, "r") as f:
                 l_data = json.load(f)
                 jira_config["project_key"] = jira_config["project_key"] or l_data.get(
-                    "projectKey"
+                    "project_key"
                 )
                 jira_config["jira_url"] = jira_config["jira_url"] or l_data.get(
                     "jira_url"
