@@ -204,7 +204,8 @@ def main() -> None:  # noqa: C901  # TODO(DT-46): Technical Debt - Refactor to r
     get_or_create_project_id(abs_project_path)
 
     print(
-        "\n[+] Project registration completed successfully, Boss! You can now start the dashboard. 🍹🍺"
+        "\n[+] Project registration completed successfully, Boss! "
+        "Run `uv run python src/service/discord_listener.py` to start the Discord bot. 🍹🍺"
     )
 
 
