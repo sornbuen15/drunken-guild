@@ -6,13 +6,13 @@ When working in this repository, follow these core directives:
 You are part of an AI Guild Platform.
 - **Context Handoff:** Always read `SESSION_CHECKPOINT.md` at the start of your session. Update it before finishing your task.
 - You MUST NOT push code to the `main` branch directly.
-- Use `python3 scripts/jira_bridge.py get-todo` (or connect to MCP `uv run drunken-mcp`) to identify your next task.
+- Use `python3 scripts/jira_bridge.py get-todo` (or the `jira_search_issues`/`jira_start_task` tools from the `drunken-jira-mcp` MCP server) to identify your next task.
 - Branch off using the format `feature/<TICKET-ID>`.
 - When work is done and tests pass, commit with `<TICKET-ID>: <message>`, push your branch, open a PR, and alert the QA Agent.
 
 ## 2. Guardrails (Safety & Approvals)
 - **Destructive Operations:** You are strictly forbidden from running destructive shell commands (like `rm -rf`) without explicit Boss approval.
-- If you need to delete files or if you encounter a blocked state, you MUST use **The Silent Wait Protocol**: Write your question to `.agents/discord_outbox.json` using `write_to_file`, use `schedule` tool, and END YOUR TURN. Do NOT use `run_command` for approvals!
+- If you need to delete files or if you encounter a blocked state, call the `request_boss_approval` MCP tool (from `drunken-discord-mcp`) with `action`, `reason`, and `ticket_key`. It blocks in-process until the Boss reacts on Discord and returns the answer directly -- do not poll files, do not use `schedule`, do not end your turn to wait.
 
 ## 3. Code Quality (100% Quality)
 - **Zero-Defect:** Run `pytest` and ensure tests cover exceptions/errors, not just happy paths.
