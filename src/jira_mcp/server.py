@@ -117,7 +117,7 @@ def init_project() -> str:
         "2. If this is an existing project, briefly scan the source code structure.\\n"
         "3. Generate a high-level Domain-Driven Design (DDD) architecture document.\\n"
         "4. Develop a 'Walking Skeleton' (Feasibility Spike) to prove the tech stack.\\n"
-        "5. Present the DDD and Spike to the Boss. You MUST use the Silent Wait Protocol to get approval before creating any tickets."
+        "5. Present the DDD and Spike to the Boss. You MUST call the request_boss_approval MCP tool to get approval before creating any tickets."
     )
 
 
