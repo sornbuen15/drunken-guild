@@ -67,16 +67,13 @@ This creates `.agents/jira.json` and `.agents/discord_config.json` in the curren
 - Jira URL, email, project key, and API token
 - Discord bot token and channel ID
 
-You can also skip the prompt and set environment variables instead (in a `.env` file at the repo root):
+You can also skip the prompt and set environment variables instead. Copy the template and fill it in:
 
-```env
-JIRA_URL="https://your-domain.atlassian.net"
-JIRA_EMAIL="your-email@example.com"
-JIRA_API_TOKEN="your-jira-api-token"
-JIRA_PROJECT_KEY="DT"
-DISCORD_BOT_TOKEN="your-bot-token"
-DISCORD_CHANNEL_ID="123456789012345678"
+```bash
+cp .env.example .env
 ```
+
+`.env.example` documents every variable the project reads (required Jira/Discord ones plus optional extras like `GEMINI_API_KEY` and `GITHUB_MINABOT`) with inline comments explaining each. `.env` is gitignored -- your real values never get committed.
 
 ### 3.4 Register the MCP servers (for an AI coding agent)
 
