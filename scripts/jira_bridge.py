@@ -256,7 +256,7 @@ def main() -> None:  # noqa: C901  # TODO(DT-46): Technical Debt - Refactor to r
             with open(local_jira, "r") as f:
                 l_data = json.load(f)
                 jira_config["project_key"] = jira_config["project_key"] or l_data.get(
-                    "projectKey"
+                    "project_key"
                 )
                 jira_config["jira_url"] = jira_config["jira_url"] or l_data.get(
                     "jira_url"
