@@ -27,7 +27,7 @@ Before running the server, you **must** configure your Jira credentials. The ser
 3. **Global JSON config**: `~/.gemini/config/jira_config.json`
 
 ### Option A: Using a `.env` file (Recommended)
-Create a `.env` file at the root of your project and add the following variables:
+Copy the repo-root `.env.example` template (`cp .env.example .env`) and fill it in, or create a `.env` file at the root of your project with these variables directly:
 
 ```env
 JIRA_URL="https://your-domain.atlassian.net"
@@ -44,7 +44,7 @@ Create a `.agents/jira.json` file in your project with the following structure:
 {
   "jira_url": "https://your-domain.atlassian.net",
   "jira_email": "your-email@example.com",
-  "projectKey": "DT"
+  "project_key": "DT"
 }
 ```
 *(The API Token will still be read from the environment variables or the global config for security reasons).*
