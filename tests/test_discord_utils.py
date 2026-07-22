@@ -82,7 +82,7 @@ def test_load_config(mock_file, mock_find, mock_load_dotenv):
 )
 @mock.patch("service.discord_utils.load_dotenv")
 def test_load_config_env_priority(mock_load_dotenv):
-    # Env vars (.env-dev / .env) win over the JSON file when both are set.
+    # Env vars (.env) win over the JSON file when both are set.
     assert load_config() == {"bot_token": "env_token", "channel_id": "env_chan"}
 
 

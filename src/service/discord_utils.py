@@ -24,15 +24,13 @@ def _load_env_file(path: str) -> None:
 
 
 def load_dotenv() -> None:
-    # .env-dev (transitional, credential-migration-in-progress) takes
-    # priority over .env while it exists.
+    # Look for .env in the current directory or any parent directory.
     curr_dir = os.getcwd()
     while True:
-        for filename in (".env-dev", ".env"):
-            dotenv_path = os.path.join(curr_dir, filename)
-            if os.path.exists(dotenv_path):
-                _load_env_file(dotenv_path)
-                return
+        dotenv_path = os.path.join(curr_dir, ".env")
+        if os.path.exists(dotenv_path):
+            _load_env_file(dotenv_path)
+            return
         parent = os.path.dirname(curr_dir)
         if parent == curr_dir:
             break
@@ -185,8 +183,8 @@ def save_config(config: dict[str, Any]) -> None:
 
 
 def load_config() -> dict[str, Any]:
-    # Env vars (.env-dev / .env) take priority per field, matching the
-    # jira_mcp config pattern — falls back to the local JSON file's own
+    # Env vars (.env) take priority per field, matching the jira_mcp config
+    # pattern — falls back to the local JSON file's own
     # value for whichever field isn't set in the environment. Deliberately
     # per-field (not "both or neither"): a file with a stale bot_token key
     # must not shadow a freshly-set DISCORD_BOT_TOKEN env var just because
