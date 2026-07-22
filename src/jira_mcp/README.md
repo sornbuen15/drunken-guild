@@ -93,10 +93,17 @@ Once connected, the AI Agent will automatically discover the following capabilit
 - `jira_create_issue`: Create new tickets on the board.
 - `jira_transition_issue`: Move a ticket's status (e.g., 'To Do' -> 'In Progress').
 - `jira_add_comment`: Add a comment to an existing ticket.
+- `jira_start_task`: Pick up an issue and transition it to 'In Progress' in one call.
+- `jira_submit_for_review`: Transition an issue to 'In Review' and attach a PR link.
 
 ### Resources (Context Reading)
 - `jira://board`: Instantly fetches the active board (To Do, In Progress, In Review) for the configured default project.
 - `jira://issue/{issue_key}`: Fetches deep JSON details of a specific ticket.
+- `jira://project/{project_key}/board`: Same as `jira://board`, but for a specific project key instead of the configured default.
 
 ### Prompts
 - `jira_daily_standup`: Instructs the agent to summarize blockers based on 'In Progress' and 'In Review' tickets.
+- `init_project`: Starts the initial architecture phase -- read the spec, produce a DDD architecture doc and a feasibility spike, then present both for approval before any tickets are created.
+- `refinement`: Breaks an approved architecture down into Jira tickets, each with strict acceptance criteria for TDD.
+- `sprint_planning`: Reviews the backlog and active board, adjusts priorities, moves selected tickets to To Do, and triages which can run in parallel vs. must run in sequence.
+- `review_retro`: Reviews a completed round, files any tech debt/enhancements found, and asks whether to proceed to the next round.
