@@ -501,6 +501,7 @@ async def _run_qa_gate_and_reply(
     # _handle_qa_command, so anything raised here has nowhere else to go --
     # without this try/except a crash here is completely silent (no Discord
     # reply, no log line, nothing). Always produce a reply.
+    report_path: str | None = None
     try:
         proc = await asyncio.create_subprocess_exec(
             sys.executable,
@@ -511,6 +512,17 @@ async def _run_qa_gate_and_reply(
         )
         stdout, stderr = await proc.communicate()
         output = stdout.decode("utf-8", errors="replace").strip()
+        # qa_automation.py prints this marker line on its own when the
+        # round-integration test generated an HTML report -- pull it out so
+        # it doesn't show up as noise in the text reply itself.
+        report_marker = "QA_HTML_REPORT_PATH:"
+        output_lines = []
+        for line in output.splitlines():
+            if line.startswith(report_marker):
+                report_path = line[len(report_marker) :].strip()
+            else:
+                output_lines.append(line)
+        output = "\n".join(output_lines).strip()
         if proc.returncode != 0:
             err = stderr.decode("utf-8", errors="replace").strip()
             text = f"⚠️ **QA gate errored.**\n```\n{err[-1200:]}\n```"
@@ -521,10 +533,21 @@ async def _run_qa_gate_and_reply(
     except Exception as e:
         text = f"⚠️ **QA gate crashed before finishing.**\n```\n{e!r}\n```"
     text = _truncate_for_discord(text)
+    has_report = bool(report_path and os.path.exists(report_path))
+
+    def _file_kwargs() -> dict[str, Any]:
+        # A fresh discord.File each attempt -- the underlying handle is
+        # consumed after one send, so the fallback below needs its own copy
+        # rather than reusing an already-sent File object.
+        if not has_report:
+            return {}
+        assert report_path is not None
+        return {"file": discord.File(report_path, filename="qa_report.html")}
+
     try:
-        await ack_msg.reply(text)
+        await ack_msg.reply(text, **_file_kwargs())
     except Exception:
-        await message.channel.send(text)
+        await message.channel.send(text, **_file_kwargs())
 
 
 async def _handle_qa_command(message: discord.Message) -> None:
