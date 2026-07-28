@@ -1,10 +1,17 @@
 #!/usr/bin/env python3
 import json
+import os
 import re
 import subprocess
 import sys
 import time
 from typing import Any, cast
+
+# Gitignored scratch space (.agents/ as a whole is untracked) -- the HTML
+# report from the round-integration test run lands here so discord_router.py
+# can attach it to the /qa reply instead of dumping raw pytest text.
+_REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+QA_REPORTS_DIR = os.path.join(_REPO_ROOT, ".agents", "qa_reports")
 
 
 def _matches_ticket_key(issue_key: str, text: str) -> bool:
@@ -77,7 +84,7 @@ def _uv_env_error(stderr: str) -> str | None:
     return None
 
 
-def run_tests() -> tuple[bool, str]:
+def run_tests(html_report_path: str | None = None) -> tuple[bool, str]:
     print("Running QA checks (pytest, ruff, mypy)...")
     # `uv run` on purpose, not bare commands: this gate must check against
     # the exact tool versions this project's dependencies resolve to, not
@@ -85,7 +92,14 @@ def run_tests() -> tuple[bool, str]:
     # ruff can disagree with the project's pinned version on lint rules
     # like import grouping, producing a false failure that has nothing to
     # do with the actual code change being validated).
-    test_code, test_out, test_err = run_command(["uv", "run", "pytest"])
+    pytest_cmd = ["uv", "run", "pytest"]
+    if html_report_path:
+        # Self-contained: one HTML file with everything inlined, no separate
+        # assets to lose track of -- readable straight out of a Discord
+        # attachment. Written regardless of pass/fail, since a failure report
+        # is the more useful of the two.
+        pytest_cmd += ["--html", html_report_path, "--self-contained-html"]
+    test_code, test_out, test_err = run_command(pytest_cmd)
     if test_code != 0:
         env_error = _uv_env_error(test_err)
         if env_error:
@@ -193,11 +207,16 @@ def review_issue(issue: dict[str, Any], prs: list[dict[str, Any]]) -> dict[str, 
     }
 
 
-def run_integration_check(passed_results: list[dict[str, Any]]) -> tuple[bool, str]:
+def run_integration_check(
+    passed_results: list[dict[str, Any]],
+) -> tuple[bool, str, str | None]:
     """Merge every branch that passed its individual QA gate onto one scratch
     branch off develop and re-run the full suite there. This is the mandatory
     proof that the round works together, not just that each ticket passes alone
     -- a ticket only reaches Done once this passes.
+
+    Returns (passed, message, html_report_path). html_report_path is None if
+    the run never got as far as generating one (e.g. a merge conflict).
     """
     integration_branch = f"qa/integration-{int(time.time())}"
 
@@ -208,7 +227,7 @@ def run_integration_check(passed_results: list[dict[str, Any]]) -> tuple[bool, s
     run_command(["git", "checkout", "-B", "develop", "origin/develop"])
     code, _, err = run_command(["git", "checkout", "-b", integration_branch])
     if code != 0:
-        return False, f"Failed to create integration branch:\n{err}"
+        return False, f"Failed to create integration branch:\n{err}", None
 
     for result in passed_results:
         code, out, err = run_command(
@@ -222,14 +241,17 @@ def run_integration_check(passed_results: list[dict[str, Any]]) -> tuple[bool, s
                 False,
                 f"Merge conflict combining {result['key']} ({result['branch']}) "
                 f"with the rest of the round:\n{out}\n{err}",
+                None,
             )
 
-    passed, message = run_tests()
+    os.makedirs(QA_REPORTS_DIR, exist_ok=True)
+    report_path = os.path.join(QA_REPORTS_DIR, f"integration-{int(time.time())}.html")
+    passed, message = run_tests(report_path)
 
     run_command(["git", "checkout", "develop"])
     run_command(["git", "branch", "-D", integration_branch])
 
-    return passed, message
+    return passed, message, report_path if os.path.exists(report_path) else None
 
 
 def build_round_report(
@@ -276,10 +298,18 @@ def main() -> None:
     print(
         f"Running round-level integration test across {len(passed_results)} branch(es)..."
     )
-    integration_passed, integration_message = run_integration_check(passed_results)
+    integration_passed, integration_message, html_report_path = run_integration_check(
+        passed_results
+    )
 
     report = build_round_report(all_results, integration_passed, integration_message)
     print(report)
+    if html_report_path:
+        # Parsed (and stripped from the visible reply text) by
+        # discord_router.py's _run_qa_gate_and_reply -- not part of `report`
+        # itself since that also gets posted as a Jira comment, where a local
+        # daemon-machine file path would be meaningless.
+        print(f"QA_HTML_REPORT_PATH:{html_report_path}")
 
     for result in passed_results:
         issue_key = result["key"]
