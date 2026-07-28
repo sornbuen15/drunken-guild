@@ -497,24 +497,29 @@ async def _handle_approve_command(
 async def _run_qa_gate_and_reply(
     message: discord.Message, ack_msg: discord.Message
 ) -> None:
-    proc = await asyncio.create_subprocess_exec(
-        sys.executable,
-        QA_AUTOMATION_SCRIPT,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-        cwd=_REPO_ROOT,
-    )
-    stdout, stderr = await proc.communicate()
-    output = stdout.decode("utf-8", errors="replace").strip()
-    if proc.returncode != 0:
-        err = stderr.decode("utf-8", errors="replace").strip()
-        text = f"⚠️ **QA gate errored.**\n```\n{err[-1200:]}\n```"
-    elif not output:
-        text = (
-            "✅ **QA gate finished.** No output (nothing in review, or nothing passed)."
+    # This runs via asyncio.create_task (fire-and-forget) from
+    # _handle_qa_command, so anything raised here has nowhere else to go --
+    # without this try/except a crash here is completely silent (no Discord
+    # reply, no log line, nothing). Always produce a reply.
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            sys.executable,
+            QA_AUTOMATION_SCRIPT,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            cwd=_REPO_ROOT,
         )
-    else:
-        text = f"🏁 **QA gate finished**\n```\n{output[-1500:]}\n```"
+        stdout, stderr = await proc.communicate()
+        output = stdout.decode("utf-8", errors="replace").strip()
+        if proc.returncode != 0:
+            err = stderr.decode("utf-8", errors="replace").strip()
+            text = f"⚠️ **QA gate errored.**\n```\n{err[-1200:]}\n```"
+        elif not output:
+            text = "✅ **QA gate finished.** No output (nothing in review, or nothing passed)."
+        else:
+            text = f"🏁 **QA gate finished**\n```\n{output[-1500:]}\n```"
+    except Exception as e:
+        text = f"⚠️ **QA gate crashed before finishing.**\n```\n{e!r}\n```"
     text = _truncate_for_discord(text)
     try:
         await ack_msg.reply(text)
