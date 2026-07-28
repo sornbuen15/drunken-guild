@@ -2,6 +2,7 @@
 import json
 import re
 import subprocess
+import sys
 import time
 from typing import Any, cast
 
@@ -21,7 +22,7 @@ def run_command(cmd: list[str]) -> tuple[int, str, str]:
 
 def get_in_review_issues() -> list[dict[str, Any]]:
     code, stdout, stderr = run_command(
-        ["python", "scripts/jira_bridge.py", "get-in-review"]
+        [sys.executable, "scripts/jira_bridge.py", "get-in-review"]
     )
     if code != 0:
         print(f"Failed to get in-review issues: {stderr}")
@@ -170,7 +171,13 @@ def review_issue(issue: dict[str, Any], prs: list[dict[str, Any]]) -> dict[str, 
             ]
         )
         run_command(
-            ["python", "scripts/jira_bridge.py", "transition", issue_key, "In Progress"]
+            [
+                sys.executable,
+                "scripts/jira_bridge.py",
+                "transition",
+                issue_key,
+                "In Progress",
+            ]
         )
 
     run_command(["git", "checkout", "develop"])
@@ -276,16 +283,24 @@ def main() -> None:
 
     for result in passed_results:
         issue_key = result["key"]
-        run_command(["python", "scripts/jira_bridge.py", "comment", issue_key, report])
+        run_command(
+            [sys.executable, "scripts/jira_bridge.py", "comment", issue_key, report]
+        )
         if integration_passed:
             run_command(
-                ["python", "scripts/jira_bridge.py", "transition", issue_key, "Done"]
+                [
+                    sys.executable,
+                    "scripts/jira_bridge.py",
+                    "transition",
+                    issue_key,
+                    "Done",
+                ]
             )
             print(f"{issue_key}: transitioned to Done.")
         else:
             run_command(
                 [
-                    "python",
+                    sys.executable,
                     "scripts/jira_bridge.py",
                     "transition",
                     issue_key,
