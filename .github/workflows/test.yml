@@ -1,35 +1,131 @@
-name: Python Tests
+name: CI
 
+# Previously this ran only on main. Nearly all work lands via PRs into develop,
+# so for months the workflow simply never ran for any of it — which is how CI
+# stayed red from 2026-06-25 onward without anyone noticing (DT-179). Watching
+# develop is the part that makes the rest of this file worth having.
 on:
   push:
-    branches: [ "main" ]
+    branches: ["main", "develop"]
   pull_request:
-    branches: [ "main" ]
+    branches: ["main", "develop"]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  # src/service/discord_listener.py exits during import when these are unset,
+  # which kills pytest collection outright. Placeholders, not secrets — nothing
+  # in the suite connects to Discord.
+  DISCORD_BOT_TOKEN: "ci-placeholder-token"
+  DISCORD_CHANNEL_ID: "123456789"
 
 jobs:
   test:
+    name: test (py${{ matrix.python-version }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # 3.10 is the floor declared in pyproject and was never actually
+        # exercised until now; 3.13 is what the maintainers run.
+        python-version: ["3.10", "3.13"]
 
     steps:
-    - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-    - name: Set up Python 3.13
-      uses: actions/setup-python@v5
-      with:
-        python-version: "3.13"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
 
-    - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install -r requirements-dev.txt
-        pip install -e .
-    - name: Run pytest
-      env:
-        # Dummy values only -- src/service/discord_listener.py exits at
-        # import time if these are unset, which otherwise kills pytest
-        # collection (an unhandled SystemExit) before a single test runs.
-        # Nothing in the suite actually connects to Discord.
-        DISCORD_BOT_TOKEN: "ci-placeholder-token"
-        DISCORD_CHANNEL_ID: "123456789"
-      run: |
-        pytest tests/
+      # Installing from pyproject rather than requirements-dev.txt is the whole
+      # fix for the second failure: that file is hand-maintained, had drifted,
+      # and was missing pytest-asyncio, so 38 async tests failed with "async def
+      # function and no async plugin installed". One source of truth.
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Lint
+        run: |
+          ruff check src tests scripts
+          ruff format --check src tests
+
+      - name: Types
+        run: mypy src
+
+      - name: Tests
+        run: pytest
+
+  security:
+    name: security
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # gitleaks needs history to scan past commits, not just the tip.
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      # The project itself is not installed here. bandit reads source, and
+      # pip-audit reads the lockfile — installing would only add drunken-team
+      # itself, which is not on PyPI, so --strict would then fail on its own
+      # unauditable package rather than on anything real.
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install bandit pip-audit
+
+      # Known CVEs in everything we lock. Fails the build rather than warning:
+      # this is a tool other people install and point at their credentials.
+      # requirements-dev.txt is generated from pyproject (scripts/lock_deps.sh),
+      # so auditing it audits what actually gets installed.
+      - name: Dependency audit
+        run: pip-audit --strict --progress-spinner off -r requirements-dev.txt
+
+      # Static analysis, gated at MEDIUM and above — a real bar rather than a
+      # decorative one. The three MEDIUM findings this repo had (B310,
+      # unrestricted urlopen schemes) were fixed by routing every outbound call
+      # through core.http, not by suppressing them. The remaining LOW findings
+      # are try/except/pass style in service/, tracked rather than silently
+      # ignored.
+      - name: Static analysis
+        run: bandit -r src -ll
+
+      # Secret scanning across the full history. Test fixtures that deliberately
+      # look like credentials carry an explicit marker, allowlisted in
+      # .gitleaks.toml.
+      - name: Secret scan
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_CONFIG: .gitleaks.toml
+
+  clean-install:
+    name: clean install
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - uses: astral-sh/setup-uv@v5
+
+      # Proves what the unit tests structurally cannot: that someone who is not
+      # us, with no .env and no config anywhere, can install this and reach a
+      # working, safe setup. Every failure in MCP-ARCHITECTURE.md §1 was
+      # invisible on an already-configured machine.
+      - name: Clean-room verification
+        run: ./scripts/verify_clean_install.sh

@@ -5,6 +5,8 @@ import time
 import urllib.request
 from typing import Any
 
+from core.http import open_url
+
 
 def _load_env_file(path: str) -> None:
     try:
@@ -74,7 +76,7 @@ def query_gemini_direct(
         req = urllib.request.Request(
             url, data=json.dumps(data).encode("utf-8"), headers=headers, method="POST"
         )
-        with urllib.request.urlopen(req, timeout=10) as response:
+        with open_url(req, timeout=10) as response:
             res_data = json.loads(response.read().decode("utf-8"))
             return str(res_data["candidates"][0]["content"]["parts"][0]["text"].strip())
     except Exception as e:

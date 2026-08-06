@@ -13,10 +13,27 @@ def mock_registry_path(tmp_path: Any) -> str:
     return os.path.join(tmp_path, "projects.json")
 
 
-def test_registry_initialization_default() -> None:
+def test_registry_default_ignores_the_working_directory(monkeypatch: Any) -> None:
+    """Was: the default resolved to '<cwd>/.agents/projects.json'.
+
+    That is the §1.2 root cause — the registry a server read depended on which
+    directory the host happened to launch it from, so two clients could disagree
+    about what a project even was. It now comes from $DRUNKEN_HOME.
+    """
+    monkeypatch.delenv("DRUNKEN_REGISTRY_PATH", raising=False)
+    monkeypatch.setenv("DRUNKEN_HOME", "/state")
+
     with mock.patch("os.getcwd", autospec=True, return_value="/mock/cwd"):
         registry = ProjectRegistry()
-        assert registry.registry_path == "/mock/cwd/.agents/projects.json"
+
+    assert registry.registry_path == "/state/projects.json"
+
+
+def test_registry_default_honours_the_registry_env_override(monkeypatch: Any) -> None:
+    """Antigravity's mcp_config.json already sets this, and does so correctly."""
+    monkeypatch.setenv("DRUNKEN_REGISTRY_PATH", "/elsewhere/projects.json")
+
+    assert ProjectRegistry().registry_path == "/elsewhere/projects.json"
 
 
 def test_registry_initialization_custom(mock_registry_path: str) -> None:

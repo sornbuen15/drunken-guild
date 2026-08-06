@@ -4,15 +4,30 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "drunken-team"
-version = "1.6.0"
+# Single source of truth for the version. Code reads it back via
+# importlib.metadata (see core.doctor.package_version) rather than keeping a
+# second copy — this field sat at 1.6.0 through the v1.7.0…v2.0.1 releases,
+# so every installed copy reported a version four releases stale and nobody
+# could tell whether they had a given fix.
+version = "2.1.0"
 description = "Drunken Team Inn gateway and dashboard utilities"
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
 dependencies = [
     "discord.py>=2.0.0",
+    # Transitive, via discord.py, which only asks for `aiohttp<4,>=3.7.4`. Named
+    # here purely to raise the floor past PYSEC-2026-3545/3546/3547, which
+    # pip-audit flags in 3.14.1. Drop this line once discord.py's own floor
+    # clears those.
+    "aiohttp>=3.14.3",
     "python-dotenv>=0.21.0",
-    "mcp>=1.1.2",
+    # Pinned <2 deliberately: mcp 2.0.0 removed `mcp.server.fastmcp` (replaced by
+    # `mcp.server.mcpserver.MCPServer`), so an unpinned resolve crashes every
+    # server at import time. 1.28+ is the floor because that is where
+    # `streamable_http`, `auth` and `transport_security` all land — the pieces
+    # the HTTP transport mode needs. Migrating to 2.x is tracked separately.
+    "mcp>=1.28.0,<2",
 ]
 
 [project.optional-dependencies]
@@ -27,6 +42,8 @@ dev = [
     "mypy>=1.0.0"
 ]
 [project.scripts]
+drunken-doctor = "core.doctor:main"
+drunken-init = "core.init:main"
 drunken-listen = "service.discord_listener:main"
 drunken-register = "scripts.register_project:main"
 drunken-jira-mcp = "jira_mcp.server:main"
@@ -55,7 +72,11 @@ asyncio_mode = "strict"
 markers = [
     "e2e: mark test as end-to-end"
 ]
-addopts = "--cov=src --cov-report=term-missing -v"
+# `-m "not e2e"` is what the e2e marker always meant -- its own comment says
+# "so it doesn't run on standard unit test runs unless requested", but nothing
+# ever deselected it, so every plain `pytest` filed two real tickets into the
+# live Jira project. Run them on purpose with `pytest -m e2e`.
+addopts = "--cov=src --cov-report=term-missing -v -m 'not e2e'"
 testpaths = ["tests"]
 
 [tool.mypy]
