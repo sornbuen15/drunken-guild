@@ -1,4 +1,6 @@
+import argparse
 import os
+import sys
 
 from mcp.server.fastmcp import FastMCP
 
@@ -98,6 +100,22 @@ async def request_boss_approval(action: str, reason: str, ticket_key: str) -> st
 
 def main() -> None:
     """Entry point for the MCP server."""
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--workspace", type=str, help="Workspace directory for config loading"
+    )
+    args, unknown = parser.parse_known_args()
+
+    if args.workspace:
+        os.environ["DRUNKEN_WORKSPACE"] = os.path.abspath(args.workspace)
+
+        # Remove from sys.argv to prevent FastMCP from complaining about unknown args
+        if "--workspace" in sys.argv:
+            idx = sys.argv.index("--workspace")
+            sys.argv.pop(idx)
+            if len(sys.argv) > idx:
+                sys.argv.pop(idx)
+
     mcp.run()
 
 

@@ -24,8 +24,14 @@ def _load_env_file(path: str) -> None:
 
 
 def load_dotenv() -> None:
-    # Look for .env in the current directory or any parent directory.
-    curr_dir = os.getcwd()
+    # Look for .env in the workspace or current directory.
+    curr_dir = os.environ.get("DRUNKEN_WORKSPACE", os.getcwd())
+    if not os.path.isdir(curr_dir):
+        print(
+            f"Warning: Workspace {curr_dir} is not a valid directory.", file=sys.stderr
+        )
+        curr_dir = os.getcwd()
+
     while True:
         dotenv_path = os.path.join(curr_dir, ".env")
         if os.path.exists(dotenv_path):
@@ -140,7 +146,10 @@ def extract_clean_response(log_content: str) -> str:
 
 
 def find_config() -> str | None:
-    curr_dir = os.getcwd()
+    curr_dir = os.environ.get("DRUNKEN_WORKSPACE", os.getcwd())
+    if not os.path.isdir(curr_dir):
+        curr_dir = os.getcwd()
+
     while True:
         config_path = os.path.join(curr_dir, ".agents", "discord_config.json")
         if os.path.exists(config_path):
@@ -154,8 +163,12 @@ def find_config() -> str | None:
 
 def log_activity(event_type: str, author: str, content: str) -> None:
     config_file = find_config()
+    fallback_dir = os.environ.get("DRUNKEN_WORKSPACE", os.getcwd())
+    if not os.path.isdir(fallback_dir):
+        fallback_dir = os.getcwd()
+
     project_path = (
-        os.path.dirname(os.path.dirname(config_file)) if config_file else os.getcwd()
+        os.path.dirname(os.path.dirname(config_file)) if config_file else fallback_dir
     )
     activity_file = os.path.join(project_path, ".agents", "discord_activity.jsonl")
 
@@ -176,7 +189,10 @@ def log_activity(event_type: str, author: str, content: str) -> None:
 def save_config(config: dict[str, Any]) -> None:
     config_file = find_config()
     if not config_file:
-        config_file = os.path.join(os.getcwd(), ".agents", "discord_config.json")
+        fallback_dir = os.environ.get("DRUNKEN_WORKSPACE", os.getcwd())
+        if not os.path.isdir(fallback_dir):
+            fallback_dir = os.getcwd()
+        config_file = os.path.join(fallback_dir, ".agents", "discord_config.json")
         os.makedirs(os.path.dirname(config_file), exist_ok=True)
     with open(config_file, "w", encoding="utf-8") as f:
         json.dump(config, f, indent=4)
