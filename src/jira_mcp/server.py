@@ -1,4 +1,7 @@
+import argparse
 import json
+import os
+import sys
 
 from mcp.server.fastmcp import FastMCP
 
@@ -7,12 +10,8 @@ from .jira_client import JiraClient
 # Create the FastMCP server instance
 mcp = FastMCP("drunken-jira-mcp")
 
-# Initialize JiraClient globally so tools can use it
-try:
-    jira = JiraClient()
-except Exception:
-    # If config is missing, we'll initialize on demand or fail when tools are called
-    jira = None  # type: ignore[assignment]
+# JiraClient will be initialized on demand by get_client()
+jira = None  # type: ignore[assignment]
 
 
 def get_client() -> JiraClient:
@@ -203,6 +202,22 @@ async def jira_submit_for_review(
 
 
 def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--workspace", type=str, help="Workspace directory for config loading"
+    )
+    args, unknown = parser.parse_known_args()
+
+    if args.workspace:
+        os.environ["DRUNKEN_WORKSPACE"] = os.path.abspath(args.workspace)
+
+        # Remove from sys.argv to prevent FastMCP from complaining about unknown args
+        if "--workspace" in sys.argv:
+            idx = sys.argv.index("--workspace")
+            sys.argv.pop(idx)
+            if len(sys.argv) > idx:
+                sys.argv.pop(idx)
+
     mcp.run(transport="stdio")
 
 
