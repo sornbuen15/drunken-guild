@@ -5,10 +5,9 @@ import urllib.parse
 import urllib.request
 from typing import Any, Dict, List, Optional
 
+from core.context import ProjectContext
 from core.errors import DrunkenError
 from core.http import open_url
-
-from .config import get_jira_config
 
 
 def _make_request_sync(
@@ -100,12 +99,12 @@ def minify_issues(issues: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
 
 
 class JiraClient:
-    def __init__(self) -> None:
-        self.config = get_jira_config()
-        self.base_url = self.config.get("jira_url", "").rstrip("/")
-        self.email = self.config.get("jira_email")
-        self.token = self.config.get("jira_token")
-        self.project_key = self.config.get("project_key")
+    def __init__(self, ctx: ProjectContext) -> None:
+        jira = ctx.require_jira()
+        self.base_url = jira.url.rstrip("/")
+        self.email = jira.email
+        self.token = jira.token.reveal()
+        self.project_key = jira.project_key
 
     async def search_issues(self, jql: str) -> List[Dict[str, Any]]:
         url = f"{self.base_url}/rest/api/3/search/jql?jql={urllib.parse.quote(jql)}&fields=summary,description,status,priority,assignee"

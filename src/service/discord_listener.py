@@ -6,6 +6,8 @@ import sys
 
 import discord
 
+from core.context import ProjectContext
+from core.registry import ProjectRegistry
 from jira_mcp.jira_client import JiraClient
 from service.approval_manager import ApprovalManager
 from service.discord_router import DiscordRouter
@@ -36,8 +38,16 @@ intents.reactions = True
 client = discord.Client(intents=intents)
 tree = discord.app_commands.CommandTree(client)
 
+
+registry = ProjectRegistry()
+projects = registry.get_projects()
+if projects:
+    project_id = list(projects.keys())[0]
+    ctx = ProjectContext.build(project_id)
+    jira_client = JiraClient(ctx)
+else:
+    jira_client = None  # type: ignore
 agent_runner = AgentRunner()
-jira_client = JiraClient()
 approval_manager = ApprovalManager(client, int(CHANNEL_ID), agent_runner, jira_client)
 router = None
 
