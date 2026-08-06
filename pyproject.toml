@@ -31,11 +31,12 @@ drunken-listen = "service.discord_listener:main"
 drunken-register = "scripts.register_project:main"
 drunken-jira-mcp = "jira_mcp.server:main"
 drunken-discord-mcp = "discord_mcp.server:main"
+drunken-board-mcp = "board_mcp.server:main"
 
 
 [tool.setuptools]
-packages = ["scripts", "core", "route", "service", "jira_mcp", "discord_mcp"]
-package-dir = {"core" = "src/core", "route" = "src/route", "service" = "src/service", "jira_mcp" = "src/jira_mcp", "discord_mcp" = "src/discord_mcp"}
+packages = ["scripts", "core", "route", "service", "jira_mcp", "discord_mcp", "board_mcp"]
+package-dir = {"core" = "src/core", "route" = "src/route", "service" = "src/service", "jira_mcp" = "src/jira_mcp", "discord_mcp" = "src/discord_mcp", "board_mcp" = "src/board_mcp"}
 
 [tool.ruff.lint]
 select = ["E", "F", "B", "C90", "I"]

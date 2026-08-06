@@ -22,8 +22,9 @@ Both are registered for you already in `.mcp.json` at the repo root:
 ```json
 {
   "mcpServers": {
-    "drunken-discord-mcp": { "command": "uv", "args": ["run", "python", "-m", "discord_mcp.server"], "env": { "PYTHONPATH": "src" } },
-    "drunken-jira-mcp": { "command": "uv", "args": ["run", "python", "-m", "jira_mcp.server"], "env": { "PYTHONPATH": "src" } }
+    "drunken-discord-mcp": { "command": "uv", "args": ["run", "--directory", "/path/to/drunken-team", "drunken-discord-mcp", "--workspace", "/path/to/your-project"] },
+    "drunken-jira-mcp": { "command": "uv", "args": ["run", "--directory", "/path/to/drunken-team", "drunken-jira-mcp", "--workspace", "/path/to/your-project"] },
+    "drunken-board-mcp": { "command": "uv", "args": ["run", "--directory", "/path/to/drunken-team", "drunken-board-mcp", "--workspace", "/path/to/your-project"] }
   }
 }
 ```
@@ -101,7 +102,7 @@ cp /path/to/drunken-team/.guild_templates/SESSION_CHECKPOINT.md .
 
 ### Step 4: Point your tool's MCP config at the two servers
 
-For Cursor: **Settings > Features > MCP > Add New Server**, type `command`, and set the command to `uv run python -m jira_mcp.server` (with `PYTHONPATH` set to drunken-team's `src/` directory) and a second entry the same way for `discord_mcp.server`. For Claude Code, copying `.mcp.json` from drunken-team's root into the existing project (adjusting the `PYTHONPATH` if the projects live in different places) is usually simplest.
+For Cursor: **Settings > Features > MCP > Add New Server**, type `command`, and set the command to `uv run --directory /path/to/drunken-team drunken-jira-mcp --workspace /path/to/your-project` and a second entry the same way for `discord_mcp`. For Claude Code, copying `.mcp.json` from drunken-team's root into the existing project (adjusting the paths to point to drunken-team and your project's workspace) is usually simplest.
 
 From here, your local AI reads `CLAUDE.md`/`.cursorrules`, checks Jira via the MCP tools, writes code, and hands off through the same lifecycle described in Section 3.
 
