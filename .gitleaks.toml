@@ -1,0 +1,47 @@
+# Secret-scanning configuration.
+#
+# Deliberately narrow. A broad allowlist — "skip tests/", "skip *.md" — would
+# make the scan pass while quietly removing the protection it exists to give,
+# and tests are exactly where a real credential gets pasted "just to check
+# something". So every exception below matches a specific, self-identifying
+# non-secret rather than a location.
+
+title = "drunken-team"
+
+[extend]
+useDefault = true
+
+[[rules]]
+# The tests must be able to use a string that looks like a real Atlassian token,
+# because what they verify is that such a string is *refused* when it appears
+# where only a reference belongs. Those fixtures carry an explicit marker, and
+# the marker is what is allowlisted — not the file they live in.
+id = "atlassian-api-token-marked-example"
+description = "Placeholder marked EXAMPLE-NOT-A-REAL-TOKEN"
+regex = '''EXAMPLE-NOT-A-REAL-TOKEN'''
+keywords = ["EXAMPLE-NOT-A-REAL-TOKEN"]
+
+[allowlist]
+description = "Documented placeholders and self-identifying test fixtures"
+
+regexes = [
+  # Fixtures and verification scripts. The marker is mandatory: an unmarked
+  # token-shaped string still fails the scan, wherever it appears.
+  '''EXAMPLE-NOT-A-REAL-TOKEN''',
+
+  # The Discord snowflake placeholder used throughout .env.example and the
+  # guide. Two reasons it is not a secret: it is literally the digits 1-8
+  # repeated, and a channel id is a public identifier in any case — the bot
+  # token is the credential, and that has its own rule which stays enabled.
+  '''123456789012345678''',
+
+  # CI's placeholder values, which are also checked into the workflow file.
+  '''ci-placeholder-token''',
+]
+
+paths = [
+  # Lockfiles: hashes and package names that trip entropy heuristics, with no
+  # credential surface of their own.
+  '''uv\.lock''',
+  '''requirements-dev\.txt''',
+]
