@@ -1,0 +1,265 @@
+# mypy: ignore-errors
+"""The diagnostic must name the rule that chose each value, and must never
+print a credential."""
+
+import json
+from unittest import mock
+
+import pytest
+
+from core import doctor, paths, secrets
+from core.errors import UpstreamError
+from core.redact import forget_secrets
+from core.registry import ProjectRegistry
+
+V2_DOCUMENT = {
+    "version": 2,
+    "projects": {
+        "twa": {
+            "path": None,
+            "jira": {
+                "url": "https://example.atlassian.net",
+                "email": "someone@example.com",
+                "project_key": "TWA",
+                "credential": "env://JIRA_TOKEN_TWA",
+            },
+            "discord": {"channel_id": "1518206617336811573"},
+        }
+    },
+}
+
+
+@pytest.fixture(autouse=True)  # type: ignore[misc]
+def clean_state(monkeypatch, tmp_path):
+    secrets.clear_cache()
+    forget_secrets()
+    monkeypatch.setenv(paths.ENV_HOME, str(tmp_path / "home"))
+    monkeypatch.delenv(paths.ENV_REGISTRY, raising=False)
+    monkeypatch.delenv(paths.ENV_SOCKET, raising=False)
+    monkeypatch.delenv(paths.ENV_SOCKET_LEGACY, raising=False)
+    monkeypatch.setenv("JIRA_TOKEN_TWA", "a-valid-looking-token-value")
+    yield
+    secrets.clear_cache()
+    forget_secrets()
+
+
+@pytest.fixture  # type: ignore[misc]
+def registry(tmp_path) -> ProjectRegistry:
+    target = tmp_path / "projects.json"
+    target.write_text(json.dumps(V2_DOCUMENT), encoding="utf-8")
+    return ProjectRegistry(str(target))
+
+
+def _identity_response() -> mock.MagicMock:
+    response = mock.MagicMock()
+    response.read.return_value = json.dumps(
+        {"accountId": "abc", "displayName": "R. Jakkawan"}
+    ).encode()
+    response.__enter__.return_value = response
+    return response
+
+
+def find(report: doctor.Report, name: str) -> doctor.Check:
+    for check in report.checks:
+        if check.name == name:
+            return check
+    raise AssertionError(
+        f"no check named {name!r} in {[c.name for c in report.checks]}"
+    )
+
+
+class TestCredentialsNeverAppear:
+    def test_the_token_is_absent_from_the_whole_report(self, registry) -> None:
+        with mock.patch("urllib.request.urlopen", return_value=_identity_response()):
+            report = doctor.run_doctor(registry=registry)
+
+        rendered = doctor.render(report) + json.dumps(report.to_dict())
+        assert "a-valid-looking-token-value" not in rendered
+
+    def test_the_reference_is_shown_because_that_is_the_useful_part(
+        self, registry
+    ) -> None:
+        report = doctor.run_doctor(registry=registry, offline=True)
+        assert "env://JIRA_TOKEN_TWA" in find(report, "project.twa.credential").detail
+
+    def test_an_upstream_error_body_is_redacted(self, registry) -> None:
+        secrets.resolve("env://JIRA_TOKEN_TWA")
+        error = UpstreamError("upstream echoed a-valid-looking-token-value")
+
+        with mock.patch.object(
+            doctor.ProjectContext, "verify_jira_identity", side_effect=error
+        ):
+            report = doctor.run_doctor(registry=registry)
+
+        assert "a-valid-looking-token-value" not in json.dumps(report.to_dict())
+
+
+class TestReportsWhichRuleChoseEachPath:
+    def test_names_the_source_of_the_home_directory(self, registry) -> None:
+        report = doctor.run_doctor(registry=registry, offline=True)
+        assert f"${paths.ENV_HOME}" in find(report, "paths.home").detail
+
+    def test_names_the_source_of_the_registry_path(self, monkeypatch, tmp_path) -> None:
+        target = tmp_path / "custom.json"
+        target.write_text(json.dumps(V2_DOCUMENT), encoding="utf-8")
+        monkeypatch.setenv(paths.ENV_REGISTRY, str(target))
+
+        report = doctor.run_doctor(offline=True)
+
+        assert f"${paths.ENV_REGISTRY}" in find(report, "paths.registry").detail
+
+    def test_names_the_registry_file_and_schema(self, registry) -> None:
+        detail = find(
+            doctor.run_doctor(registry=registry, offline=True), "registry.file"
+        ).detail
+        assert "schema v2" in detail
+
+
+class TestJiraVerification:
+    def test_a_working_credential_reports_who_we_are(self, registry) -> None:
+        with mock.patch("urllib.request.urlopen", return_value=_identity_response()):
+            report = doctor.run_doctor(registry=registry)
+
+        check = find(report, "project.twa.jira")
+        assert check.status == "ok"
+        assert "R. Jakkawan" in check.detail
+
+    def test_a_rejected_credential_is_a_failure_not_an_empty_board(
+        self, registry
+    ) -> None:
+        """The S4 regression, stated as a check: this is the whole reason doctor
+        makes a network call at all."""
+        import urllib.error
+
+        with mock.patch(
+            "urllib.request.urlopen",
+            side_effect=urllib.error.HTTPError("u", 401, "no", {}, None),
+        ):
+            report = doctor.run_doctor(registry=registry)
+
+        check = find(report, "project.twa.jira")
+        assert check.status == "fail"
+        assert report.failed is True
+        assert "empty board" in check.remediation
+
+    def test_offline_mode_skips_the_network_call(self, registry) -> None:
+        with mock.patch("urllib.request.urlopen") as urlopen:
+            report = doctor.run_doctor(registry=registry, offline=True)
+
+        urlopen.assert_not_called()
+        assert find(report, "project.twa.jira").status == "skip"
+
+    def test_an_unresolvable_credential_fails_with_its_remediation(
+        self, monkeypatch, registry
+    ) -> None:
+        monkeypatch.delenv("JIRA_TOKEN_TWA")
+
+        report = doctor.run_doctor(registry=registry, offline=True)
+
+        check = find(report, "project.twa")
+        assert check.status == "fail"
+        assert "JIRA_TOKEN_TWA" in check.detail
+
+
+class TestRegistryProblems:
+    def test_a_missing_registry_is_a_failure_with_the_fix(self, tmp_path) -> None:
+        report = doctor.run_doctor(
+            registry=ProjectRegistry(str(tmp_path / "absent.json"))
+        )
+
+        check = find(report, "registry.file")
+        assert check.status == "fail"
+        assert "drunken-init" in check.remediation
+
+    def test_a_corrupt_registry_is_reported_rather_than_read_as_empty(
+        self, tmp_path
+    ) -> None:
+        """The registry itself swallows the parse error so startup survives —
+        doctor is where that gets said out loud."""
+        target = tmp_path / "projects.json"
+        target.write_text("{ not json", encoding="utf-8")
+
+        report = doctor.run_doctor(registry=ProjectRegistry(str(target)))
+
+        assert find(report, "registry.file").status == "fail"
+
+    def test_a_v1_registry_warns_without_failing(self, tmp_path) -> None:
+        target = tmp_path / "projects.json"
+        target.write_text(
+            json.dumps({"twa": {"path": str(tmp_path)}}), encoding="utf-8"
+        )
+
+        report = doctor.run_doctor(registry=ProjectRegistry(str(target)), offline=True)
+
+        assert find(report, "registry.schema").status == "warn"
+        assert report.failed is False
+
+
+class TestDaemonSocket:
+    def test_a_missing_socket_warns_rather_than_fails(self, registry) -> None:
+        """Approval falls back to asking in-conversation, so this is not fatal."""
+        report = doctor.run_doctor(registry=registry, offline=True)
+
+        assert find(report, "daemon.socket").status == "warn"
+        assert report.failed is False
+
+    def test_a_world_accessible_socket_is_a_failure(
+        self, registry, monkeypatch, tmp_path
+    ) -> None:
+        socket = tmp_path / "daemon.sock"
+        socket.write_text("")
+        socket.chmod(0o666)
+        monkeypatch.setenv(paths.ENV_SOCKET, str(socket))
+
+        report = doctor.run_doctor(registry=registry, offline=True)
+
+        check = find(report, "daemon.socket.permissions")
+        assert check.status == "fail"
+        assert "as the Boss" in check.detail
+
+
+class TestEnvironment:
+    def test_reports_the_installed_version(self, registry) -> None:
+        detail = find(
+            doctor.run_doctor(registry=registry, offline=True), "version.drunken-team"
+        ).detail
+        assert detail
+
+    def test_an_mcp_2x_install_is_reported_as_the_cause_of_a_dead_server(
+        self, registry
+    ) -> None:
+        """§1.1 — the failure that produced no message anywhere."""
+        real_version = doctor.version
+
+        def fake_version(name: str) -> str:
+            return "2.0.0" if name == "mcp" else real_version(name)
+
+        with mock.patch.object(doctor, "version", fake_version):
+            report = doctor.run_doctor(registry=registry, offline=True)
+
+        check = find(report, "version.mcp")
+        assert check.status == "fail"
+        assert "fastmcp" in check.detail
+        assert "mcp<2" in check.remediation
+
+
+class TestOutputShape:
+    def test_json_form_carries_a_summary_and_an_overall_verdict(self, registry) -> None:
+        payload = doctor.run_doctor(registry=registry, offline=True).to_dict()
+
+        assert set(payload) == {"ok", "summary", "checks"}
+        assert set(payload["summary"]) == {"ok", "warn", "fail", "skip"}
+
+    def test_rendered_form_shows_remediation_under_the_failing_check(
+        self, tmp_path
+    ) -> None:
+        rendered = doctor.render(
+            doctor.run_doctor(registry=ProjectRegistry(str(tmp_path / "absent.json")))
+        )
+
+        assert "FAIL" in rendered
+        assert "-> " in rendered
+
+    def test_single_project_mode_checks_only_that_project(self, registry) -> None:
+        report = doctor.run_doctor(project="twa", registry=registry, offline=True)
+        assert any(check.name.startswith("project.twa") for check in report.checks)

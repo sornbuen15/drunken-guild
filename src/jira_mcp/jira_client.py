@@ -5,6 +5,9 @@ import urllib.parse
 import urllib.request
 from typing import Any, Dict, List, Optional
 
+from core.errors import DrunkenError
+from core.http import open_url
+
 from .config import get_jira_config
 
 
@@ -27,10 +30,15 @@ def _make_request_sync(
     req.add_header("Accept", "application/json")
 
     try:
-        data = json.dumps(payload).encode("utf-8") if payload else None
-        with urllib.request.urlopen(req, data=data, timeout=15) as response:
+        req.data = json.dumps(payload).encode("utf-8") if payload else None
+        with open_url(req, timeout=15) as response:
             res_body = response.read().decode("utf-8")
             return dict(json.loads(res_body)) if res_body else {}
+    except DrunkenError:
+        # Already structured and carries a remediation. Flattening it into a
+        # generic RuntimeError here would throw away the one part the agent
+        # can act on.
+        raise
     except Exception as e:
         error_msg = str(e)
         if hasattr(e, "read"):
@@ -51,6 +59,24 @@ async def make_request(
     return await asyncio.to_thread(
         _make_request_sync, url, method, payload, email, token
     )
+
+
+def to_adf(text: str) -> Dict[str, Any]:
+    """Convert plain text into an Atlassian Document Format doc node.
+
+    One paragraph per line; blank lines are separators rather than content,
+    because an ADF paragraph carrying an empty text child is rejected by the
+    API. A document with no paragraphs at all is not valid either, so wholly
+    blank input becomes a single contentless paragraph.
+    """
+    paragraphs: List[Dict[str, Any]] = [
+        {"type": "paragraph", "content": [{"type": "text", "text": stripped}]}
+        for line in text.replace("\r\n", "\n").split("\n")
+        if (stripped := line.strip())
+    ]
+    if not paragraphs:
+        paragraphs.append({"type": "paragraph"})
+    return {"version": 1, "type": "doc", "content": paragraphs}
 
 
 def minify_issues(issues: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -130,21 +156,7 @@ class JiraClient:
         self, summary: str, description: Any, issue_type: str = "Task"
     ) -> Dict[str, Any]:
         if isinstance(description, str):
-            paragraphs = []
-            for line in description.split("\\n"):
-                line = line.strip()
-                if line:
-                    paragraphs.append(
-                        {
-                            "type": "paragraph",
-                            "content": [{"type": "text", "text": line}],
-                        }
-                    )
-            if not paragraphs:
-                paragraphs.append(
-                    {"type": "paragraph", "content": [{"type": "text", "text": ""}]}
-                )
-            description = {"version": 1, "type": "doc", "content": paragraphs}
+            description = to_adf(description)
 
         payload = {
             "fields": {
@@ -161,15 +173,7 @@ class JiraClient:
         return {"ok": True, "key": res.get("key"), "self": res.get("self")}
 
     async def add_comment(self, issue_key: str, comment: str) -> Dict[str, Any]:
-        paragraphs = []
-        for line in comment.split("\\n"):
-            line = line.strip()
-            if line:
-                paragraphs.append(
-                    {"type": "paragraph", "content": [{"type": "text", "text": line}]}
-                )
-
-        payload = {"body": {"version": 1, "type": "doc", "content": paragraphs}}
+        payload = {"body": to_adf(comment)}
         url = f"{self.base_url}/rest/api/3/issue/{issue_key}/comment"
         res = await make_request(
             url, method="POST", payload=payload, email=self.email, token=self.token

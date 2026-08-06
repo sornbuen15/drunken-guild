@@ -111,11 +111,11 @@ def init_project() -> str:
     Triggers the initial project architecture phase.
     """
     return (
-        "You are beginning the init-project phase.\\n"
-        "1. Read PROJECT_SPEC.md and DESIGN.md.\\n"
-        "2. If this is an existing project, briefly scan the source code structure.\\n"
-        "3. Generate a high-level Domain-Driven Design (DDD) architecture document.\\n"
-        "4. Develop a 'Walking Skeleton' (Feasibility Spike) to prove the tech stack.\\n"
+        "You are beginning the init-project phase.\n"
+        "1. Read PROJECT_SPEC.md and DESIGN.md.\n"
+        "2. If this is an existing project, briefly scan the source code structure.\n"
+        "3. Generate a high-level Domain-Driven Design (DDD) architecture document.\n"
+        "4. Develop a 'Walking Skeleton' (Feasibility Spike) to prove the tech stack.\n"
         "5. Present the DDD and Spike to the Boss. You MUST call the request_boss_approval MCP tool to get approval before creating any tickets."
     )
 
@@ -126,10 +126,10 @@ def refinement() -> str:
     Triggers the project backlog refinement phase.
     """
     return (
-        "You are beginning the refinement phase.\\n"
-        "1. Read the approved architecture and DDD.\\n"
-        "2. Break down the work into structured Jira tasks.\\n"
-        "3. Use the jira_create_issue tool to populate the backlog.\\n"
+        "You are beginning the refinement phase.\n"
+        "1. Read the approved architecture and DDD.\n"
+        "2. Break down the work into structured Jira tasks.\n"
+        "3. Use the jira_create_issue tool to populate the backlog.\n"
         "4. CRITICAL: Every task MUST have strict Acceptance Criteria (AC) which will be used for TDD."
     )
 
@@ -140,10 +140,10 @@ def sprint_planning() -> str:
     Triggers the sprint planning phase.
     """
     return (
-        "You are beginning the sprint-planning phase.\\n"
-        "1. Read all tasks in the Backlog and the active board.\\n"
-        "2. Adjust priorities and move selected tasks to 'To Do'.\\n"
-        "3. Dependency Triage: Determine if tasks touch the same files. If yes, they must be executed in Sequence. If no, they can be executed in Parallel.\\n"
+        "You are beginning the sprint-planning phase.\n"
+        "1. Read all tasks in the Backlog and the active board.\n"
+        "2. Adjust priorities and move selected tasks to 'To Do'.\n"
+        "3. Dependency Triage: Determine if tasks touch the same files. If yes, they must be executed in Sequence. If no, they can be executed in Parallel.\n"
         "4. Present the Sprint Plan to the Boss and ask: 'Execute in Sequence or Parallel?'"
     )
 
@@ -154,10 +154,10 @@ def review_retro() -> str:
     Triggers the sprint review and retro phase.
     """
     return (
-        "You are beginning the review-retro phase.\\n"
-        "1. Evaluate the completed sprint.\\n"
-        "2. Identify any Tech Debt or Enhancements. Use jira_create_issue to add them to the backlog, but strictly tag them as [TECH-DEBT] or [ENHANCEMENT] with low priority.\\n"
-        "3. Ask the Boss: 'Proceed with next sprint planning? (Yes/No)'.\\n"
+        "You are beginning the review-retro phase.\n"
+        "1. Evaluate the completed sprint.\n"
+        "2. Identify any Tech Debt or Enhancements. Use jira_create_issue to add them to the backlog, but strictly tag them as [TECH-DEBT] or [ENHANCEMENT] with low priority.\n"
+        "3. Ask the Boss: 'Proceed with next sprint planning? (Yes/No)'.\n"
         "4. Advise the Boss: 'Recommendation: Create a session checkpoint and close this session to clear memory context.'"
     )
 
@@ -189,7 +189,7 @@ async def jira_submit_for_review(
     client = get_client()
     await client.transition_issue(issue_key, "In Review")
 
-    comment = f"**Code Submitted for Review**\\n\\n*PR Link:* {pr_link}\\n*Files Changed:* {files_changed}"
+    comment = f"**Code Submitted for Review**\n\n*PR Link:* {pr_link}\n*Files Changed:* {files_changed}"
     await client.add_comment(issue_key, comment)
 
     return json.dumps(
