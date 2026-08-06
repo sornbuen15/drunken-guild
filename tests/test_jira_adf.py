@@ -13,7 +13,7 @@ backslash-n is just text.
 """
 
 from typing import Any
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -35,14 +35,12 @@ def _paragraph_texts(adf: dict[str, Any]) -> list[str]:
 
 @pytest.fixture  # type: ignore[misc]
 def client() -> JiraClient:
-    with patch("jira_mcp.jira_client.get_jira_config", autospec=True) as cfg:
-        cfg.return_value = {
-            "jira_url": "https://example.atlassian.net",
-            "jira_email": "someone@example.com",
-            "jira_token": "token",
-            "project_key": "DT",
-        }
-        return JiraClient()
+    ctx = MagicMock()
+    ctx.require_jira.return_value.url = "https://example.atlassian.net"
+    ctx.require_jira.return_value.email = "someone@example.com"
+    ctx.require_jira.return_value.token.reveal.return_value = "token"
+    ctx.require_jira.return_value.project_key = "DT"
+    return JiraClient(ctx)
 
 
 @pytest.mark.asyncio

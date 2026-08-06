@@ -102,19 +102,16 @@ def main() -> None:
     """Entry point for the MCP server."""
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "--workspace", type=str, help="Workspace directory for config loading"
+        "--project", type=str, help="Project ID (ignored by discord, kept for compat)"
     )
     args, unknown = parser.parse_known_args()
 
-    if args.workspace:
-        os.environ["DRUNKEN_WORKSPACE"] = os.path.abspath(args.workspace)
-
-        # Remove from sys.argv to prevent FastMCP from complaining about unknown args
-        if "--workspace" in sys.argv:
-            idx = sys.argv.index("--workspace")
+    # Remove from sys.argv to prevent FastMCP from complaining about unknown args
+    if "--project" in sys.argv:
+        idx = sys.argv.index("--project")
+        sys.argv.pop(idx)
+        if len(sys.argv) > idx:
             sys.argv.pop(idx)
-            if len(sys.argv) > idx:
-                sys.argv.pop(idx)
 
     mcp.run()
 
