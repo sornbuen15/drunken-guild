@@ -22,8 +22,14 @@ def _load_env_file(path: str) -> None:
 
 
 def load_dotenv() -> None:
-    # Look for .env in the current directory or any parent directory.
-    curr_dir = os.getcwd()
+    # Look for .env in the workspace or current directory.
+    curr_dir = os.environ.get("DRUNKEN_WORKSPACE", os.getcwd())
+    if not os.path.isdir(curr_dir):
+        print(
+            f"Warning: Workspace {curr_dir} is not a valid directory.", file=sys.stderr
+        )
+        curr_dir = os.getcwd()
+
     while True:
         dotenv_path = os.path.join(curr_dir, ".env")
         if os.path.exists(dotenv_path):
@@ -47,7 +53,11 @@ def get_jira_config() -> Dict[str, str]:
     }
 
     # Fallback to local and global JSON configs if env variables are missing
-    local_jira = os.path.join(os.getcwd(), ".agents", "jira.json")
+    curr_dir = os.environ.get("DRUNKEN_WORKSPACE", os.getcwd())
+    if not os.path.isdir(curr_dir):
+        curr_dir = os.getcwd()
+
+    local_jira = os.path.join(curr_dir, ".agents", "jira.json")
     if os.path.exists(local_jira):
         try:
             with open(local_jira, "r") as f:

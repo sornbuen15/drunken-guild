@@ -12,7 +12,7 @@ Architecture, installation, the Jira workflow, the full Discord command referenc
 
 ### 2. [AI Integration Guide](./Integration-Guide.md)
 *For connecting an external tool (Cursor, Aider, Claude Code) to this project, or bringing another project under the same workflow.*
-The two MCP servers, the local-AI rule templates in `.guild_templates/`, and the handoff lifecycle from task intake to Done.
+The two MCP servers, the local-AI rule templates in `.guild_templates/`, and the handoff lifecycle from task intake to Done. Note: MCP servers support cross-project usage via the `--workspace <path>` argument.
 
 ---
 
