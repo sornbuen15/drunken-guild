@@ -1,9 +1,10 @@
 import argparse
 import json
-import os
 import sys
 
 from mcp.server.fastmcp import FastMCP
+
+from core.context import ProjectContext
 
 from .jira_client import JiraClient
 
@@ -12,12 +13,15 @@ mcp = FastMCP("drunken-jira-mcp")
 
 # JiraClient will be initialized on demand by get_client()
 jira = None  # type: ignore[assignment]
+ctx: ProjectContext | None = None
 
 
 def get_client() -> JiraClient:
     global jira
     if not jira:
-        jira = JiraClient()
+        if not ctx:
+            raise RuntimeError("ProjectContext is not initialized")
+        jira = JiraClient(ctx)
     return jira
 
 
@@ -202,21 +206,20 @@ async def jira_submit_for_review(
 
 
 def main() -> None:
+    global ctx
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "--workspace", type=str, help="Workspace directory for config loading"
+        "--project", type=str, help="Project ID for config loading", required=True
     )
     args, unknown = parser.parse_known_args()
 
-    if args.workspace:
-        os.environ["DRUNKEN_WORKSPACE"] = os.path.abspath(args.workspace)
+    ctx = ProjectContext.build(args.project)
 
-        # Remove from sys.argv to prevent FastMCP from complaining about unknown args
-        if "--workspace" in sys.argv:
-            idx = sys.argv.index("--workspace")
+    if "--project" in sys.argv:
+        idx = sys.argv.index("--project")
+        sys.argv.pop(idx)
+        if len(sys.argv) > idx:
             sys.argv.pop(idx)
-            if len(sys.argv) > idx:
-                sys.argv.pop(idx)
 
     mcp.run(transport="stdio")
 
