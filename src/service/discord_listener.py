@@ -95,6 +95,26 @@ async def _handle_socket_client(
             result = await approval_manager.request(
                 req.get("action", ""), req.get("reason", ""), req.get("ticket_key", "")
             )
+        elif cmd == "submit_approval":
+            # Asynchronous sibling of request_boss_approval (DT-232): posts
+            # the question and answers straight away with a handle, so the
+            # caller can go and do something else.
+            req_id = await approval_manager.submit(
+                req.get("action", ""),
+                req.get("reason", ""),
+                req.get("ticket_key", ""),
+                req.get("commit_sha"),
+            )
+            result = {"status": "submitted", "req_id": req_id}
+        elif cmd == "poll_approvals":
+            result = {
+                "status": "ok",
+                "results": approval_manager.poll(
+                    req.get("req_ids", []), req.get("commit_sha")
+                ),
+            }
+        elif cmd == "list_pending":
+            result = {"status": "ok", "pending": approval_manager.list_pending()}
         elif cmd == "check_ticket":
             status = approval_manager.is_pending_or_escalated(req.get("ticket_key", ""))
             result = {"status": status or "clear"}

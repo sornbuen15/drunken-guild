@@ -20,6 +20,19 @@ from service.discord_runner import AgentRunner
 OUTBOX_FILE = os.path.join(os.getcwd(), ".agents", "discord_outbox.json")
 APPROVAL_TIMEOUT_SECONDS = int(os.environ.get("APPROVAL_TIMEOUT_SECONDS", "900"))
 
+# Reminder spacing for async requests, as multipliers of timeout_seconds:
+# 15 min, then an hour, then daily. The last entry repeats forever — an async
+# request has no caller sitting on a socket, so there is nothing to time out.
+# It nags at a decreasing rate until a human actually answers, rather than
+# counting down to killing the work. Sync requests keep the old
+# remind-twice-then-escalate deadline, because their caller *is* blocked.
+ASYNC_REMINDER_BACKOFF = (1, 4, 96)
+
+# Answers are kept after resolution so an agent that polls, crashes, and
+# polls again still finds them. Approvals are a handful a day, so this cap
+# exists only to stop an unbounded dict in a process that runs for months.
+MAX_RESOLVED_RETAINED = 200
+
 ESCALATION_JIRA_TEMPLATE = (
     "⚠️ Blocked — Awaiting Boss Approval\n\n"
     "Paused after 2 reminders with no response on Discord.\n"
@@ -58,6 +71,16 @@ class ApprovalRequest:
     # guess and kill an unrelated task in that case. Not persisted to disk;
     # meaningless across a restart.
     originating_generation: Optional[int] = None
+    # "sync"  — a caller is blocked on request(); it must be released, so the
+    #           reminder clock still escalates and cancels the task.
+    # "async" — submitted via submit(); nobody is waiting on a socket, so the
+    #           request survives daemon restarts and is never auto-killed.
+    # Defaults to "sync" so anything written by an older daemon, or by a
+    # caller that hasn't been updated, keeps exactly its previous behaviour.
+    mode: str = "sync"
+    # HEAD at the moment the question was asked. An approval is only good for
+    # the code it was granted against — see poll().
+    commit_sha: Optional[str] = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -69,6 +92,8 @@ class ApprovalRequest:
             "attempt": self.attempt,
             "discord_message_id": self.discord_message_id,
             "created_at": self.created_at,
+            "mode": self.mode,
+            "commit_sha": self.commit_sha,
         }
 
 
@@ -87,6 +112,8 @@ class ApprovalManager:
         self.jira_client = jira_client
         self.timeout_seconds = timeout_seconds
         self._requests: dict[str, ApprovalRequest] = {}
+        # Answers to async requests, waiting to be collected by poll().
+        self._resolved: dict[str, dict[str, Any]] = {}
         self._futures: dict[str, "asyncio.Future[dict[str, Any]]"] = {}
         self._timers: dict[str, asyncio.Task[None]] = {}
         self._message_to_req: dict[int, str] = {}
@@ -101,9 +128,16 @@ class ApprovalManager:
         except Exception:
             return None
 
-    async def request(
-        self, action: str, reason: str, ticket_key: str
-    ) -> dict[str, Any]:
+    async def _ask(
+        self,
+        action: str,
+        reason: str,
+        ticket_key: str,
+        mode: str,
+        commit_sha: Optional[str] = None,
+        fut: "Optional[asyncio.Future[dict[str, Any]]]" = None,
+    ) -> str:
+        """Post the question and start its clock. Shared by request/submit."""
         req_id = f"req_{os.urandom(4).hex()}"
         req = ApprovalRequest(
             req_id=req_id,
@@ -111,16 +145,105 @@ class ApprovalManager:
             reason=reason,
             ticket_key=ticket_key,
             originating_generation=self.agent_runner.task_generation,
+            mode=mode,
+            commit_sha=commit_sha,
         )
         self._requests[req_id] = req
-
-        loop = asyncio.get_running_loop()
-        fut: "asyncio.Future[dict[str, Any]]" = loop.create_future()
-        self._futures[req_id] = fut
+        # Registered before the question is posted, not after: _post_question
+        # awaits, and the moment it does the reaction that answers it can
+        # already be dispatched on this same loop.
+        if fut is not None:
+            self._futures[req_id] = fut
 
         await self._post_question(req, reminder=False)
         await self._snapshot()
-        self._timers[req_id] = asyncio.create_task(self._watch_timeout(req_id))
+        watcher = self._watch_timeout if mode == "sync" else self._watch_reminders
+        self._timers[req_id] = asyncio.create_task(watcher(req_id))
+        return req_id
+
+    async def submit(
+        self,
+        action: str,
+        reason: str,
+        ticket_key: str,
+        commit_sha: Optional[str] = None,
+    ) -> str:
+        """Ask the Boss and return immediately with a handle.
+
+        This is the asynchronous half of DT-232 and the one an unattended
+        agent should use: the question goes to Discord, the calling task
+        parks itself, and the agent moves on to whatever else is unblocked.
+        Collect the answer later with poll().
+
+        Pass `commit_sha` to bind the approval to the code it was granted
+        against; poll() then refuses to report it as approved from a
+        different HEAD.
+        """
+        return await self._ask(action, reason, ticket_key, "async", commit_sha)
+
+    def poll(
+        self, req_ids: list[str], commit_sha: Optional[str] = None
+    ) -> dict[str, dict[str, Any]]:
+        """Look up submitted requests without blocking on any of them.
+
+        Answers are not consumed by reading, so polling twice is safe.
+
+        Statuses: `pending` (no answer yet), `approved`, `rejected`,
+        `stale` (approved, but against a different commit — ask again), and
+        `unknown` (never seen, or lost with a daemon that died before it
+        could persist).
+        """
+        out: dict[str, dict[str, Any]] = {}
+        for req_id in req_ids:
+            answer = self._resolved.get(req_id)
+            if answer is not None:
+                payload = dict(answer)
+                granted_for = payload.get("commit_sha")
+                if (
+                    payload["status"] == "approved"
+                    and granted_for
+                    and commit_sha
+                    and granted_for != commit_sha
+                ):
+                    payload["status"] = "stale"
+                    payload["detail"] = (
+                        f"Approved against commit {granted_for}, but you are "
+                        f"now on {commit_sha}. The code changed after the Boss "
+                        "said yes — ask again rather than reusing this answer."
+                    )
+                out[req_id] = payload
+                continue
+
+            req = self._requests.get(req_id)
+            if req is not None:
+                out[req_id] = {
+                    "req_id": req_id,
+                    "status": req.status,
+                    "action": req.action,
+                    "ticket_key": req.ticket_key,
+                    "commit_sha": req.commit_sha,
+                }
+                continue
+
+            out[req_id] = {
+                "req_id": req_id,
+                "status": "unknown",
+                "detail": (
+                    "No such approval request. It was never submitted, or it "
+                    "was lost with a daemon that stopped before persisting it "
+                    "— re-submit rather than assuming either answer."
+                ),
+            }
+        return out
+
+    async def request(
+        self, action: str, reason: str, ticket_key: str
+    ) -> dict[str, Any]:
+        """Ask and block until answered. Retained for the pre-3.0.0 MCP tool
+        contract; new callers should use submit() + poll() instead."""
+        loop = asyncio.get_running_loop()
+        fut: "asyncio.Future[dict[str, Any]]" = loop.create_future()
+        req_id = await self._ask(action, reason, ticket_key, "sync", fut=fut)
 
         try:
             return await fut
@@ -176,6 +299,45 @@ class ApprovalManager:
             await self._snapshot()
             self._timers[req_id] = asyncio.create_task(self._watch_timeout(req_id))
 
+    async def _watch_reminders(self, req_id: str) -> None:
+        """Nag, forever, at a decreasing rate — never escalate, never kill.
+
+        The sync path (_watch_timeout) has to end in *something* because a
+        caller is blocked on the socket. Nothing is blocked here, so the only
+        honest behaviour when a human hasn't answered is to ask again. A
+        question the Boss hasn't got to yet is not a failure.
+        """
+        attempt = 0
+        while True:
+            step = ASYNC_REMINDER_BACKOFF[min(attempt, len(ASYNC_REMINDER_BACKOFF) - 1)]
+            try:
+                await asyncio.sleep(self.timeout_seconds * step)
+            except asyncio.CancelledError:
+                return
+
+            req = self._requests.get(req_id)
+            if not req or req.status != "pending":
+                return
+
+            attempt += 1
+            req.attempt = attempt + 1
+            await self._post_question(req, reminder=True)
+            await self._snapshot()
+
+    def _record_answer(self, req: ApprovalRequest) -> None:
+        """Park a resolved async answer where poll() will find it."""
+        self._resolved[req.req_id] = {
+            "req_id": req.req_id,
+            "status": req.status,
+            "action": req.action,
+            "reason": req.reason,
+            "ticket_key": req.ticket_key,
+            "commit_sha": req.commit_sha,
+            "resolved_at": time.time(),
+        }
+        while len(self._resolved) > MAX_RESOLVED_RETAINED:
+            self._resolved.pop(next(iter(self._resolved)))
+
     async def resolve(self, message_id: int, approved: bool) -> bool:
         req_id = self._message_to_req.pop(message_id, None)
         if not req_id:
@@ -192,6 +354,10 @@ class ApprovalManager:
         # again (is_pending_or_escalated only cares about pending/escalated),
         # so drop it now rather than let self._requests grow forever.
         self._requests.pop(req_id, None)
+        # An async request has no future to deliver the answer to, so the
+        # answer has to be kept somewhere until its agent comes back to poll.
+        if req.mode == "async":
+            self._record_answer(req)
         # Snapshot BEFORE resolving the future: setting the future's result
         # just schedules the waiting request() coroutine to resume on a
         # future loop iteration, it doesn't block on it — resolving first
@@ -323,11 +489,17 @@ class ApprovalManager:
         # clobbering it with stale data. asyncio.Lock wakes waiters in the
         # order they queued, so serializing here preserves call order.
         async with self._snapshot_lock:
-            data = {
+            data: dict[str, Any] = {
                 req_id: r.to_dict()
                 for req_id, r in self._requests.items()
                 if r.status == "pending"
             }
+            # Uncollected async answers are persisted too. The agent that
+            # asked may not poll until the next session, and a daemon restart
+            # in between must not turn a real "yes" back into a question.
+            # Sync answers are never here — their caller already got them
+            # through the future before resolve() returned.
+            data.update(self._resolved)
             # Offloaded to a thread: this runs on every state transition, and
             # blocking file I/O directly on the event loop would also stall
             # Discord gateway heartbeat/dispatch, which shares this same loop.
@@ -362,13 +534,17 @@ class ApprovalManager:
             return
 
         for req_id, payload in data.items():
-            if payload.get("status") not in ("pending", "escalated"):
+            status = payload.get("status")
+
+            # An answer nobody collected yet. Hand it straight back to
+            # _resolved so the next poll() finds it.
+            if status in ("approved", "rejected"):
+                self._resolved[req_id] = payload
                 continue
-            print(
-                f"[ApprovalManager] Recovering orphaned approval {req_id} from a "
-                "previous daemon run — escalating.",
-                flush=True,
-            )
+
+            if status not in ("pending", "escalated"):
+                continue
+
             req = ApprovalRequest(
                 req_id=req_id,
                 action=payload.get(
@@ -378,6 +554,31 @@ class ApprovalManager:
                 ticket_key=payload.get("ticket_key", "UNKNOWN"),
                 attempt=payload.get("attempt", 2),
                 created_at=payload.get("created_at", time.time()),
+                mode=payload.get("mode", "sync"),
+                commit_sha=payload.get("commit_sha"),
             )
             self._requests[req_id] = req
+
+            # An async request is not orphaned by a restart. Nobody was
+            # waiting on the socket, so the question is still live and its
+            # agent will come back to poll — escalating it here would raise
+            # a false alarm and, worse, teach the agent that a restart is an
+            # answer. Just put it back and resume nagging.
+            if req.mode == "async":
+                print(
+                    f"[ApprovalManager] Restored async approval {req_id} "
+                    f"({req.ticket_key}) — still awaiting an answer.",
+                    flush=True,
+                )
+                req.status = "pending"
+                self._timers[req_id] = asyncio.create_task(
+                    self._watch_reminders(req_id)
+                )
+                continue
+
+            print(
+                f"[ApprovalManager] Recovering orphaned approval {req_id} from a "
+                "previous daemon run — escalating.",
+                flush=True,
+            )
             await self._escalate(req_id)
