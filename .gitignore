@@ -164,8 +164,13 @@ client_secret*.json
 # Local Agent Configurations and Logs
 .agents/
 
-# Local Claude Code state (worktrees, scheduled tasks, checkpoints, etc.)
-.claude/
+# Local Claude Code state (worktrees, scheduled tasks, checkpoints, etc.).
+# settings.json is the one exception: it is the shared permission allowlist
+# and denylist, so it has to ship with the repo -- a tool other people can
+# use safely is the whole point (Boss's rule 4). Personal overrides belong in
+# settings.local.json, which stays ignored.
+.claude/*
+!.claude/settings.json
 
 # Docker simulation config (local test only, do not commit)
 Dockerfile
