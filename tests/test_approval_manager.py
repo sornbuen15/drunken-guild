@@ -361,3 +361,164 @@ async def test_recover_from_snapshot_noop_when_empty(manager) -> None:
     await mgr.recover_from_snapshot()  # no file yet
 
     agent_runner.cancel_current_task.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# DT-232 — asynchronous approval: submit, keep working, poll for the answer.
+#
+# The blocking request() is kept (and still tested above) so the existing MCP
+# tool contract survives until 3.0.0, but it is no longer how an unattended
+# agent should ask: sitting on `await fut` means one waiting task freezes
+# every other task behind it, and the deadline that unblocks it does so by
+# killing the work.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_submit_returns_without_waiting_for_a_human(manager) -> None:
+    """The whole point of DT-232: asking must not block.
+
+    request() only returns once someone reacts on Discord. submit() has to
+    come straight back with a handle, leaving the agent free to pick up the
+    next unblocked task.
+    """
+    mgr, channel, agent_runner, jira_client, outbox = manager
+
+    req_id = await asyncio.wait_for(
+        mgr.submit("delete staging db", "before the migration test", "DT-1"),
+        timeout=1.0,  # nobody reacts; this must still return
+    )
+
+    assert isinstance(req_id, str) and req_id
+    assert len(channel.sent) == 1
+    assert "delete staging db" in channel.sent[0]
+    assert mgr._requests[req_id].status == "pending"
+
+
+@pytest.mark.asyncio
+async def test_poll_reports_pending_then_the_resolution(manager) -> None:
+    mgr, channel, agent_runner, jira_client, outbox = manager
+
+    req_id = await mgr.submit("ship it", "phase is green", "DT-2")
+    assert mgr.poll([req_id])[req_id]["status"] == "pending"
+
+    msg_id = mgr._requests[req_id].discord_message_id
+    await mgr.resolve(msg_id, approved=True)
+
+    answer = mgr.poll([req_id])[req_id]
+    assert answer["status"] == "approved"
+    assert answer["action"] == "ship it"
+
+    # Polling twice must not consume the answer -- an agent that polls,
+    # crashes, and polls again has to still find it.
+    assert mgr.poll([req_id])[req_id]["status"] == "approved"
+
+
+@pytest.mark.asyncio
+async def test_rejection_carries_the_reason_back(manager) -> None:
+    mgr, channel, agent_runner, jira_client, outbox = manager
+
+    req_id = await mgr.submit("force push main", "rebase went sideways", "DT-3")
+    msg_id = mgr._requests[req_id].discord_message_id
+    await mgr.resolve(msg_id, approved=False)
+
+    answer = mgr.poll([req_id])[req_id]
+    assert answer["status"] == "rejected"
+    assert answer["action"] == "force push main"
+
+
+@pytest.mark.asyncio
+async def test_approval_does_not_carry_over_to_a_different_commit(manager) -> None:
+    """A yes from this morning must not silently authorise tonight's code.
+
+    The approval is bound to the commit it was granted against; polling from
+    a different HEAD reports `stale` rather than `approved`, forcing a fresh
+    request.
+    """
+    mgr, channel, agent_runner, jira_client, outbox = manager
+
+    req_id = await mgr.submit(
+        "rm -rf build/", "clean rebuild", "DT-4", commit_sha="aaa111"
+    )
+    msg_id = mgr._requests[req_id].discord_message_id
+    await mgr.resolve(msg_id, approved=True)
+
+    assert mgr.poll([req_id], commit_sha="aaa111")[req_id]["status"] == "approved"
+
+    stale = mgr.poll([req_id], commit_sha="bbb222")[req_id]
+    assert stale["status"] == "stale"
+    assert "aaa111" in stale["detail"]
+
+
+@pytest.mark.asyncio
+async def test_async_request_is_reminded_but_never_killed(manager, monkeypatch) -> None:
+    """No countdown-to-death. Reminders keep nagging; the task stays alive.
+
+    request() escalates after 2 unanswered reminders and cancels the running
+    task. An async request has no caller sitting on it, so there is nothing
+    to time out -- it stays pending until a human actually answers.
+    """
+    mgr, channel, agent_runner, jira_client, outbox = manager
+    monkeypatch.setattr("service.approval_manager.ASYNC_REMINDER_BACKOFF", (1, 1, 1))
+
+    req_id = await mgr.submit("needs a human", "nobody is home", "DT-5")
+
+    # Three reminder windows go by with no reaction at all.
+    await asyncio.sleep(0.05 * 3 + 0.15)
+
+    assert len(channel.sent) > 1, "reminders should still be firing"
+    assert mgr._requests[req_id].status == "pending"
+    agent_runner.cancel_current_task.assert_not_called()
+    jira_client.add_comment.assert_not_called()
+    assert mgr.poll([req_id])[req_id]["status"] == "pending"
+
+
+@pytest.mark.asyncio
+async def test_recover_restores_async_pending_instead_of_escalating(manager) -> None:
+    """A restart is not an answer.
+
+    A sync request whose caller died with the old daemon is genuinely
+    orphaned and is escalated (covered above). An async one is not: its
+    caller was never waiting on the socket and will come back to poll, so
+    throwing it away -- or escalating it -- would lose a live question.
+    """
+    mgr, channel, agent_runner, jira_client, outbox = manager
+
+    pending = ApprovalRequest(
+        req_id="req_async",
+        action="async action",
+        reason="daemon restarted",
+        ticket_key="DT-6",
+        mode="async",
+    )
+    with open(outbox, "w", encoding="utf-8") as f:
+        json.dump({"req_async": pending.to_dict()}, f)
+
+    await mgr.recover_from_snapshot()
+
+    jira_client.add_comment.assert_not_called()
+    agent_runner.cancel_current_task.assert_not_called()
+    assert mgr._requests["req_async"].status == "pending"
+    assert mgr.poll(["req_async"])["req_async"]["status"] == "pending"
+
+
+@pytest.mark.asyncio
+async def test_recover_restores_an_answer_nobody_collected_yet(manager) -> None:
+    mgr, channel, agent_runner, jira_client, outbox = manager
+
+    req_id = await mgr.submit("do the thing", "why not", "DT-8")
+    msg_id = mgr._requests[req_id].discord_message_id
+    await mgr.resolve(msg_id, approved=True)
+    await _wait_for_file(outbox)
+
+    # A fresh manager, as if the daemon had restarted before anyone polled.
+    fresh = ApprovalManager(
+        client=mgr.client,
+        channel_id=mgr.channel_id,
+        agent_runner=mgr.agent_runner,
+        jira_client=mgr.jira_client,
+        timeout_seconds=0.05,
+    )
+    await fresh.recover_from_snapshot()
+
+    assert fresh.poll([req_id])[req_id]["status"] == "approved"
