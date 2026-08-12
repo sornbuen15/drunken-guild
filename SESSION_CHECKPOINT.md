@@ -18,8 +18,26 @@ servers safely, with no project ever holding a credential.
 | Branch | `develop` — everything below is merged and green there |
 | Merged | DT-189 (2.1.0) · DT-224 (2.2.0) · DT-232 · DT-233 · DT-234 · DT-235 |
 | **Next** | **DT-225 — Phase 3 security hardening. It is not done. See §5.** |
-| Jira | 7 tickets open. DT-225 blocks DT-226 and DT-236 |
+| Jira | 10 tickets open. DT-225 blocks DT-226 and DT-236; DT-238 blocks DT-240 |
 | CI | 🟢 4/4 on `develop` |
+| Open PR | **#83** `docs/claude-md` — green, waiting on the Boss to merge |
+
+### Start here, in this order
+
+1. **DT-238** — documentation and config drift. Do it first, and start with `.mcp.json`: it does not
+   declare `drunken-board-mcp`, so the `blocked` lane and `board_available_tasks` merged in DT-233
+   **cannot be called from inside this project at all.** Five-minute fix, unblocks shipped code.
+   `README.md` is the other urgent half — it tells a new user to run `uv run drunken-register`, which
+   no longer exists, and advertises `--workspace`, which was removed. Rule 4, broken in the first
+   file anyone reads.
+2. **DT-225** — the security work. Blocks DT-226 and DT-236. Read §5 first.
+3. **DT-236** — the PreToolUse hook, which is what the Boss originally asked for: harness permission
+   prompts routed to Discord instead of the terminal. Everything it needs now exists.
+4. Then DT-239, DT-240, and the phase tickets.
+
+**If you are reviewing with Antigravity, do DT-238 first.** `.agents/AGENTS.md` still teaches the
+blocking approval model that DT-232/DT-233 replaced, and `MCP-ARCHITECTURE.md` — which this file
+calls the authoritative cross-AI record — does not mention DT-232, DT-233, DT-234 or DT-235 at all.
 
 > **⚠️ Read §5 before picking anything up.** DT-225 spent weeks marked IN REVIEW while none of it
 > was ever merged, and a copy of this file on `feature/DT-225-security-hardening` still claims the
@@ -28,7 +46,8 @@ servers safely, with no project ever holding a credential.
 
 **Full handoff, including everything Antigravity needs, is §14 of
 `~/Projects/todo/drunken-team/MCP-ARCHITECTURE.md`.** That document is the cross-AI channel and is
-the authoritative record; this file is the short version.
+the authoritative record; this file is the short version. **It is currently behind by four tickets —
+DT-238 covers bringing it up to date, and until then this file is the more accurate of the two.**
 
 > **Do not call this work "v3".** Boss ruled (architecture doc §12) that it is bugfix + additive
 > throughout. `3.0.0` is reserved for when things are *removed* (`--workspace`, the old socket path,
@@ -186,6 +205,8 @@ throwaway venv. Touches nothing of yours. 22 checks.
 | **2.2.0** | ✅ DT-224 — `--workspace` → `--project`, `ProjectContext` wired in, S3 and S11 closed |
 | — | ✅ DT-232 / DT-233 async approval · DT-234 board warning · DT-235 jira-mcp startup |
 | **2.3.0** | ⛔ **DT-225 — security hardening, S1/S2/S6/S8. Not started on `develop`.** Redo on a branch cut from current `develop`, cherry-picking `71fddb8`; **do not merge the old branch** |
+| — | DT-238 documentation + config drift · DT-239 wire `as_tool_result` · DT-240 CI drift check |
+| — | DT-236 — PreToolUse hook: route harness permission prompts to Discord. **Blocked by DT-225** |
 | **2.4.0** | DT-226 — dual transport + pluggable bearer auth. **Blocked by DT-225** |
 | **2.5.0** | Discord daemon multi-tenant. **Needs a deprecated socket-path fallback**, else it is breaking (§12.3) |
 | **2.6.0** | Config generator: `.mcp.json` + antigravity `mcp_config.json` + docker/k8s manifests |
@@ -203,6 +224,13 @@ throwaway venv. Touches nothing of yours. 22 checks.
    `--with-requirements`.
 4. **`.claude/settings.json` denylist is not yet enforced by anything but the harness.** DT-236 gives
    it teeth; until then it is policy, not a control.
+5. **Documentation drifts and nothing catches it** — DT-238 sweeps 34 known stale references across
+   `README.md`, `.agents/AGENTS.md`, both guides and `MCP-ARCHITECTURE.md`; DT-240 adds the CI grep
+   so the next removal cannot quietly leave its own instructions behind. The sweep alone is a fix
+   with a shelf life: `--workspace` was advertised in `README.md` for two releases after it was
+   deleted, and it took four passes over this repo to notice.
+6. **`as_tool_result` is written and never called** (DT-239). Principle 8 below is enforced by hand
+   at one call site instead of by the decorator built for it.
 
 ## 11. Working agreements
 
