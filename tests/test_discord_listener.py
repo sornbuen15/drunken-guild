@@ -261,3 +261,63 @@ async def test_handle_socket_client_empty_line() -> None:
 
     await _handle_socket_client(reader, writer)
     writer.write.assert_not_called()
+
+
+# --- DT-232: async approval socket commands --------------------------------
+
+
+async def _socket_roundtrip(payload: dict) -> dict:
+    reader = AsyncMock()
+    reader.readline = AsyncMock(
+        return_value=(json.dumps(payload) + "\n").encode("utf-8")
+    )
+    writer = mock.MagicMock()
+    writer.drain = AsyncMock()
+    await _handle_socket_client(reader, writer)
+    return json.loads(writer.write.call_args[0][0].decode("utf-8").strip())
+
+
+@pytest.mark.anyio
+@mock.patch("service.discord_listener.approval_manager")
+async def test_handle_socket_client_submit_approval(
+    mock_approval_manager: Any,
+) -> None:
+    mock_approval_manager.submit = AsyncMock(return_value="req_xyz")
+
+    result = await _socket_roundtrip(
+        {
+            "cmd": "submit_approval",
+            "action": "a",
+            "reason": "r",
+            "ticket_key": "DT-1",
+            "commit_sha": "deadbee",
+        }
+    )
+
+    mock_approval_manager.submit.assert_called_once_with("a", "r", "DT-1", "deadbee")
+    assert result == {"status": "submitted", "req_id": "req_xyz"}
+
+
+@pytest.mark.anyio
+@mock.patch("service.discord_listener.approval_manager")
+async def test_handle_socket_client_poll_approvals(mock_approval_manager: Any) -> None:
+    mock_approval_manager.poll.return_value = {"req_1": {"status": "approved"}}
+
+    result = await _socket_roundtrip(
+        {"cmd": "poll_approvals", "req_ids": ["req_1"], "commit_sha": "deadbee"}
+    )
+
+    mock_approval_manager.poll.assert_called_once_with(["req_1"], "deadbee")
+    assert result["results"]["req_1"]["status"] == "approved"
+
+
+@pytest.mark.anyio
+@mock.patch("service.discord_listener.approval_manager")
+async def test_handle_socket_client_list_pending(mock_approval_manager: Any) -> None:
+    mock_approval_manager.list_pending.return_value = [
+        {"ticket_key": "DT-1", "action": "a", "status": "pending", "created_at": 0}
+    ]
+
+    result = await _socket_roundtrip({"cmd": "list_pending"})
+
+    assert result["pending"][0]["ticket_key"] == "DT-1"
