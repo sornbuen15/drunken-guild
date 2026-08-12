@@ -7,6 +7,7 @@ Board layout::
         backlog/
         todo/
         in-progress/
+        blocked/
         done/
 
 Each lane contains ``<PREFIX>-<NNN>_<slug>.md`` card files.
@@ -43,7 +44,7 @@ from .card import (
     set_card_field,
 )
 
-VALID_LANES: tuple[str, ...] = ("backlog", "todo", "in-progress", "done")
+VALID_LANES: tuple[str, ...] = ("backlog", "todo", "in-progress", "blocked", "done")
 # The lane a card sits in is the source of truth; the ``Status`` field is a
 # human-readable mirror of it. Every lane change rewrites the field so the two
 # can never drift apart (they had, across two boards, before this was added).
@@ -51,8 +52,14 @@ LANE_STATUS: dict[str, str] = {
     "backlog": "Backlog",
     "todo": "To Do",
     "in-progress": "In Progress",
+    "blocked": "Blocked",
     "done": "Done",
 }
+# Where a card goes when whatever it was waiting on is resolved. Back to the
+# queue, not straight to in-progress: the agent re-picks it through the normal
+# scheduler, so it takes its turn behind anything that became more urgent
+# while it was parked.
+UNBLOCK_LANE: str = "todo"
 CLAIM_TTL_SECONDS: int = 1800
 _LOCK_STALE_SECONDS: float = 5.0
 _LOCK_RETRIES: int = 10
@@ -81,7 +88,7 @@ class BoardManager:
         return path
 
     def _ensure_board(self) -> None:
-        """Create board directory and all four lane subdirectories."""
+        """Create the board directory and every lane subdirectory."""
         for lane in VALID_LANES:
             self._ensure_lane(lane)
 
@@ -161,6 +168,8 @@ class BoardManager:
             "claimed_at": card.claimed_at,
             "depends_on": card.depends_on,
             "blocks": card.blocks,
+            "blocked_by": card.blocked_by,
+            "blocked_reason": card.blocked_reason,
             "lane": lane,
         }
 
@@ -371,6 +380,80 @@ class BoardManager:
             os.rename(loc.full_path, dest_path)
         return {"ok": True, "id": task_id}
 
+    def block_task(self, task_id: str, req_id: str, reason: str) -> dict[str, Any]:
+        """Park *task_id* until *req_id* is answered.
+
+        Called when a task asks for approval asynchronously (DT-232). The
+        card moves to the `blocked` lane carrying the request it is waiting
+        on, so anyone — the next session, the Boss, /pending — can tell what
+        would free it without reading the agent's mind.
+        """
+        result = self.move_task(task_id, "blocked", "@scheduler")
+        if not result.get("ok"):
+            return result
+
+        loc = self._find_task(task_id)
+        if not loc:  # pragma: no cover — move_task just succeeded
+            return {"ok": False, "reason": "task_not_found"}
+        card = self._read_card(loc)
+        content = set_card_field(card.content, "Blocked By", req_id)
+        content = set_card_field(content, "Blocked Reason", reason)
+        self._write_content(
+            os.path.join(self.board_dir, loc.lane, loc.filename), content
+        )
+        return {"ok": True, "id": task_id, "lane": "blocked", "blocked_by": req_id}
+
+    def unblock_task(self, task_id: str) -> dict[str, Any]:
+        """Return a parked task to the queue and forget what held it."""
+        loc = self._find_task(task_id)
+        if not loc:
+            return {"ok": False, "reason": "task_not_found"}
+        if loc.lane != "blocked":
+            return {"ok": False, "reason": f"not_blocked: {loc.lane}"}
+
+        card = self._read_card(loc)
+        content = remove_card_field(card.content, "Blocked By")
+        content = remove_card_field(content, "Blocked Reason")
+        self._write_content(
+            os.path.join(self.board_dir, loc.lane, loc.filename), content
+        )
+        return self.move_task(task_id, UNBLOCK_LANE, "@scheduler")
+
+    def available_tasks(self) -> list[dict[str, Any]]:
+        """Tasks that can actually be started right now.
+
+        A task is available when it is queued in `todo` and every dependency
+        it names is finished.
+
+        "Finished" is the whole rule, and it is transitive for free: a task
+        whose dependency is blocked is held because that dependency is not
+        done, and the task behind *that* is held for the same reason, all
+        the way down. Walking the graph to distinguish "blocked" from
+        "merely unstarted" would compute a different label for the same
+        answer — either way it cannot be started yet.
+
+        An unknown dependency id (typo'd, or a deleted card) also holds.
+        Running the task anyway would silently drop whatever that
+        dependency was there to guarantee.
+        """
+        done: set[str] = set()
+        queued: list[dict[str, Any]] = []
+        for lane in VALID_LANES:
+            for card in self.list_lane(lane):
+                if "error" in card:
+                    continue
+                if lane == "done":
+                    done.add(card["id"])
+                elif lane == "todo":
+                    queued.append(card)
+
+        available = [
+            card
+            for card in queued
+            if all(dep in done for dep in card.get("depends_on", []))
+        ]
+        return sorted(available, key=lambda c: str(c["id"]))
+
     def get_task(self, task_id: str) -> dict[str, Any]:
         """Return the full content and parsed fields of a single task."""
         loc = self._find_task(task_id)
@@ -390,6 +473,8 @@ class BoardManager:
             "claimed_at": card.claimed_at,
             "depends_on": card.depends_on,
             "blocks": card.blocks,
+            "blocked_by": card.blocked_by,
+            "blocked_reason": card.blocked_reason,
             "content": card.content,
         }
 

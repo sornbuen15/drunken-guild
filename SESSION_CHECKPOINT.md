@@ -173,6 +173,22 @@ throwaway venv. Touches nothing of yours. 22 checks.
 - **Do not touch or archive `.agents/` files or `~/.gemini/antigravity-cli/brain/*/worktrees/`.**
 - Antigravity does **not** edit `drunken-team` source during this work — a merge conflict inside a
   security boundary is the easiest way for a hole to slip through.
+- **Approvals (DT-232 / DT-233).** The old "Silent Wait Protocol" — writing `.agents/discord_outbox.json`
+  and approving through IDE `run_command` — stays **retired**; that file is daemon state, not an API.
+  - In a live session where the Boss can read the conversation, **just ask them there.** Discord is for
+    when they are not watching.
+  - Unattended, ask with **`request_boss_approval_async`**, then `board_block_task` to park the task and
+    move on to whatever `board_available_tasks` offers. **Asking must never stop the other work.**
+  - Collect answers with `check_approvals` **when a task finishes and at session start — never mid-task.**
+    Acting on an approval the moment it lands is how a repo ends up half-changed.
+  - **There is no timeout and nothing is killed for going unanswered.** Reminders back off (15 min → 1 h →
+    daily) and the request survives daemon restarts. A question the Boss hasn't reached is not an error.
+  - An approval is bound to the commit it was granted against; from a different HEAD it reads `stale` and
+    must be re-asked. A yes given this morning does not authorise tonight's different code.
+  - Force-push, hard reset, `rm -rf`, and reading `.env` are refused by `.claude/settings.json` **no matter
+    what comes back over Discord.** Remote approval is only safe while some actions sit outside it.
+  - `request_boss_approval` (blocking, escalates after 2 reminders) still works and is kept until 3.0.0.
+    Prefer the async pair; reach for it only when nothing else could possibly be done meanwhile.
 
 ## 12. Verified numbers
 

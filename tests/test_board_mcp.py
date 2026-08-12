@@ -723,3 +723,108 @@ def _get_only_task_id(manager: BoardManager, lane: str) -> str:
     fname = files[0]
     m = fname.split("_")[0]
     return m
+
+
+# ---------------------------------------------------------------------------
+# DT-233 — a lane to park work in, and a scheduler that skips what is parked.
+#
+# Without a `blocked` lane a task waiting on the Boss either sat in
+# in-progress (blocking everything behind it) or was quietly dropped. The
+# point of asking asynchronously (DT-232) is that the agent picks up the
+# next thing that *isn't* waiting -- which needs somewhere to put the one
+# that is, and a rule for what "isn't waiting" means transitively.
+# ---------------------------------------------------------------------------
+
+
+def _mk(manager: BoardManager, lane: str, task_id: str, **fields: str) -> None:
+    """Write a card straight into a lane with the given Status fields."""
+    lines = [f"# {task_id}: {task_id}", "", "## Status", "- **Status:** Todo"]
+    for key, value in fields.items():
+        lines.append(f"- **{key.replace('_', ' ').title()}:** {value}")
+    path = os.path.join(manager.board_dir, lane, f"{task_id}_t.md")
+    with open(path, "w", encoding="utf-8") as fh:
+        fh.write("\n".join(lines) + "\n")
+
+
+class TestBlockedLane:
+    def test_blocked_is_a_real_lane(self) -> None:
+        from board_mcp.board import LANE_STATUS, VALID_LANES
+
+        assert "blocked" in VALID_LANES
+        assert LANE_STATUS["blocked"] == "Blocked"
+
+    def test_block_records_what_it_is_waiting_on(self, manager: BoardManager) -> None:
+        """Parking a task is useless if you can't tell what would free it."""
+        _mk(manager, "in-progress", "ALPHA-1")
+
+        result = manager.block_task("ALPHA-1", "req_abc", "needs Boss approval")
+        assert result["ok"] is True
+
+        card = manager.get_task("ALPHA-1")
+        assert card["lane"] == "blocked"
+        assert card["blocked_by"] == "req_abc"
+        assert "approval" in card["blocked_reason"]
+
+    def test_unblock_returns_it_to_the_queue(self, manager: BoardManager) -> None:
+        _mk(manager, "in-progress", "ALPHA-1")
+        manager.block_task("ALPHA-1", "req_abc", "needs Boss approval")
+
+        result = manager.unblock_task("ALPHA-1")
+        assert result["ok"] is True
+
+        card = manager.get_task("ALPHA-1")
+        assert card["lane"] == "todo"
+        assert not card.get("blocked_by")
+
+
+class TestAvailableTasks:
+    def test_picks_up_c_when_b_is_blocked(self, manager: BoardManager) -> None:
+        """The whole scheduling story, in one case.
+
+        201 (A) done, 202 (B) blocked, 203 (C) free, 204 (D) depends on B.
+        C is available; D is not, because what it needs is parked.
+        """
+        _mk(manager, "done", "ALPHA-201")
+        _mk(manager, "blocked", "ALPHA-202", blocked_by="req_1")
+        _mk(manager, "todo", "ALPHA-203")
+        _mk(manager, "todo", "ALPHA-204", depends_on="ALPHA-202")
+
+        available = {t["id"] for t in manager.available_tasks()}
+        assert available == {"ALPHA-203"}
+
+    def test_blocking_is_transitive(self, manager: BoardManager) -> None:
+        """204 depends on 203, 203 on 202, and 202 is blocked -- none runnable.
+
+        Checking only direct dependencies would hand back D and waste a
+        whole task's work on something that cannot finish.
+        """
+        _mk(manager, "blocked", "ALPHA-202", blocked_by="req_1")
+        _mk(manager, "todo", "ALPHA-203", depends_on="ALPHA-202")
+        _mk(manager, "todo", "ALPHA-204", depends_on="ALPHA-203")
+
+        assert manager.available_tasks() == []
+
+    def test_a_dependency_that_is_merely_unfinished_also_holds(
+        self, manager: BoardManager
+    ) -> None:
+        _mk(manager, "todo", "ALPHA-201")
+        _mk(manager, "todo", "ALPHA-202", depends_on="ALPHA-201")
+
+        available = {t["id"] for t in manager.available_tasks()}
+        assert available == {"ALPHA-201"}
+
+    def test_done_dependencies_do_not_hold_anything_back(
+        self, manager: BoardManager
+    ) -> None:
+        _mk(manager, "done", "ALPHA-201")
+        _mk(manager, "todo", "ALPHA-202", depends_on="ALPHA-201")
+
+        available = {t["id"] for t in manager.available_tasks()}
+        assert available == {"ALPHA-202"}
+
+    def test_a_cycle_does_not_hang_the_scheduler(self, manager: BoardManager) -> None:
+        """Malformed input must not spin forever -- report nothing runnable."""
+        _mk(manager, "todo", "ALPHA-201", depends_on="ALPHA-202")
+        _mk(manager, "todo", "ALPHA-202", depends_on="ALPHA-201")
+
+        assert manager.available_tasks() == []
