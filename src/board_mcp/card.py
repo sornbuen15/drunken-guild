@@ -44,6 +44,11 @@ class CardData:
     claimed_at: str | None
     depends_on: list[str]
     blocks: list[str]
+    # The approval request this card is parked on, and why, when it sits in
+    # the `blocked` lane. A parked card that doesn't say what would free it
+    # is indistinguishable from an abandoned one.
+    blocked_by: str | None
+    blocked_reason: str | None
     action_items: list[str]
     content: str  # original raw file content
 
@@ -123,6 +128,8 @@ def parse_card(content: str, filename: str) -> CardData:
         claimed_at=_get_field(status_block, "Claimed At"),
         depends_on=_get_list_field(status_block, "Depends On"),
         blocks=_get_list_field(status_block, "Blocks"),
+        blocked_by=_get_field(status_block, "Blocked By"),
+        blocked_reason=_get_field(status_block, "Blocked Reason"),
         action_items=action_items,
         content=content,
     )

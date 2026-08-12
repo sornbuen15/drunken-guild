@@ -1,6 +1,8 @@
 """Vendor-neutral file-based Kanban board MCP server.
 
-Exposes 13 tools (the original 12 from kanban-server.js plus ``board_report``).
+Exposes 16 tools (the original 12 from kanban-server.js, ``board_report``, and
+the DT-233 scheduling trio: ``board_block_task``, ``board_unblock_task``,
+``board_available_tasks``).
 Every tool accepts a ``project`` argument resolved through
 :class:`~core.registry.ProjectRegistry`, so both Claude Code and Antigravity
 can share the same board state without vendor lock-in.
@@ -98,7 +100,7 @@ async def board_create_task(
     """
     Atomically create a new task card in the specified lane under a file lock
     to prevent ID collisions.  lane must be one of: backlog, todo, in-progress,
-    done.  slug is a kebab-case filename suffix, e.g. 'implement-jwt-auth'.
+    blocked, done.  slug is a kebab-case filename suffix, e.g. 'implement-jwt-auth'.
     content is the full Markdown body.  milestone (optional) is injected into
     the Status block (e.g. 'M3') if not already present.
     """
@@ -150,6 +152,53 @@ async def board_done_task(project: str, task_id: str, agent_slug: str) -> str:
     """
     manager, _ = _get_manager(project)
     return json.dumps(manager.done_task(task_id, agent_slug), indent=2)
+
+
+@mcp.tool()  # type: ignore[misc]  # Tech Debt: DT-65
+async def board_block_task(project: str, task_id: str, req_id: str, reason: str) -> str:
+    """
+    Park a task that is waiting on something, and record what would free it.
+
+    Use this straight after request_boss_approval_async: pass the req_id it
+    gave you. The task moves to the `blocked` lane instead of squatting in
+    in-progress, so board_available_tasks stops offering it and anything
+    that depends on it. Call board_unblock_task once the answer comes back
+    approved.
+    """
+    manager, _ = _get_manager(project)
+    return json.dumps(manager.block_task(task_id, req_id, reason), indent=2)
+
+
+@mcp.tool()  # type: ignore[misc]  # Tech Debt: DT-65
+async def board_unblock_task(project: str, task_id: str) -> str:
+    """
+    Return a parked task to the queue once whatever held it is resolved.
+
+    It goes back to `todo` rather than straight to in-progress: it re-enters
+    through the normal scheduler and takes its turn, in case something more
+    urgent arrived while it was parked.
+    """
+    manager, _ = _get_manager(project)
+    return json.dumps(manager.unblock_task(task_id), indent=2)
+
+
+@mcp.tool()  # type: ignore[misc]  # Tech Debt: DT-65
+async def board_available_tasks(project: str) -> str:
+    """
+    List the tasks that can actually be started right now.
+
+    A task is offered when it is queued in `todo` and every dependency it
+    names is done. Anything waiting on a blocked or unfinished task is held
+    back, so picking from this list can never start work that immediately
+    runs into the same wall.
+
+    Call this when you finish a task, not in the middle of one. If it comes
+    back empty, say what the board is waiting on (`board_list_lane` with
+    `blocked` shows each parked card and its reason) and end your turn --
+    do not poll.
+    """
+    manager, _ = _get_manager(project)
+    return json.dumps(manager.available_tasks(), indent=2)
 
 
 @mcp.tool()  # type: ignore[misc]  # Tech Debt: DT-65
