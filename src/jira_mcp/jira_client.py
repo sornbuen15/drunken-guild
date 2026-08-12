@@ -105,6 +105,58 @@ class JiraClient:
         self.email = jira.email
         self.token = jira.token.reveal()
         self.project_key = jira.project_key
+        # Resolved lazily on first use and then cached for the life of the
+        # process, same shape as the secrets resolver (checkpoint §3). The
+        # agent never sees or passes a board id, which keeps it out of the
+        # token budget and out of reach as an argument.
+        self._board_warning: Optional[str] = None
+        self._board_checked = False
+
+    async def _fetch_boards(self) -> List[Dict[str, Any]]:
+        """Agile boards for this project. Separate API from everything else
+        here: /rest/api/3 is the platform, and it does not know what a board
+        is — only /rest/agile/1.0 does."""
+        url = (
+            f"{self.base_url}/rest/agile/1.0/board"
+            f"?projectKeyOrId={urllib.parse.quote(self.project_key)}&maxResults=1"
+        )
+        res = await make_request(url, email=self.email, token=self.token)
+        values: List[Dict[str, Any]] = res.get("values", [])
+        return values
+
+    async def board_warning(self) -> Optional[str]:
+        """One line of warning when work filed here will not appear anywhere.
+
+        A business-type Jira project (Jira Work Management) has no agile
+        board at all — not a setting that is switched off, but a thing that
+        does not exist for that project type. Creating an issue in one still
+        succeeds and still returns a key; it is simply invisible afterwards.
+        Nothing errors, which is what makes it worth saying out loud.
+
+        Looked up once per process and cached, including the healthy answer,
+        so the common case costs one call for the life of the server and no
+        tokens at all.
+        """
+        if self._board_checked:
+            return self._board_warning
+
+        self._board_checked = True
+        try:
+            boards = await self._fetch_boards()
+        except Exception:
+            # Advisory only. This exists to add a warning, so failing the
+            # caller's actual work over it would make the cure worse than
+            # the disease — stay quiet and let the real call speak.
+            return None
+
+        if not boards:
+            self._board_warning = (
+                f"{self.project_key} has no agile board (a business-type Jira "
+                "project cannot have one), so this issue will not appear on any "
+                "board. It is still reachable by key and by JQL. To get a board, "
+                "the work has to live in a software-type project."
+            )
+        return self._board_warning
 
     async def search_issues(self, jql: str) -> List[Dict[str, Any]]:
         url = f"{self.base_url}/rest/api/3/search/jql?jql={urllib.parse.quote(jql)}&fields=summary,description,status,priority,assignee"
