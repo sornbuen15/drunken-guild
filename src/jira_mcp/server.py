@@ -51,10 +51,15 @@ async def jira_create_issue(
 ) -> str:
     """
     Create a new task/issue in the configured Jira project.
+
+    Warns if the project has no agile board — the issue is created either
+    way, but on a business-type project it will not appear on one.
     """
     client = get_client()
     res = await client.create_issue(summary, description, issue_type)
-    return json.dumps(res, indent=2)
+    out = json.dumps(res, indent=2)
+    warning = await client.board_warning()
+    return f"{out}\n\n⚠ {warning}" if warning else out
 
 
 @mcp.tool()  # type: ignore[misc]  # Tech Debt: DT-65
