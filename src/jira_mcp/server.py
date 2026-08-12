@@ -5,6 +5,7 @@ import sys
 from mcp.server.fastmcp import FastMCP
 
 from core.context import ProjectContext
+from core.errors import ConfigError
 
 from .jira_client import JiraClient
 
@@ -20,7 +21,15 @@ def get_client() -> JiraClient:
     global jira
     if not jira:
         if not ctx:
-            raise RuntimeError("ProjectContext is not initialized")
+            raise ConfigError(
+                "This server was started without a project, so it has no Jira "
+                "credentials to use.",
+                remediation=(
+                    "Relaunch it as `drunken-jira-mcp --project <id>`, using an "
+                    "id from your registry. `drunken-doctor` lists what is "
+                    "registered and `drunken-init` adds a project."
+                ),
+            )
         jira = JiraClient(ctx)
     return jira
 
@@ -205,15 +214,40 @@ async def jira_submit_for_review(
     )
 
 
+def parse_project_arg(argv: list[str]) -> str | None:
+    """Read --project without ever exiting the process.
+
+    Deliberately not `required=True`: argparse enforces that by calling
+    sys.exit(2), which killed the server before the MCP handshake. The host
+    then saw a process that simply vanished, with nothing to read and
+    nothing to act on. A server that starts and says what is wrong when a
+    tool is called is strictly more useful than one that is not there.
+    """
+    parser = argparse.ArgumentParser(add_help=False)
+    parser.add_argument("--project", type=str, default=None)
+    args, _ = parser.parse_known_args(argv)
+    project: str | None = args.project
+    return project
+
+
 def main() -> None:
     global ctx
-    parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "--project", type=str, help="Project ID for config loading", required=True
-    )
-    args, unknown = parser.parse_known_args()
+    project = parse_project_arg(sys.argv[1:])
 
-    ctx = ProjectContext.build(args.project)
+    if project:
+        try:
+            ctx = ProjectContext.build(project)
+        except Exception as e:
+            # Same reasoning as above, one layer down: a bad project id, an
+            # unreadable registry, or an unresolvable secret must surface
+            # from the tool call that needs it, carrying its remediation --
+            # not as a dead process at startup.
+            print(
+                f"[drunken-jira-mcp] Could not load project {project!r}: {e}. "
+                "Starting anyway; tools will report this with the fix.",
+                file=sys.stderr,
+                flush=True,
+            )
 
     if "--project" in sys.argv:
         idx = sys.argv.index("--project")
