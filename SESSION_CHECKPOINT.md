@@ -3,7 +3,7 @@
 Short-term memory and context handoff between AI coding sessions.
 **Read this at the start of a session and update it before ending your turn.**
 
-Last updated: 2026-08-06 · version **2.1.0** · Phase 1 of 6 complete
+Last updated: 2026-08-12 · version **2.2.0** on `develop` · Phase 2 of 6 complete
 
 ---
 
@@ -15,10 +15,16 @@ servers safely, with no project ever holding a credential.
 
 | | |
 |---|---|
-| PR | [#74](https://github.com/sornbuen15/drunken-team/pull/74) → `develop` · **draft** · `MERGEABLE` |
-| Branch | `feature/DT-189-core-foundation-dev` |
-| Jira | DT-189 · **IN REVIEW** |
-| CI | 🟢 **all 4 jobs green — first time since 2026-06-25** |
+| Branch | `develop` — everything below is merged and green there |
+| Merged | DT-189 (2.1.0) · DT-224 (2.2.0) · DT-232 · DT-233 · DT-234 · DT-235 |
+| **Next** | **DT-225 — Phase 3 security hardening. It is not done. See §5.** |
+| Jira | 7 tickets open. DT-225 blocks DT-226 and DT-236 |
+| CI | 🟢 4/4 on `develop` |
+
+> **⚠️ Read §5 before picking anything up.** DT-225 spent weeks marked IN REVIEW while none of it
+> was ever merged, and a copy of this file on `feature/DT-225-security-hardening` still claims the
+> security work is finished and that Phase 4 is safe to open. Both are false of `develop`. That
+> branch is now 642 lines behind and **must not be merged** — it would revert DT-232/233/234.
 
 **Full handoff, including everything Antigravity needs, is §14 of
 `~/Projects/todo/drunken-team/MCP-ARCHITECTURE.md`.** That document is the cross-AI channel and is
@@ -52,16 +58,33 @@ Anything that violates one of these is out, without further debate.
 
 Architecture is **settled** — Antigravity ACKed all three points in §11. No further consensus rounds.
 
-## 4. Delivered in 2.1.0
+## 4. Delivered
 
-Eight new modules under `src/core/`. **The three MCP servers are deliberately not rewired yet** —
-that is Phase 2 — so this is revertable on its own.
+**2.1.0 (DT-189)** — ten modules under `src/core/`: `paths` (`$DRUNKEN_HOME`, nothing from
+`__file__`) · `secrets` (pluggable `env:// file:// op:// keyring://`, resolved once per process,
+scheme-less references rejected) · `redact` (masked `Secret`, base64-aware redactor) · `errors`
+(`DrunkenError` with remediation, `as_tool_result`) · `registry` v2 (in-memory v1 upgrade, optional
+`path`, validated ids) · `context` (`verify_jira_identity`) · `http` (scheme-guarded `urlopen`) ·
+`doctor` (`drunken-doctor`) · `init` (`drunken-init`)
 
-`paths` (`$DRUNKEN_HOME`, nothing from `__file__`) · `secrets` (pluggable `env:// file:// op://
-keyring://`, resolved once per process, scheme-less references rejected) · `redact` (masked `Secret`,
-base64-aware redactor) · `errors` (`DrunkenError` with remediation, `as_tool_result`) · `registry` v2
-(in-memory v1 upgrade, optional `path`, validated ids) · `context` (`verify_jira_identity`) · `http`
-(scheme-guarded `urlopen`) · `doctor` (`drunken-doctor`) · `init` (`drunken-init`)
+**2.2.0 (DT-224)** — the three servers rewired onto `ProjectContext`. `--workspace` is gone,
+`jira_mcp/config.py` and its `.env` parent-walk are gone (S3), `drunken-register` is retired (S11).
+
+**Approvals (DT-232, DT-233)** — asking no longer stops the agent. `submit()` returns a handle and
+`poll()` collects the answer later; a waiting task parks in the new `blocked` lane carrying the
+`req_id` that would free it, and `board_available_tasks` offers only tasks whose dependencies are
+done. No deadline and nothing is auto-killed — reminders back off 15 min → 1 h → daily, and survive
+a daemon restart. An approval is bound to the commit it was granted against and reads `stale` from
+any other HEAD. The blocking `request_boss_approval` still works; `mode` defaults to `sync`, so
+anything written by an older daemon behaves exactly as before.
+
+**DT-235** — `drunken-jira-mcp` had `--project` as `required=True`, so argparse killed it with
+`sys.exit(2)` before the MCP handshake and the host saw a process that vanished. Principle 8, from
+this very file, caught in the wild. `core/errors.py` had existed for it since 2.1.0 and no server
+had imported it.
+
+**DT-234** — `jira_create_issue` warns when the project has no agile board. ALPHA and BETA are
+business-type projects; work filed there succeeds and is then invisible.
 
 ## 5. Findings — S1 to S12
 
@@ -69,18 +92,27 @@ base64-aware redactor) · `errors` (`DrunkenError` with remediation, `as_tool_re
 drift), S10 (inverted `\n` escaping), S11 (`drunken-register` unusable and writes plaintext tokens
 into the project), S12 (e2e tests writing to live Jira), 3 aiohttp CVEs, 3 bandit MEDIUM.
 
-**Open by design — Phase 3 / 2.3.0:**
+**Fixed in 2.2.0 (DT-224):** S3 (`.env` parent-walk deleted with `jira_mcp/config.py`), S11.
 
-| # | Issue |
+**Still open on `develop` — all of Phase 3 / DT-225.** Re-verified against `origin/develop` on
+2026-08-12, file by file. None of this is theoretical:
+
+| # | State on `develop` today |
 |---|---|
-| S1 | `board.py:578-609` `query_project_context` takes absolute paths, no `..` guard → arbitrary file read |
-| S2 | `board_mcp` tools: `project` has no authorization |
-| S3 | `.env` parent-walk in `jira_mcp/config.py` + `discord_utils.py` → Phase 2 removes it |
-| S6 | Unix socket has no permission set |
-| S8 | `jira_search_issues` takes **raw JQL** → `--project` is not a security boundary at all |
+| S1 | `query_project_context` does `if os.path.isabs(file_path): resolved = file_path` — no containment check of any kind. Arbitrary file read |
+| S2 | No authorization check anywhere in `board_mcp/server.py` — `project` is a lookup key, not a boundary |
+| S6 | No `chmod` on the daemon socket |
+| S8 | `jira_search_issues` passes raw JQL straight through; `--project` is not a security boundary |
 
-> **⚠️ HTTP transport (Phase 4) must not open until S1/S2/S8 are fixed.** Today everything is local
-> stdio, so none of these are remotely reachable.
+> **⚠️ HTTP transport (Phase 4 / DT-226) must not open until S1/S2/S8 are fixed.** Everything is
+> local stdio today, which is the only reason these are not remotely reachable — and Phase 4 is
+> precisely what would change that. DT-225 is linked as blocking DT-226 and DT-236 in Jira.
+
+**How this was missed, because it will happen again otherwise.** The work exists on
+`feature/DT-225-security-hardening` and was never merged. Jira said IN REVIEW, that branch's copy of
+this file said *"Fixed in 2.3.0"* and *"HTTP transport is now safe to open"* — so every surface
+agreed it was done. Nothing checked `develop`. **A ticket in review is not a merged ticket, and a
+checkpoint on a feature branch describes that branch, not the trunk.**
 
 ## 6. S12 — read this before running the test suite
 
@@ -98,7 +130,13 @@ pytest -m e2e
 
 Side effect: the default suite went from ~17s to ~2s, because it no longer calls Atlassian.
 
-**~55 junk tickets are still there.** Awaiting Boss's decision — Claude does not delete data.
+**Cleaned up 2026-08-12 (DT-229).** 52 `[E2E TEST]` tickets plus `DT-104` `[SCRATCH]` were archived
+to a manifest and then deleted with the Boss's authorisation. DT went from 108 issues to 57.
+
+Correcting this file's own earlier claim, because it sent someone looking in the wrong place: it
+said the junk was `DT-169` … `DT-223`, roughly 55 tickets. **50 of those 55 numbers do not exist in
+Jira at all**, and the 5 that do are real work. The junk was actually `DT-66` … `DT-130`, and all of
+it was already `Done`.
 
 ## 7. CI — what it now enforces
 
@@ -144,24 +182,27 @@ throwaway venv. Touches nothing of yours. 22 checks.
 
 | version | work |
 |---|---|
-| **2.2.0** | `--workspace` → `--project` across all three servers; delete the `.env` parent-walk (S3); wire `ProjectContext` into the servers; retire `drunken-register` (S11) |
-| **2.3.0** | Security hardening — S1, S2, S8, S6. **Must land before 2.4.0** |
-| **2.4.0** | Dual transport + pluggable bearer auth |
+| **2.1.0** | ✅ DT-189 — `core/` foundation |
+| **2.2.0** | ✅ DT-224 — `--workspace` → `--project`, `ProjectContext` wired in, S3 and S11 closed |
+| — | ✅ DT-232 / DT-233 async approval · DT-234 board warning · DT-235 jira-mcp startup |
+| **2.3.0** | ⛔ **DT-225 — security hardening, S1/S2/S6/S8. Not started on `develop`.** Redo on a branch cut from current `develop`, cherry-picking `71fddb8`; **do not merge the old branch** |
+| **2.4.0** | DT-226 — dual transport + pluggable bearer auth. **Blocked by DT-225** |
 | **2.5.0** | Discord daemon multi-tenant. **Needs a deprecated socket-path fallback**, else it is breaking (§12.3) |
 | **2.6.0** | Config generator: `.mcp.json` + antigravity `mcp_config.json` + docker/k8s manifests |
 | **3.0.0** | Removals only: drop `--workspace`, drop the old socket fallback, migrate to the mcp 2.x SDK |
 
-## 10. Outstanding debt (none of it blocks the merge)
+## 10. Outstanding debt
 
-1. **Local `main` has diverged from `origin/main`** — 20 files differ (`not_use/` and this file are
-   still tracked on the remote but absent from local `main`). The PR branch was rebased onto
-   `origin/develop` to avoid carrying those deletions into the PR. **Unresolved; needs Boss's call.**
-2. **24 bandit LOW findings** — mostly `try/except/pass` in `service/` and in `jira_mcp/config.py`,
-   which Phase 2 deletes anyway. Not gated, but not hidden either.
-3. **`uv tool install` ignores `uv.lock`** — the tool env currently has mcp 1.29.0 while the lock pins
-   1.28.1. Both satisfy `<2`, but drift inside the range is still possible. Phase 6's generator should
-   emit `--with-requirements`.
-4. **~55 junk `[E2E TEST]` tickets** in DT (see §6).
+1. **`main` is 7 commits behind `develop`** and has 7 it does not — nothing since 2.1.0 has been
+   released. This is a release decision, not drift. *(The old entry here said local `main` had
+   diverged from `origin/main` by 20 files. It has not: both are `3d18c2e`, 0 ahead, 0 behind.
+   DT-230 closed as stale.)*
+2. **24 bandit LOW findings** — mostly `try/except/pass` in `service/`. Not gated, not hidden.
+3. **`uv tool install` ignores `uv.lock`** — the tool env has mcp 1.29.0 while the lock pins 1.28.1.
+   Both satisfy `<2`, but drift inside the range is still possible. Phase 6's generator should emit
+   `--with-requirements`.
+4. **`.claude/settings.json` denylist is not yet enforced by anything but the harness.** DT-236 gives
+   it teeth; until then it is policy, not a control.
 
 ## 11. Working agreements
 
@@ -192,13 +233,21 @@ throwaway venv. Touches nothing of yours. 22 checks.
 
 ## 12. Verified numbers
 
+Measured on `develop` @ `5a1925d`, 2026-08-12:
+
 ```
-402 tests passed (2 deselected)   ·   Python 3.10 and 3.13
+431 tests passed (2 deselected)   ·   Python 3.10 and 3.13
 ruff check / ruff format / mypy --strict          clean
-pip-audit --strict / bandit -ll / gitleaks (116 commits)   clean
+bandit -ll / pip-audit --strict / gitleaks        clean
 scripts/verify_clean_install.sh                   22/22
-CI on PR #74                                      4/4 green
+CI on PRs #76 #77 #78 #80 #81                     4/4 green each
 ```
 
-S4 was proven against **live Jira**: the same bad token yields `FAIL 401` with remediation from
-`verify_jira_identity`, where `jira_search_issues` still returns `[]` with HTTP 200.
+Two things were proven against **live Jira** rather than argued:
+
+- **S4** — the same bad token yields `FAIL 401` with remediation from `verify_jira_identity`, where
+  `jira_search_issues` still returns `[]` with HTTP 200.
+- **DT-234** — DT, TFH and DC stay silent; ALPHA and BETA warn. While checking, every board on the
+  site was surveyed: **none supports sprints**, and for DT the agile backlog is a strict subset of
+  the board (backlog-only = 0), so nothing is stranded in a backlog. No sprint support is needed
+  anywhere, which is why DT-234 deliberately does not implement any.
