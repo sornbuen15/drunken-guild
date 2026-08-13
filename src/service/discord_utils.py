@@ -241,7 +241,64 @@ def load_config() -> dict[str, Any]:
         except Exception:
             file_config = {}
 
+    registry_config = _discord_from_registry()
+
     return {
-        "bot_token": bot_token or file_config.get("bot_token"),
-        "channel_id": channel_id or file_config.get("channel_id"),
+        "bot_token": bot_token
+        or registry_config.get("bot_token")
+        or file_config.get("bot_token"),
+        "channel_id": channel_id
+        or registry_config.get("channel_id")
+        or file_config.get("channel_id"),
     }
+
+
+def _discord_from_registry() -> dict[str, Any]:
+    """Discord identity from the registry, or nothing.
+
+    The last piece of daemon configuration still living in ``.env``. Jira moved
+    to the registry in DT-246; Discord staying behind meant ``drunken-init``
+    wrote a ``discord.channel_id`` that nothing ever read, and
+    ``drunken-doctor`` reported two projects as having no channel while a
+    single channel was in fact serving all three.
+
+    There is one Discord identity, not one per project — the multi-tenant
+    daemon was cut, because nobody drives more than one project at a time — so
+    the first registered project that declares one wins.
+
+    Never raises. An absent registry is a first run before ``drunken-init``,
+    and a credential reference that no longer resolves is a bad configuration,
+    not a reason for the daemon to die on the way up (principle 8). Both fall
+    through to the environment, and ``drunken-doctor`` is what says so out loud.
+    """
+    try:
+        from core.registry import ProjectRegistry, parse_project
+
+        for project_id, entry in ProjectRegistry().get_projects().items():
+            if not isinstance(entry, dict) or "discord" not in entry:
+                continue
+            discord_identity = parse_project(project_id, entry).discord
+            if not discord_identity or not discord_identity.channel_id:
+                continue
+
+            resolved: dict[str, Any] = {"channel_id": discord_identity.channel_id}
+            if discord_identity.credential:
+                try:
+                    from core import secrets
+
+                    resolved["bot_token"] = secrets.resolve(
+                        discord_identity.credential
+                    ).reveal()
+                except Exception as exc:
+                    print(
+                        f"[config] Discord credential for {project_id!r} did not "
+                        f"resolve ({exc}); falling back to the environment.",
+                        file=sys.stderr,
+                    )
+            return resolved
+    except Exception as exc:
+        print(
+            f"[config] Registry unreadable ({exc}); using the environment.",
+            file=sys.stderr,
+        )
+    return {}

@@ -113,7 +113,14 @@ def _apply_project(document: dict[str, Any], args: argparse.Namespace) -> str:
     if jira:
         entry["jira"] = jira
     if args.discord_channel:
-        entry["discord"] = {"channel_id": str(args.discord_channel)}
+        discord: dict[str, str] = {"channel_id": str(args.discord_channel)}
+        if args.discord_credential:
+            # Validated the same way as the Jira one: a bot token pasted here
+            # instead of a reference would be written straight into a file
+            # meant to be readable and shareable.
+            _validate_credential_reference(args.discord_credential)
+            discord["credential"] = str(args.discord_credential)
+        entry["discord"] = discord
     if args.board_dir:
         entry["board"] = {"dir": args.board_dir}
 
@@ -159,6 +166,10 @@ def build_parser() -> argparse.ArgumentParser:
         help="Secret REFERENCE, not a token. e.g. env://JIRA_TOKEN_ALPHA",
     )
     parser.add_argument("--discord-channel", help="Discord channel id for approvals.")
+    parser.add_argument(
+        "--discord-credential",
+        help="Secret REFERENCE to the bot token, not the token itself.",
+    )
     parser.add_argument("--board-dir", help="Board directory relative to the checkout.")
     parser.add_argument(
         "--registry", help="Registry file to write instead of the resolved default."
