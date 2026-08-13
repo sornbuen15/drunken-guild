@@ -83,31 +83,52 @@ This installs six commands globally: `drunken-init` (create the state directory 
 
 > `uv tool install` ignores `uv.lock`, so the tool environment can drift inside the allowed dependency range. Pass `--with-requirements` if you need it pinned.
 
-### Step 2: Register the project
+### Step 2: Onboard the project
 
-Registration is non-interactive and idempotent, so it can run in a Dockerfile or a provisioning script. Nothing is written into the target project: one central registry answers "which Jira, which repo, which Discord channel" for every project.
+One command registers it and writes its MCP config:
+
+```bash
+python /path/to/drunken-team/scripts/onboard_project.py existing-project \
+  --jira-project-key XYZ \
+  --path /path/to/existing-project \
+  --description "..." \
+  --write-mcp-config
+```
+
+Add `--dry-run` first to see exactly what it would write, without writing it.
+
+**It reuses the credential you already have.** If every project of yours lives on the same Jira site under the same account -- which is the usual case -- they share one entry in `~/.drunken/secrets.json` and differ only by `--jira-project-key`. Give a project its own with `--credential-key <name>` when it genuinely needs a different account.
+
+> Sharing by reference is not a shortcut, it is the point. A copied token drifts: one of ours expired in a project's own `.env` and, because a Jira search answers a dead credential with `200` and an empty list, that board simply read as empty for months with nothing saying why.
+
+The Jira URL and account are inherited from a project you have already registered, so you cannot end up with three entries naming three slightly different hosts.
+
+**Doing it by hand instead.** `onboard_project.py` is a wrapper over `drunken-init` plus a config file; nothing stops you running the parts yourself:
 
 ```bash
 drunken-init \
   --project existing-project \
   --path /path/to/existing-project \
-  --description "..." \
   --jira-url https://your-domain.atlassian.net \
   --jira-email you@example.com \
   --jira-project-key XYZ \
-  --jira-credential env://JIRA_TOKEN_XYZ \
+  --jira-credential 'file://~/.drunken/secrets.json#jira.default' \
   --discord-channel 123456789012345678
 ```
 
-**Credentials are referenced, never stored.** `--jira-credential` takes `env://VAR`, `file://path#key.path`, `op://vault/item/field` or `keyring://service/user`, and there is deliberately no flag that accepts a token. A reference with no scheme is rejected as an error rather than read as a literal -- `literal://` is the visible, greppable opt-out. That is what stops a real token ending up in a committable file and working right up until it is pushed.
+**Credentials are referenced, never stored.** `--jira-credential` takes `file://path#key.path`, `env://VAR`, `op://vault/item/field` or `keyring://service/user`, and there is deliberately no flag that accepts a token. A reference with no scheme is rejected as an error rather than read as a literal -- `literal://` is the visible, greppable opt-out. That is what stops a real token ending up in a committable file and working right up until it is pushed.
 
 `--path` is optional: a containerised server that only talks to Jira or Discord has no host checkout to name. Only the file-backed board needs one.
 
-This writes the registry under `$DRUNKEN_HOME` (default `~/.drunken`, mode 700). Confirm it landed where you expect:
+### Step 2b: Prove it, before trusting it
+
+A separate step on purpose. `drunken-init` exiting 0 means a file was written, not that the credential works -- and a search cannot tell you either, because a bad token still returns `200`. `drunken-doctor` asks `/rest/api/3/myself`, which 401s:
 
 ```bash
-drunken-doctor
+drunken-doctor --project existing-project
 ```
+
+You want `project.existing-project.jira` to come back naming *you*.
 
 ### Step 3: Copy the AI templates
 
@@ -118,11 +139,23 @@ cp /path/to/drunken-team/.guild_templates/CONVENTIONS.md .
 cp /path/to/drunken-team/.guild_templates/SESSION_CHECKPOINT.md .
 ```
 
-### Step 4: Point your tool's MCP config at the three servers
+### Step 4: The MCP config
 
-For Cursor: **Settings > Features > MCP > Add New Server**, type `command`, and set the command to `uv run --directory /path/to/drunken-team drunken-jira-mcp --project existing-project`, then repeat for `drunken-discord-mcp` and `drunken-board-mcp`. For Claude Code, copying `.mcp.json` from drunken-team's root into the existing project is usually simplest -- add `"--project", "existing-project"` to each server's `args`, and point `--directory` at the drunken-team checkout.
+`--write-mcp-config` in step 2 already wrote this. It names the commands and carries no path at all, which is what keeps one machine's directory layout out of another repository's git history:
 
-Never put an absolute path into another project's committed `.mcp.json`: it leaks one machine's layout into everyone else's git history.
+```json
+{
+  "mcpServers": {
+    "drunken-jira-mcp": { "command": "drunken-jira-mcp", "args": ["--project", "existing-project"] },
+    "drunken-discord-mcp": { "command": "drunken-discord-mcp", "args": ["--project", "existing-project"] },
+    "drunken-board-mcp": { "command": "drunken-board-mcp", "args": ["--project", "existing-project"] }
+  }
+}
+```
+
+This depends on step 1 — the commands have to be on `PATH`. Without `uv tool install`, fall back to `uv run --directory /path/to/drunken-team drunken-jira-mcp --project existing-project`, and keep that file out of git.
+
+For Cursor: **Settings > Features > MCP > Add New Server**, type `command`, `drunken-jira-mcp` with args `--project existing-project`, then the same for the other two.
 
 From here, your local AI reads `CLAUDE.md`/`.cursorrules`, checks Jira via the MCP tools, writes code, and hands off through the same lifecycle described in Section 3.
 
