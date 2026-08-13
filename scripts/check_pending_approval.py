@@ -13,24 +13,46 @@ import re
 import subprocess
 import sys
 
-_REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-sys.path.insert(0, os.path.join(_REPO_ROOT, "src"))
+# Import bootstrap only: pre-commit runs this with `language: system`, whose
+# `python` is not necessarily the one that has this project installed. This
+# locates *code*, which is what __file__ is for — the state path below comes
+# from core.paths, and must, or this hook checks the wrong socket.
+sys.path.insert(
+    0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "src")
+)
+from core import paths  # noqa: E402
 from service.daemon_client import call_daemon  # noqa: E402
 
-SOCKET_PATH = os.environ.get(
-    "AGY_DAEMON_SOCKET", os.path.join(_REPO_ROOT, ".agents", "agy_daemon.sock")
-)
+
+def socket_path() -> str:
+    """The daemon's socket, resolved the same way the daemon resolves it.
+
+    This hook fails open by design — a daemon that is down must not stop you
+    committing. That is exactly what made the previous version's mistake
+    invisible: it pointed at the pre-DT-241 path, found nothing, reported
+    "daemon not running", and returned 0. pre-commit printed Passed while the
+    check could not run at all.
+    """
+    return str(paths.daemon_socket_path())
+
+
 TICKET_PATTERN = re.compile(r"([A-Z]+-\d+)")
 
 
 def _current_branch() -> str:
+    """The branch being committed to.
+
+    Resolved from the working directory rather than a fixed repo: pre-commit
+    runs the hook from the root of whichever repository is being committed to,
+    and pinning it to this checkout would read drunken-team's branch while
+    guarding a commit somewhere else entirely.
+    """
     try:
         out = subprocess.run(
             ["git", "rev-parse", "--abbrev-ref", "HEAD"],
             capture_output=True,
             text=True,
             check=True,
-            cwd=_REPO_ROOT,
         )
         return out.stdout.strip()
     except Exception:
@@ -39,7 +61,7 @@ def _current_branch() -> str:
 
 async def _check_ticket(ticket_key: str) -> str:
     result = await call_daemon(
-        {"cmd": "check_ticket", "ticket_key": ticket_key}, SOCKET_PATH, timeout=5
+        {"cmd": "check_ticket", "ticket_key": ticket_key}, socket_path(), timeout=5
     )
     return str(result.get("status", "clear"))
 
@@ -62,7 +84,7 @@ def main() -> int:
 
     ticket_key = match.group(1)
 
-    if not os.path.exists(SOCKET_PATH):
+    if not os.path.exists(socket_path()):
         print(
             "[check_pending_approval] Approval daemon not running — skipping "
             f"the pending-approval check for {ticket_key} (warn-only).",

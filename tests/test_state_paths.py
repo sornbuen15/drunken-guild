@@ -21,14 +21,23 @@ import pytest
 
 from core import paths
 
-#: Modules that must never derive user state from their own location.
+#: Modules that must never derive user state from their own location, nor from
+#: wherever they happened to be launched.
 STATE_OWNERS = (
     "src/board_mcp/server.py",
     "src/discord_mcp/server.py",
+    "src/service/approval_manager.py",
     "src/service/discord_listener.py",
     "src/service/discord_runner.py",
     "src/service/discord_router.py",
 )
+
+#: `scripts/check_pending_approval.py` is deliberately not in that list: it
+#: uses `__file__` to bootstrap `sys.path` so it can import this project under
+#: pre-commit's `language: system` python. That locates *code*, which is the
+#: allowed half of the rule, and no static check can tell the two apart. It is
+#: covered by TestThePreCommitGuardLooksAtTheRightSocket instead, which is the
+#: property that actually matters.
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
@@ -53,6 +62,28 @@ def test_no_module_derives_state_from_its_own_location(relative: str) -> None:
     assert "__file__" not in referenced, (
         f"{relative} resolves a path from __file__. Under 'uv tool install' "
         "that lands inside the virtualenv rather than a checkout."
+    )
+
+
+@pytest.mark.parametrize("relative", STATE_OWNERS)  # type: ignore[misc]
+def test_no_module_derives_state_from_the_working_directory(relative: str) -> None:
+    """The same bug in its other dialect, which the DT-241 sweep missed.
+
+    ``os.getcwd()`` is arguably worse than ``__file__``: it does not even
+    survive being launched from a different directory, and it is why the
+    approval snapshot only ever worked because launchd pins WorkingDirectory.
+    """
+    tree = ast.parse((REPO_ROOT / relative).read_text(encoding="utf-8"))
+    calls = {
+        f"{node.func.value.id}.{node.func.attr}"
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and isinstance(node.func.value, ast.Name)
+    }
+    assert "os.getcwd" not in calls, (
+        f"{relative} resolves a path from os.getcwd(). State belongs under "
+        "$DRUNKEN_HOME, not wherever the process was started."
     )
 
 
@@ -112,6 +143,26 @@ class TestSocketPermissions:
         from service.discord_listener import secure_socket
 
         secure_socket(str(tmp_path / "never-created.sock"))
+
+
+class TestThePreCommitGuardLooksAtTheRightSocket:
+    """It fails open by design — a daemon that is down must not stop you
+    committing. That makes pointing it at the wrong path invisible: it reports
+    'daemon not running', returns 0, and pre-commit prints Passed."""
+
+    def test_it_resolves_the_same_socket_as_the_daemon(self) -> None:
+        import importlib.util
+
+        spec = importlib.util.spec_from_file_location(
+            "check_pending_approval",
+            REPO_ROOT / "scripts" / "check_pending_approval.py",
+        )
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+
+        from service import discord_listener
+
+        assert module.socket_path() == discord_listener.socket_path()
 
 
 class TestPackagedCodeIsStillFoundByLocation:

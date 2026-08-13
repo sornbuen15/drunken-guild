@@ -14,10 +14,23 @@ from typing import Any, Optional
 
 import discord
 
+from core import paths
 from jira_mcp.jira_client import JiraClient
 from service.discord_runner import AgentRunner
 
-OUTBOX_FILE = os.path.join(os.getcwd(), ".agents", "discord_outbox.json")
+
+def snapshot_file() -> str:
+    """Where pending approvals and uncollected answers are persisted.
+
+    This is the only thing standing between a daemon restart and a lost
+    approval, so it is state and belongs under ``$DRUNKEN_HOME``. Derived from
+    ``os.getcwd()`` it survived only because launchd pins WorkingDirectory —
+    start the daemon from anywhere else and the snapshot silently became a
+    different file.
+    """
+    return str(paths.approval_snapshot_path())
+
+
 APPROVAL_TIMEOUT_SECONDS = int(os.environ.get("APPROVAL_TIMEOUT_SECONDS", "900"))
 
 # Reminder spacing for async requests, as multipliers of timeout_seconds:
@@ -507,8 +520,8 @@ class ApprovalManager:
 
     def _write_snapshot_file(self, data: dict[str, Any]) -> None:
         try:
-            os.makedirs(os.path.dirname(OUTBOX_FILE), exist_ok=True)
-            with open(OUTBOX_FILE, "w", encoding="utf-8") as f:
+            os.makedirs(os.path.dirname(snapshot_file()), exist_ok=True)
+            with open(snapshot_file(), "w", encoding="utf-8") as f:
                 json.dump(data, f, indent=2)
         except Exception as e:
             print(f"[ApprovalManager] Failed to write snapshot: {e}", flush=True)
@@ -523,10 +536,10 @@ class ApprovalManager:
         so we escalate on sight: comment on the ticket, notify Discord, and
         clear the snapshot. Erring toward "flag it" over "lose it silently".
         """
-        if not os.path.exists(OUTBOX_FILE):
+        if not os.path.exists(snapshot_file()):
             return
         try:
-            with open(OUTBOX_FILE, "r", encoding="utf-8") as f:
+            with open(snapshot_file(), "r", encoding="utf-8") as f:
                 data = json.load(f)
         except Exception:
             return
@@ -534,6 +547,20 @@ class ApprovalManager:
             return
 
         for req_id, payload in data.items():
+            # A snapshot written by an older release is not a reason to lose
+            # every readable entry alongside the unreadable one (principle 4).
+            # The retired Silent Wait Protocol wrote a single request object
+            # here rather than a map of them, so `payload` came back as a
+            # string and the AttributeError took the whole recovery with it —
+            # on every daemon start, in silence, for months.
+            if not isinstance(payload, dict):
+                print(
+                    f"[ApprovalManager] Skipping unreadable snapshot entry "
+                    f"{req_id!r} ({type(payload).__name__}, expected an object).",
+                    flush=True,
+                )
+                continue
+
             status = payload.get("status")
 
             # An answer nobody collected yet. Hand it straight back to
