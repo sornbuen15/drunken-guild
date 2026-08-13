@@ -5,7 +5,7 @@ import sys
 from mcp.server.fastmcp import FastMCP
 
 from core.context import ProjectContext
-from core.errors import ConfigError
+from core.errors import ConfigError, as_tool_result
 
 from .jira_client import JiraClient
 
@@ -35,6 +35,7 @@ def get_client() -> JiraClient:
 
 
 @mcp.tool()  # type: ignore[misc]
+@as_tool_result
 async def jira_search_issues(jql: str) -> str:
     """
     Search for Jira issues using a JQL query.
@@ -46,6 +47,7 @@ async def jira_search_issues(jql: str) -> str:
 
 
 @mcp.tool()  # type: ignore[misc]
+@as_tool_result
 async def jira_create_issue(
     summary: str, description: str, issue_type: str = "Task"
 ) -> str:
@@ -63,6 +65,7 @@ async def jira_create_issue(
 
 
 @mcp.tool()  # type: ignore[misc]
+@as_tool_result
 async def jira_transition_issue(issue_key: str, target_status: str) -> str:
     """
     Move an issue between columns/statuses (e.g., 'To Do' -> 'In Progress').
@@ -73,6 +76,7 @@ async def jira_transition_issue(issue_key: str, target_status: str) -> str:
 
 
 @mcp.tool()  # type: ignore[misc]
+@as_tool_result
 async def jira_add_comment(issue_key: str, comment: str) -> str:
     """
     Add a comment to an issue to provide updates or audit trails.
@@ -181,6 +185,7 @@ def review_retro() -> str:
 
 
 @mcp.tool()  # type: ignore[misc]
+@as_tool_result
 async def jira_start_task(issue_key: str) -> str:
     """
     Start working on a Jira task. Transitions the ticket to 'In Progress' and returns the Git command required for branching.
@@ -198,6 +203,7 @@ async def jira_start_task(issue_key: str) -> str:
 
 
 @mcp.tool()  # type: ignore[misc]
+@as_tool_result
 async def jira_submit_for_review(
     issue_key: str, pr_link: str, files_changed: str
 ) -> str:

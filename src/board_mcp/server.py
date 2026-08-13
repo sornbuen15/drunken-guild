@@ -37,6 +37,7 @@ from typing import Literal
 from mcp.server.fastmcp import FastMCP
 
 from core import paths
+from core.errors import RegistryError, as_tool_result
 from core.registry import ProjectRegistry
 
 from .board import BoardManager
@@ -67,9 +68,13 @@ def _get_manager(project: str) -> tuple[BoardManager, str]:
     registry = ProjectRegistry(registry_path=registry_path())
     data = registry.get_project(project)
     if data is None:
-        raise ValueError(
-            f"Unknown project '{project}'. "
-            "Run: drunken-init --project <id> --path <path> to register it."
+        raise RegistryError(
+            f"Unknown project {project!r}.",
+            remediation=(
+                f"Register it with: drunken-init --project {project} "
+                "--path <absolute-path>. `drunken-doctor` lists what is "
+                "already registered."
+            ),
         )
     project_root: str = data["path"]
 
@@ -92,6 +97,7 @@ def _get_manager(project: str) -> tuple[BoardManager, str]:
 
 
 @mcp.tool()  # type: ignore[misc]
+@as_tool_result
 async def board_next_id(project: str) -> str:
     """
     Returns the next available task ID (e.g. TWA-038). Informational only —
@@ -102,6 +108,7 @@ async def board_next_id(project: str) -> str:
 
 
 @mcp.tool()  # type: ignore[misc]
+@as_tool_result
 async def board_create_task(
     project: str,
     lane: str,
@@ -122,6 +129,7 @@ async def board_create_task(
 
 
 @mcp.tool()  # type: ignore[misc]
+@as_tool_result
 async def board_claim_task(project: str, task_id: str, agent_slug: str) -> str:
     """
     Atomically claim a todo/ task for the requesting agent.  Validates
@@ -134,6 +142,7 @@ async def board_claim_task(project: str, task_id: str, agent_slug: str) -> str:
 
 
 @mcp.tool()  # type: ignore[misc]
+@as_tool_result
 async def board_release_claim(project: str, task_id: str, agent_slug: str) -> str:
     """
     Release a stale or abandoned claim.  Only the original claimant or
@@ -145,6 +154,7 @@ async def board_release_claim(project: str, task_id: str, agent_slug: str) -> st
 
 
 @mcp.tool()  # type: ignore[misc]
+@as_tool_result
 async def board_move_task(
     project: str, task_id: str, target_lane: str, agent_slug: str
 ) -> str:
@@ -157,6 +167,7 @@ async def board_move_task(
 
 
 @mcp.tool()  # type: ignore[misc]
+@as_tool_result
 async def board_done_task(project: str, task_id: str, agent_slug: str) -> str:
     """
     Move a task from in-progress to done and strip its claim.  Validates
@@ -167,6 +178,7 @@ async def board_done_task(project: str, task_id: str, agent_slug: str) -> str:
 
 
 @mcp.tool()  # type: ignore[misc]
+@as_tool_result
 async def board_block_task(project: str, task_id: str, req_id: str, reason: str) -> str:
     """
     Park a task that is waiting on something, and record what would free it.
@@ -182,6 +194,7 @@ async def board_block_task(project: str, task_id: str, req_id: str, reason: str)
 
 
 @mcp.tool()  # type: ignore[misc]
+@as_tool_result
 async def board_unblock_task(project: str, task_id: str) -> str:
     """
     Return a parked task to the queue once whatever held it is resolved.
@@ -195,6 +208,7 @@ async def board_unblock_task(project: str, task_id: str) -> str:
 
 
 @mcp.tool()  # type: ignore[misc]
+@as_tool_result
 async def board_available_tasks(project: str) -> str:
     """
     List the tasks that can actually be started right now.
@@ -214,6 +228,7 @@ async def board_available_tasks(project: str) -> str:
 
 
 @mcp.tool()  # type: ignore[misc]
+@as_tool_result
 async def board_get_task(project: str, task_id: str) -> str:
     """
     Return the full content and parsed fields of a single task, including its
@@ -224,6 +239,7 @@ async def board_get_task(project: str, task_id: str) -> str:
 
 
 @mcp.tool()  # type: ignore[misc]
+@as_tool_result
 async def board_list_lane(project: str, lane: str) -> str:
     """
     List all tasks in a single lane as structured summaries (id, title, status,
@@ -234,6 +250,7 @@ async def board_list_lane(project: str, lane: str) -> str:
 
 
 @mcp.tool()  # type: ignore[misc]
+@as_tool_result
 async def board_summary(project: str) -> str:
     """
     Return a compact snapshot of all lanes: per-lane task counts plus
@@ -245,6 +262,7 @@ async def board_summary(project: str) -> str:
 
 
 @mcp.tool()  # type: ignore[misc]
+@as_tool_result
 async def board_orchestrate(project: str, task_ids: list[str]) -> str:
     """
     Read depends_on / blocks fields of the supplied tasks and return a
@@ -256,6 +274,7 @@ async def board_orchestrate(project: str, task_ids: list[str]) -> str:
 
 
 @mcp.tool()  # type: ignore[misc]
+@as_tool_result
 async def board_agent_context(project: str, task_id: str) -> str:
     """
     Return a compact handoff envelope for a task (~100-150 tokens): id, title,
@@ -267,6 +286,7 @@ async def board_agent_context(project: str, task_id: str) -> str:
 
 
 @mcp.tool()  # type: ignore[misc]
+@as_tool_result
 async def query_project_context(
     project: str, files: list[str], keywords: list[str]
 ) -> str:
@@ -284,6 +304,7 @@ async def query_project_context(
 
 
 @mcp.tool()  # type: ignore[misc]
+@as_tool_result
 async def board_report(
     project: str,
     audience: Literal["exec", "staff", "dev"],
