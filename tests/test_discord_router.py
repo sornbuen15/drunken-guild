@@ -561,12 +561,30 @@ async def test_router_route_passes_approval_manager(mock_slash):
 
 
 @pytest.fixture()
-def target_project_config(tmp_path):
-    """Points find_config() (and therefore the target-project state file)
-    at an isolated tmp_path so tests never touch the real .agents/ dir."""
+def target_project_config(tmp_path, monkeypatch):
+    """Isolates both pieces of state these tests touch.
+
+    find_config() (and therefore the target-project state file) points at
+    tmp_path, and so does the registry: since DT-241 the router resolves a
+    project's cwd through the registry, and a test that reads the developer's
+    real ``~/.drunken/projects.json`` passes or fails depending on whose
+    machine it runs on.
+    """
     config_file = tmp_path / ".agents" / "discord_config.json"
     config_file.parent.mkdir(parents=True, exist_ok=True)
     config_file.write_text("{}")
+
+    registry_file = tmp_path / "projects.json"
+    registry_file.write_text(
+        json.dumps(
+            {
+                "version": 2,
+                "projects": {"drunken-team": {"path": "/fake/drunken-team"}},
+            }
+        )
+    )
+    monkeypatch.setenv("DRUNKEN_REGISTRY_PATH", str(registry_file))
+
     with mock.patch(
         "service.discord_router.find_config", return_value=str(config_file)
     ):
@@ -582,7 +600,20 @@ def test_set_then_get_target_project_roundtrips(target_project_config):
     assert _get_target_project() == "isac"
 
 
-def test_target_project_cwd_default_is_none(target_project_config):
+def test_target_project_cwd_default_comes_from_the_registry(target_project_config):
+    """The default project is resolved like any other, rather than being left
+    to whatever directory the daemon happened to be started in."""
+    assert _target_project_cwd() == "/fake/drunken-team"
+
+
+def test_target_project_cwd_is_none_when_the_default_has_no_path(
+    target_project_config, tmp_path
+):
+    """Falling back to the daemon's own cwd is the right answer here, not an
+    error: a project that only talks to Jira has no checkout to name."""
+    (tmp_path / "projects.json").write_text(
+        json.dumps({"version": 2, "projects": {"drunken-team": {}}})
+    )
     assert _target_project_cwd() is None
 
 
@@ -667,7 +698,9 @@ async def test_handle_next_command_no_todo_left():
 
 
 @pytest.mark.anyio
-async def test_handle_next_command_picks_top_todo_and_transitions():
+async def test_handle_next_command_picks_top_todo_and_transitions(
+    target_project_config,
+):
     msg = MockMessage()
 
     async def fake_bridge(action, cwd=None):
@@ -684,7 +717,9 @@ async def test_handle_next_command_picks_top_todo_and_transitions():
     ):
         await _handle_next_command(msg)
 
-    mock_transition.assert_called_once_with("DT-42", "In Progress", None)
+    mock_transition.assert_called_once_with(
+        "DT-42", "In Progress", "/fake/drunken-team"
+    )
     sent = msg.channel.send.call_args[0][0]
     assert "DT-42" in sent
     assert "Do the thing" in sent
@@ -737,7 +772,7 @@ async def test_handle_refine_command_empty_backlog():
 
 
 @pytest.mark.anyio
-async def test_handle_refine_command_promotes_critical():
+async def test_handle_refine_command_promotes_critical(target_project_config):
     msg = MockMessage()
     backlog = [{"key": "DT-1", "priority": "Critical"}]
     with (
@@ -751,7 +786,7 @@ async def test_handle_refine_command_promotes_critical():
         ) as mock_transition,
     ):
         await _handle_refine_command(msg)
-    mock_transition.assert_called_once_with("DT-1", "To Do", None)
+    mock_transition.assert_called_once_with("DT-1", "To Do", "/fake/drunken-team")
     assert "Auto-promoted" in msg.channel.send.call_args[0][0]
 
 

@@ -8,7 +8,7 @@ import discord
 
 from core.registry import ProjectRegistry
 from service.discord_runner import RAW_LOG_FILE, AgentRunner
-from service.discord_utils import find_config, log_activity
+from service.discord_utils import find_config, log_activity, packaged_script
 
 DISCORD_MESSAGE_LIMIT = 2000
 LIST_COMMAND_MAX_ITEMS = 8
@@ -16,9 +16,10 @@ DEFAULT_TARGET_PROJECT = "drunken-team"
 
 # Absolute paths so these resolve correctly regardless of which directory a
 # subprocess is launched with as its cwd (e.g. a non-default target project).
-_REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
-JIRA_BRIDGE_SCRIPT = os.path.join(_REPO_ROOT, "scripts", "jira_bridge.py")
-QA_AUTOMATION_SCRIPT = os.path.join(_REPO_ROOT, "scripts", "qa_automation.py")
+# Located through the `scripts` package rather than by walking up from this
+# file, so they still resolve once installed rather than run from a checkout.
+JIRA_BRIDGE_SCRIPT = packaged_script("jira_bridge.py")
+QA_AUTOMATION_SCRIPT = packaged_script("qa_automation.py")
 
 JIRA_LIST_COMMANDS = {
     "/tasks": ("get-todo", "To Do"),
@@ -158,15 +159,21 @@ def _set_target_project(name: str) -> None:
         json.dump({"target_project": name}, f)
 
 
-def _target_project_cwd() -> str | None:
-    """cwd to run project-scoped subprocesses (jira_bridge.py, gh) in for
-    the currently selected target project. None means: use the daemon's
-    own cwd (drunken-team, the default)."""
-    name = _get_target_project()
-    if name == DEFAULT_TARGET_PROJECT:
-        return None
+def _project_cwd(name: str) -> str | None:
+    """Checkout directory for *name*, from the registry.
+
+    ``None`` means "no registered path", and the caller falls back to the
+    daemon's own working directory. A project that only talks to Jira has no
+    checkout, so this is a legitimate answer rather than an error.
+    """
     proj = ProjectRegistry().get_project(name)
-    return proj["path"] if proj else None
+    return proj.get("path") if proj else None
+
+
+def _target_project_cwd() -> str | None:
+    """cwd to run project-scoped subprocesses (jira_bridge.py, gh) in for the
+    currently selected target project."""
+    return _project_cwd(_get_target_project())
 
 
 async def _run_jira_bridge_raw(
@@ -508,7 +515,7 @@ async def _run_qa_gate_and_reply(
             QA_AUTOMATION_SCRIPT,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
-            cwd=_REPO_ROOT,
+            cwd=_project_cwd(DEFAULT_TARGET_PROJECT),
         )
         stdout, stderr = await proc.communicate()
         output = stdout.decode("utf-8", errors="replace").strip()

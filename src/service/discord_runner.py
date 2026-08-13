@@ -7,25 +7,34 @@ from typing import Any
 
 import discord
 
+from core import paths
 from service.discord_utils import (
     extract_clean_response,
     log_activity,
+    packaged_script,
     query_gemini_direct,
 )
 
 RAW_LOG_FILE = "agy_discord_raw.log"
 file_lock = asyncio.Lock()
 
+
 # Registry of spawned agy PIDs, on disk so it survives a daemon crash/restart
 # — a fresh AgentRunner's current_process starts at None and has no way to
 # know about a child orphaned by the previous process instance otherwise.
-_REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
-PID_REGISTRY_FILE = os.path.join(_REPO_ROOT, ".agents", "agy_pids.json")
+def pid_registry_file() -> str:
+    """State, so it belongs under ``$DRUNKEN_HOME`` rather than beside the code.
+
+    Derived from ``__file__`` it landed inside the virtualenv once installed,
+    where a restarted daemon would find an empty registry and silently leave
+    every orphaned child running.
+    """
+    return str(paths.pid_registry_path())
 
 
 def _read_pid_registry() -> list[int]:
     try:
-        with open(PID_REGISTRY_FILE, "r", encoding="utf-8") as f:
+        with open(pid_registry_file(), "r", encoding="utf-8") as f:
             data = json.load(f)
             return [int(p) for p in data] if isinstance(data, list) else []
     except Exception:
@@ -34,8 +43,8 @@ def _read_pid_registry() -> list[int]:
 
 def _write_pid_registry(pids: list[int]) -> None:
     try:
-        os.makedirs(os.path.dirname(PID_REGISTRY_FILE), exist_ok=True)
-        with open(PID_REGISTRY_FILE, "w", encoding="utf-8") as f:
+        os.makedirs(os.path.dirname(pid_registry_file()), exist_ok=True)
+        with open(pid_registry_file(), "w", encoding="utf-8") as f:
             json.dump(pids, f)
     except Exception:
         pass
@@ -260,7 +269,7 @@ class AgentRunner:
 
         ticket_key = "UNKNOWN"
         try:
-            jira_script = os.path.join(os.getcwd(), "scripts", "jira_bridge.py")
+            jira_script = packaged_script("jira_bridge.py")
             proc = await asyncio.create_subprocess_exec(
                 "python",
                 jira_script,
