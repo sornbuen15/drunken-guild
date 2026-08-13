@@ -159,9 +159,16 @@ class TestS2ProjectIsABoundary:
         # project" on its own only tells an agent to give up.
         assert "--project" in (caught.value.remediation or "")
 
-    def test_the_repo_mcp_config_binds_the_board_server(self) -> None:
-        """The config that ships with this repo has to satisfy the new rule,
-        or the server we tell people to use refuses every call."""
+    def test_any_config_that_does_wire_the_board_binds_it(self) -> None:
+        """DT-250 retired the board and no config here declares it any more, so
+        this asserts the conditional rather than the fact: *if* a config wires
+        the board server, it must bind it to a project.
+
+        Kept rather than deleted because the S2 finding does not expire. The
+        server still exists on disk and can still be run; an unbound one serves
+        whatever it is asked for, and that stays true whether or not this repo
+        happens to declare it today.
+        """
         import json
         from pathlib import Path
 
@@ -170,5 +177,7 @@ class TestS2ProjectIsABoundary:
                 encoding="utf-8"
             )
         )
-        args = config["mcpServers"]["drunken-board-mcp"]["args"]
-        assert "--project" in args, ".mcp.json must bind the board server"
+        entry = config["mcpServers"].get("drunken-board-mcp")
+        if entry is None:
+            return  # retired here, which is the expected state after DT-250
+        assert "--project" in entry["args"], "a wired board server must be bound"
