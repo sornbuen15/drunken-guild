@@ -88,5 +88,5 @@ doing and the answer decides whether the session continues at all.
 
 ## Never touch the internals
 
-Do not read or write `.agents/discord_outbox.json`. It is daemon state, not
+Do not read or write `.agents/discord_outbox.json`. <!-- drift-ok: the prohibition has to name what it prohibits --> It is daemon state, not
 an API. Go through the tools.
