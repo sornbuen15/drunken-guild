@@ -86,8 +86,12 @@ Full protocol in `.agents/skills/ask-boss/SKILL.md`; the short version:
 - Antigravity reviews and runs client-side acceptance tests. It does **not** edit this repo's source
   while security work is in flight.
 
-## Known gap
+## The board
 
-`.mcp.json` declares only `drunken-jira-mcp` and `drunken-discord-mcp`. **`drunken-board-mcp` is not
-wired up**, so the board tools — including the `blocked` lane and `board_available_tasks` from
-DT-233 — cannot be called from inside this project yet.
+`.mcp.json` declares all three servers, `drunken-board-mcp` included since DT-242. The board tools
+work from inside this project — `board_summary` answers, and the `blocked` lane and
+`board_available_tasks` from DT-233 are callable.
+
+Board state lives in `.agents/board/<lane>/`, so **the cards are Antigravity's and you do not edit
+them by hand.** Go through the tools. `.claude/board/` is preferred when it exists; today it does
+not, and the resolver falls back to `.agents/board/`.
