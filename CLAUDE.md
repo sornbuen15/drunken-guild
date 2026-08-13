@@ -155,12 +155,27 @@ observation about the wrapper and the wrong question**, not a defect to fix in t
 nothing at the wrapper level is in git, and `drunken-doctor --project twa` reads 14 ok / 0 warnings.
 ISAC is the counter-example: it *is* the repo, with 47 files of AI layer committed inside it.
 
-## The board
+## There is no local board (DT-250)
 
-`.mcp.json` declares all three servers, `drunken-board-mcp` included since DT-242. The board tools
-work from inside this project — `board_summary` answers, and the `blocked` lane and
-`board_available_tasks` from DT-233 are callable.
+**Jira is the only coordination surface.** The **assignee** says whose work a ticket is, the
+**status** says where it is. Nothing else tracks either.
 
-Board state lives in `.agents/board/<lane>/`, so **the cards are Antigravity's and you do not edit
-them by hand.** Go through the tools. `.claude/board/` is preferred when it exists; today it does
-not, and the resolver falls back to `.agents/board/`.
+```
+jira_assign(issue_key, "me")            # this one is mine
+jira_assign(issue_key, "Jakkawan")      # hand it over — name, email, or "none"
+jira_transition_issue(key, "In Review")
+```
+
+`drunken-board-mcp` still exists and is **not wired into any project.** It is marked unused rather
+than removed, per the rule above. Do not reintroduce it, and do not create `.claude/board/` or
+`.agents/board/` in any project.
+
+Why it went: a local board sitting next to Jira is a *second surface that can disagree with the
+first*, which is the failure this repo spent a whole session curing — four surfaces disagreeing in
+DT-249, one credential copied to three places in DT-248. The evidence was already on disk. This
+project's own board held three cards, last touched 2026-07-22, still using the `DAGY-` prefix that
+DT-244 retired; every real ticket of that period went through Jira and never touched it.
+
+What is genuinely lost: the board expired a claim after 1800 s and released it, and a Jira assignee
+never expires. A ticket left assigned to an agent that died stays that way until a human looks. That
+is a ten-second fix by a human, weighed against a class of silent disagreement that costs weeks.

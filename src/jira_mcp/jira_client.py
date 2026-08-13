@@ -9,6 +9,25 @@ from core.context import ProjectContext
 from core.errors import DrunkenError
 from core.http import open_url
 
+from . import assign
+
+
+def parse_response(body: str) -> Any:
+    """Decode a Jira response body without assuming its shape.
+
+    This used to be ``dict(json.loads(body))``, inline. Every endpoint called
+    before ``/rest/api/3/user/assignable/search`` answered with an object, so
+    the force-cast was invisible — and when the first array arrived it failed
+    as *"dictionary update sequence element #0 has length 10; 2 is required"*,
+    which describes the cast rather than the cause.
+
+    An empty body reads as ``{}``: a successful ``PUT`` to the assignee
+    endpoint returns 204 with nothing in it.
+    """
+    if not body:
+        return {}
+    return json.loads(body)
+
 
 def _make_request_sync(
     url: str,
@@ -16,7 +35,7 @@ def _make_request_sync(
     payload: Optional[Dict[str, Any]] = None,
     email: Optional[str] = None,
     token: Optional[str] = None,
-) -> Dict[str, Any]:
+) -> Any:
     if not email or not token:
         raise ValueError("Error: Missing credentials (email or token).")
 
@@ -31,8 +50,7 @@ def _make_request_sync(
     try:
         req.data = json.dumps(payload).encode("utf-8") if payload else None
         with open_url(req, timeout=15) as response:
-            res_body = response.read().decode("utf-8")
-            return dict(json.loads(res_body)) if res_body else {}
+            return parse_response(response.read().decode("utf-8"))
     except DrunkenError:
         # Already structured and carries a remediation. Flattening it into a
         # generic RuntimeError here would throw away the one part the agent
@@ -54,7 +72,7 @@ async def make_request(
     payload: Optional[Dict[str, Any]] = None,
     email: Optional[str] = None,
     token: Optional[str] = None,
-) -> Dict[str, Any]:
+) -> Any:
     return await asyncio.to_thread(
         _make_request_sync, url, method, payload, email, token
     )
@@ -165,11 +183,17 @@ class JiraClient:
 
     async def get_issue(self, issue_key: str) -> Dict[str, Any]:
         url = f"{self.base_url}/rest/api/3/issue/{issue_key}"
-        return await make_request(url, email=self.email, token=self.token)
+        res: Dict[str, Any] = await make_request(
+            url, email=self.email, token=self.token
+        )
+        return res
 
     async def get_transitions(self, issue_key: str) -> Dict[str, Any]:
         url = f"{self.base_url}/rest/api/3/issue/{issue_key}/transitions"
-        return await make_request(url, email=self.email, token=self.token)
+        res: Dict[str, Any] = await make_request(
+            url, email=self.email, token=self.token
+        )
+        return res
 
     async def transition_issue(
         self, issue_key: str, target_status: str
@@ -222,6 +246,60 @@ class JiraClient:
             url, method="POST", payload=payload, email=self.email, token=self.token
         )
         return {"ok": True, "key": res.get("key"), "self": res.get("self")}
+
+    async def assignable_users(self, query: str) -> List[Dict[str, Any]]:
+        """Users who can be assigned issues on this project.
+
+        Scoped to ``self.project_key`` deliberately. The unscoped endpoint
+        returns everyone on the site, which would let an issue be assigned to
+        somebody with no access to the project it belongs to -- assigned,
+        accepted, and invisible to them.
+        """
+        url = (
+            f"{self.base_url}/rest/api/3/user/assignable/search"
+            f"?project={urllib.parse.quote(self.project_key)}"
+            f"&query={urllib.parse.quote(query)}&maxResults=50"
+        )
+        res = await make_request(url, email=self.email, token=self.token)
+        if isinstance(res, list):
+            return res
+        values = res.get("values", [])
+        return values if isinstance(values, list) else []
+
+    async def my_account_id(self) -> str:
+        """The account this credential belongs to.
+
+        ``/rest/api/3/myself`` rather than a search, for the reason in
+        core.context's docstring: it is the endpoint that actually fails on a
+        bad credential instead of returning an empty result.
+        """
+        res = await make_request(
+            f"{self.base_url}/rest/api/3/myself", email=self.email, token=self.token
+        )
+        account_id = res.get("accountId")
+        if not account_id:
+            raise DrunkenError(
+                "Jira did not return an accountId for this credential.",
+                remediation=(
+                    "Check the credential with `drunken-doctor` -- this is the "
+                    "endpoint it uses to verify identity."
+                ),
+            )
+        return str(account_id)
+
+    async def assign_issue(
+        self, issue_key: str, account_id: Optional[str]
+    ) -> Dict[str, Any]:
+        """Set or clear the assignee. ``None`` unassigns."""
+        url = f"{self.base_url}/rest/api/3/issue/{issue_key}/assignee"
+        await make_request(
+            url,
+            method="PUT",
+            payload=assign.payload_for(account_id),
+            email=self.email,
+            token=self.token,
+        )
+        return {"ok": True, "issue": issue_key, "account_id": account_id}
 
     async def add_comment(self, issue_key: str, comment: str) -> Dict[str, Any]:
         payload = {"body": to_adf(comment)}

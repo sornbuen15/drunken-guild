@@ -52,15 +52,45 @@ def test_pyproject_still_declares_mcp_servers() -> None:
     )
 
 
+#: Servers that ship as entry points and are deliberately not wired anywhere.
+#: Listed by name so an *accidentally* unwired server still fails this test —
+#: which is the whole point of it, and how DT-233's board tools were found to
+#: have shipped unreachable.
+RETIRED_SERVERS = {
+    # DT-250. Jira is the only coordination surface: the assignee says whose
+    # work a ticket is, the status says where it is. A local board beside Jira
+    # is a second surface that can disagree with the first. Kept on disk and
+    # marked unused rather than deleted, so a project that wants one can still
+    # run it — but no project here does.
+    "drunken-board-mcp",
+}
+
+
 def test_every_mcp_server_is_reachable_from_this_project(mcp_config: dict) -> None:
     """A server that exists but is not declared here cannot be called at all."""
-    declared = set(_declared_servers())
+    declared = set(_declared_servers()) - RETIRED_SERVERS
     configured = set(mcp_config["mcpServers"])
 
     assert declared <= configured, (
         f"{sorted(declared - configured)} ship as entry points but are missing "
         "from .mcp.json, so their tools cannot be called from inside this "
         "project. This is how DT-233's board tools shipped unreachable."
+    )
+
+
+def test_a_retired_server_is_not_quietly_wired_back_in(mcp_config: dict) -> None:
+    """The mirror of the test above, and the one that matters now.
+
+    Retiring the board was a decision, not an accident, so it needs a guard in
+    the same direction: adding it back to `.mcp.json` should fail here and be
+    argued for, rather than reappearing because a config was copied from an
+    older project.
+    """
+    wired_again = RETIRED_SERVERS & set(mcp_config["mcpServers"])
+    assert not wired_again, (
+        f"{sorted(wired_again)} is retired (DT-250) and has been wired back "
+        "into .mcp.json. Jira is the only coordination surface — if this is "
+        "deliberate, change RETIRED_SERVERS and say why."
     )
 
 

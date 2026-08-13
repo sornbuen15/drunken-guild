@@ -13,13 +13,6 @@
       "env": {
         "PYTHONPATH": "src"
       }
-    },
-    "drunken-board-mcp": {
-      "command": "uv",
-      "args": ["run", "python", "-m", "board_mcp.server", "--project", "drunken-team"],
-      "env": {
-        "PYTHONPATH": "src"
-      }
     }
   }
 }
