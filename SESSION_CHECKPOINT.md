@@ -129,6 +129,31 @@ had imported it.
 **DT-234** — `jira_create_issue` warns when the project has no agile board. TWA and ISAC are
 business-type projects; work filed there succeeds and is then invisible.
 
+**DT-236 — the PreToolUse hook.** The oldest complaint in the project, closed. `drunken-away on`
+writes a flag the *machine* can read, and the hook turns each harness permission prompt into a
+Discord question. Deny is checked first and never routed; an allowlisted call gets silence rather
+than `allow`, because the hook's job is to never widen permission.
+
+Two things the ticket had wrong, both found by reading the contract rather than trusting it:
+
+- The hook timeout default is **600s, not ~60s** as the ticket said.
+- **A timed-out hook does not block the call** — it falls through to the normal permission flow, and
+  the documentation says outright not to count on a stalled hook as a gate. So the hook answers
+  *before* its own deadline instead of waiting to be killed. `WAIT_BUDGET_SECONDS` (1500) and the
+  `timeout` in `.claude/settings.json` (1800) are two numbers in two files that must stay in a
+  relationship, so a test asserts it — the same shape as S9 and the stale `requirements-dev.txt`.
+
+And one found only by running it, which is §13's whole point. The live acceptance run ended with the
+agent **stranded**: away mode was on, the Boss pressed 👎, and `drunken-away off` was itself routed
+to Discord along with every `Read` and `Edit` that could have fixed it. A switch that cannot turn
+itself off is not a switch. The way out has to be an **allow rule** — hook silence only means "carry
+on as normal", and carrying on as normal in an unattended terminal is the blocking prompt this
+ticket exists to remove.
+
+Proven end to end against live Discord: 👍 → `allow`, 👎 → `deny` (which blocked the agent's own
+tool call through the real harness, not a simulated stdin), and a denylisted `rm -rf` refused in
+0.06s without reaching Discord at all — including when hidden behind `git status &&`.
+
 ## 5. Findings — S1 to S12
 
 **Fixed in 2.1.0:** S4 (Jira 200 + `[]` on a bad token), S5 (`__file__`-derived paths), S9 (version
@@ -243,7 +268,7 @@ throwaway venv. Touches nothing of yours. 22 checks.
 | **2.3.0** | ✅ DT-238 docs · DT-242 registry works end to end · DT-241 state paths + **S6** · DT-243 cwd paths + snapshot recovery · DT-244 retire the `agy` name · DT-239 wire `as_tool_result` · DT-245 onboard TWA and ISAC · DT-240 CI doc-drift check · DT-246 daemon and Antigravity reach the registry |
 | — | ✅ DT-247 — Discord config from the registry, and TWA's last stale token (#94) |
 | — | ⬜ DT-249 docs/Jira truth alignment · DT-237, then **tag 2.3.0** |
-| **2.4.0** | **DT-236 — the PreToolUse hook. The thing Boss actually asked for.** Unblocked: see §5 |
+| **2.4.0** | 🟡 **DT-236 — the PreToolUse hook. The thing Boss actually asked for.** Built and proven live; see §4 |
 | — | DT-225 remainder: S1, S2, S8 |
 | **later** | DT-226 dual transport + bearer auth — the change that makes S1/S2/S8 remotely reachable, so it waits on them |
 | ~~2.5.0~~ | ~~Discord daemon multi-tenant~~ — **DT-227 cut.** Boss: nobody drives more than one project at a time, and doing so burns tokens for nothing. One channel serves all |
@@ -259,8 +284,13 @@ throwaway venv. Touches nothing of yours. 22 checks.
 3. **`uv tool install` ignores `uv.lock`** — the tool env has mcp 1.29.0 while the lock pins 1.28.1.
    Both satisfy `<2`, but drift inside the range is still possible. Phase 6's generator should emit
    `--with-requirements`.
-4. **`.claude/settings.json` denylist is not yet enforced by anything but the harness.** DT-236 gives
-   it teeth; until then it is policy, not a control.
+4. **The `.claude/settings.json` denylist now has a second enforcer** — DT-236's hook checks it
+   before anything else and refuses to route a denied call to Discord at all. Note what that is and
+   is not: matching a shell command by prefix cannot be made sound (`rm -rf` and `rm -r -f` are the
+   same action, spelled differently), so `core/permission_rules.py` documents itself as a soft
+   control and leans every ambiguity toward asking a human. Deny matching is greedy — no word
+   boundary, every segment of a compound command, command substitutions included. Allow matching is
+   strict, and a compound command is allowed only when *every* segment is.
 5. **Two `.env` files still hold the revoked Jira token** — `drunken-team/.env` and
    `tff-web-app/.env`. Nothing of ours reads them since #94, but they are live traps for
    anyone who runs the old tooling. Boss has not said whether to clear them.
