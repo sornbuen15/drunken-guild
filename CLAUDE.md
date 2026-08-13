@@ -128,6 +128,33 @@ Things worth knowing before you turn it on:
 - Antigravity reviews and runs client-side acceptance tests. It does **not** edit this repo's source
   while security work is in flight.
 
+## How a project is laid out (DT-250)
+
+Boss's rule, and it applies to **every** project including this one. Three parts, never mixed, and
+**only the source code goes to git**:
+
+```
+~/Projects/<project>/          wrapper — NOT a git repository
+├── <source-repo>/             the git repo. source code only
+├── .mcp.json                  drunken-team config. the host looks for it here, so here it stays
+├── .claude/ or .agents/       the project's AI layer: instructions, agents, board
+└── _not_used/                 parked, never deleted — see the rule above
+```
+
+Register the offset or nothing git-related works:
+
+```bash
+uv run drunken-init --project <id> --path ~/Projects/<project> --git-root <source-repo>
+```
+
+`--git-root` is what tells `ProjectContext.git_root_path()` where `git` actually runs. Without it
+`drunken-doctor` reports *"…is not a git repository"* — which under this layout is a **correct
+observation about the wrapper and the wrong question**, not a defect to fix in the code.
+
+**ALPHA is the reference implementation.** `~/Projects/alpha-workspace` is the wrapper, `alpha/` is the repo,
+nothing at the wrapper level is in git, and `drunken-doctor --project alpha` reads 14 ok / 0 warnings.
+BETA is the counter-example: it *is* the repo, with 47 files of AI layer committed inside it.
+
 ## The board
 
 `.mcp.json` declares all three servers, `drunken-board-mcp` included since DT-242. The board tools
