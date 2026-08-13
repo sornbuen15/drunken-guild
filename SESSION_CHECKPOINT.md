@@ -16,10 +16,14 @@ ever holding a credential.
 
 | | |
 |---|---|
-| Branch | `develop` @ `5cff91b`, CI 🟢 4/4 |
-| Merged 2026-08-13 | DT-238 · DT-242 · DT-241 · DT-243 · DT-244 · DT-239 · DT-245 · DT-240 · DT-246 · **DT-247** (#94) · #95 |
+| Branch | `develop` @ `bb8a37a`, 578 tests green |
+| Merged 2026-08-13 | DT-238 · DT-242 · DT-241 · DT-243 · DT-244 · DT-239 · DT-245 · DT-240 · DT-246 · **DT-247** (#94) · #95 · **DT-249** (#96) · **DT-236** (#97) · **DT-225** (#98) |
 | Open PRs | **none.** `sornbuen15/beta#2` merged 07:41 |
-| Jira | DT-249 IN PROGRESS · DT-225 IN PROGRESS (only S1/S2/S8 left) · DT-248 filed · 6 in To Do |
+| Jira | **DT-225 and DT-236 both closed** · DT-227 closed as cut · DT-248 filed · DT-95/226/228/237/248 in To Do |
+
+**DT-225 is done in full** — S6 went with DT-241, S1/S2/S8 with #98. **DT-236 is done** — the thing
+the Boss originally asked for, working and proven against live Discord. The two oldest open items in
+this project both closed on the same day.
 
 ### ⚠️ This section was wrong for four hours — read why before trusting any checkpoint
 
@@ -39,23 +43,23 @@ you follow PR #95's branch name to a ticket, that is why it does not describe th
 
 ### Next, in order
 
-1. **DT-236** — the PreToolUse hook. **This is what the Boss originally asked for**: "I'm going out,
-   send it to Discord", and the terminal still blocks on a permission prompt. Everything it needs
-   exists. Boss and Claude agreed it is blocked only on **S6**, which is now done — *not* on all of
-   DT-225. S1/S2/S8 do not touch it. *(Jira's own description still claims the DT-225 dependency;
-   DT-249 adds a comment correcting it, because the MCP tools can comment but not rewrite a
-   description.)*
-2. **DT-225 remainder — S1, S2, S8.** Verified still open on `develop` on 2026-08-13, in that order
-   of ease. Blocks DT-226 and nothing else.
-3. **Tear out the copies of this tooling vendored into ALPHA and BETA** (`monitor.py`,
-   `jira-lite-cli.py`, `.agents/scripts/*`). Boss authorised it; not started. This is what keeps
-   ALPHA's `.env` needing a token at all.
-4. **Two `.env` files still hold the revoked token** — `drunken-team/.env` and `alpha-workspace/.env`.
-   Nothing of ours reads them any more, but they are traps for anyone running the vendored copies.
-   Clearing them follows item 3. Boss has not yet said whether to.
-5. **DT-237, then tag 2.3.0** — noting that DT-237 is a *decision* the Boss deferred, so it is worth
+1. **Refresh the installed tool environment — do this before believing anything is deployed.**
+   `~/.local/bin/drunken-*` symlinks into `~/.local/share/uv/tools/drunken-team/`, and **that is what
+   Antigravity's `mcp_config.json` launches.** Checked after #97 and #98: `core.permission_rules`,
+   `core.away`, `service.approval_hook` and `jira_mcp.jql` are all absent there, and
+   `board_mcp.server` has no `_authorize`. **Merging a security fix does not deploy it to the host
+   that actually runs it.** Until it is reinstalled, Antigravity's board server still serves any
+   project. Same family as §10.3, but with teeth.
+2. **The vendored teardown in ALPHA and BETA is not a delete job — see §10.6.** Boss's standing rule:
+   nothing is removed by an agent. Produce the list, or mark it unused and leave it on disk.
+3. **Two `.env` files still hold the revoked token** — `drunken-team/.env` and `alpha-workspace/.env`.
+   Nothing of ours reads them, but they are traps for anyone running the vendored copies. Same rule:
+   the Boss clears them, not an agent.
+4. **DT-237, then tag 2.3.0** — noting that DT-237 is a *decision* the Boss deferred, so it is worth
    asking whether the tag should wait on it at all. DT-237's own description says doing nothing is a
    legitimate outcome.
+5. **DT-226** is no longer blocked by S1/S2/S8, and is not thereby approved. Review it on its own
+   merits before opening a transport.
 
 ### 🔑 The Jira token was rotated on 2026-08-13
 
@@ -272,10 +276,11 @@ throwaway venv. Touches nothing of yours. 22 checks.
 | — | ✅ DT-232 / DT-233 async approval · DT-234 board warning · DT-235 jira-mcp startup |
 | **2.3.0** | ✅ DT-238 docs · DT-242 registry works end to end · DT-241 state paths + **S6** · DT-243 cwd paths + snapshot recovery · DT-244 retire the `agy` name · DT-239 wire `as_tool_result` · DT-245 onboard ALPHA and BETA · DT-240 CI doc-drift check · DT-246 daemon and Antigravity reach the registry |
 | — | ✅ DT-247 — Discord config from the registry, and ALPHA's last stale token (#94) |
-| — | ⬜ DT-249 docs/Jira truth alignment · DT-237, then **tag 2.3.0** |
-| **2.4.0** | 🟡 **DT-236 — the PreToolUse hook. The thing Boss actually asked for.** Built and proven live; see §4 |
-| — | DT-225 remainder: S1, S2, S8 |
-| **later** | DT-226 dual transport + bearer auth — the change that makes S1/S2/S8 remotely reachable, so it waits on them |
+| — | ✅ DT-249 — docs/Jira truth alignment (#96) |
+| — | ⬜ DT-237, then **tag 2.3.0** |
+| **2.4.0** | ✅ **DT-236 — the PreToolUse hook. The thing Boss actually asked for** (#97). Proven against live Discord; see §4 |
+| — | ✅ **DT-225 closed in full** — S6 with DT-241, S1/S2/S8 with #98 |
+| **later** | DT-226 dual transport + bearer auth. No longer *blocked* by S1/S2/S8, and not thereby approved — review it on its own merits before opening a transport |
 | ~~2.5.0~~ | ~~Discord daemon multi-tenant~~ — **DT-227 cut.** Boss: nobody drives more than one project at a time, and doing so burns tokens for nothing. One channel serves all |
 | **3.0.0** | Removals only: migrate to the mcp 2.x SDK. `--workspace` and `AGY_DAEMON_SOCKET` are already gone (DT-224, DT-244) |
 
@@ -286,9 +291,22 @@ throwaway venv. Touches nothing of yours. 22 checks.
    diverged from `origin/main` by 20 files. It has not: both are `3d18c2e`, 0 ahead, 0 behind.
    DT-230 closed as stale.)*
 2. **24 bandit LOW findings** — mostly `try/except/pass` in `service/`. Not gated, not hidden.
-3. **`uv tool install` ignores `uv.lock`** — the tool env has mcp 1.29.0 while the lock pins 1.28.1.
-   Both satisfy `<2`, but drift inside the range is still possible. Phase 6's generator should emit
-   `--with-requirements`.
+3. **The installed tool environment is a separate deployment, and nothing updates it.** This is the
+   worst entry on this list. `~/.local/bin/drunken-*` symlinks into
+   `~/.local/share/uv/tools/drunken-team/`, and **that is what Antigravity's `mcp_config.json`
+   launches** — not this checkout. Verified straight after #97 and #98 merged:
+
+   ```
+   core.permission_rules   ABSENT      core.away               ABSENT
+   service.approval_hook   ABSENT      jira_mcp.jql            ABSENT
+   board_mcp.server._authorize  False
+   ```
+
+   So **merging a security fix does not deploy it to the host that actually runs it.** Until that env
+   is reinstalled, Antigravity's board server still serves any project on request. The older half of
+   this entry is the same shape and still true: `uv tool install` ignores `uv.lock`, so the tool env
+   has mcp 1.29.0 while the lock pins 1.28.1 — both satisfy `<2`, but drift inside the range is
+   possible, and Phase 6's generator should emit `--with-requirements`.
 4. **The `.claude/settings.json` denylist now has a second enforcer** — DT-236's hook checks it
    before anything else and refuses to route a denied call to Discord at all. Note what that is and
    is not: matching a shell command by prefix cannot be made sound (`rm -rf` and `rm -r -f` are the
@@ -301,7 +319,24 @@ throwaway venv. Touches nothing of yours. 22 checks.
    anyone who runs the old tooling. Boss has not said whether to clear them.
 6. **ALPHA and BETA each carry a vendored copy of this tooling** — `monitor.py`, `jira-lite-cli.py`,
    `.agents/scripts/{jira_bridge,ask_boss,discord_listener,register_project}.py`. They are why
-   ALPHA's `.env` still needs a token at all. Boss authorised tearing them out; not started.
+   ALPHA's `.env` still needs a token at all.
+
+   **This was surveyed on 2026-08-13 and is not a delete job.** Three things an earlier
+   authorisation could not have accounted for:
+
+   - **`~/Projects/alpha-workspace` is not a git repository.** The repo is the `alpha/` subdirectory, so
+     `monitor.py`, `jira-lite-cli.py`, `.agents/` and `.env` at that root are unversioned. Removing
+     them is unrecoverable. *(The registry also points `alpha` at the non-repo parent.)*
+   - **BETA has uncommitted work in a file on the list** — `.agents/scripts/jira_bridge.py` carries
+     a fix for the S10 inverted-`\n` bug and a status-filter change, neither committed.
+   - **BETA's uncommitted `.agents/AGENTS.md` instructs agents to use `jira_bridge.py` and *not* the
+     board MCP.** Antigravity's BETA workflow depends on the vendored copy right now.
+
+   Also note this file's teardown list named `.agents/scripts/*` while `CLAUDE.md` says not to touch
+   `.agents/` at all. Those two contradicted each other; `CLAUDE.md` wins.
+
+   **Boss's standing rule (2026-08-13): an agent does not delete.** Anything needing removal becomes
+   a list for the Boss to run, and marking something unused is preferred over removing it.
 7. **`drunken-doctor` cannot see any of that.** Every failure this session was found by running
    something and looking, not by a check. A `doctor --all` that walks every registered project and
    reports the drift would have caught the dead ALPHA token, the missing Discord channels and the
@@ -335,22 +370,27 @@ throwaway venv. Touches nothing of yours. 22 checks.
     daily) and the request survives daemon restarts. A question the Boss hasn't reached is not an error.
   - An approval is bound to the commit it was granted against; from a different HEAD it reads `stale` and
     must be re-asked. A yes given this morning does not authorise tonight's different code.
-  - Force-push, hard reset, `rm -rf`, and reading `.env` are refused by `.claude/settings.json` **no matter
-    what comes back over Discord.** Remote approval is only safe while some actions sit outside it.
+  - Force-push, hard reset, recursive force-delete, and reading `.env` are refused by
+    `.claude/settings.json` **no matter what comes back over Discord**, and since DT-236 the hook
+    refuses them before Discord is even asked. Remote approval is only safe while some actions sit
+    outside it.
+- **An agent does not delete. Boss's standing rule, 2026-08-13.** Anything that would need a
+  recursive force-delete becomes a **list handed to the Boss to run**, and *marking a thing unused is
+  preferred over removing it*. A recorded authorisation from an earlier session does not license a
+  deletion today — see §10.6, where the survey found unversioned files and uncommitted work that no
+  earlier authorisation could have known about.
   - `request_boss_approval` (blocking, escalates after 2 reminders) still works and is kept until 3.0.0.
     Prefer the async pair; reach for it only when nothing else could possibly be done meanwhile.
 
 ## 12. Verified numbers
 
-On `develop` @ `a33e15e` plus PR #94, 2026-08-13:
+On `develop` @ `bb8a37a` — #96, #97 and #98 all merged, 2026-08-13:
 
 ```
-501 tests passed (2 deselected)   ·   Python 3.10 and 3.13
+578 tests passed (2 deselected)   ·   was 501 before this session's three PRs
 ruff check / ruff format / mypy --strict          clean
-bandit -ll / pip-audit --strict / gitleaks        clean
+bandit -ll                                        clean
 scripts/check_doc_drift.py                        60 documents, clean
-scripts/verify_clean_install.sh                   22/22
-CI on PRs #85 … #94                               4/4 green each
 ```
 
 ## 13. The acceptance run — and why the numbers above are not enough
@@ -365,13 +405,39 @@ is what caught it. Run this before believing anything is finished:
 drunken-doctor       14 ok          13 ok      14 ok      0 failed
 MCP over stdio       6 tools        6 tools    6 tools
   jira_search        50 issues      39 issues  50 issues
-Discord /project     6 To Do        0 To Do    2 To Do
-bare run in dir      6 To Do        0 To Do    2 To Do    ← needs #94
+bare run in dir      5 To Do        0 To Do    2 To Do
 Antigravity          3 servers, 25 tools, under `env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin`
+```
+
+Re-run in full on `bb8a37a`, 2026-08-13. Every number matches the previous run except DT's To Do,
+which is 5 rather than 6 because DT-227 was closed as cut the same day.
+
+Added by this session, proven through real MCP stdio rather than the suite:
+
+```
+S8  project = BETA, asked from drunken-team        0 issues
+S8  status = Done OR project = BETA                50 issues, every one DT
+S2  bound to drunken-team, asked for drunken-team  served
+S2  bound to drunken-team, asked for beta          refused, names the binding
+S2  unbound, asked for anything                    refused, says how to bind
 ```
 
 ALPHA's `0 To Do` is correct — all 39 of its issues are Done. The point is that it no longer means
 *"the credential is dead"*, which is what it meant for months.
+
+**Running the thing has its own ways to be wrong.** Three false negatives in this session's
+acceptance run, none of them a product defect:
+
+1. The `0 failed` in `drunken-doctor`'s summary line was counted *as* a failure by the grep reading it.
+2. `uv run --directory X` overrides the `cd` before it, so three projects were all probed from one
+   directory and returned identical answers.
+3. **zsh does not word-split an unquoted parameter.** `$args` holding `--project drunken-team`
+   arrives as a *single* argv entry, argparse ignores it, and the S2 boundary looks broken when it
+   is not. This one reproduced twice and was nearly reported as a real bug.
+
+All three failed *safe* — they under-reported success. The lesson is not to trust a harness more than
+the thing it is testing: pass argv as an array, keep `timeout` outside `env -i`, and read the summary
+line rather than grepping for a word that appears in it.
 
 **The GUI PATH trap, twice.** A host config read by an application launched from `/Applications`
 inherits launchd's minimal `PATH`, so a bare command name resolves when you test it in a terminal
