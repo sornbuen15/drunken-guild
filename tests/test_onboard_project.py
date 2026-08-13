@@ -91,6 +91,75 @@ class TestTheCredentialIsSharedByReference:
         assert onboard.credential_reference("client-x").endswith("#jira.client-x")
 
 
+class TestAHostConfigIsDifferentFromARepoConfig:
+    """The one place a path belongs, and the one place it does not.
+
+    A repository's `.mcp.json` is committed and shared, so it names the command
+    and nothing else. A host config — Antigravity's, Cursor's — lives in the
+    user's home, is never committed, and is read by an application launched
+    from `/Applications` with launchd's minimal PATH. A bare name there
+    resolves when you test it in a terminal and fails inside the IDE, which is
+    the same trap `setup_daemon_service.py` documents for `uv`.
+    """
+
+    def test_the_host_config_names_an_absolute_command(
+        self, onboard, tmp_path, monkeypatch
+    ) -> None:
+        bin_dir = tmp_path / "bin"
+        bin_dir.mkdir()
+        for name in onboard.MCP_SERVERS:
+            (bin_dir / name).write_text("#!/bin/sh\n")
+        monkeypatch.setenv("UV_TOOL_BIN_DIR", str(bin_dir))
+
+        host = tmp_path / "mcp_config.json"
+        onboard.merge_into_mcp_config(host, "twa")
+
+        entry = json.loads(host.read_text())["mcpServers"]["drunken-jira-mcp"]
+        assert entry["command"] == str(bin_dir / "drunken-jira-mcp")
+
+    def test_a_development_virtualenv_is_not_what_gets_written(
+        self, onboard, tmp_path, monkeypatch
+    ) -> None:
+        """`uv run` puts the project's own venv first on PATH, so that is what
+        `which` answers while developing. It works until the venv is rebuilt."""
+        venv_bin = tmp_path / ".venv" / "bin"
+        venv_bin.mkdir(parents=True)
+        executable = venv_bin / "drunken-jira-mcp"
+        executable.write_text("#!/bin/sh\n")
+        executable.chmod(0o755)
+        monkeypatch.setenv("UV_TOOL_BIN_DIR", str(tmp_path / "absent"))
+        monkeypatch.setenv("PATH", str(venv_bin))
+
+        resolved = onboard.resolve_command("drunken-jira-mcp")
+
+        assert resolved == str(venv_bin / "drunken-jira-mcp"), (
+            "It still has to return something usable — but the warning is the "
+            "point, because the failure otherwise arrives weeks later."
+        )
+
+    def test_the_hosts_own_servers_survive(self, onboard, tmp_path) -> None:
+        """Antigravity declares a kanban script and a third-party Jira server.
+        Overwriting the file to add ours would take those with it."""
+        host = tmp_path / "mcp_config.json"
+        host.write_text(
+            json.dumps({"mcpServers": {"kanban-board": {"command": "node"}}})
+        )
+
+        onboard.merge_into_mcp_config(host, "twa")
+
+        servers = json.loads(host.read_text())["mcpServers"]
+        assert servers["kanban-board"] == {"command": "node"}
+        assert set(onboard.MCP_SERVERS) <= set(servers)
+
+    def test_merging_twice_changes_nothing_the_second_time(
+        self, onboard, tmp_path
+    ) -> None:
+        host = tmp_path / "mcp_config.json"
+        onboard.merge_into_mcp_config(host, "twa")
+
+        assert onboard.merge_into_mcp_config(host, "twa") == []
+
+
 class TestSecretsAreWrittenLockedDown:
     def test_the_file_is_never_briefly_readable(self, onboard, monkeypatch, tmp_path):
         """Created with the mode rather than chmod-ed after: in between, the

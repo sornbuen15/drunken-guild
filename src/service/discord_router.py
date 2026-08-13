@@ -183,10 +183,21 @@ async def _run_jira_bridge_raw(
     (not a bare "python") and an absolute script path so this resolves
     correctly regardless of the daemon's launchd-restricted PATH or which
     project's directory `cwd` points at -- the same class of bug DT-93
-    found and fixed for `uv`/`ruff`/`mypy`/`pytest`."""
+    found and fixed for `uv`/`ruff`/`mypy`/`pytest`.
+
+    The project is named with `--project`, not implied by `cwd`. Implying it
+    meant jira_bridge walked up from wherever it was standing and used
+    whatever `.env` it found: TWA's held an expired token, a Jira search
+    answers an expired token with 200 and an empty list, and `/project twa`
+    therefore showed an empty board while MCP showed 39 issues. `cwd` still
+    decides where `gh` and the QA run happen; it no longer decides who we
+    authenticate as.
+    """
     proc = await asyncio.create_subprocess_exec(
         sys.executable,
         JIRA_BRIDGE_SCRIPT,
+        "--project",
+        _get_target_project(),
         *args,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
