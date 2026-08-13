@@ -111,6 +111,14 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITLEAKS_CONFIG: .gitleaks.toml
 
+      # DT-238 was a manual sweep of 34 stale references, needed because
+      # --workspace stayed advertised in the README for two releases after it
+      # was deleted. A sweep has a shelf life; this does not. Deliberately a
+      # grep list rather than a real doc-vs-code checker — the discipline it
+      # needs is small: the PR that removes something adds its name.
+      - name: Documentation drift
+        run: python scripts/check_doc_drift.py
+
   clean-install:
     name: clean install
     runs-on: ubuntu-latest
