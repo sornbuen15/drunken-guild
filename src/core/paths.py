@@ -31,6 +31,7 @@ ENV_SOCKET: Final = "DRUNKEN_DAEMON_SOCKET"
 ENV_SOCKET_LEGACY: Final = "AGY_DAEMON_SOCKET"
 ENV_AUTH_DB: Final = "DRUNKEN_AUTH_DB"
 ENV_PID_REGISTRY: Final = "DRUNKEN_PID_REGISTRY"
+ENV_APPROVAL_SNAPSHOT: Final = "DRUNKEN_APPROVAL_SNAPSHOT"
 
 DEFAULT_HOME: Final = "~/.drunken"
 
@@ -107,6 +108,15 @@ def daemon_socket_path() -> ResolvedPath:
 def auth_db_path() -> ResolvedPath:
     """Bearer-token database for HTTP mode. Consumed from 2.4.0 onwards."""
     return _under_home("auth.json", ENV_AUTH_DB)
+
+
+def approval_snapshot_path() -> ResolvedPath:
+    """Pending approvals and answers nobody has collected yet.
+
+    The only thing between a daemon restart and a lost approval, which is why
+    it is state rather than something that may sit next to a checkout.
+    """
+    return _under_home("approvals.json", ENV_APPROVAL_SNAPSHOT)
 
 
 def pid_registry_path() -> ResolvedPath:
