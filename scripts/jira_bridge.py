@@ -281,6 +281,51 @@ def config_for_project(project_id: str) -> Dict[str, Any]:
     }
 
 
+def project_for_directory(directory: str) -> Optional[str]:
+    """The registered project whose checkout contains *directory*, if any.
+
+    Standing inside a project's checkout is a perfectly clear statement of
+    which project you mean, and until now it was answered by walking up to
+    whatever ``.env`` turned up. In TWA's case that was an expired token, and
+    a Jira search with an expired token returns ``200`` and an empty list —
+    so the board simply read as empty.
+
+    Matching the directory against the registry answers the same question
+    correctly, without a second copy of the credential anywhere.
+    """
+    sys.path.insert(
+        0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "src")
+    )
+    try:
+        from core.registry import ProjectRegistry
+
+        here = os.path.realpath(directory)
+        for project_id, entry in ProjectRegistry().get_projects().items():
+            path = entry.get("path") if isinstance(entry, dict) else None
+            if not path:
+                continue
+            root = os.path.realpath(os.path.expanduser(path))
+            if here == root or here.startswith(root + os.sep):
+                return str(project_id)
+    except Exception:
+        # An unreadable registry is not a reason to refuse to run: the
+        # environment route below still works, which is what it was for.
+        return None
+    return None
+
+
+def resolve_config(project_id: Optional[str]) -> Dict[str, Any]:
+    """Registry when a project is named or implied, environment otherwise."""
+    if project_id:
+        return config_for_project(project_id)
+
+    implied = project_for_directory(os.getcwd())
+    if implied:
+        return config_for_project(implied)
+
+    return config_from_environment()
+
+
 def config_from_environment() -> Dict[str, Any]:  # noqa: C901
     """The original route, for running this by hand from a checkout.
 
@@ -375,9 +420,7 @@ def main() -> None:  # noqa: C901  # long dispatch chain; splitting it buys noth
             "  Without it, from the environment and .env."
         )
 
-    jira_config = (
-        config_for_project(project_id) if project_id else config_from_environment()
-    )
+    jira_config = resolve_config(project_id)
     sys.argv = [sys.argv[0], *argv]
     action = argv[0]
 
