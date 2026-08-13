@@ -32,7 +32,7 @@ import argparse
 import json
 import os
 import sys
-from typing import Literal
+from typing import Final, Literal
 
 from mcp.server.fastmcp import FastMCP
 
@@ -60,11 +60,60 @@ def registry_path() -> str:
 mcp = FastMCP("drunken-board-mcp")
 
 
+#: Which project this server instance is entitled to serve. Set from
+#: ``--project`` by :func:`main`, and readable directly so a container can bind
+#: the server without a command line.
+ENV_BOARD_PROJECT: Final = "DRUNKEN_BOARD_PROJECT"
+
+
+def bound_project() -> str | None:
+    """The one project this server may serve, or ``None`` if unbound."""
+    return os.environ.get(ENV_BOARD_PROJECT) or None
+
+
+def _authorize(project: str) -> None:
+    """S2 (DT-225). ``project`` used to be a lookup key, and a key opens
+    whatever it names.
+
+    ``main()`` said so out loud — *"--project (ignored by board, kept for
+    compat)"* — so a server launched to serve one project would serve any other
+    registered one on request. Looking the project up in the registry is
+    authentication; nothing behind it was authorisation.
+
+    Default deny. An unbound server has no way to know what it is entitled to
+    serve, and guessing is the finding itself.
+    """
+    allowed = bound_project()
+    if allowed is None:
+        raise RegistryError(
+            "This board server is not bound to a project, so it will not serve "
+            f"{project!r}.",
+            remediation=(
+                "Launch it with --project <id>, or set "
+                f"{ENV_BOARD_PROJECT}=<id> in its environment. One board "
+                "server serves one project: the board is filesystem-bound and "
+                "the project is the boundary, not a lookup key."
+            ),
+        )
+    if project != allowed:
+        raise RegistryError(
+            f"This board server is bound to {allowed!r} and will not serve "
+            f"{project!r}.",
+            remediation=(
+                f"Call it with project={allowed!r}, or run a second server "
+                f"bound to {project!r}. Crossing between projects in one "
+                "server is what S2 was."
+            ),
+        )
+
+
 def _get_manager(project: str) -> tuple[BoardManager, str]:
     """Resolve *project* key to (BoardManager, project_root).
 
-    Raises :exc:`ValueError` when the project is not registered.
+    Raises :exc:`RegistryError` when the project is not registered, or when
+    this server is not entitled to serve it.
     """
+    _authorize(project)
     registry = ProjectRegistry(registry_path=registry_path())
     data = registry.get_project(project)
     if data is None:
@@ -330,9 +379,20 @@ def main() -> None:
     """Entry point for the MCP server."""
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "--project", type=str, help="Project ID (ignored by board, kept for compat)"
+        "--project",
+        type=str,
+        help=(
+            "The one project this server may serve. Required unless "
+            f"{ENV_BOARD_PROJECT} is set — see _authorize()."
+        ),
     )
     args, unknown = parser.parse_known_args()
+
+    # Published to the environment rather than kept in a module global: it is
+    # then set the same way whether it arrived from a command line or from a
+    # container's env, and there is one place to read it.
+    if args.project:
+        os.environ[ENV_BOARD_PROJECT] = args.project
 
     # Remove from sys.argv to prevent FastMCP from complaining about unknown args
     if "--project" in sys.argv:
