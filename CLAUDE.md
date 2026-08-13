@@ -117,6 +117,11 @@ Things worth knowing before you turn it on:
 - **Never let import-time failure be a failure mode.** Anything that can fail must fail inside a tool
   call, so the caller reads a message instead of watching a server vanish. Use `core/errors.py` —
   every error carries a remediation, because "unknown project 'twa'" only tells an agent to give up.
+- **An agent does not delete.** Boss's standing rule. Anything that would need a recursive
+  force-delete becomes a **list handed to the Boss to run**, and *marking a thing unused beats
+  removing it*. A recorded authorisation from an earlier session is not permission to delete today —
+  the vendored-tooling teardown was authorised weeks before anyone noticed that TWA's copies sit
+  outside any git repository. See §10.6 of the checkpoint.
 - **Do not touch `.agents/` state files or `~/.gemini/antigravity-cli/brain/*/worktrees/`.** Those
   belong to Antigravity. `.agents/skills/` is tracked and editable; the rest is not yours.
 - **Every outbound HTTP call goes through `core/http.py`.** One `# nosec`, on the guard itself.
