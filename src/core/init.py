@@ -17,8 +17,10 @@ this redesign is built on:
 * **Idempotent.** Re-running updates in place and leaves unrelated fields alone,
   so it is safe to put in a provisioning script that runs more than once.
 
-``drunken-register`` is left exactly as it is: it also provisions Antigravity's
-dashboard entry, and breaking that during this work is not on the table.
+``drunken-register`` was kept alongside this for one release, because it also
+provisioned Antigravity's dashboard entry. It is gone as of 2.2.0 (S11) and is
+no longer declared in ``[project.scripts]``, so anything still naming it — an
+error's remediation, a README step — is quoting a command that exits 127.
 """
 
 from __future__ import annotations

@@ -34,7 +34,7 @@ def get_client() -> JiraClient:
     return jira
 
 
-@mcp.tool()  # type: ignore[misc]  # Tech Debt: DT-65
+@mcp.tool()  # type: ignore[misc]
 async def jira_search_issues(jql: str) -> str:
     """
     Search for Jira issues using a JQL query.
@@ -45,7 +45,7 @@ async def jira_search_issues(jql: str) -> str:
     return json.dumps(issues, indent=2)
 
 
-@mcp.tool()  # type: ignore[misc]  # Tech Debt: DT-65
+@mcp.tool()  # type: ignore[misc]
 async def jira_create_issue(
     summary: str, description: str, issue_type: str = "Task"
 ) -> str:
@@ -62,7 +62,7 @@ async def jira_create_issue(
     return f"{out}\n\n⚠ {warning}" if warning else out
 
 
-@mcp.tool()  # type: ignore[misc]  # Tech Debt: DT-65
+@mcp.tool()  # type: ignore[misc]
 async def jira_transition_issue(issue_key: str, target_status: str) -> str:
     """
     Move an issue between columns/statuses (e.g., 'To Do' -> 'In Progress').
@@ -72,7 +72,7 @@ async def jira_transition_issue(issue_key: str, target_status: str) -> str:
     return json.dumps(res, indent=2)
 
 
-@mcp.tool()  # type: ignore[misc]  # Tech Debt: DT-65
+@mcp.tool()  # type: ignore[misc]
 async def jira_add_comment(issue_key: str, comment: str) -> str:
     """
     Add a comment to an issue to provide updates or audit trails.
@@ -82,7 +82,7 @@ async def jira_add_comment(issue_key: str, comment: str) -> str:
     return json.dumps(res, indent=2)
 
 
-@mcp.resource("jira://issue/{issue_key}")  # type: ignore[misc]  # Tech Debt: DT-65
+@mcp.resource("jira://issue/{issue_key}")  # type: ignore[misc]
 async def get_issue_details(issue_key: str) -> str:
     """
     Get full JSON details of a specific Jira issue.
@@ -92,7 +92,7 @@ async def get_issue_details(issue_key: str) -> str:
     return json.dumps(res, indent=2)
 
 
-@mcp.resource("jira://board")  # type: ignore[misc]  # Tech Debt: DT-65
+@mcp.resource("jira://board")  # type: ignore[misc]
 async def get_default_project_board() -> str:
     """
     Get a snapshot of the current active board for the default project.
@@ -104,7 +104,7 @@ async def get_default_project_board() -> str:
     return json.dumps(issues, indent=2)
 
 
-@mcp.resource("jira://project/{project_key}/board")  # type: ignore[misc]  # Tech Debt: DT-65
+@mcp.resource("jira://project/{project_key}/board")  # type: ignore[misc]
 async def get_project_board(project_key: str) -> str:
     """
     Get a snapshot of the current active board for the project (returns To Do, In Progress, In Review issues).
@@ -115,7 +115,7 @@ async def get_project_board(project_key: str) -> str:
     return json.dumps(issues, indent=2)
 
 
-@mcp.prompt()  # type: ignore[misc]  # Tech Debt: DT-65
+@mcp.prompt()  # type: ignore[misc]
 def jira_daily_standup() -> str:
     """
     Prompt template for a daily standup update based on active Jira issues.
@@ -123,7 +123,7 @@ def jira_daily_standup() -> str:
     return "Please summarize the current blockers and active work using the tickets in 'In Progress' and 'In Review' states."
 
 
-@mcp.prompt()  # type: ignore[misc]  # Tech Debt: DT-65
+@mcp.prompt()  # type: ignore[misc]
 def init_project() -> str:
     """
     Triggers the initial project architecture phase.
@@ -138,7 +138,7 @@ def init_project() -> str:
     )
 
 
-@mcp.prompt()  # type: ignore[misc]  # Tech Debt: DT-65
+@mcp.prompt()  # type: ignore[misc]
 def refinement() -> str:
     """
     Triggers the project backlog refinement phase.
@@ -152,7 +152,7 @@ def refinement() -> str:
     )
 
 
-@mcp.prompt()  # type: ignore[misc]  # Tech Debt: DT-65
+@mcp.prompt()  # type: ignore[misc]
 def sprint_planning() -> str:
     """
     Triggers the sprint planning phase.
@@ -166,7 +166,7 @@ def sprint_planning() -> str:
     )
 
 
-@mcp.prompt()  # type: ignore[misc]  # Tech Debt: DT-65
+@mcp.prompt()  # type: ignore[misc]
 def review_retro() -> str:
     """
     Triggers the sprint review and retro phase.
@@ -180,7 +180,7 @@ def review_retro() -> str:
     )
 
 
-@mcp.tool()  # type: ignore[misc]  # Tech Debt: DT-65
+@mcp.tool()  # type: ignore[misc]
 async def jira_start_task(issue_key: str) -> str:
     """
     Start working on a Jira task. Transitions the ticket to 'In Progress' and returns the Git command required for branching.
@@ -197,7 +197,7 @@ async def jira_start_task(issue_key: str) -> str:
     )
 
 
-@mcp.tool()  # type: ignore[misc]  # Tech Debt: DT-65
+@mcp.tool()  # type: ignore[misc]
 async def jira_submit_for_review(
     issue_key: str, pr_link: str, files_changed: str
 ) -> str:

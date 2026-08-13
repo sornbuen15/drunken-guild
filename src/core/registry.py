@@ -256,7 +256,8 @@ class ProjectRegistry:
             raise RegistryError(
                 f"Unknown project {project_id!r}.",
                 remediation=(
-                    f"Register it with: drunken-register {project_id} <absolute-path>. "
+                    f"Register it with: drunken-init --project {project_id} "
+                    "--path <absolute-path>. "
                     + (
                         f"Currently registered: {', '.join(known)}."
                         if known
