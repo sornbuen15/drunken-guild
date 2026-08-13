@@ -30,7 +30,7 @@ def find_workspace_root() -> Optional[str]:
     return None
 
 
-def sync_dir(src: str, dst: str) -> None:  # noqa: C901  # TODO(DT-46): Technical Debt - Refactor to reduce McCabe complexity
+def sync_dir(src: str, dst: str) -> None:  # noqa: C901  # long dispatch chain; splitting it buys nothing here
     if not os.path.exists(src):
         return
 

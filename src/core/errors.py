@@ -9,7 +9,7 @@ into a JSON payload the agent can read and act on.
 
 Every error therefore carries a *remediation*: the concrete next step, not just
 what went wrong. An agent that is told "Unknown project 'alpha'" can only give up;
-one that is told to run ``drunken-register alpha <path>`` can proceed.
+one that is told to run ``drunken-init --project alpha --path <path>`` can proceed.
 """
 
 from __future__ import annotations

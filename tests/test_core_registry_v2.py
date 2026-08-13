@@ -213,6 +213,21 @@ class TestUnknownProject:
 
         assert "alpha" in caught.value.remediation
 
+    def test_remediation_names_a_command_that_still_exists(self, tmp_path) -> None:
+        """A remediation is only worth carrying if it can be followed.
+
+        This one told the reader to run ``drunken-register``, retired in S11 —
+        so the one error whose entire job is to say "here is the fix" handed
+        out a command that exits 127.
+        """
+        registry = ProjectRegistry(write_registry(tmp_path, V2_DOCUMENT))
+
+        with pytest.raises(RegistryError) as caught:
+            registry.get_project_config("nosuch")
+
+        assert "drunken-register" not in caught.value.remediation
+        assert "drunken-init" in caught.value.remediation
+
     def test_error_on_an_empty_registry_names_the_file(self, tmp_path) -> None:
         registry = ProjectRegistry(str(tmp_path / "absent.json"))
 
