@@ -31,6 +31,7 @@ ENV_SOCKET: Final = "DRUNKEN_DAEMON_SOCKET"
 ENV_AUTH_DB: Final = "DRUNKEN_AUTH_DB"
 ENV_PID_REGISTRY: Final = "DRUNKEN_PID_REGISTRY"
 ENV_APPROVAL_SNAPSHOT: Final = "DRUNKEN_APPROVAL_SNAPSHOT"
+ENV_AWAY_FLAG: Final = "DRUNKEN_AWAY_FLAG"
 
 DEFAULT_HOME: Final = "~/.drunken"
 
@@ -126,6 +127,17 @@ def pid_registry_path() -> ResolvedPath:
     hence here rather than next to the module that writes it.
     """
     return _under_home("pids.json", ENV_PID_REGISTRY)
+
+
+def away_flag_path() -> ResolvedPath:
+    """Whether the Boss is away, in a form the *machine* can read.
+
+    "I'm going out, send it to Discord" has only ever reached the model, which
+    is why saying it never worked: the harness asks for permission before the
+    model is involved at all, and no instruction can redirect a question the
+    model never sees. A file can. ``DRUNKEN_AWAY_FLAG`` is the override.
+    """
+    return _under_home("away.json", ENV_AWAY_FLAG)
 
 
 def ensure_home() -> Path:

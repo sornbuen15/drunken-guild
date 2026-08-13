@@ -28,7 +28,9 @@
       "Bash(find:*)",
       "Bash(wc:*)",
       "Bash(head:*)",
-      "Bash(tail:*)"
+      "Bash(tail:*)",
+      "Bash(uv run drunken-away:*)"
+
     ],
     "deny": [
       "Bash(git push --force:*)",
@@ -39,6 +41,21 @@
       "Read(./.env)",
       "Read(./.env.local)",
       "Read(**/.env)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "uv run --directory \"${CLAUDE_PROJECT_DIR:-.}\" drunken-approval-hook",
+            "timeout": 1800,
+            "statusMessage": "Checking with the Boss…"
+          }
+        ]
+      }
     ]
   }
 }

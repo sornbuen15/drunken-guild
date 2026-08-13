@@ -44,6 +44,8 @@ dev = [
 [project.scripts]
 drunken-doctor = "core.doctor:main"
 drunken-init = "core.init:main"
+drunken-away = "core.away:main"
+drunken-approval-hook = "service.approval_hook:main"
 drunken-listen = "service.discord_listener:main"
 drunken-jira-mcp = "jira_mcp.server:main"
 drunken-discord-mcp = "discord_mcp.server:main"
