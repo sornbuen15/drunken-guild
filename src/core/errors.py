@@ -14,6 +14,7 @@ one that is told to run ``drunken-init --project alpha --path <path>`` can proce
 
 from __future__ import annotations
 
+import functools
 import json
 from typing import Any, Callable, Final, TypeVar
 
@@ -115,8 +116,16 @@ def as_tool_result(func: Callable[..., Any]) -> Callable[..., Any]:
     A :class:`DrunkenError` becomes its structured payload. Anything else is
     reported as an internal bug, still redacted, still as a readable result —
     the agent must never be left facing a server that simply vanished.
+
+    ``functools.wraps`` is load-bearing, not tidiness. FastMCP builds each
+    tool's JSON schema by inspecting the signature, and a bare
+    ``(*args, **kwargs)`` wrapper advertises exactly that: the first attempt at
+    wiring this decorator published ``jira_search_issues(args, kwargs)`` and
+    every call came back as a validation error. ``wraps`` sets ``__wrapped__``,
+    which is what ``inspect.signature`` follows to find the real parameters.
     """
 
+    @functools.wraps(func)
     async def wrapper(*args: Any, **kwargs: Any) -> str:
         try:
             return str(await func(*args, **kwargs))
@@ -138,6 +147,4 @@ def as_tool_result(func: Callable[..., Any]) -> Callable[..., Any]:
                 indent=2,
             )
 
-    wrapper.__name__ = func.__name__
-    wrapper.__doc__ = func.__doc__
     return wrapper
