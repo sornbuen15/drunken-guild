@@ -3,55 +3,65 @@
 Short-term memory and context handoff between AI coding sessions.
 **Read this at the start of a session and update it before ending your turn.**
 
-Last updated: 2026-08-12 · version **2.2.0** on `develop` · Phase 2 of 6 complete
+Last updated: 2026-08-13 · `develop` is past **2.2.0**, unreleased · tagging **2.3.0** is the next
+milestone
 
 ---
 
 ## 1. Where things stand
 
 **Active work: "MCP Hardening & Portability"** — shipped as incremental 2.x releases.
-Goal: any AI, any tool, running from any directory (including Docker/K8s/cloud) can use the MCP
-servers safely, with no project ever holding a credential.
+Goal: any AI, any tool, running from any directory can use the MCP servers safely, with no project
+ever holding a credential.
 
 | | |
 |---|---|
-| Branch | `develop` — everything below is merged and green there |
-| Merged | DT-189 (2.1.0) · DT-224 (2.2.0) · DT-232 · DT-233 · DT-234 · DT-235 |
-| **Next** | **DT-225 — Phase 3 security hardening. It is not done. See §5.** |
-| Jira | 10 tickets open. DT-225 blocks DT-226 and DT-236; DT-238 blocks DT-240 |
-| CI | 🟢 4/4 on `develop` |
-| Open PR | **#83** `docs/claude-md` — green, waiting on the Boss to merge |
+| Branch | `develop` @ `a33e15e`, CI 🟢 4/4 |
+| Merged today | DT-238 · DT-242 · DT-241 · DT-243 · DT-244 · DT-239 · DT-245 · DT-240 · DT-246 |
+| **Open PR — merge first** | **#94** DT-247, green. Two acceptance checks fail on `develop` without it |
+| Open PR (other repo) | **sornbuen15/isac#2** — credentials out of ISAC's git |
+| Jira | DT-247 IN REVIEW · DT-225 IN PROGRESS (only S1/S2/S8 left) · 6 in To Do |
 
-### Start here, in this order
+### ⚠️ First three things, in order
 
-1. **DT-238** — documentation and config drift. Do it first, and start with `.mcp.json`: it does not
-   declare `drunken-board-mcp`, so the `blocked` lane and `board_available_tasks` merged in DT-233
-   **cannot be called from inside this project at all.** Five-minute fix, unblocks shipped code.
-   `README.md` is the other urgent half — it tells a new user to run `uv run drunken-register`, which
-   no longer exists, and advertises `--workspace`, which was removed. Rule 4, broken in the first
-   file anyone reads.
-2. **DT-225** — the security work. Blocks DT-226 and DT-236. Read §5 first.
-3. **DT-236** — the PreToolUse hook, which is what the Boss originally asked for: harness permission
-   prompts routed to Discord instead of the terminal. Everything it needs now exists.
-4. Then DT-239, DT-240, and the phase tickets.
+1. **Merge `#94`.** Until it lands, running `scripts/jira_bridge.py` with no `--project` from inside
+   a project directory reads that project's `.env` instead of the registry. `drunken-team`'s own
+   `.env` holds the **revoked** token, so it answers `0 To Do` when there are 6 — S4 happening live.
+2. **Merge `sornbuen15/isac#2`.**
+3. **Two `.env` files still hold the revoked token** — `drunken-team/.env` and
+   `tff-web-app/.env`. Harmless to our tooling once #94 lands, but they are traps. Boss has not yet
+   said whether to clear them.
 
-**If you are reviewing with Antigravity, do DT-238 first.** `.agents/AGENTS.md` still teaches the
-blocking approval model that DT-232/DT-233 replaced, and `MCP-ARCHITECTURE.md` — which this file
-calls the authoritative cross-AI record — does not mention DT-232, DT-233, DT-234 or DT-235 at all.
+### Then
 
-> **⚠️ Read §5 before picking anything up.** DT-225 spent weeks marked IN REVIEW while none of it
-> was ever merged, and a copy of this file on `feature/DT-225-security-hardening` still claims the
-> security work is finished and that Phase 4 is safe to open. Both are false of `develop`. That
-> branch is now 642 lines behind and **must not be merged** — it would revert DT-232/233/234.
+- **DT-236** — the PreToolUse hook. **This is what the Boss originally asked for**: "I'm going out,
+  send it to Discord", and the terminal still blocks on a permission prompt. Everything it needs
+  exists. Boss and Claude agreed it is blocked only on **S6**, which is now done — *not* on all of
+  DT-225. S1/S2/S8 do not touch it.
+- Tear out the copies of this tooling vendored into TWA and ISAC (`monitor.py`,
+  `jira-lite-cli.py`, `.agents/scripts/*`). Boss authorised it; not started.
+- DT-248 (not yet filed) — write up the token leak, below.
+- DT-237, then tag 2.3.0.
 
-**Full handoff, including everything Antigravity needs, is §14 of
-`~/Projects/todo/drunken-team/MCP-ARCHITECTURE.md`.** That document is the cross-AI channel and is
-the authoritative record; this file is the short version. **It is currently behind by four tickets —
-DT-238 covers bringing it up to date, and until then this file is the more accurate of the two.**
+### 🔑 The Jira token was rotated on 2026-08-13
 
-> **Do not call this work "v3".** Boss ruled (architecture doc §12) that it is bugfix + additive
-> throughout. `3.0.0` is reserved for when things are *removed* (`--workspace`, the old socket path,
-> the mcp 1.x SDK), not when they are added.
+`.agents/jira_config.json` in **ISAC** held a live Jira token in plain text, committed in `103794d`
+and again in `bb80153` — whose subject is *"Apply security hardening and workflow
+standardizations"*. Both were pushed. The repo is private, which is the only reason this was a
+cleanup rather than an incident.
+
+The token is **revoked and replaced** (confirmed 401), so what remains in history is inert and no
+history rewrite is proposed. Rotation was a single edit — `scripts/set_secret.py jira.default` —
+because every project references one entry instead of copying it. That is the whole payoff of the
+reference design, and it was earned the hard way: a stale copy in TWA's `.env` had been answering
+Jira with an empty board for months.
+
+> **Do not call this work "v3".** Boss ruled it is bugfix + additive throughout. `3.0.0` is reserved
+> for when things are *removed*, not when they are added.
+
+> `~/Projects/todo/drunken-team/MCP-ARCHITECTURE.md` is **retired** as the cross-AI channel — Boss's
+> call. It was a stopgap for when one AI ran out of tokens; this file does that job. It is not in
+> git, is not maintained, and nothing should point at it.
 
 ## 2. Boss's four rules — the criteria every decision is judged against
 
@@ -113,19 +123,31 @@ into the project), S12 (e2e tests writing to live Jira), 3 aiohttp CVEs, 3 bandi
 
 **Fixed in 2.2.0 (DT-224):** S3 (`.env` parent-walk deleted with `jira_mcp/config.py`), S11.
 
-**Still open on `develop` — all of Phase 3 / DT-225.** Re-verified against `origin/develop` on
-2026-08-12, file by file. None of this is theoretical:
+**S6 — closed by DT-241 (2026-08-13).** The socket is created under `$DRUNKEN_HOME` and chmod-ed
+`0600` immediately after binding; verified live as `srw-------`. Correcting this file's own
+framing while closing it: the socket was never actually reachable by anyone else. Connecting to a
+unix socket needs *write* permission, and the usual umask of 022 stripped it. The defect was that
+**nothing in the code set the mode at all** — the result depended entirely on the umask of whatever
+launched the daemon, and umask 000 would have opened the approval channel to every local process.
+Safe by accident is not safe by construction.
+
+**Still open on `develop` — the rest of DT-225:**
 
 | # | State on `develop` today |
 |---|---|
 | S1 | `query_project_context` does `if os.path.isabs(file_path): resolved = file_path` — no containment check of any kind. Arbitrary file read |
 | S2 | No authorization check anywhere in `board_mcp/server.py` — `project` is a lookup key, not a boundary |
-| S6 | No `chmod` on the daemon socket |
 | S8 | `jira_search_issues` passes raw JQL straight through; `--project` is not a security boundary |
 
 > **⚠️ HTTP transport (Phase 4 / DT-226) must not open until S1/S2/S8 are fixed.** Everything is
 > local stdio today, which is the only reason these are not remotely reachable — and Phase 4 is
-> precisely what would change that. DT-225 is linked as blocking DT-226 and DT-236 in Jira.
+> precisely what would change that.
+>
+> **But DT-236 is not blocked by them.** Boss and Claude worked through this on 2026-08-13: the hook
+> needs the denylist to be trustworthy, which depends on the hook's own logic and on **S6** — an
+> approval socket anyone could forge on would be the real danger. S6 is done. S1 (path traversal)
+> and S8 (JQL) have nothing to do with a PreToolUse hook. Jira still records DT-225 as blocking
+> DT-236; that link is now wrong.
 
 **How this was missed, because it will happen again otherwise.** The work exists on
 `feature/DT-225-security-hardening` and was never merged. Jira said IN REVIEW, that branch's copy of
@@ -204,13 +226,14 @@ throwaway venv. Touches nothing of yours. 22 checks.
 | **2.1.0** | ✅ DT-189 — `core/` foundation |
 | **2.2.0** | ✅ DT-224 — `--workspace` → `--project`, `ProjectContext` wired in, S3 and S11 closed |
 | — | ✅ DT-232 / DT-233 async approval · DT-234 board warning · DT-235 jira-mcp startup |
-| **2.3.0** | ⛔ **DT-225 — security hardening, S1/S2/S6/S8. Not started on `develop`.** Redo on a branch cut from current `develop`, cherry-picking `71fddb8`; **do not merge the old branch** |
-| — | DT-238 documentation + config drift · DT-239 wire `as_tool_result` · DT-240 CI drift check |
-| — | DT-236 — PreToolUse hook: route harness permission prompts to Discord. **Blocked by DT-225** |
-| **2.4.0** | DT-226 — dual transport + pluggable bearer auth. **Blocked by DT-225** |
-| **2.5.0** | Discord daemon multi-tenant. **Needs a deprecated socket-path fallback**, else it is breaking (§12.3) |
-| **2.6.0** | Config generator: `.mcp.json` + antigravity `mcp_config.json` + docker/k8s manifests |
-| **3.0.0** | Removals only: drop `--workspace`, drop the old socket fallback, migrate to the mcp 2.x SDK |
+| **2.3.0** | ✅ DT-238 docs · DT-242 registry works end to end · DT-241 state paths + **S6** · DT-243 cwd paths + snapshot recovery · DT-244 retire the `agy` name · DT-239 wire `as_tool_result` · DT-245 onboard TWA and ISAC · DT-240 CI doc-drift check · DT-246 daemon and Antigravity reach the registry |
+| — | 🟡 DT-247 — Discord config from the registry. **PR #94, not merged** |
+| — | ⬜ DT-237, then **tag 2.3.0** |
+| **2.4.0** | **DT-236 — the PreToolUse hook. The thing Boss actually asked for.** Unblocked: see §5 |
+| — | DT-225 remainder: S1, S2, S8 |
+| **later** | DT-226 dual transport + bearer auth — the change that makes S1/S2/S8 remotely reachable, so it waits on them |
+| ~~2.5.0~~ | ~~Discord daemon multi-tenant~~ — **DT-227 cut.** Boss: nobody drives more than one project at a time, and doing so burns tokens for nothing. One channel serves all |
+| **3.0.0** | Removals only: migrate to the mcp 2.x SDK. `--workspace` and `AGY_DAEMON_SOCKET` are already gone (DT-224, DT-244) |
 
 ## 10. Outstanding debt
 
@@ -224,13 +247,16 @@ throwaway venv. Touches nothing of yours. 22 checks.
    `--with-requirements`.
 4. **`.claude/settings.json` denylist is not yet enforced by anything but the harness.** DT-236 gives
    it teeth; until then it is policy, not a control.
-5. **Documentation drifts and nothing catches it** — DT-238 sweeps 34 known stale references across
-   `README.md`, `.agents/AGENTS.md`, both guides and `MCP-ARCHITECTURE.md`; DT-240 adds the CI grep
-   so the next removal cannot quietly leave its own instructions behind. The sweep alone is a fix
-   with a shelf life: `--workspace` was advertised in `README.md` for two releases after it was
-   deleted, and it took four passes over this repo to notice.
-6. **`as_tool_result` is written and never called** (DT-239). Principle 8 below is enforced by hand
-   at one call site instead of by the decorator built for it.
+5. **Two `.env` files still hold the revoked Jira token** — `drunken-team/.env` and
+   `tff-web-app/.env`. Once #94 lands nothing of ours reads them, but they are live traps for
+   anyone who runs the old tooling. Boss has not said whether to clear them.
+6. **TWA and ISAC each carry a vendored copy of this tooling** — `monitor.py`, `jira-lite-cli.py`,
+   `.agents/scripts/{jira_bridge,ask_boss,discord_listener,register_project}.py`. They are why
+   TWA's `.env` still needs a token at all. Boss authorised tearing them out; not started.
+7. **`drunken-doctor` cannot see any of that.** Every failure this session was found by running
+   something and looking, not by a check. A `doctor --all` that walks every registered project and
+   reports the drift would have caught the dead TWA token, the missing Discord channels and the
+   unwired Antigravity config on its own.
 
 ## 11. Working agreements
 
@@ -261,21 +287,51 @@ throwaway venv. Touches nothing of yours. 22 checks.
 
 ## 12. Verified numbers
 
-Measured on `develop` @ `5a1925d`, 2026-08-12:
+On `develop` @ `a33e15e` plus PR #94, 2026-08-13:
 
 ```
-431 tests passed (2 deselected)   ·   Python 3.10 and 3.13
+501 tests passed (2 deselected)   ·   Python 3.10 and 3.13
 ruff check / ruff format / mypy --strict          clean
 bandit -ll / pip-audit --strict / gitleaks        clean
+scripts/check_doc_drift.py                        60 documents, clean
 scripts/verify_clean_install.sh                   22/22
-CI on PRs #76 #77 #78 #80 #81                     4/4 green each
+CI on PRs #85 … #94                               4/4 green each
 ```
 
-Two things were proven against **live Jira** rather than argued:
+## 13. The acceptance run — and why the numbers above are not enough
 
-- **S4** — the same bad token yields `FAIL 401` with remediation from `verify_jira_identity`, where
-  `jira_search_issues` still returns `[]` with HTTP 200.
-- **DT-234** — DT, TFH and DC stay silent; TWA and ISAC warn. While checking, every board on the
-  site was surveyed: **none supports sprints**, and for DT the agile backlog is a strict subset of
-  the board (backlog-only = 0), so nothing is stranded in a backlog. No sprint support is needed
-  anywhere, which is why DT-234 deliberately does not implement any.
+Every real defect this session was found by **running the thing**, never by the suite. 465 tests
+passed while `as_tool_result` published `jira_search_issues(args, kwargs)` to the host and every
+call failed. The suite calls the functions directly, where `*args` accepts anything; an MCP probe
+is what caught it. Run this before believing anything is finished:
+
+```
+                     drunken-team   twa        isac
+drunken-doctor       14 ok          13 ok      14 ok      0 failed
+MCP over stdio       6 tools        6 tools    6 tools
+  jira_search        50 issues      39 issues  50 issues
+Discord /project     6 To Do        0 To Do    2 To Do
+bare run in dir      6 To Do        0 To Do    2 To Do    ← needs #94
+Antigravity          3 servers, 25 tools, under `env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin`
+```
+
+TWA's `0 To Do` is correct — all 39 of its issues are Done. The point is that it no longer means
+*"the credential is dead"*, which is what it meant for months.
+
+**The GUI PATH trap, twice.** A host config read by an application launched from `/Applications`
+inherits launchd's minimal `PATH`, so a bare command name resolves when you test it in a terminal
+and fails inside the IDE. `setup_daemon_service.py` documents this for `uv`; DT-246 walked into it
+again for the MCP servers. Hence: **a repository's `.mcp.json` gets a bare name** (committed,
+shared, must not carry one machine's layout), **a host's config gets an absolute path** (in `$HOME`,
+never committed). Resolution prefers `~/.local/bin` over `shutil.which`, because `uv run` puts the
+project's own venv first and writing *that* into a host config works until the venv is rebuilt.
+
+Proven against **live Jira** rather than argued:
+
+- **S4, three times now** — a dead token returns HTTP 200 and `[]`, never an error. It hid TWA's
+  expired credential for months, it hid ISAC's missing config, and it was still hiding
+  `drunken-team`'s revoked token on `develop` at the time of writing. `verify_jira_identity` asks
+  `/rest/api/3/myself`, which 401s. **Never health-check with a search.**
+- **DT-234** — DT, TFH and DC stay silent; TWA and ISAC warn. Every board on the site was surveyed:
+  **none supports sprints**, and for DT the agile backlog is a strict subset of the board, so
+  nothing is stranded. No sprint support is needed anywhere.
