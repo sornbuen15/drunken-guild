@@ -16,32 +16,46 @@ ever holding a credential.
 
 | | |
 |---|---|
-| Branch | `develop` @ `a33e15e`, CI 🟢 4/4 |
-| Merged today | DT-238 · DT-242 · DT-241 · DT-243 · DT-244 · DT-239 · DT-245 · DT-240 · DT-246 |
-| **Open PR — merge first** | **#94** DT-247, green. Two acceptance checks fail on `develop` without it |
-| Open PR (other repo) | **sornbuen15/beta#2** — credentials out of BETA's git |
-| Jira | DT-247 IN REVIEW · DT-225 IN PROGRESS (only S1/S2/S8 left) · 6 in To Do |
+| Branch | `develop` @ `5cff91b`, CI 🟢 4/4 |
+| Merged 2026-08-13 | DT-238 · DT-242 · DT-241 · DT-243 · DT-244 · DT-239 · DT-245 · DT-240 · DT-246 · **DT-247** (#94) · #95 |
+| Open PRs | **none.** `sornbuen15/beta#2` merged 07:41 |
+| Jira | DT-249 IN PROGRESS · DT-225 IN PROGRESS (only S1/S2/S8 left) · DT-248 filed · 6 in To Do |
 
-### ⚠️ First three things, in order
+### ⚠️ This section was wrong for four hours — read why before trusting any checkpoint
 
-1. **Merge `#94`.** Until it lands, running `scripts/jira_bridge.py` with no `--project` from inside
-   a project directory reads that project's `.env` instead of the registry. `drunken-team`'s own
-   `.env` holds the **revoked** token, so it answers `0 To Do` when there are 6 — S4 happening live.
-2. **Merge `sornbuen15/beta#2`.**
-3. **Two `.env` files still hold the revoked token** — `drunken-team/.env` and
-   `alpha-workspace/.env`. Harmless to our tooling once #94 lands, but they are traps. Boss has not yet
-   said whether to clear them.
+The version of §1 that shipped in **#95 described the world before #94**, and told its reader to go
+and merge a PR that had already landed. The mechanism: **#95 branched from `a33e15e`, before #94,
+and merged after it**, so a stale section overwrote a newer one. Nothing conflicted, because only one
+side had touched those lines.
 
-### Then
+This is §5's DT-225 lesson in its other dialect. There it was *a checkpoint on a feature branch
+describes that branch, not the trunk*. Here it is **a checkpoint written before a merge describes the
+world before that merge, no matter when it lands.** Before believing this section: check the merge
+base against `origin/develop`.
 
-- **DT-236** — the PreToolUse hook. **This is what the Boss originally asked for**: "I'm going out,
-  send it to Discord", and the terminal still blocks on a permission prompt. Everything it needs
-  exists. Boss and Claude agreed it is blocked only on **S6**, which is now done — *not* on all of
-  DT-225. S1/S2/S8 do not touch it.
-- Tear out the copies of this tooling vendored into ALPHA and BETA (`monitor.py`,
-  `jira-lite-cli.py`, `.agents/scripts/*`). Boss authorised it; not started.
-- DT-248 (not yet filed) — write up the token leak, below.
-- DT-237, then tag 2.3.0.
+**#95 also carried the key `DT-249`, which did not exist in Jira** — a branch named for a ticket
+nobody filed, merged without one. `DT-249` now belongs to *this* cleanup, filed after the fact. If
+you follow PR #95's branch name to a ticket, that is why it does not describe the same work.
+
+### Next, in order
+
+1. **DT-236** — the PreToolUse hook. **This is what the Boss originally asked for**: "I'm going out,
+   send it to Discord", and the terminal still blocks on a permission prompt. Everything it needs
+   exists. Boss and Claude agreed it is blocked only on **S6**, which is now done — *not* on all of
+   DT-225. S1/S2/S8 do not touch it. *(Jira's own description still claims the DT-225 dependency;
+   DT-249 adds a comment correcting it, because the MCP tools can comment but not rewrite a
+   description.)*
+2. **DT-225 remainder — S1, S2, S8.** Verified still open on `develop` on 2026-08-13, in that order
+   of ease. Blocks DT-226 and nothing else.
+3. **Tear out the copies of this tooling vendored into ALPHA and BETA** (`monitor.py`,
+   `jira-lite-cli.py`, `.agents/scripts/*`). Boss authorised it; not started. This is what keeps
+   ALPHA's `.env` needing a token at all.
+4. **Two `.env` files still hold the revoked token** — `drunken-team/.env` and `alpha-workspace/.env`.
+   Nothing of ours reads them any more, but they are traps for anyone running the vendored copies.
+   Clearing them follows item 3. Boss has not yet said whether to.
+5. **DT-237, then tag 2.3.0** — noting that DT-237 is a *decision* the Boss deferred, so it is worth
+   asking whether the tag should wait on it at all. DT-237's own description says doing nothing is a
+   legitimate outcome.
 
 ### 🔑 The Jira token was rotated on 2026-08-13
 
@@ -227,8 +241,8 @@ throwaway venv. Touches nothing of yours. 22 checks.
 | **2.2.0** | ✅ DT-224 — `--workspace` → `--project`, `ProjectContext` wired in, S3 and S11 closed |
 | — | ✅ DT-232 / DT-233 async approval · DT-234 board warning · DT-235 jira-mcp startup |
 | **2.3.0** | ✅ DT-238 docs · DT-242 registry works end to end · DT-241 state paths + **S6** · DT-243 cwd paths + snapshot recovery · DT-244 retire the `agy` name · DT-239 wire `as_tool_result` · DT-245 onboard ALPHA and BETA · DT-240 CI doc-drift check · DT-246 daemon and Antigravity reach the registry |
-| — | 🟡 DT-247 — Discord config from the registry. **PR #94, not merged** |
-| — | ⬜ DT-237, then **tag 2.3.0** |
+| — | ✅ DT-247 — Discord config from the registry, and ALPHA's last stale token (#94) |
+| — | ⬜ DT-249 docs/Jira truth alignment · DT-237, then **tag 2.3.0** |
 | **2.4.0** | **DT-236 — the PreToolUse hook. The thing Boss actually asked for.** Unblocked: see §5 |
 | — | DT-225 remainder: S1, S2, S8 |
 | **later** | DT-226 dual transport + bearer auth — the change that makes S1/S2/S8 remotely reachable, so it waits on them |
@@ -248,7 +262,7 @@ throwaway venv. Touches nothing of yours. 22 checks.
 4. **`.claude/settings.json` denylist is not yet enforced by anything but the harness.** DT-236 gives
    it teeth; until then it is policy, not a control.
 5. **Two `.env` files still hold the revoked Jira token** — `drunken-team/.env` and
-   `alpha-workspace/.env`. Once #94 lands nothing of ours reads them, but they are live traps for
+   `alpha-workspace/.env`. Nothing of ours reads them since #94, but they are live traps for
    anyone who runs the old tooling. Boss has not said whether to clear them.
 6. **ALPHA and BETA each carry a vendored copy of this tooling** — `monitor.py`, `jira-lite-cli.py`,
    `.agents/scripts/{jira_bridge,ask_boss,discord_listener,register_project}.py`. They are why
@@ -256,7 +270,13 @@ throwaway venv. Touches nothing of yours. 22 checks.
 7. **`drunken-doctor` cannot see any of that.** Every failure this session was found by running
    something and looking, not by a check. A `doctor --all` that walks every registered project and
    reports the drift would have caught the dead ALPHA token, the missing Discord channels and the
-   unwired Antigravity config on its own.
+   unwired Antigravity config on its own. Not ticketed yet; it is the widest gap in our own tooling.
+8. **`scripts/check_doc_drift.py` cannot catch a claim that stopped being true.** It reported 60
+   documents clean while CLAUDE.md stated that `drunken-board-mcp` was not wired up — false since
+   DT-242. It matches names that were retired, which is a different thing. Widening it is a decision,
+   not an oversight: a checker that reads prose is a checker that cries wolf.
+9. **`$DRUNKEN_HOME/agy_pids.json` is orphaned state** left over from before DT-244 renamed it to
+   `pids.json`. Both files exist. Harmless, and deliberately not deleted under a docs ticket.
 
 ## 11. Working agreements
 
