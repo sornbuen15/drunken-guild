@@ -22,7 +22,7 @@ What it deliberately does **not** do: there is no dashboard UI (removed -- Jira 
 
 | Component | File | Purpose |
 |---|---|---|
-| Project Registry | `src/core/registry.py` | Tracks the local filesystem path of every project the Guild can operate on (`.agents/projects.json`), so commands can target a project other than the one Discord is running in. |
+| Project Registry | `src/core/registry.py` | One file (`projects.json` under `$DRUNKEN_HOME`) holding every project's Jira, checkout path and Discord channel, so commands can target a project other than the one Discord is running in. Credentials appear only as references. |
 | Discord daemon | `src/service/discord_listener.py` | The bot process. Owns the Discord connection, the approval state machine, and a Unix socket that an MCP tool call blocks on while waiting for you to react. |
 | Discord router | `src/service/discord_router.py` | Parses incoming Discord messages and dispatches to the right command handler. |
 | Approval manager | `src/service/approval_manager.py` | State machine for a single approval request: post the question, wait, remind once, escalate if you never respond. |
@@ -57,7 +57,21 @@ uv sync
 
 ### 3.3 Configure credentials
 
-Create the state directory and register this project:
+There are two halves: the **secret itself**, which lives outside the repository, and the **registry**, which holds only a reference to it.
+
+**1. The secret.** One JSON file under `$DRUNKEN_HOME`, owner-readable only:
+
+```bash
+mkdir -p ~/.drunken && chmod 700 ~/.drunken
+cat > ~/.drunken/secrets.json <<'JSON'
+{ "jira": { "drunken-team": "your-jira-api-token" } }
+JSON
+chmod 600 ~/.drunken/secrets.json
+```
+
+One file can hold every project's credential — the reference's `#jira.drunken-team` fragment is a dotted path into it.
+
+**2. The registry.**
 
 ```bash
 uv run drunken-init \
@@ -66,25 +80,38 @@ uv run drunken-init \
   --jira-url https://your-domain.atlassian.net \
   --jira-email you@example.com \
   --jira-project-key DT \
-  --jira-credential env://JIRA_API_TOKEN \
+  --jira-credential 'file://~/.drunken/secrets.json#jira.drunken-team' \
   --discord-channel 123456789012345678
 ```
 
 This writes one central registry under `$DRUNKEN_HOME` (default `~/.drunken`, mode 700) -- not into the project. The command is non-interactive and idempotent, so it also works inside a Dockerfile or a provisioning script.
 
-**Credentials are referenced, never stored.** `--jira-credential` accepts `env://VAR`, `file://path#key.path`, `op://vault/item/field` or `keyring://service/user`, and there is deliberately no flag that takes a token. A reference with no scheme is an error rather than a literal; `literal://` is the visible opt-out. Then confirm every path and secret resolves where you expect:
+**Credentials are referenced, never stored.** `--jira-credential` accepts `file://path#key.path`, `env://VAR`, `op://vault/item/field` or `keyring://service/user`, and there is deliberately no flag that takes a token. A reference with no scheme is an error rather than a literal; `literal://` is the visible opt-out.
+
+> Why `file://` rather than `env://` for a local install: the MCP servers are launched as subprocesses by whatever AI tool you use, and that tool's environment is not your shell's. An `env://` reference resolves only if the variable is exported by whatever starts the tool — which is the kind of invisible configuration that makes a setup work on one machine and nowhere else. `file://` is also exactly what a mounted secret volume looks like later.
+
+**Migrating from an older release.** If you already have a working `.env`, this does both halves without ever printing the token:
 
 ```bash
-uv run drunken-doctor
+uv run python scripts/migrate_env_to_registry.py --project drunken-team --dry-run
+uv run python scripts/migrate_env_to_registry.py --project drunken-team
 ```
 
-The referenced variables still have to exist somewhere. Copy the template and fill it in:
+**3. Prove it resolves.** A separate, deliberate step, because Jira answers a search with `200` and `[]` when the credential is bad -- so searching cannot tell you whether it worked. `drunken-doctor` asks `/rest/api/3/myself`, which 401s:
+
+```bash
+uv run drunken-doctor --project drunken-team
+```
+
+`project.drunken-team.jira` should come back naming *you*. Until you start the daemon, a warning about a missing socket is expected.
+
+**The `.env` file is still needed** -- the Discord daemon reads its own bot token from there directly, and `scripts/jira_bridge.py` uses it for shell work:
 
 ```bash
 cp .env.example .env
 ```
 
-`.env.example` documents every variable the project reads (required Jira/Discord ones plus optional extras like `GEMINI_API_KEY` and `GITHUB_MINABOT`) with inline comments explaining each. `.env` is gitignored -- your real values never get committed.
+`.env.example` documents every variable the project reads with inline comments. `.env` is gitignored -- your real values never get committed.
 
 ### 3.4 Register the MCP servers (for an AI coding agent)
 

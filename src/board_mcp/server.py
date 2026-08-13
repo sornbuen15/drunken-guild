@@ -15,14 +15,15 @@ Board directory resolution per project
 
 Registry path
 -------------
-Set ``DRUNKEN_REGISTRY_PATH`` to override.  When unset this server still
-derives the default from its own ``__file__``, which is exactly the §1.3 bug
-:mod:`core.paths` exists to prevent: installed via ``uv tool install`` the
-expression resolves inside the virtualenv, not the checkout.  It has not been
-migrated to :func:`core.paths.registry_path` yet because that moves the default
-from the repo's ``.agents/projects.json`` to ``$DRUNKEN_HOME/projects.json``,
-which is a behaviour change and needs its own ticket — DT-241.  Until then, set
-the environment variable explicitly rather than relying on the default.
+Resolved through :func:`core.paths.registry_path`, so this server reads the
+same registry as the Jira and Discord servers: ``$DRUNKEN_HOME/projects.json``
+by default, overridable with ``DRUNKEN_REGISTRY_PATH``.
+
+Until DT-242 it derived the path from its own ``__file__`` instead, pointing at
+the repo's ``.agents/projects.json``.  That was the §1.3 bug — under
+``uv tool install`` the expression resolves inside the virtualenv rather than a
+checkout — and it also meant the board and the Jira server could disagree about
+which projects exist, with neither of them saying so.
 """
 
 from __future__ import annotations
@@ -35,6 +36,7 @@ from typing import Literal
 
 from mcp.server.fastmcp import FastMCP
 
+from core import paths
 from core.registry import ProjectRegistry
 
 from .board import BoardManager
@@ -42,11 +44,17 @@ from .board import BoardManager
 # ---------------------------------------------------------------------------
 # Registry path resolution
 # ---------------------------------------------------------------------------
-_HERE = os.path.dirname(os.path.abspath(__file__))
-_DEFAULT_REGISTRY = os.path.normpath(
-    os.path.join(_HERE, "..", "..", ".agents", "projects.json")
-)
-_REGISTRY_PATH = os.environ.get("DRUNKEN_REGISTRY_PATH", _DEFAULT_REGISTRY)
+
+
+def registry_path() -> str:
+    """The one registry every server reads.
+
+    Resolved per call rather than once at import: ``DRUNKEN_REGISTRY_PATH`` is
+    how a container points at a mounted file, and a value captured at import
+    time would ignore anything set afterwards.
+    """
+    return str(paths.registry_path())
+
 
 mcp = FastMCP("drunken-board-mcp")
 
@@ -56,7 +64,7 @@ def _get_manager(project: str) -> tuple[BoardManager, str]:
 
     Raises :exc:`ValueError` when the project is not registered.
     """
-    registry = ProjectRegistry(registry_path=_REGISTRY_PATH)
+    registry = ProjectRegistry(registry_path=registry_path())
     data = registry.get_project(project)
     if data is None:
         raise ValueError(
