@@ -8,6 +8,26 @@ from typing import Any
 from core.http import open_url
 
 
+def packaged_script(name: str) -> str:
+    """Absolute path to a helper that ships inside the ``scripts`` package.
+
+    The counterpart to the rule in :mod:`core.paths`, and the other half of it:
+    *state* must never be located relative to the code, but *packaged code*
+    must be — that is what makes it move correctly when installed. `scripts` is
+    a declared package, so this resolves inside the virtualenv under
+    ``uv tool install`` and inside the checkout when run from one, which is
+    right in both cases.
+
+    Neither `os.getcwd()` nor a walk up from ``__file__`` does that: the first
+    depends on where the daemon happened to be launched, the second on the
+    source layout surviving installation.
+    """
+    import scripts
+
+    package_dir = os.path.dirname(os.path.abspath(scripts.__file__))
+    return os.path.join(package_dir, name)
+
+
 def _load_env_file(path: str) -> None:
     try:
         with open(path, "r", encoding="utf-8") as f:

@@ -424,7 +424,10 @@ async def test_pid_registry_register_unregister(monkeypatch, tmp_path):
     from service import discord_runner
 
     registry_file = tmp_path / "agy_pids.json"
-    monkeypatch.setattr(discord_runner, "PID_REGISTRY_FILE", str(registry_file))
+    # Set through the environment rather than by patching an attribute: that
+    # is the override a container actually uses, so the test exercises the
+    # real mechanism instead of a stand-in for it.
+    monkeypatch.setenv("DRUNKEN_PID_REGISTRY", str(registry_file))
 
     discord_runner._register_pid(111)
     discord_runner._register_pid(222)
@@ -443,7 +446,10 @@ async def test_kill_orphaned_agy_processes(monkeypatch, tmp_path):
     from service import discord_runner
 
     registry_file = tmp_path / "agy_pids.json"
-    monkeypatch.setattr(discord_runner, "PID_REGISTRY_FILE", str(registry_file))
+    # Set through the environment rather than by patching an attribute: that
+    # is the override a container actually uses, so the test exercises the
+    # real mechanism instead of a stand-in for it.
+    monkeypatch.setenv("DRUNKEN_PID_REGISTRY", str(registry_file))
     discord_runner._write_pid_registry([111, 222])
 
     killed_pids = []
@@ -470,11 +476,7 @@ async def test_kill_orphaned_agy_processes(monkeypatch, tmp_path):
 async def test_task_generation_increments_per_task(
     mock_create_subprocess, monkeypatch, tmp_path
 ):
-    from service import discord_runner
-
-    monkeypatch.setattr(
-        discord_runner, "PID_REGISTRY_FILE", str(tmp_path / "agy_pids.json")
-    )
+    monkeypatch.setenv("DRUNKEN_PID_REGISTRY", str(tmp_path / "agy_pids.json"))
 
     runner = AgentRunner()
     assert runner.task_generation == 0
