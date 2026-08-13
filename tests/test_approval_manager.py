@@ -46,8 +46,11 @@ class FakeClient:
 
 @pytest.fixture()
 def manager(monkeypatch, tmp_path):
-    outbox = tmp_path / "discord_outbox.json"
-    monkeypatch.setattr("service.approval_manager.OUTBOX_FILE", str(outbox))
+    outbox = tmp_path / "approvals.json"
+    # Through the environment rather than by patching an attribute: that is the
+    # override a real deployment uses, so the test exercises the mechanism
+    # instead of a stand-in for it.
+    monkeypatch.setenv("DRUNKEN_APPROVAL_SNAPSHOT", str(outbox))
 
     channel = FakeChannel()
     client = FakeClient(channel)
@@ -352,6 +355,45 @@ async def test_recover_from_snapshot_escalates_orphans(manager) -> None:
     jira_client.add_comment.assert_called_once()
     assert jira_client.add_comment.call_args[0][0] == "DT-99"
     assert mgr._requests["req_orphan"].status == "escalated"
+
+
+@pytest.mark.asyncio
+async def test_recover_survives_a_snapshot_from_the_retired_protocol(manager) -> None:
+    """The exact file found on the Boss's machine, failing at every start.
+
+    `.agents/discord_outbox.json` was left behind by the retired Silent Wait
+    Protocol, whose format was one request object rather than a map of them.
+    Iterating it handed `.items()` a plain string, and the AttributeError took
+    the whole recovery down — including entries that were perfectly readable.
+    """
+    mgr, channel, agent_runner, jira_client, outbox = manager
+
+    with open(outbox, "w", encoding="utf-8") as f:
+        json.dump({"question": "ผมจะย้ายตั๋ว...", "ticket_key": "DT-182"}, f)
+
+    await mgr.recover_from_snapshot()
+
+    assert mgr._requests == {}
+    jira_client.add_comment.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_one_unreadable_entry_does_not_discard_the_others(manager) -> None:
+    """Principle 4, applied here: a corrupt entry reads as absent rather than
+    raising. Losing every other pending approval to one bad record is a far
+    worse outcome than skipping the bad record."""
+    mgr, channel, agent_runner, jira_client, outbox = manager
+
+    good = ApprovalRequest(
+        req_id="req_good", action="a", reason="b", ticket_key="DT-77"
+    )
+    with open(outbox, "w", encoding="utf-8") as f:
+        json.dump({"junk": "not an object", "req_good": good.to_dict()}, f)
+
+    await mgr.recover_from_snapshot()
+
+    assert "req_good" in mgr._requests
+    assert jira_client.add_comment.call_args[0][0] == "DT-77"
 
 
 @pytest.mark.asyncio
