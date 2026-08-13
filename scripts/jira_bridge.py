@@ -238,12 +238,56 @@ def create_issue(config: Dict[str, Any], summary: str, description: Any) -> None
     print(json.dumps({"ok": True, "key": res.get("key"), "self": res.get("self")}))
 
 
-def main() -> None:  # noqa: C901  # long dispatch chain; splitting it buys nothing here
-    if len(sys.argv) < 2:
-        print("Usage: jira_bridge.py <action> [args]", file=sys.stderr)
-        sys.exit(1)
+def config_for_project(project_id: str) -> Dict[str, Any]:
+    """Resolve one project's Jira config through the registry.
 
-    jira_config = {
+    This is the route the daemon takes. It exists because selecting a project
+    by *working directory* — which is what the caller used to do — meant this
+    script walked up from wherever it was standing and read whatever ``.env``
+    it found. ALPHA's checkout held an expired token, a Jira search answers an
+    expired token with ``200`` and an empty list, and so its board read as
+    empty for months while the same project returned 39 issues over MCP.
+
+    Named project, single source, no fallback: falling back to ``.env`` here
+    would restore exactly the ambiguity this removes.
+    """
+    sys.path.insert(
+        0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "src")
+    )
+    from core.context import ProjectContext
+    from core.errors import DrunkenError
+
+    try:
+        ctx = ProjectContext.build(project_id)
+    except DrunkenError as exc:
+        message = f"Error: {exc}"
+        if exc.remediation:
+            message += f"\n  -> {exc.remediation}"
+        raise SystemExit(message) from None
+
+    if not ctx.jira:
+        raise SystemExit(
+            f"Error: project {project_id!r} is registered but has no Jira "
+            "identity, so there is nothing to query.\n"
+            f"  -> Add one: drunken-init --project {project_id} --jira-url ... "
+            "--jira-email ... --jira-project-key ... --jira-credential ..."
+        )
+
+    return {
+        "jira_url": ctx.jira.url,
+        "jira_email": ctx.jira.email,
+        "project_key": ctx.jira.project_key,
+        "jira_token": ctx.jira.token.reveal(),
+    }
+
+
+def config_from_environment() -> Dict[str, Any]:  # noqa: C901
+    """The original route, for running this by hand from a checkout.
+
+    Kept because that is a genuinely convenient thing to do and breaking it to
+    fix the daemon would be a poor trade. The daemon no longer uses it.
+    """
+    jira_config: Dict[str, Any] = {
         "jira_url": os.environ.get("JIRA_URL") or "",
         "jira_email": os.environ.get("JIRA_EMAIL") or "",
         "project_key": os.environ.get("JIRA_PROJECT_KEY") or "",
@@ -294,8 +338,7 @@ def main() -> None:  # noqa: C901  # long dispatch chain; splitting it buys noth
             pass
 
     if not token:
-        print("Error: Jira token not found in environment.", file=sys.stderr)
-        sys.exit(1)
+        raise SystemExit("Error: Jira token not found in environment.")
 
     jira_config["jira_token"] = token
 
@@ -304,12 +347,39 @@ def main() -> None:  # noqa: C901  # long dispatch chain; splitting it buys noth
         or not jira_config.get("jira_email")
         or not jira_config.get("project_key")
     ):
-        print(
-            "Error: Missing Jira configuration (JIRA_URL, JIRA_EMAIL, or JIRA_PROJECT_KEY). Please set them in your .env file or JSON configs.",
-            file=sys.stderr,
+        raise SystemExit(
+            "Error: Missing Jira configuration (JIRA_URL, JIRA_EMAIL, or "
+            "JIRA_PROJECT_KEY).\n"
+            "  -> Set them in .env, or name a registered project instead: "
+            "jira_bridge.py --project <id> <action>"
         )
-        sys.exit(1)
-    action = sys.argv[1]
+    return jira_config
+
+
+def main() -> None:  # noqa: C901  # long dispatch chain; splitting it buys nothing here
+    argv = sys.argv[1:]
+
+    # `--project <id>` selects the project explicitly, ahead of the action.
+    # Everything after it is the action and its arguments, unchanged.
+    project_id = None
+    if argv and argv[0] == "--project":
+        if len(argv) < 2:
+            raise SystemExit("Usage: jira_bridge.py --project <id> <action> [args]")
+        project_id = argv[1]
+        argv = argv[2:]
+
+    if not argv:
+        raise SystemExit(
+            "Usage: jira_bridge.py [--project <id>] <action> [args]\n"
+            "  With --project, config comes from the registry.\n"
+            "  Without it, from the environment and .env."
+        )
+
+    jira_config = (
+        config_for_project(project_id) if project_id else config_from_environment()
+    )
+    sys.argv = [sys.argv[0], *argv]
+    action = argv[0]
 
     if action == "get-todo":
         jql = f"project = {jira_config['project_key']} AND status in ('To Do', 'Selected for Development') ORDER BY priority DESC, created ASC"
