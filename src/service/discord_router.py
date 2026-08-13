@@ -100,7 +100,7 @@ async def _handle_detail_command(message: discord.Message) -> None:
 async def _handle_stop_command(
     agent_runner: AgentRunner, message: discord.Message
 ) -> None:
-    from service.discord_runner import kill_orphaned_agy_processes
+    from service.discord_runner import kill_orphaned_agent_processes
 
     stopped_tracked = agent_runner.is_busy()
     if stopped_tracked:
@@ -109,7 +109,7 @@ async def _handle_stop_command(
     # Also sweep the on-disk PID registry: if a previous daemon instance
     # crashed and was restarted (e.g. under launchd), a fresh AgentRunner
     # has no memory of a still-running child from before the crash.
-    orphans_killed = kill_orphaned_agy_processes()
+    orphans_killed = kill_orphaned_agent_processes()
 
     if stopped_tracked or orphans_killed:
         parts = []
@@ -607,7 +607,7 @@ async def _handle_status_command(
     import glob
     import os
 
-    logs = glob.glob("agy_discord_*_raw.log")
+    logs = glob.glob("drunken_discord_*_raw.log")
     if not logs:
         await message.channel.send(
             "🟢 **Workspace Status: BUSY**\n(Agent just dispatched, waiting for first log entry...)"

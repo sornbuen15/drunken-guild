@@ -19,7 +19,6 @@ def isolated_env(monkeypatch, tmp_path):
         paths.ENV_HOME,
         paths.ENV_REGISTRY,
         paths.ENV_SOCKET,
-        paths.ENV_SOCKET_LEGACY,
         paths.ENV_AUTH_DB,
     ):
         monkeypatch.delenv(var, raising=False)
@@ -90,23 +89,20 @@ class TestEntries:
         monkeypatch.setenv(paths.ENV_HOME, str(tmp_path))
         assert paths.daemon_socket_path().path == tmp_path / "daemon.sock"
 
-    def test_legacy_socket_variable_is_still_honoured(
-        self, monkeypatch, tmp_path
-    ) -> None:
+    def test_the_retired_agy_variable_is_ignored(self, monkeypatch, tmp_path) -> None:
+        """``AGY_DAEMON_SOCKET`` was the deprecated alias, removed in DT-244
+        along with the rest of the old product name.
+
+        Asserted rather than simply deleted: silently ignoring a variable
+        someone has set would point their daemon at one socket and their
+        clients at another, which is the exact failure DT-241 was about.
+        ``drunken-doctor`` reports the path it resolved, so a stale setting
+        shows up there.
+        """
         monkeypatch.setenv(paths.ENV_HOME, str(tmp_path))
-        monkeypatch.setenv(paths.ENV_SOCKET_LEGACY, str(tmp_path / "old.sock"))
+        monkeypatch.setenv("AGY_DAEMON_SOCKET", str(tmp_path / "old.sock"))
 
-        resolved = paths.daemon_socket_path()
-
-        assert resolved.path == tmp_path / "old.sock"
-        assert "deprecated" in resolved.source
-
-    def test_new_socket_variable_beats_the_legacy_one(
-        self, monkeypatch, tmp_path
-    ) -> None:
-        monkeypatch.setenv(paths.ENV_SOCKET, str(tmp_path / "new.sock"))
-        monkeypatch.setenv(paths.ENV_SOCKET_LEGACY, str(tmp_path / "old.sock"))
-        assert paths.daemon_socket_path().path == tmp_path / "new.sock"
+        assert paths.daemon_socket_path().path == tmp_path / "daemon.sock"
 
 
 class TestPermissions:

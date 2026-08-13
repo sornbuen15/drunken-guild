@@ -121,7 +121,7 @@ async def test_handle_slash_command(mock_mtime, mock_glob):
     # /stop while busy (runner.current_process still set from the BUSY case above)
     runner.cancel_current_task = mock.AsyncMock()
     with mock.patch(
-        "service.discord_runner.kill_orphaned_agy_processes", return_value=[]
+        "service.discord_runner.kill_orphaned_agent_processes", return_value=[]
     ):
         await _handle_slash_command(runner, msg, "/stop")
     runner.cancel_current_task.assert_called_once()
@@ -130,14 +130,14 @@ async def test_handle_slash_command(mock_mtime, mock_glob):
     # /stop while idle, no orphans either
     runner.current_process = None
     with mock.patch(
-        "service.discord_runner.kill_orphaned_agy_processes", return_value=[]
+        "service.discord_runner.kill_orphaned_agent_processes", return_value=[]
     ):
         await _handle_slash_command(runner, msg, "/stop")
     assert "nothing to stop" in msg.channel.send.call_args[0][0]
 
     # /stop while idle, but an orphaned process is found and killed
     with mock.patch(
-        "service.discord_runner.kill_orphaned_agy_processes", return_value=[1234]
+        "service.discord_runner.kill_orphaned_agent_processes", return_value=[1234]
     ):
         await _handle_slash_command(runner, msg, "/stop")
     assert "Terminated" in msg.channel.send.call_args[0][0]
@@ -171,7 +171,7 @@ def test_parse_router_response():
     res = _parse_router_response('invalid json "target_agent":"devops"', "cmd")
     assert res["target_agent"] == "devops"
 
-    # Regex fallback agy
+    # Regex fallback for the CLI's response key
     res = _parse_router_response('invalid json "agy_response":"hello"', "cmd")
     assert res["agy_response"] == "hello"
 
