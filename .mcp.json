@@ -9,7 +9,7 @@
     },
     "drunken-jira-mcp": {
       "command": "uv",
-      "args": ["run", "python", "-m", "jira_mcp.server"],
+      "args": ["run", "python", "-m", "jira_mcp.server", "--project", "drunken-team"],
       "env": {
         "PYTHONPATH": "src"
       }

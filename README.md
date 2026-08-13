@@ -24,10 +24,18 @@ The three MCP servers, the local-AI rule templates in `.guild_templates/`, and t
    cd drunken-team
    uv sync
    ```
-2. Create the state directory and register this project. Credentials are
-   *referenced*, never stored — `--jira-credential` takes `env://VAR`,
-   `file://path#key`, `op://vault/item/field` or `keyring://service/user`, and
-   there is deliberately no flag that accepts a token:
+2. Put your credentials in a file outside the repository, readable only by you:
+   ```bash
+   mkdir -p ~/.drunken && chmod 700 ~/.drunken
+   cat > ~/.drunken/secrets.json <<'JSON'
+   { "jira": { "drunken-team": "your-jira-api-token" } }
+   JSON
+   chmod 600 ~/.drunken/secrets.json
+   ```
+3. Register the project. The registry stores a **reference** to that file, never
+   the token — `--jira-credential` also accepts `env://VAR`,
+   `op://vault/item/field` and `keyring://service/user`, and there is
+   deliberately no flag that takes a token:
    ```bash
    uv run drunken-init \
      --project drunken-team \
@@ -35,17 +43,32 @@ The three MCP servers, the local-AI rule templates in `.guild_templates/`, and t
      --jira-url https://your-domain.atlassian.net \
      --jira-email you@example.com \
      --jira-project-key DT \
-     --jira-credential env://JIRA_API_TOKEN \
+     --jira-credential 'file://~/.drunken/secrets.json#jira.drunken-team' \
      --discord-channel 123456789012345678
    ```
-3. Check that everything resolves to where you think it does:
+   Already have a working `.env` from an older release? `uv run python
+   scripts/migrate_env_to_registry.py --project drunken-team` does steps 2 and 3
+   for you without printing the token. Add `--dry-run` to see what it would do.
+4. Prove it actually resolves — this is a separate step on purpose, because Jira
+   answers a search with `200` and `[]` when the credential is bad:
    ```bash
-   uv run drunken-doctor
+   uv run drunken-doctor --project drunken-team
    ```
-4. Run the Discord bot:
+   You want `project.drunken-team.jira` to come back naming *you*. A warning that
+   the daemon socket is missing is expected until step 5.
+5. Run the Discord bot:
    ```bash
    uv run python src/service/discord_listener.py
    ```
-5. In your configured Discord channel, type `/help` to see what you can do.
+6. In your configured Discord channel, type `/help` to see what you can do.
+
+### Known limits
+
+- **Run from the checkout.** `uv tool install` is not supported yet: five modules
+  still derive paths from `__file__`, which resolves inside the virtualenv once
+  installed, so the daemon and the MCP servers stop agreeing on where the socket
+  is (DT-241).
+- The Discord daemon still reads `.env` directly for its own bot token. Only the
+  Jira credential has moved to the registry so far.
 
 See the [Drunken-Team Guide](./Drunken-Team-Guide.md) for the full setup (including running the bot as a persistent background service) and command reference.
