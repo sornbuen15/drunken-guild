@@ -5,7 +5,7 @@
 2. **Destructive Commands (`rm`, `rm -rf`, `drop`)**: You MUST NOT delete files/directories immediately.
    - **Notice/List**: Present a Markdown **Table** (Columns: Path/Target, Reason).
    - **Async Workflow**: If there are other tasks you can do without deleting those files, **SKIP** the deletion for now.
-   - **If you MUST delete files**: ask the Boss first — see directive 3 for how. Do NOT write to `.agents/discord_outbox.json` directly; that file is internal daemon state, not an API.
+   - **If you MUST delete files**: ask the Boss first — see directive 3 for how. Do NOT write to `.agents/discord_outbox.json` directly; that file is internal daemon state, not an API. <!-- drift-ok: naming the retired file is the point — this says not to use it -->
 3. **Ask Boss for Permissions**: For explicit approval or logic clarification, NEVER use `run_command` (it triggers security blocks).
    - **If the Boss is watching this conversation live, just ask directly.** Discord is for when they are not.
    - Otherwise call `request_boss_approval_async` (`action`, `reason`, `ticket_key`), which returns a `req_id` immediately. Park the task with `board_block_task`, take the next task `board_available_tasks` offers, and collect the answer with `check_approvals` **when you finish a task or start a session — never mid-task.** Half-applied approvals leave the repo in a state nobody can reason about. See the `ask-boss` skill.
@@ -106,4 +106,4 @@ Whenever a workflow requires an explicit Tech Lead or User approval gate (e.g., 
 - **If the Boss is watching this conversation live**, skip the tool entirely and just ask them directly — Discord is only needed when nobody may be reading this conversation right now.
 - **Otherwise:** call `request_boss_approval_async` (`action`, `reason`, `ticket_key`) — see the `ask-boss` skill for details. It returns a `req_id` straight away rather than an answer. Park the work with `board_block_task`, carry on with something unblocked, and read the verdict with `check_approvals` at the next task boundary: `approved`, `rejected`, `pending`, `stale` (approved against a different commit — ask again) or `unknown` (never submitted; re-submit rather than assume).
 - **Force-push, hard reset, `rm -rf` and reading `.env` are refused by `.claude/settings.json` regardless of what comes back over Discord.** Do not route around it; raise it with the Boss.
-- Do NOT write to `.agents/discord_outbox.json` or read `.agents/discord_inbox.json` directly; those are internal daemon state, not an API, and this protocol (write file + `schedule` + end turn) is retired.
+- Do NOT write to `.agents/discord_outbox.json` or read `.agents/discord_inbox.json` directly; those are internal daemon state, not an API, and this protocol (write file + `schedule` + end turn) is retired. <!-- drift-ok: the prohibition has to name what it prohibits -->
