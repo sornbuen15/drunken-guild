@@ -83,8 +83,11 @@ def _under_home(filename: str, env_var: str) -> ResolvedPath:
 def registry_path() -> ResolvedPath:
     """The central project registry.
 
-    ``DRUNKEN_REGISTRY_PATH`` keeps working — Antigravity's config already sets
-    it, and that config is correct.
+    ``DRUNKEN_REGISTRY_PATH`` is the override, and it is what a container
+    pointing at a mounted file uses. This used to claim Antigravity's config
+    already sets it; checked in DT-246, it does not — that config declared no
+    drunken-team server at all until DT-246 added them, and it sets no
+    environment for them.
     """
     return _under_home("projects.json", ENV_REGISTRY)
 
