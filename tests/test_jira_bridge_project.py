@@ -122,6 +122,47 @@ class TestTheShellPathIsUnchanged:
         assert config["jira_token"] == "shell-token"
 
 
+class TestStandingInAProjectResolvesThatProject:
+    """The last hole. Every path we control names the project explicitly, but
+    running this by hand inside ALPHA's checkout still walked up to its `.env`
+    and found the expired token — answering with an empty board rather than an
+    error, because that is what Jira does with a dead credential.
+
+    Recognising the directory as a registered project fixes it without copying
+    the token into a second place, which is what caused the drift originally.
+    """
+
+    def test_the_registry_answers_for_a_registered_directory(
+        self, bridge, registry, monkeypatch
+    ) -> None:
+        checkout = registry / "alpha"
+        checkout.mkdir()
+        monkeypatch.chdir(checkout)
+        monkeypatch.setenv("JIRA_TOKEN", "stale-token-from-dotenv")
+
+        config = bridge.resolve_config(project_id=None)
+
+        assert config["jira_token"] == "registry-token"
+        assert config["project_key"] == "ALPHA"
+
+    def test_an_unregistered_directory_still_uses_the_environment(
+        self, bridge, registry, monkeypatch, tmp_path
+    ) -> None:
+        """Running it from somewhere unrelated is a normal thing to do, and
+        must not start guessing."""
+        elsewhere = tmp_path / "unrelated"
+        elsewhere.mkdir()
+        monkeypatch.chdir(elsewhere)
+        monkeypatch.setenv("JIRA_URL", "https://shell.atlassian.net")
+        monkeypatch.setenv("JIRA_EMAIL", "shell@example.com")
+        monkeypatch.setenv("JIRA_PROJECT_KEY", "SHELL")
+        monkeypatch.setenv("JIRA_TOKEN", "shell-token")
+
+        config = bridge.resolve_config(project_id=None)
+
+        assert config["project_key"] == "SHELL"
+
+
 class TestTheDaemonNamesTheProject:
     def test_the_router_passes_project_rather_than_relying_on_cwd(self) -> None:
         """cwd still selects where `gh` runs. It must no longer be what decides
