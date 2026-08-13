@@ -73,6 +73,43 @@ Full protocol in `.agents/skills/ask-boss/SKILL.md`; the short version:
 
 `request_boss_approval` (blocking) still works and is kept until 3.0.0. Prefer the async pair.
 
+## Away mode — the other layer that asks (DT-236)
+
+Everything above is the agent deciding it needs permission. The **harness** also asks, before the
+model runs at all: *"Allow this tool call?"* The model never sees that one, which is why saying
+"I'm going out, send it to Discord" in chat never worked and never could.
+
+`drunken-away` is the switch that reaches the machine:
+
+```bash
+uv run drunken-away on --note "out until 6"   # prompts go to Discord
+uv run drunken-away off                       # back to the terminal
+uv run drunken-away status
+```
+
+With it on, the PreToolUse hook resolves each call in this order, and the order is the design:
+
+1. **On the deny list → denied.** It never reaches Discord. A 👍 cannot authorise `rm -rf`.
+2. `bypassPermissions` mode, or an approval tool → no decision. Asking for permission must not
+   itself need permission.
+3. **On the allow list → no decision**, not `allow`. The hook never *widens* permission; the
+   harness's own list already covers it.
+4. Not away → no decision. The terminal prompt is the better interface when you are at it.
+5. Otherwise → ask on Discord, wait, and map 👍/👎 onto allow/deny.
+
+Things worth knowing before you turn it on:
+
+- **A timed-out hook does not block the call** — it falls through to the normal permission flow. So
+  the hook answers *before* its own deadline (`WAIT_BUDGET_SECONDS`, 25 min) rather than waiting to
+  be killed at the `timeout` in `.claude/settings.json` (30 min). A test asserts the gap; do not
+  change one number without the other.
+- **`uv run drunken-away off` is allowlisted on purpose.** Away mode routes everything else,
+  including the command that would switch it off — found the hard way during DT-236's acceptance
+  run, with the agent stranded. Do not remove that rule.
+- **It is noisy by design.** Anything not on the allow list becomes a Discord question, `Edit` and
+  `Write` included. If that is too much for a long unattended run, widen the allow list deliberately
+  rather than reaching for `bypassPermissions`.
+
 ## Things that will bite you
 
 - **No secret ever enters a commit.** A reference without a scheme is an error, not a literal.
