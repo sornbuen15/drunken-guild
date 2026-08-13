@@ -34,6 +34,7 @@ from collections.abc import Generator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
 from .card import (
@@ -64,6 +65,16 @@ CLAIM_TTL_SECONDS: int = 1800
 _LOCK_STALE_SECONDS: float = 5.0
 _LOCK_RETRIES: int = 10
 _LOCK_DELAY: float = 0.05  # seconds
+
+
+def _is_within(candidate: Path, root: Path) -> bool:
+    """Whether *candidate* is *root* itself or sits underneath it.
+
+    Both sides must already be resolved. That is the whole point: a string
+    comparison misses ``../`` before normalisation, and misses a symlink that
+    lives inside the project and points somewhere else entirely. S1 (DT-225).
+    """
+    return candidate == root or root in candidate.parents
 
 
 @dataclass
@@ -666,19 +677,43 @@ class BoardManager:
         files: list[str],
         keywords: list[str],
     ) -> dict[str, Any]:
-        """Search project context files for keyword-matching sections."""
+        """Search project context files for keyword-matching sections.
+
+        S1 (DT-225). This used to take ``os.path.isabs(file_path)`` as licence
+        to open the path as given, with no containment check of any kind —
+        every other project's board, a private key, ``/etc/passwd``, returned
+        as matching lines. It is only not remotely reachable because everything
+        is local stdio today, which is exactly what DT-226 would change.
+
+        Containment is judged on the *resolved* path, on both sides. Comparing
+        the strings would miss ``../`` before normalisation and would miss a
+        symlink that sits inside the project and points out of it.
+        """
         results: list[dict[str, Any]] = []
+        root = Path(project_root).resolve()
         for file_path in files:
-            if os.path.isabs(file_path):
-                resolved = file_path
-            else:
+            candidate = Path(file_path)
+            if not candidate.is_absolute():
                 # Try .claude/ prefix first (Claude Code convention)
-                candidate = os.path.join(project_root, ".claude", file_path)
-                resolved = (
-                    candidate
-                    if os.path.exists(candidate)
-                    else os.path.join(project_root, file_path)
+                prefixed = root / ".claude" / file_path
+                candidate = prefixed if prefixed.exists() else root / file_path
+
+            try:
+                resolved_path = candidate.resolve()
+            except OSError:
+                results.append({"file": file_path, "error": "invalid_path"})
+                continue
+
+            if not _is_within(resolved_path, root):
+                # Deliberately a different answer from file_not_found: a typo
+                # must not read as an attack, and an attack must not read as a
+                # typo. The caller is told which one it made.
+                results.append(
+                    {"file": file_path, "error": "access_denied_path_traversal"}
                 )
+                continue
+
+            resolved = str(resolved_path)
             if not os.path.exists(resolved):
                 results.append({"file": file_path, "error": "file_not_found"})
                 continue
@@ -691,7 +726,14 @@ class BoardManager:
             sections = _extract_matching_sections(lines, keywords)
             for section in sections:
                 results.append({"file": file_path, **section})
-        return {"results": results, "total_matches": len(results)}
+        # Errors are carried in `results` but are not matches. Counting them
+        # made a refused path report `total_matches: 1`, which reads as "you
+        # got something" at exactly the moment the answer is "you got nothing
+        # and here is why". Every entry without an `error` key is real content.
+        return {
+            "results": results,
+            "total_matches": sum(1 for entry in results if "error" not in entry),
+        }
 
 
 def _compute_level(

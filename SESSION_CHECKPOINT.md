@@ -170,23 +170,28 @@ unix socket needs *write* permission, and the usual umask of 022 stripped it. Th
 launched the daemon, and umask 000 would have opened the approval channel to every local process.
 Safe by accident is not safe by construction.
 
-**Still open on `develop` — the rest of DT-225:**
+**S1, S2 and S8 — closed by DT-225 (2026-08-13).** Each was seen failing first.
 
-| # | State on `develop` today |
-|---|---|
-| S1 | `query_project_context` does `if os.path.isabs(file_path): resolved = file_path` — no containment check of any kind. Arbitrary file read |
-| S2 | No authorization check anywhere in `board_mcp/server.py` — `project` is a lookup key, not a boundary |
-| S8 | `jira_search_issues` passes raw JQL straight through; `--project` is not a security boundary |
+| # | Was | Now |
+|---|---|---|
+| S1 | `query_project_context` did `if os.path.isabs(file_path): resolved = file_path` — no containment check of any kind to traverse *around*. Arbitrary file read | Containment judged on the **resolved** path, both sides. Catches `../`, and catches a symlink that sits inside the project and points out of it — which a string comparison cannot. `access_denied_path_traversal` stays a different answer from `file_not_found`, so a typo does not read as an attack |
+| S2 | No authorization anywhere in `board_mcp/server.py`. `main()` said it out loud: *"--project (ignored by board, kept for compat)"* — a server launched for one project served any other on request | **Default deny.** `--project` (or `DRUNKEN_BOARD_PROJECT`) binds the server to one project; an unbound server refuses every call with a remediation. **Behaviour change** — this repo's `.mcp.json` relied on the old "serve them all" and now passes `--project drunken-team`. Antigravity's config already did |
+| S8 | `jira_search_issues` passed raw JQL through; `--project` named the project and confined nothing to it | The query is **wrapped**, not validated: `project = "KEY" AND (caller's query)`. Parsing a query language to judge safety is the same losing game as prefix-matching a shell command, and conjunction makes it unnecessary |
 
-> **⚠️ HTTP transport (Phase 4 / DT-226) must not open until S1/S2/S8 are fixed.** Everything is
-> local stdio today, which is the only reason these are not remotely reachable — and Phase 4 is
-> precisely what would change that.
->
-> **But DT-236 is not blocked by them.** Boss and Claude worked through this on 2026-08-13: the hook
-> needs the denylist to be trustworthy, which depends on the hook's own logic and on **S6** — an
-> approval socket anyone could forge on would be the real danger. S6 is done. S1 (path traversal)
-> and S8 (JQL) have nothing to do with a PreToolUse hook. Jira still records DT-225 as blocking
-> DT-236; that link is now wrong.
+Two details in S8 carry the guarantee, and both are tested. The parentheses are not cosmetic —
+`project = "DT" AND a OR b` binds as `(project = "DT" AND a) OR b` and the `OR` escapes the scope
+entirely. And `ORDER BY` has to be hoisted outside them or the result is not valid JQL; that hoist
+is quote-aware, so a ticket whose summary contains the words "order by" is searched rather than
+mangled.
+
+Proven against live Jira rather than argued: a cross-project query returned **0 issues**, and
+`status = Done OR project = ISAC` returned **50 issues, every one of them DT**. That second one is
+the real proof — without the parentheses it would have returned ISAC's.
+
+> **⚠️ HTTP transport (Phase 4 / DT-226) waited on these, and no longer does.** Everything is still
+> local stdio; what changed is that opening Phase 4 no longer exposes an arbitrary file read, an
+> unbounded board server and an unscoped JQL search along with it. DT-226 should still be reviewed
+> on its own merits before it opens.
 
 **How this was missed, because it will happen again otherwise.** The work exists on
 `feature/DT-225-security-hardening` and was never merged. Jira said IN REVIEW, that branch's copy of
