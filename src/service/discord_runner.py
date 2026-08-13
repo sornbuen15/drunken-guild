@@ -15,11 +15,11 @@ from service.discord_utils import (
     query_gemini_direct,
 )
 
-RAW_LOG_FILE = "agy_discord_raw.log"
+RAW_LOG_FILE = "drunken_discord_raw.log"
 file_lock = asyncio.Lock()
 
 
-# Registry of spawned agy PIDs, on disk so it survives a daemon crash/restart
+# Registry of spawned agent PIDs, on disk so it survives a daemon crash/restart
 # — a fresh AgentRunner's current_process starts at None and has no way to
 # know about a child orphaned by the previous process instance otherwise.
 def pid_registry_file() -> str:
@@ -62,8 +62,8 @@ def _unregister_pid(pid: int) -> None:
     _write_pid_registry(pids)
 
 
-def kill_orphaned_agy_processes() -> list[int]:
-    """Kill any registered agy PID that's still alive but not tracked by the
+def kill_orphaned_agent_processes() -> list[int]:
+    """Kill any registered agent PID that's still alive but not tracked by the
     current process (e.g. orphaned by a daemon crash-restart under launchd's
     KeepAlive). Returns the PIDs actually killed."""
     killed = []
@@ -125,7 +125,7 @@ class AgentRunner:
         if cmd_args and cmd_args[0] == "agy" and shutil.which("uv"):
             cmd_args = ["uv", "run"] + cmd_args
 
-        task_log = f"agy_discord_{agent_name.replace(' ', '_').lower()}_raw.log"
+        task_log = f"drunken_discord_{agent_name.replace(' ', '_').lower()}_raw.log"
 
         try:
             process = await asyncio.create_subprocess_exec(

@@ -19,10 +19,16 @@ import shutil
 import subprocess
 import sys
 
-LABEL = "com.drunkenteam.agy-daemon"
+LABEL = "com.drunkenteam.daemon"
+#: What the label was before DT-244 retired the old product name. Kept only so
+#: install() can unload and delete it: launchd keys on the label, so writing
+#: the new plist without removing the old one leaves two definitions
+#: registered, and the old one keeps restarting a stale daemon under KeepAlive.
+LEGACY_LABEL = "com.drunkenteam.agy-daemon"
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 LOG_PATH = os.path.join(REPO_ROOT, ".agents", "discord_listener.log")
 PLIST_PATH = os.path.expanduser(f"~/Library/LaunchAgents/{LABEL}.plist")
+LEGACY_PLIST_PATH = os.path.expanduser(f"~/Library/LaunchAgents/{LEGACY_LABEL}.plist")
 
 # launchd resolves ProgramArguments[0] using its own minimal default PATH
 # (/usr/bin:/bin:/usr/sbin:/sbin), NOT the EnvironmentVariables dict below —
@@ -92,6 +98,20 @@ def _plist_content() -> str:
     )
 
 
+def _remove_legacy_agent() -> None:
+    """Unload and delete the pre-DT-244 agent, if one is still installed.
+
+    Without this, upgrading leaves two launch agents pointing at the same
+    daemon. Both have KeepAlive, so the old one keeps resurrecting a second
+    process that binds — or fails to bind — the same socket.
+    """
+    if not os.path.exists(LEGACY_PLIST_PATH):
+        return
+    subprocess.run(["launchctl", "unload", LEGACY_PLIST_PATH], capture_output=True)
+    os.remove(LEGACY_PLIST_PATH)
+    print(f"[+] Removed the previous agent, {LEGACY_LABEL}")
+
+
 def install() -> None:
     if sys.platform != "darwin":
         print(
@@ -100,6 +120,8 @@ def install() -> None:
             file=sys.stderr,
         )
         sys.exit(1)
+
+    _remove_legacy_agent()
 
     os.makedirs(os.path.dirname(LOG_PATH), exist_ok=True)
     os.makedirs(os.path.dirname(PLIST_PATH), exist_ok=True)
@@ -124,6 +146,7 @@ def install() -> None:
 
 
 def uninstall() -> None:
+    _remove_legacy_agent()
     subprocess.run(["launchctl", "unload", PLIST_PATH], capture_output=True)
     if os.path.exists(PLIST_PATH):
         os.remove(PLIST_PATH)

@@ -48,7 +48,6 @@ def clean_env(monkeypatch):
         paths.ENV_HOME,
         paths.ENV_REGISTRY,
         paths.ENV_SOCKET,
-        paths.ENV_SOCKET_LEGACY,
     ):
         monkeypatch.delenv(var, raising=False)
 
@@ -108,13 +107,13 @@ class TestEveryoneAgreesOnTheSocket:
 
         assert mcp_server.socket_path() == str(target)
 
-    def test_the_deprecated_variable_still_works(self, monkeypatch, tmp_path) -> None:
-        """Existing setups set AGY_DAEMON_SOCKET. Breaking them to tidy a name
-        is not worth it; it is removed in 3.0.0."""
+    def test_the_daemon_reads_the_same_override(self, monkeypatch, tmp_path) -> None:
+        """Both sides have to honour the override, not just the client — an
+        override that moves one of them is worse than no override at all."""
         from service import discord_listener
 
-        target = tmp_path / "legacy.sock"
-        monkeypatch.setenv(paths.ENV_SOCKET_LEGACY, str(target))
+        target = tmp_path / "elsewhere.sock"
+        monkeypatch.setenv(paths.ENV_SOCKET, str(target))
 
         assert discord_listener.socket_path() == str(target)
 

@@ -36,7 +36,6 @@ def clean_state(monkeypatch, tmp_path):
     monkeypatch.setenv(paths.ENV_HOME, str(tmp_path / "home"))
     monkeypatch.delenv(paths.ENV_REGISTRY, raising=False)
     monkeypatch.delenv(paths.ENV_SOCKET, raising=False)
-    monkeypatch.delenv(paths.ENV_SOCKET_LEGACY, raising=False)
     monkeypatch.setenv("JIRA_TOKEN_ALPHA", "a-valid-looking-token-value")
     yield
     secrets.clear_cache()

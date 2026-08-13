@@ -28,7 +28,6 @@ from typing import Final
 ENV_HOME: Final = "DRUNKEN_HOME"
 ENV_REGISTRY: Final = "DRUNKEN_REGISTRY_PATH"
 ENV_SOCKET: Final = "DRUNKEN_DAEMON_SOCKET"
-ENV_SOCKET_LEGACY: Final = "AGY_DAEMON_SOCKET"
 ENV_AUTH_DB: Final = "DRUNKEN_AUTH_DB"
 ENV_PID_REGISTRY: Final = "DRUNKEN_PID_REGISTRY"
 ENV_APPROVAL_SNAPSHOT: Final = "DRUNKEN_APPROVAL_SNAPSHOT"
@@ -73,16 +72,10 @@ def home() -> ResolvedPath:
     return ResolvedPath(_expand(DEFAULT_HOME), f"default ({DEFAULT_HOME})")
 
 
-def _under_home(
-    filename: str, env_var: str, legacy_env: str | None = None
-) -> ResolvedPath:
+def _under_home(filename: str, env_var: str) -> ResolvedPath:
     override = os.environ.get(env_var)
     if override:
         return ResolvedPath(_expand(override), f"${env_var}")
-    if legacy_env:
-        legacy = os.environ.get(legacy_env)
-        if legacy:
-            return ResolvedPath(_expand(legacy), f"${legacy_env} (deprecated)")
     base = home()
     return ResolvedPath(base.path / filename, f"{base.source} + /{filename}")
 
@@ -99,10 +92,13 @@ def registry_path() -> ResolvedPath:
 def daemon_socket_path() -> ResolvedPath:
     """The Discord approval daemon's socket.
 
-    ``AGY_DAEMON_SOCKET`` is honoured as a deprecated alias so existing setups
-    keep working; it is removed in 3.0.0.
+    The deprecated ``AGY_DAEMON_SOCKET`` alias is gone as of DT-244: the
+    product is drunken-team, and nothing we own keeps the old name. Removing a
+    deprecated alias ahead of 3.0.0 is a deliberate call — nothing in this repo
+    set it, and Antigravity's config does not either, so it had no users left
+    to break. ``DRUNKEN_DAEMON_SOCKET`` is the override.
     """
-    return _under_home("daemon.sock", ENV_SOCKET, ENV_SOCKET_LEGACY)
+    return _under_home("daemon.sock", ENV_SOCKET)
 
 
 def auth_db_path() -> ResolvedPath:
@@ -126,7 +122,7 @@ def pid_registry_path() -> ResolvedPath:
     process instance, so this is how those get reaped. It is state, not code —
     hence here rather than next to the module that writes it.
     """
-    return _under_home("agy_pids.json", ENV_PID_REGISTRY)
+    return _under_home("pids.json", ENV_PID_REGISTRY)
 
 
 def ensure_home() -> Path:

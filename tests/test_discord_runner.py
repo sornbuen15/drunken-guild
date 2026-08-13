@@ -66,7 +66,7 @@ async def test_execute_command_failure(mock_create_subprocess):
 @pytest.mark.anyio
 async def test_run_command_async_early_return():
     runner = AgentRunner()
-    # Should return early if command is not agy
+    # Should return early if the command is not the Antigravity CLI
     await runner.run_command_async(mock.AsyncMock(), "user", "cmd", ["ls"], "test")
     assert runner.current_process is None
 
@@ -98,7 +98,7 @@ async def test_execute_command_uv(mock_create_subprocess, mock_which, mock_exist
 
     assert ret == 0
     assert exc is None
-    # Called with uv run agy cmd
+    # Called with: uv run agy <cmd>
     assert "uv" in mock_create_subprocess.call_args[0]
     assert "run" in mock_create_subprocess.call_args[0]
     assert "agy" in mock_create_subprocess.call_args[0]
@@ -423,7 +423,7 @@ async def test_handle_quest_failure_read_exception(
 async def test_pid_registry_register_unregister(monkeypatch, tmp_path):
     from service import discord_runner
 
-    registry_file = tmp_path / "agy_pids.json"
+    registry_file = tmp_path / "pids.json"
     # Set through the environment rather than by patching an attribute: that
     # is the override a container actually uses, so the test exercises the
     # real mechanism instead of a stand-in for it.
@@ -442,10 +442,10 @@ async def test_pid_registry_register_unregister(monkeypatch, tmp_path):
 
 
 @pytest.mark.anyio
-async def test_kill_orphaned_agy_processes(monkeypatch, tmp_path):
+async def test_kill_orphaned_agent_processes(monkeypatch, tmp_path):
     from service import discord_runner
 
-    registry_file = tmp_path / "agy_pids.json"
+    registry_file = tmp_path / "pids.json"
     # Set through the environment rather than by patching an attribute: that
     # is the override a container actually uses, so the test exercises the
     # real mechanism instead of a stand-in for it.
@@ -463,7 +463,7 @@ async def test_kill_orphaned_agy_processes(monkeypatch, tmp_path):
 
     monkeypatch.setattr(discord_runner.os, "kill", fake_kill)
 
-    killed = discord_runner.kill_orphaned_agy_processes()
+    killed = discord_runner.kill_orphaned_agent_processes()
 
     assert killed == [111]  # 222 was already gone (liveness check failed)
     assert killed_pids == [111]
@@ -476,7 +476,7 @@ async def test_kill_orphaned_agy_processes(monkeypatch, tmp_path):
 async def test_task_generation_increments_per_task(
     mock_create_subprocess, monkeypatch, tmp_path
 ):
-    monkeypatch.setenv("DRUNKEN_PID_REGISTRY", str(tmp_path / "agy_pids.json"))
+    monkeypatch.setenv("DRUNKEN_PID_REGISTRY", str(tmp_path / "pids.json"))
 
     runner = AgentRunner()
     assert runner.task_generation == 0
