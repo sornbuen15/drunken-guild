@@ -8,6 +8,7 @@ from core.context import ProjectContext
 from core.errors import ConfigError, as_tool_result
 
 from .jira_client import JiraClient
+from .jql import scope_to_project
 
 # Create the FastMCP server instance
 mcp = FastMCP("drunken-jira-mcp")
@@ -38,11 +39,20 @@ def get_client() -> JiraClient:
 @as_tool_result
 async def jira_search_issues(jql: str) -> str:
     """
-    Search for Jira issues using a JQL query.
+    Search for Jira issues using a JQL query, within this server's project.
     Returns a minified JSON string of issues (key, summary, status, priority, description, assignee).
+
+    The query is scoped to the project this server was launched for: it is
+    wrapped as `project = "KEY" AND (your query)`. A clause naming another
+    project is kept and simply matches nothing. To search a different project,
+    run a server bound to it.
     """
     client = get_client()
-    issues = await client.search_issues(jql)
+    # S8 (DT-225). --project named the project and did not confine anything to
+    # it. Scoping happens here, at the boundary, rather than inside JiraClient:
+    # the client is also used by jira_create_issue and the transition tools,
+    # which take a key rather than a query and are already project-bound.
+    issues = await client.search_issues(scope_to_project(jql, client.project_key))
     return json.dumps(issues, indent=2)
 
 
