@@ -238,7 +238,7 @@ def create_issue(config: Dict[str, Any], summary: str, description: Any) -> None
     print(json.dumps({"ok": True, "key": res.get("key"), "self": res.get("self")}))
 
 
-def main() -> None:  # noqa: C901  # TODO(DT-46): Technical Debt - Refactor to reduce McCabe complexity
+def main() -> None:  # noqa: C901  # long dispatch chain; splitting it buys nothing here
     if len(sys.argv) < 2:
         print("Usage: jira_bridge.py <action> [args]", file=sys.stderr)
         sys.exit(1)

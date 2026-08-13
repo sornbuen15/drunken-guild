@@ -57,17 +57,28 @@ uv sync
 
 ### 3.3 Configure credentials
 
-Run the interactive setup:
+Create the state directory and register this project:
 
 ```bash
-uv run drunken-register
+uv run drunken-init \
+  --project drunken-team \
+  --path "$PWD" \
+  --jira-url https://your-domain.atlassian.net \
+  --jira-email you@example.com \
+  --jira-project-key DT \
+  --jira-credential env://JIRA_API_TOKEN \
+  --discord-channel 123456789012345678
 ```
 
-This creates `.agents/jira.json` and `.agents/discord_config.json` in the current directory, prompting for:
-- Jira URL, email, project key, and API token
-- Discord bot token and channel ID
+This writes one central registry under `$DRUNKEN_HOME` (default `~/.drunken`, mode 700) -- not into the project. The command is non-interactive and idempotent, so it also works inside a Dockerfile or a provisioning script.
 
-You can also skip the prompt and set environment variables instead. Copy the template and fill it in:
+**Credentials are referenced, never stored.** `--jira-credential` accepts `env://VAR`, `file://path#key.path`, `op://vault/item/field` or `keyring://service/user`, and there is deliberately no flag that takes a token. A reference with no scheme is an error rather than a literal; `literal://` is the visible opt-out. Then confirm every path and secret resolves where you expect:
+
+```bash
+uv run drunken-doctor
+```
+
+The referenced variables still have to exist somewhere. Copy the template and fill it in:
 
 ```bash
 cp .env.example .env
@@ -77,16 +88,19 @@ cp .env.example .env
 
 ### 3.4 Register the MCP servers (for an AI coding agent)
 
-`.mcp.json` at the repo root already registers both MCP servers for tools like Claude Code:
+`.mcp.json` at the repo root already registers all three MCP servers for tools like Claude Code:
 
 ```json
 {
   "mcpServers": {
     "drunken-discord-mcp": { "command": "uv", "args": ["run", "python", "-m", "discord_mcp.server"], "env": { "PYTHONPATH": "src" } },
-    "drunken-jira-mcp": { "command": "uv", "args": ["run", "python", "-m", "jira_mcp.server"], "env": { "PYTHONPATH": "src" } }
+    "drunken-jira-mcp": { "command": "uv", "args": ["run", "python", "-m", "jira_mcp.server"], "env": { "PYTHONPATH": "src" } },
+    "drunken-board-mcp": { "command": "uv", "args": ["run", "python", "-m", "board_mcp.server"], "env": { "PYTHONPATH": "src" } }
   }
 }
 ```
+
+Which project a server acts on comes from `--project <id>`, resolved against the registry -- never from the working directory. Add `"--project", "<id>"` to a server's `args` to point it at a project other than the one it was launched from.
 
 If your agent supports project-level `.mcp.json` discovery, this works out of the box. Otherwise see the [Integration Guide](./Integration-Guide.md) for manual configuration.
 
@@ -218,14 +232,20 @@ Free-form natural-language task commanding is disabled. Any plain message gets o
 
 ## 6. Approval Flow
 
-Some agent actions require your explicit sign-off (e.g. a destructive command, or a merge). The agent calls the `request_boss_approval` MCP tool, which blocks until you respond:
+Some agent actions require your explicit sign-off (e.g. a destructive command, or a merge). **If you are reading the agent's conversation, it should simply ask you there.** Discord is for when you are not watching.
 
-1. The bot posts the question to Discord with 👍/👎 reactions attached.
-2. **React 👍** to approve, **👎** to reject. The agent's tool call returns immediately with your answer.
-3. If you don't react within 15 minutes, you get one reminder.
-4. If you still don't react after a second 15 minutes, the task auto-stops (no commit is made), a Jira comment explains what it was waiting on (without closing the ticket), and you get a Discord summary.
-5. A pre-commit hook blocks new commits on a ticket with an unresolved approval, so nothing slips through while a request is hanging.
-6. To recover a ticket stuck in step 4, use `/approve <ticket>` (Section 5.3) once you're ready.
+Unattended, asking must never stop the rest of the work:
+
+1. The agent calls `request_boss_approval_async(action, reason, ticket_key)`, which returns a `req_id` immediately, and the bot posts the question to Discord with 👍/👎 reactions attached.
+2. The agent parks that task with `board_block_task`, carrying the `req_id` that would free it, and takes the next task `board_available_tasks` offers.
+3. **React 👍** to approve, **👎** to reject.
+4. The agent collects answers with `check_approvals` **when it finishes a task or starts a session -- never mid-task.** Acting on an approval the moment it lands is how a repo ends up half-changed.
+5. **There is no timeout and nothing is auto-killed.** Reminders back off 15 min → 1 h → daily and survive a daemon restart. A question you have not reached yet is not an error.
+6. An approval is bound to the commit it was granted against. From a different HEAD it reads `stale` and has to be asked again -- a yes given this morning does not authorise tonight's different code.
+7. A pre-commit hook blocks new commits on a ticket with an unresolved approval, so nothing slips through while a request is hanging.
+8. Force-push, hard reset, `rm -rf` and reading `.env` are refused by `.claude/settings.json` **no matter what comes back over Discord.** Remote approval is only safe while some actions sit outside it.
+
+The older blocking `request_boss_approval` still works and is kept until 3.0.0. Prefer the async pair.
 
 While an agent task is running, you can also react **❌** on its status message to kill it immediately -- equivalent to `/stop`.
 
@@ -233,16 +253,41 @@ While an agent task is running, you can also react **❌** on its status message
 
 ## 7. Multi-Project Orchestration
 
-Drunken-Team can operate on more than one codebase. `.agents/projects.json` (the Project Registry) maps a short name to an absolute path:
+Drunken-Team can operate on more than one codebase. One central registry -- `projects.json` under `$DRUNKEN_HOME` (default `~/.drunken`) -- answers "which Jira, which repo, which Discord channel" for every project:
 
 ```json
 {
-  "drunken-team": { "path": "/Users/you/Projects/drunken-team", "description": "The Guild Headquarters" },
-  "beta": { "path": "/Users/you/Projects/beta", "description": "BETA Project" }
+  "version": 2,
+  "projects": {
+    "drunken-team": {
+      "path": "/Users/you/Projects/drunken-team",
+      "description": "The Guild Headquarters",
+      "jira": {
+        "url": "https://your-domain.atlassian.net",
+        "email": "you@example.com",
+        "project_key": "DT",
+        "credential": "env://JIRA_API_TOKEN"
+      },
+      "discord": { "channel_id": "123456789012345678" }
+    },
+    "beta": {
+      "description": "BETA Project",
+      "jira": {
+        "url": "https://your-domain.atlassian.net",
+        "email": "you@example.com",
+        "project_key": "BETA",
+        "credential": "env://JIRA_TOKEN_BETA"
+      }
+    }
+  }
 }
 ```
 
-Add an entry manually, or run `drunken-register <path>` from within the other project to generate its own `.agents/jira.json`. Once registered, `/project <name>` in Discord switches which project the Jira-lane commands and `/next`/`/refine` operate against -- each project can have its own Jira project key, so `/project beta` then `/tasks` lists BETA's own To Do lane, not drunken-team's.
+Nothing in it is secret -- credentials appear only as references -- so it can be committed, reviewed and shared, which is exactly what stops five copies of a token drifting apart in five `.env` files. `path` is optional: only the file-backed board needs a checkout on disk, and a containerised Jira or Discord server has no host path to give.
+
+Add an entry with `drunken-init --project <id> ...` (Section 3.3) rather than by hand. A v1 registry -- the bare `{"name": {...}}` map written by earlier releases -- is upgraded in memory on read and never rewritten behind your back, so downgrading is just running the old code again.
+
+Once registered, `/project <name>` in Discord switches which project the Jira-lane commands and `/next`/`/refine` operate against -- each project can have its own Jira project key, so `/project beta` then `/tasks` lists BETA's own To Do lane, not drunken-team's.
 
 ---
 

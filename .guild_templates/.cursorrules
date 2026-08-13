@@ -17,7 +17,7 @@
 - **Handoff:** When finished, push your branch, open a PR, and call `jira_submit_for_review(issue_key, pr_link, files_changed)` via MCP.
 
 ## 3. Operations & Safety
-- **Destructive Commands:** DO NOT delete files (`rm`, `rm -rf`) without approval. You MUST call the `request_boss_approval` MCP tool (`action`, `reason`, `ticket_key`) -- it blocks in-process until the Boss reacts on Discord. Do not poll files, do not use `schedule`, do not end your turn to wait.
+- **Destructive Commands:** DO NOT delete files (`rm`, `rm -rf`) without approval. If the Boss is reading the conversation, ask them there. Otherwise call `request_boss_approval_async` (`action`, `reason`, `ticket_key`) -- it returns a `req_id`, not an answer. Park the task with `board_block_task`, work on something unblocked, and read the verdict with `check_approvals` at the next task boundary, never mid-task. There is no timeout. Do not poll daemon state files, do not use `schedule`, do not end your turn to wait.
 - **The "ค.ว.ย." Protocol:**
   - คิด (Think): Validate paths, ports, env vars before executing.
   - วิเคราะห์ (Analyze): Analyze logs. Do not assume success if it didn't instantly crash.

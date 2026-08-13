@@ -138,7 +138,7 @@ def inline_formatting(text: str) -> str:
     return text
 
 
-def markdown_to_html(md_text: str) -> str:  # noqa: C901  # TODO(DT-46): Technical Debt - Refactor to reduce McCabe complexity
+def markdown_to_html(md_text: str) -> str:  # noqa: C901  # long dispatch chain; splitting it buys nothing here
     html_lines = []
     lines = md_text.split("\n")
 

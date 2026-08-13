@@ -15,10 +15,14 @@ Board directory resolution per project
 
 Registry path
 -------------
-Set ``DRUNKEN_REGISTRY_PATH`` env var to override.  When unset the server
-derives it relative to its own ``__file__`` so it always points to the
-drunken-team repo's ``.agents/projects.json``, even when installed via
-``uv tool install``.
+Set ``DRUNKEN_REGISTRY_PATH`` to override.  When unset this server still
+derives the default from its own ``__file__``, which is exactly the §1.3 bug
+:mod:`core.paths` exists to prevent: installed via ``uv tool install`` the
+expression resolves inside the virtualenv, not the checkout.  It has not been
+migrated to :func:`core.paths.registry_path` yet because that moves the default
+from the repo's ``.agents/projects.json`` to ``$DRUNKEN_HOME/projects.json``,
+which is a behaviour change and needs its own ticket — DT-241.  Until then, set
+the environment variable explicitly rather than relying on the default.
 """
 
 from __future__ import annotations
@@ -57,7 +61,7 @@ def _get_manager(project: str) -> tuple[BoardManager, str]:
     if data is None:
         raise ValueError(
             f"Unknown project '{project}'. "
-            "Run: drunken-register <id> <path> to register it."
+            "Run: drunken-init --project <id> --path <path> to register it."
         )
     project_root: str = data["path"]
 
@@ -79,7 +83,7 @@ def _get_manager(project: str) -> tuple[BoardManager, str]:
 # ---------------------------------------------------------------------------
 
 
-@mcp.tool()  # type: ignore[misc]  # Tech Debt: DT-65
+@mcp.tool()  # type: ignore[misc]
 async def board_next_id(project: str) -> str:
     """
     Returns the next available task ID (e.g. ALPHA-038). Informational only —
@@ -89,7 +93,7 @@ async def board_next_id(project: str) -> str:
     return json.dumps(manager.next_id(), indent=2)
 
 
-@mcp.tool()  # type: ignore[misc]  # Tech Debt: DT-65
+@mcp.tool()  # type: ignore[misc]
 async def board_create_task(
     project: str,
     lane: str,
@@ -109,7 +113,7 @@ async def board_create_task(
     return json.dumps(manager.create_task(lane, slug, content, ms), indent=2)
 
 
-@mcp.tool()  # type: ignore[misc]  # Tech Debt: DT-65
+@mcp.tool()  # type: ignore[misc]
 async def board_claim_task(project: str, task_id: str, agent_slug: str) -> str:
     """
     Atomically claim a todo/ task for the requesting agent.  Validates
@@ -121,7 +125,7 @@ async def board_claim_task(project: str, task_id: str, agent_slug: str) -> str:
     return json.dumps(manager.claim_task(task_id, agent_slug), indent=2)
 
 
-@mcp.tool()  # type: ignore[misc]  # Tech Debt: DT-65
+@mcp.tool()  # type: ignore[misc]
 async def board_release_claim(project: str, task_id: str, agent_slug: str) -> str:
     """
     Release a stale or abandoned claim.  Only the original claimant or
@@ -132,7 +136,7 @@ async def board_release_claim(project: str, task_id: str, agent_slug: str) -> st
     return json.dumps(manager.release_claim(task_id, agent_slug), indent=2)
 
 
-@mcp.tool()  # type: ignore[misc]  # Tech Debt: DT-65
+@mcp.tool()  # type: ignore[misc]
 async def board_move_task(
     project: str, task_id: str, target_lane: str, agent_slug: str
 ) -> str:
@@ -144,7 +148,7 @@ async def board_move_task(
     return json.dumps(manager.move_task(task_id, target_lane, agent_slug), indent=2)
 
 
-@mcp.tool()  # type: ignore[misc]  # Tech Debt: DT-65
+@mcp.tool()  # type: ignore[misc]
 async def board_done_task(project: str, task_id: str, agent_slug: str) -> str:
     """
     Move a task from in-progress to done and strip its claim.  Validates
@@ -154,7 +158,7 @@ async def board_done_task(project: str, task_id: str, agent_slug: str) -> str:
     return json.dumps(manager.done_task(task_id, agent_slug), indent=2)
 
 
-@mcp.tool()  # type: ignore[misc]  # Tech Debt: DT-65
+@mcp.tool()  # type: ignore[misc]
 async def board_block_task(project: str, task_id: str, req_id: str, reason: str) -> str:
     """
     Park a task that is waiting on something, and record what would free it.
@@ -169,7 +173,7 @@ async def board_block_task(project: str, task_id: str, req_id: str, reason: str)
     return json.dumps(manager.block_task(task_id, req_id, reason), indent=2)
 
 
-@mcp.tool()  # type: ignore[misc]  # Tech Debt: DT-65
+@mcp.tool()  # type: ignore[misc]
 async def board_unblock_task(project: str, task_id: str) -> str:
     """
     Return a parked task to the queue once whatever held it is resolved.
@@ -182,7 +186,7 @@ async def board_unblock_task(project: str, task_id: str) -> str:
     return json.dumps(manager.unblock_task(task_id), indent=2)
 
 
-@mcp.tool()  # type: ignore[misc]  # Tech Debt: DT-65
+@mcp.tool()  # type: ignore[misc]
 async def board_available_tasks(project: str) -> str:
     """
     List the tasks that can actually be started right now.
@@ -201,7 +205,7 @@ async def board_available_tasks(project: str) -> str:
     return json.dumps(manager.available_tasks(), indent=2)
 
 
-@mcp.tool()  # type: ignore[misc]  # Tech Debt: DT-65
+@mcp.tool()  # type: ignore[misc]
 async def board_get_task(project: str, task_id: str) -> str:
     """
     Return the full content and parsed fields of a single task, including its
@@ -211,7 +215,7 @@ async def board_get_task(project: str, task_id: str) -> str:
     return json.dumps(manager.get_task(task_id), indent=2)
 
 
-@mcp.tool()  # type: ignore[misc]  # Tech Debt: DT-65
+@mcp.tool()  # type: ignore[misc]
 async def board_list_lane(project: str, lane: str) -> str:
     """
     List all tasks in a single lane as structured summaries (id, title, status,
@@ -221,7 +225,7 @@ async def board_list_lane(project: str, lane: str) -> str:
     return json.dumps(manager.list_lane(lane), indent=2)
 
 
-@mcp.tool()  # type: ignore[misc]  # Tech Debt: DT-65
+@mcp.tool()  # type: ignore[misc]
 async def board_summary(project: str) -> str:
     """
     Return a compact snapshot of all lanes: per-lane task counts plus
@@ -232,7 +236,7 @@ async def board_summary(project: str) -> str:
     return json.dumps(manager.summary(), indent=2)
 
 
-@mcp.tool()  # type: ignore[misc]  # Tech Debt: DT-65
+@mcp.tool()  # type: ignore[misc]
 async def board_orchestrate(project: str, task_ids: list[str]) -> str:
     """
     Read depends_on / blocks fields of the supplied tasks and return a
@@ -243,7 +247,7 @@ async def board_orchestrate(project: str, task_ids: list[str]) -> str:
     return json.dumps(manager.orchestrate(task_ids), indent=2)
 
 
-@mcp.tool()  # type: ignore[misc]  # Tech Debt: DT-65
+@mcp.tool()  # type: ignore[misc]
 async def board_agent_context(project: str, task_id: str) -> str:
     """
     Return a compact handoff envelope for a task (~100-150 tokens): id, title,
@@ -254,7 +258,7 @@ async def board_agent_context(project: str, task_id: str) -> str:
     return json.dumps(manager.agent_context(task_id), indent=2)
 
 
-@mcp.tool()  # type: ignore[misc]  # Tech Debt: DT-65
+@mcp.tool()  # type: ignore[misc]
 async def query_project_context(
     project: str, files: list[str], keywords: list[str]
 ) -> str:
@@ -271,7 +275,7 @@ async def query_project_context(
     )
 
 
-@mcp.tool()  # type: ignore[misc]  # Tech Debt: DT-65
+@mcp.tool()  # type: ignore[misc]
 async def board_report(
     project: str,
     audience: Literal["exec", "staff", "dev"],
