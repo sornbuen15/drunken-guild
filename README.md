@@ -62,13 +62,40 @@ The three MCP servers, the local-AI rule templates in `.guild_templates/`, and t
    ```
 6. In your configured Discord channel, type `/help` to see what you can do.
 
+### Installing it as a command
+
+Once registered, the servers can be installed globally and run from anywhere —
+no checkout path, no `--directory`, no `PYTHONPATH`:
+
+```bash
+uv tool install .
+drunken-doctor --project drunken-team
+```
+
+That gives you `drunken-init`, `drunken-doctor`, `drunken-listen` and the three
+MCP servers. Another project's `.mcp.json` then names the command and nothing
+else, which is what keeps one machine's directory layout out of another repo's
+git history:
+
+```json
+{
+  "mcpServers": {
+    "drunken-jira-mcp": { "command": "drunken-jira-mcp", "args": ["--project", "your-project"] }
+  }
+}
+```
+
+> `uv tool install` ignores `uv.lock`, so the tool environment can drift inside
+> the allowed dependency range. Pass `--with-requirements` if you need it pinned.
+
 ### Known limits
 
-- **Run from the checkout.** `uv tool install` is not supported yet: five modules
-  still derive paths from `__file__`, which resolves inside the virtualenv once
-  installed, so the daemon and the MCP servers stop agreeing on where the socket
-  is (DT-241).
 - The Discord daemon still reads `.env` directly for its own bot token. Only the
   Jira credential has moved to the registry so far.
+- The daemon and the MCP servers agree on the socket location through
+  `core.paths`, so **after upgrading, restart the daemon**. Until you do, the
+  running daemon still listens on the old path and clients report approval as
+  unavailable — they name the path they looked at, and `drunken-doctor` says so
+  too, but nothing fixes it for you.
 
 See the [Drunken-Team Guide](./Drunken-Team-Guide.md) for the full setup (including running the bot as a persistent background service) and command reference.

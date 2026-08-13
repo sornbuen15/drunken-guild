@@ -8,17 +8,23 @@ from typing import Any
 
 from mcp.server.fastmcp import FastMCP
 
+from core import paths
 from service.daemon_client import call_daemon
 
 mcp = FastMCP("drunken-discord-mcp")
 
-# Anchored to the repo root via this file's own location (not os.getcwd()) so
-# it agrees with the daemon's socket path regardless of which directory this
-# MCP stdio subprocess happens to be launched from.
-_REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
-SOCKET_PATH = os.environ.get(
-    "AGY_DAEMON_SOCKET", os.path.join(_REPO_ROOT, ".agents", "agy_daemon.sock")
-)
+
+# Resolved through core.paths, which is the only thing the daemon and this
+# client both agree on. Anchoring it to this file's own location worked from a
+# checkout and pointed inside the virtualenv once installed, at which point the
+# client reports the daemon as down while it is running.
+#
+# Called rather than captured: a container sets DRUNKEN_DAEMON_SOCKET in its
+# entrypoint, which a value frozen at import time would miss.
+def socket_path() -> str:
+    return str(paths.daemon_socket_path())
+
+
 # Generous ceiling above the daemon's own 2-attempt approval window (default
 # 15 min x 2 = 30 min) so we don't time out the socket call before the daemon
 # has a chance to escalate and answer on its own.
@@ -59,10 +65,10 @@ async def request_boss_approval(action: str, reason: str, ticket_key: str) -> st
         says Discord is unavailable, ask the Boss directly in this
         conversation instead — do not just proceed without approval.
     """
-    if not os.path.exists(SOCKET_PATH):
+    if not os.path.exists(socket_path()):
         return (
             f"Discord approval is unavailable right now (no daemon socket at "
-            f"{SOCKET_PATH} — it's either not running or was never set up). "
+            f"{socket_path()} — it's either not running or was never set up). "
             "This does NOT mean skip approval: if you're in an interactive "
             "session, ask the Boss directly here in the conversation instead. "
             "Only stop and refuse to proceed if you have no way to reach them "
@@ -77,7 +83,7 @@ async def request_boss_approval(action: str, reason: str, ticket_key: str) -> st
                 "reason": reason,
                 "ticket_key": ticket_key,
             },
-            SOCKET_PATH,
+            socket_path(),
             SOCKET_TIMEOUT_SECONDS,
         )
     except Exception as e:
@@ -107,6 +113,11 @@ def _head_sha() -> str | None:
 
     Best-effort: outside a checkout there is simply nothing to bind to, and
     that is not a reason to refuse to ask for approval.
+
+    Resolved from this process's working directory, which is the project the
+    agent is actually working in — the host launches one stdio server per
+    project. Pinning it to drunken-team's own checkout, as it used to, bound an
+    approval for work in ALPHA to a commit in a different repository.
     """
     try:
         out = subprocess.run(
@@ -114,7 +125,6 @@ def _head_sha() -> str | None:
             capture_output=True,
             text=True,
             timeout=5,
-            cwd=_REPO_ROOT,
         )
     except Exception:
         return None
@@ -123,15 +133,15 @@ def _head_sha() -> str | None:
 
 async def _call(payload: dict[str, Any]) -> dict[str, Any] | str:
     """Talk to the daemon, or explain in words why we could not."""
-    if not os.path.exists(SOCKET_PATH):
+    if not os.path.exists(socket_path()):
         return (
             f"Discord approval is unavailable right now (no daemon socket at "
-            f"{SOCKET_PATH} — it's either not running or was never set up). "
+            f"{socket_path()} — it's either not running or was never set up). "
             "This does NOT mean skip approval: if you're in an interactive "
             "session, ask the Boss directly here in the conversation instead."
         )
     try:
-        return await call_daemon(payload, SOCKET_PATH, SOCKET_TIMEOUT_SECONDS)
+        return await call_daemon(payload, socket_path(), SOCKET_TIMEOUT_SECONDS)
     except Exception as e:
         return (
             f"Discord approval is unavailable right now ({e}). This does NOT "

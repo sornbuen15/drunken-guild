@@ -6,6 +6,7 @@ import sys
 
 import discord
 
+from core import paths
 from core.context import ProjectContext
 from core.registry import ProjectRegistry
 from jira_mcp.jira_client import JiraClient
@@ -51,14 +52,38 @@ agent_runner = AgentRunner()
 approval_manager = ApprovalManager(client, int(CHANNEL_ID), agent_runner, jira_client)
 router = None
 
-# Anchored to the repo root via this file's own location, not os.getcwd() —
-# the daemon and the MCP stdio subprocess it talks to can be launched from
-# different working directories, so a cwd-relative path would silently
-# point at two different sockets.
-_REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
-SOCKET_PATH = os.environ.get(
-    "AGY_DAEMON_SOCKET", os.path.join(_REPO_ROOT, ".agents", "agy_daemon.sock")
-)
+
+def socket_path() -> str:
+    """Where this daemon listens.
+
+    Resolved through :mod:`core.paths`, the one place the daemon and every
+    client agree on. It used to be anchored to this file's own location, which
+    is right from a checkout and points inside the virtualenv once installed —
+    at which point a client reports the daemon as down while it is running.
+
+    Called rather than captured at import so a container's entrypoint can still
+    set ``DRUNKEN_DAEMON_SOCKET``.
+    """
+    return str(paths.daemon_socket_path())
+
+
+def secure_socket(path: str) -> None:
+    """Restrict the bound socket to its owner (S6).
+
+    Connecting to a unix socket requires *write* permission on it, so the mode
+    is the access control. Until now nothing set it and the result depended on
+    the process umask: the usual 022 happens to be safe, umask 000 would have
+    left it world-writable, and "safe because of how it was launched" is not a
+    control.
+
+    Missing file is not an error — a daemon must not die on startup over this
+    (principle 8); the directory above is already 0700 either way.
+    """
+    try:
+        os.chmod(path, paths.SECRET_FILE_MODE)
+    except FileNotFoundError:
+        pass
+
 
 _socket_server: asyncio.base_events.Server | None = None
 _startup_lock = asyncio.Lock()
@@ -139,13 +164,16 @@ async def _handle_socket_client(
 
 async def _start_socket_server() -> None:
     global _socket_server
-    if os.path.exists(SOCKET_PATH):
-        os.remove(SOCKET_PATH)
-    os.makedirs(os.path.dirname(SOCKET_PATH), exist_ok=True)
-    _socket_server = await asyncio.start_unix_server(
-        _handle_socket_client, path=SOCKET_PATH
-    )
-    print(f"[Socket] Approval IPC listening on {SOCKET_PATH}", flush=True)
+    path = socket_path()
+    if os.path.exists(path):
+        os.remove(path)
+    # ensure_home applies 0700 to the directory; the socket's own mode is set
+    # immediately after binding, below.
+    paths.ensure_home()
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    _socket_server = await asyncio.start_unix_server(_handle_socket_client, path=path)
+    secure_socket(path)
+    print(f"[Socket] Approval IPC listening on {path}", flush=True)
     async with _socket_server:
         await _socket_server.serve_forever()
 

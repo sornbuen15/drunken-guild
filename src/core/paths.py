@@ -30,6 +30,7 @@ ENV_REGISTRY: Final = "DRUNKEN_REGISTRY_PATH"
 ENV_SOCKET: Final = "DRUNKEN_DAEMON_SOCKET"
 ENV_SOCKET_LEGACY: Final = "AGY_DAEMON_SOCKET"
 ENV_AUTH_DB: Final = "DRUNKEN_AUTH_DB"
+ENV_PID_REGISTRY: Final = "DRUNKEN_PID_REGISTRY"
 
 DEFAULT_HOME: Final = "~/.drunken"
 
@@ -106,6 +107,16 @@ def daemon_socket_path() -> ResolvedPath:
 def auth_db_path() -> ResolvedPath:
     """Bearer-token database for HTTP mode. Consumed from 2.4.0 onwards."""
     return _under_home("auth.json", ENV_AUTH_DB)
+
+
+def pid_registry_path() -> ResolvedPath:
+    """PIDs of agent subprocesses, kept on disk so they survive a daemon crash.
+
+    A fresh runner starts with no handle on a child orphaned by the previous
+    process instance, so this is how those get reaped. It is state, not code —
+    hence here rather than next to the module that writes it.
+    """
+    return _under_home("agy_pids.json", ENV_PID_REGISTRY)
 
 
 def ensure_home() -> Path:
