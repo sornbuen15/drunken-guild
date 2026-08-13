@@ -7,6 +7,7 @@ from mcp.server.fastmcp import FastMCP
 from core.context import ProjectContext
 from core.errors import ConfigError, as_tool_result
 
+from . import assign
 from .jira_client import JiraClient
 from .jql import scope_to_project
 
@@ -54,6 +55,37 @@ async def jira_search_issues(jql: str) -> str:
     # which take a key rather than a query and are already project-bound.
     issues = await client.search_issues(scope_to_project(jql, client.project_key))
     return json.dumps(issues, indent=2)
+
+
+@mcp.tool()  # type: ignore[misc]
+@as_tool_result
+async def jira_assign(issue_key: str, assignee: str) -> str:
+    """
+    Assign an issue, or clear its assignee.
+
+    With the local board retired, this is how an agent says "this one is mine"
+    and how work is handed to another. The assignee says whose it is; the
+    status says where it is.
+
+    `assignee` accepts an email, a display name, "me" for the calling identity,
+    or "none" to unassign. A name that matches more than one assignable user is
+    refused rather than guessed — a ticket assigned to the wrong person goes
+    quiet on somebody else's queue and nothing reports it.
+    """
+    client = get_client()
+
+    if assign.is_unassign(assignee):
+        return json.dumps(await client.assign_issue(issue_key, None), indent=2)
+
+    if assign.is_self_reference(assignee):
+        account_id = await client.my_account_id()
+        return json.dumps(await client.assign_issue(issue_key, account_id), indent=2)
+
+    candidates = await client.assignable_users(assignee)
+    user = assign.pick_user(candidates, assignee)
+    result = await client.assign_issue(issue_key, str(user["accountId"]))
+    result["assignee"] = user.get("displayName")
+    return json.dumps(result, indent=2)
 
 
 @mcp.tool()  # type: ignore[misc]

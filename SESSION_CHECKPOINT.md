@@ -99,7 +99,7 @@ Anything that violates one of these is out, without further debate.
 | Transport | **Dual** — one codebase, `--transport stdio\|http`. stdio default |
 | Auth (HTTP) | **Pluggable** — static bearer bound to audience+project day one; OAuth 2.1/OIDC later |
 | mcp SDK | Pinned `>=1.28,<2`; migrating to `MCPServer` (2.x) is a separate epic |
-| `board_mcp` | **local stdio only** — it is filesystem-bound |
+| `board_mcp` | **retired, DT-250.** No project wires it. Jira is the only coordination surface — assignee says whose, status says where. Kept on disk, marked unused |
 | Secrets | Pluggable resolver, resolved **once at init** and cached (Antigravity §8.2) |
 | Git in MCP | **Kept** as workflow coordinator + security gateway, with 3 security conditions (§9.1) |
 | Roles | **Claude implements** Phase 1–6; Antigravity reviews and runs client-side acceptance tests (§10.2) |

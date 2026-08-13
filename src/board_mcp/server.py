@@ -1,4 +1,29 @@
-"""Vendor-neutral file-based Kanban board MCP server.
+"""Vendor-neutral file-based Kanban board MCP server. **UNUSED as of DT-250.**
+
+.. warning::
+
+   Nothing declares this server any more. Jira is the only coordination
+   surface: ``jira_assign`` says whose work a ticket is, and the status says
+   where it is.
+
+   It is kept rather than deleted — an agent does not delete, and marking a
+   thing unused beats removing it — so a project that genuinely wants a local
+   board can still run it. **Do not wire it back into drunken-team, ALPHA or
+   BETA.**
+
+   The reason is not that it was broken. A local board next to Jira is a
+   *second surface that can disagree with the first*, which is the failure this
+   repository spent 2026-08-13 curing: four disagreeing surfaces in DT-249, one
+   credential copied to three places in DT-248. The evidence was already on
+   disk — this project's own board held three cards, last touched 2026-07-22,
+   still using the ``DAGY-`` prefix DT-244 retired, while every real ticket of
+   that period went through Jira.
+
+   What is genuinely lost with it: claims expired after
+   :data:`~board_mcp.board.CLAIM_TTL_SECONDS` and were released automatically,
+   and a Jira assignee never expires.
+
+Original description follows.
 
 Exposes 16 tools (the original 12 from kanban-server.js, ``board_report``, and
 the DT-233 scheduling trio: ``board_block_task``, ``board_unblock_task``,
