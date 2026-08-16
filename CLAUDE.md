@@ -27,8 +27,8 @@ anyone noticed — see §6 of the checkpoint.
 `TODO` → `IN PROGRESS` → `IN REVIEW` → `DONE`. **Never skip IN REVIEW**, including for your own work.
 
 Use the `drunken-jira-mcp` tools (`jira_search_issues`, `jira_start_task`, `jira_transition_issue`,
-`jira_submit_for_review`, `jira_add_comment`). `scripts/jira_bridge.py` still exists for shell use,
-but the MCP tools are the supported path.
+`jira_submit_for_review`, `jira_add_comment`, `jira_assign`). `scripts/jira_bridge.py` still exists
+for shell use, but the MCP tools are the supported path.
 
 One ticket per phase, and each phase must merge on its own without breaking the one before it.
 
@@ -165,6 +165,20 @@ jira_assign(issue_key, "me")            # this one is mine
 jira_assign(issue_key, "Jakkawan")      # hand it over — name, email, or "none"
 jira_transition_issue(key, "In Review")
 ```
+
+### The backlog is not a second status (DT-251)
+
+A board can also have a **backlog**, and `jira_board_info` says whether this one does — probed, not
+inferred from the board's `type`, because the two do not track each other. `jira_move_to_backlog`
+and `jira_move_to_board` move work between the two.
+
+**Neither changes status.** A ticket parked in the backlog is still `IN PROGRESS` if that is what it
+was. Backlog membership answers *"is this in the current working set"*, and nothing else — read it
+as a status and you have recreated the two-surfaces problem DT-250 just closed.
+
+The agile endpoints underneath take any issue key from any project and move it, board id
+notwithstanding. Keys are therefore checked against the server's own project before the call —
+same rule as S8, and the same reason.
 
 `drunken-board-mcp` still exists and is **not wired into any project.** It is marked unused rather
 than removed, per the rule above. Do not reintroduce it, and do not create `.claude/board/` or

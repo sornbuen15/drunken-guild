@@ -95,6 +95,19 @@ Once connected, the AI Agent will automatically discover the following capabilit
 - `jira_add_comment`: Add a comment to an existing ticket.
 - `jira_start_task`: Pick up an issue and transition it to 'In Progress' in one call.
 - `jira_submit_for_review`: Transition an issue to 'In Review' and attach a PR link.
+- `jira_assign`: Set or clear an issue's assignee. With the local board retired (DT-250), this is how an agent says "this one is mine".
+- `jira_board_info`: What this project's board is and what it can do -- id, name, type, and whether it has a backlog. Capability is **probed, not inferred from type**: a `kanban` board may have no backlog while a team-managed `simple` board has one.
+- `jira_move_to_backlog`: Move active issues off the board and into its backlog.
+- `jira_move_to_board`: The way back out of the backlog.
+
+The two move tools accept several keys at once (comma- or space-separated, at
+most 50 per call, which is Jira's limit) and refuse a key from any other
+project before sending anything -- the underlying `/rest/agile/1.0` endpoints
+take any key from any project and would move it without complaint.
+
+**Neither move changes status.** An issue parked in the backlog keeps the
+status it had; only where it appears changes. Use `jira_transition_issue` for
+status.
 
 ### Resources (Context Reading)
 - `jira://board`: Instantly fetches the active board (To Do, In Progress, In Review) for the configured default project.

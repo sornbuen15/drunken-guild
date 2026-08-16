@@ -7,9 +7,19 @@ from mcp.server.fastmcp import FastMCP
 from core.context import ProjectContext
 from core.errors import ConfigError, as_tool_result
 
-from . import assign
-from .jira_client import JiraClient
+from . import assign, backlog
+from .jira_client import BoardProfile, JiraClient
 from .jql import scope_to_project
+
+#: Said in every move result, because it is the thing an agent will otherwise
+#: assume. Backlog membership and status are independent: a ticket parked in
+#: the backlog keeps the status it had. Reading "moved to backlog" as "no
+#: longer In Progress" would make board-versus-backlog a second coordination
+#: surface that can disagree with status — the failure DT-250 cured.
+_NOT_A_STATUS = (
+    "Backlog membership is not status. These issues keep the status they had; "
+    "only where they appear changed. Use jira_transition_issue to change status."
+)
 
 # Create the FastMCP server instance
 mcp = FastMCP("drunken-jira-mcp")
@@ -104,6 +114,120 @@ async def jira_create_issue(
     out = json.dumps(res, indent=2)
     warning = await client.board_warning()
     return f"{out}\n\n⚠ {warning}" if warning else out
+
+
+def _require_backlog_board(profile: BoardProfile, project_key: str) -> int:
+    """The board id to move against, or a refusal that says what to do instead.
+
+    Derived from the project this server was launched for. The agent never
+    passes a board id — same rule as S2: the binding is what the server was
+    started with, never an argument to a tool.
+    """
+    if not profile.known:
+        raise ConfigError(
+            f"Could not reach Jira's agile API to find {project_key}'s board.",
+            remediation=(
+                "Check the credential with `drunken-doctor`, then try again. "
+                "This is a lookup failure rather than a missing board."
+            ),
+        )
+
+    if profile.id is None:
+        raise ConfigError(
+            f"{project_key} has no agile board, so it has no backlog to move "
+            "work into. A business-type Jira project cannot have one.",
+            remediation=(
+                "The work has to live in a software-type project to have a "
+                "board. Nothing else is affected: search, transition, assign "
+                "and comment all work on a business-type project. See DT-237."
+            ),
+        )
+
+    if profile.backlog is False:
+        raise ConfigError(
+            f"{project_key}'s board ({profile.name!r}, type {profile.type!r}) "
+            "has no backlog, so there is nowhere to move issues to or from.",
+            remediation=(
+                "Enable the backlog for this board in Jira's board settings, or "
+                "use jira_transition_issue to move work between columns instead. "
+                "Board type does not decide this — a kanban board can have a "
+                "backlog and this one does not."
+            ),
+        )
+
+    return int(profile.id)
+
+
+@mcp.tool()  # type: ignore[misc]
+@as_tool_result
+async def jira_board_info() -> str:
+    """
+    What this project's Jira board is, and what it can actually do.
+
+    Reports the board's id, name and type, and whether it has a backlog — the
+    latter probed rather than inferred, because type does not predict it. A
+    kanban board may have no backlog while a team-managed 'simple' board has
+    one. `backlog: null` means the question could not be answered, which is not
+    the same as no.
+
+    Looked up once per process and cached, so asking is free after the first
+    call.
+    """
+    client = get_client()
+    profile = await client.board_profile()
+    return json.dumps(
+        {
+            "project": client.project_key,
+            "board": {"id": profile.id, "name": profile.name, "type": profile.type},
+            "backlog": profile.backlog,
+            "sprints": False,
+            "known": profile.known,
+            "note": (
+                "No board on this site supports sprints, surveyed 2026-08-16. "
+                "Backlog membership is independent of status."
+            ),
+        },
+        indent=2,
+    )
+
+
+@mcp.tool()  # type: ignore[misc]
+@as_tool_result
+async def jira_move_to_backlog(issue_keys: str) -> str:
+    """
+    Move active issues off this project's board and into its backlog.
+
+    `issue_keys` is one key or several, separated by commas or spaces, e.g.
+    "DT-251" or "DT-251, DT-250". At most 50 per call, which is Jira's limit.
+
+    Only issues from the project this server was launched for can be moved; a
+    key from another project is refused before the request is sent, because the
+    underlying agile endpoint would otherwise move it without complaint.
+
+    This does not change status. A ticket parked in the backlog keeps the status
+    it had — use jira_transition_issue for that.
+    """
+    client = get_client()
+    keys = backlog.scope_keys(issue_keys, client.project_key)
+    board_id = _require_backlog_board(await client.board_profile(), client.project_key)
+    result = await client.move_to_backlog(board_id, keys)
+    return json.dumps({**result, "note": _NOT_A_STATUS}, indent=2)
+
+
+@mcp.tool()  # type: ignore[misc]
+@as_tool_result
+async def jira_move_to_board(issue_keys: str) -> str:
+    """
+    Move issues out of this project's backlog and back onto its board.
+
+    The way back from jira_move_to_backlog. Same rules: keys from this project
+    only, at most 50 at a time, and status is left exactly as it was.
+    """
+    client = get_client()
+    keys = backlog.scope_keys(issue_keys, client.project_key)
+    board_id = _require_backlog_board(await client.board_profile(), client.project_key)
+    result = await client.move_to_board(board_id, keys)
+    return json.dumps({**result, "note": _NOT_A_STATUS}, indent=2)
 
 
 @mcp.tool()  # type: ignore[misc]
