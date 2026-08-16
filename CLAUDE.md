@@ -22,6 +22,23 @@ anyone noticed — see §6 of the checkpoint.
 
 `bandit -ll` and `pip-audit --strict` also gate CI; `uvx bandit -ll -q -r src/` runs it locally.
 
+## What a run cost (DT-95)
+
+```bash
+uv run drunken-usage --project drunken-team --by ticket
+uv run drunken-usage --project drunken-team --by model --rates ~/.drunken/usage_rates.json
+```
+
+Reads the host's own transcripts — nothing is instrumented, nothing is sent anywhere, and it works
+retroactively over sessions already on disk. `--by ticket` works because a branch named
+`feature/DT-251-slug` carries its key.
+
+Two things it will not do, both deliberate. **It does not know prices.** Rates are an operator input
+(`{model: {input, output, cache_read, cache_creation}}`, USD per million tokens); without them you
+get tokens, which are a fact. A model that is unpriced — or priced incompletely — reports no cost
+rather than a smaller one. **It counts Claude only.** Antigravity's usage lives under `~/.gemini/`,
+which is out of bounds by the rule below, so every report says what it did not see.
+
 ## Jira is the source of truth
 
 `TODO` → `IN PROGRESS` → `IN REVIEW` → `DONE`. **Never skip IN REVIEW**, including for your own work.
