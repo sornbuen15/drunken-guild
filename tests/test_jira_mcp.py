@@ -95,8 +95,10 @@ class _FakeClient(JiraClient):
         self.email = "e@x"
         self.token = "t"  # noqa: S105
         self.project_key = "ALPHA"
-        self._board_warning = None
-        self._board_checked = False
+        # DT-251 replaced the two warning-specific caches with one board
+        # profile; the warning is now derived from it. What this class stubs,
+        # and what the tests below assert, are unchanged.
+        self._profile = None
         self._boards = boards
         self._fail = fail
         self.calls = 0
@@ -106,6 +108,11 @@ class _FakeClient(JiraClient):
         if self._fail:
             raise RuntimeError("agile API unreachable")
         return self._boards
+
+    async def _probe_backlog(self, board_id):
+        """Stubbed out: the warning does not depend on it, and a real probe
+        here would reach the network from a unit test."""
+        return None
 
 
 @pytest.mark.asyncio
