@@ -3,7 +3,7 @@
 Short-term memory and context handoff between AI coding sessions.
 **Read this at the start of a session and update it before ending your turn.**
 
-Last updated: 2026-08-13 · `develop` is past **2.2.0**, unreleased · tagging **2.3.0** is the next
+Last updated: 2026-08-16 · `develop` is past **2.2.0**, unreleased · tagging **2.3.0** is the next
 milestone
 
 ---
@@ -16,10 +16,16 @@ ever holding a credential.
 
 | | |
 |---|---|
-| Branch | `develop` @ `bb8a37a`, 578 tests green |
-| Merged 2026-08-13 | DT-238 · DT-242 · DT-241 · DT-243 · DT-244 · DT-239 · DT-245 · DT-240 · DT-246 · **DT-247** (#94) · #95 · **DT-249** (#96) · **DT-236** (#97) · **DT-225** (#98) |
-| Open PRs | **none.** `sornbuen15/isac#2` merged 07:41 |
-| Jira | **DT-225 and DT-236 both closed** · DT-227 closed as cut · DT-248 filed · DT-95/226/228/237/248 in To Do |
+| Branch | `develop` @ `cc3b07f`, 578 tests green · `feature/DT-251-board-backlog` @ `b577e07`, 625 green |
+| Merged 2026-08-13 | DT-238 · DT-242 · DT-241 · DT-243 · DT-244 · DT-239 · DT-245 · DT-240 · DT-246 · **DT-247** (#94) · #95 · **DT-249** (#96, #99) · **DT-236** (#97) · **DT-225** (#98) · **DT-250** (#100, #102) |
+| Open PRs | **#103 — DT-251**, board capability + backlog moves. Awaiting the Boss |
+| Jira | **DT-225 and DT-236 both closed** · DT-227 closed as cut · DT-251 filed and In Review · DT-95/226/228/237/248 in To Do |
+
+**⚠️ DT-249 and DT-250 are still `In Review` in Jira although #99, #100 and #102 all merged.** This
+is §5's lesson running backwards: there, a ticket said IN REVIEW while nothing was merged; here the
+code is on the trunk while Jira still says it is being looked at. Same cost either way — a surface
+that disagrees with `origin/develop`. Closing them needs the Boss; the agent's transition was
+refused by the permission classifier and was deliberately not routed around.
 
 **DT-225 is done in full** — S6 went with DT-241, S1/S2/S8 with #98. **DT-236 is done** — the thing
 the Boss originally asked for, working and proven against live Discord. The two oldest open items in
@@ -279,6 +285,8 @@ throwaway venv. Touches nothing of yours. 22 checks.
 | — | ✅ DT-247 — Discord config from the registry, and TWA's last stale token (#94) |
 | — | ✅ DT-249 — docs/Jira truth alignment (#96) |
 | — | ⬜ DT-237, then **tag 2.3.0** |
+| — | ✅ DT-250 — three-part layout, and the local board retired (#100, #102) |
+| — | ⬜ **DT-251 — the board's real capabilities, and board ↔ backlog moves (#103)**. See §15 |
 | **2.4.0** | ✅ **DT-236 — the PreToolUse hook. The thing Boss actually asked for** (#97). Proven against live Discord; see §4 |
 | — | ✅ **DT-225 closed in full** — S6 with DT-241, S1/S2/S8 with #98 |
 | **later** | DT-226 dual transport + bearer auth. No longer *blocked* by S1/S2/S8, and not thereby approved — review it on its own merits before opening a transport |
@@ -436,7 +444,12 @@ acceptance run, none of them a product defect:
    arrives as a *single* argv entry, argparse ignores it, and the S2 boundary looks broken when it
    is not. This one reproduced twice and was nearly reported as a real bug.
 
-All three failed *safe* — they under-reported success. The lesson is not to trust a harness more than
+4. **The agile API's reads lag its writes by a beat**, and `GET /board/{id}/issue` on a team-managed
+   board returns *backlog* issues too, so it is not a membership test. DT-251's first round-trip run
+   therefore showed each move landing one step late and looking inverted, which read as swapped
+   endpoints. Re-run with settle time, reading only the backlog list, it is clean.
+
+All four failed *safe* — they under-reported success. The lesson is not to trust a harness more than
 the thing it is testing: pass argv as an array, keep `timeout` outside `env -i`, and read the summary
 line rather than grepping for a word that appears in it.
 
@@ -551,3 +564,50 @@ recording that those hashes no longer resolve, and why.
 > *prose* as the command itself. Both times the fix was to write the instruction without the literal
 > string on its own line, or to use `Write` rather than a shell heredoc. It errs toward a prompt,
 > which is the direction chosen, but it is worth knowing before documenting a blocked command.
+
+## 15. DT-251 — what the board can actually do (#103, in review)
+
+`jira_mcp` had touched `/rest/agile/1.0` in exactly one place — a lookup asking whether a board
+exists, for DT-234's warning. It never read what the board *is* and never asked what it can *do*.
+`jira://board` is not the board either: it is a JQL search with `'To Do', 'In Progress', 'In Review'`
+hardcoded, so a project whose columns are named otherwise gets nothing, silently. S4's shape again.
+
+Surveyed live on 2026-08-16, before any code was written:
+
+| board | project | type | backlog | sprints |
+|---|---|---|---|---|
+| 68 Drunken-Agy | DAGY | `kanban` | **no** | no |
+| 71 DP board | DC | `simple` | yes, 5 issues | no |
+| 72 DT board | DT | `simple` | yes | no |
+| 105 TFH board | TFH | `simple` | yes | no |
+
+**`type` does not predict capability**, which is what decided the design. The `kanban` board has no
+backlog while the `simple` ones do, and a team-managed project can switch sprints on without its type
+changing. So capability is *probed* — Jira answers in plain words, `Backlogs are not supported on
+this board` — and type is only reported. **No board here supports sprints**, now established twice,
+so a sprint branch would be code with no caller; the gap is one endpoint wide if that ever changes.
+
+New: `BoardProfile` (cached once per process, and `board_warning()` now derives from it),
+`JiraHTTPError` (keeps the status code `_make_request_sync` used to flatten away), and three tools —
+`jira_board_info`, `jira_move_to_backlog`, `jira_move_to_board`. Both directions deliberately: a tool
+that only moves work out of sight is a one-way door.
+
+**Two things not to reverse.**
+
+- **`POST /rest/agile/1.0/backlog/{boardId}/issue` takes any issue key from any project and moves
+  it.** The board id constrains nothing, and one credential reaches DT, TWA and ISAC. Keys are
+  checked against the server's own project *before* the call, compared whole rather than by prefix
+  (`DTX-1` starts with `DT`), and one foreign key refuses the whole batch — a half-move that nothing
+  recorded is the hardest state to reason back out of. S8 in a new place, same answer.
+- **Backlog membership is not status**, and every result says so. A ticket parked in the backlog
+  keeps the status it had. Read it as a status and board-versus-backlog becomes exactly the second
+  disagreeing surface DT-250 removed.
+
+Three states are kept apart in `BoardProfile` and must not be collapsed: *lookup failed*, *confirmed
+no board*, and *board present, backlog question unanswered*. Folding the last into "no backlog"
+would invent a limitation from a timeout and refuse work that would have succeeded.
+
+Proven through real MCP stdio against live Jira: 10 tools listed, `ISAC-5` / `DTX-1` / a non-key /
+51 keys each refused with a next step and never sent, and DT-251 moved to the backlog
+(`backlog_total` 0 → 1) and back (1 → 0) with its status `In Progress` throughout. See §13's fourth
+false negative for why the first run of that round trip looked broken.

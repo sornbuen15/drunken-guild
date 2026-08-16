@@ -1,15 +1,58 @@
 import asyncio
 import base64
 import json
+import urllib.error
 import urllib.parse
 import urllib.request
+from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
 from core.context import ProjectContext
 from core.errors import DrunkenError
 from core.http import open_url
 
-from . import assign
+from . import assign, backlog
+
+
+class JiraHTTPError(RuntimeError):
+    """A Jira response that failed, with its HTTP status kept.
+
+    Subclasses ``RuntimeError`` deliberately: every existing caller catches that
+    and must keep working unchanged. What it adds is ``status``, because some
+    400s are answers rather than failures — ``Tried to move to backlog on board
+    without backlog`` is Jira telling us a capability is absent, and the only
+    other way to recognise it was to match on the text of a flattened message.
+    """
+
+    def __init__(self, status: int, message: str) -> None:
+        super().__init__(message)
+        self.status = status
+
+
+@dataclass(frozen=True)
+class BoardProfile:
+    """What this project's board is, and what it can actually do.
+
+    ``type`` is recorded but never used to decide capability. Surveyed live on
+    2026-08-16: board 68 is ``kanban`` and has no backlog, while three ``simple``
+    boards have one, and a team-managed project can switch sprints on without
+    its type changing at all. So capability is probed and type is only reported.
+
+    Three states matter and must not collapse into each other:
+
+    * ``known=False`` — the lookup failed. We know nothing, and saying "no
+      board" would be inventing a fact.
+    * ``known=True, id=None`` — confirmed: this project has no board. A
+      business-type Jira project (TWA, ISAC) cannot have one.
+    * ``backlog=None`` — there is a board, but the backlog probe could not
+      answer. Not the same as ``False``; see :meth:`JiraClient._probe_backlog`.
+    """
+
+    id: Optional[int] = None
+    name: Optional[str] = None
+    type: Optional[str] = None
+    backlog: Optional[bool] = None
+    known: bool = True
 
 
 def parse_response(body: str) -> Any:
@@ -56,6 +99,16 @@ def _make_request_sync(
         # generic RuntimeError here would throw away the one part the agent
         # can act on.
         raise
+    except urllib.error.HTTPError as e:
+        # Same message as the generic branch below, so nothing that reads it
+        # changes -- but the status survives, which is what lets a caller tell
+        # "this board has no backlog" (400) from "Jira is unreachable".
+        body = ""
+        try:
+            body = " " + e.read().decode("utf-8")
+        except Exception:
+            pass
+        raise JiraHTTPError(e.code, f"Jira API Request failed: {e}{body}") from None
     except Exception as e:
         error_msg = str(e)
         if hasattr(e, "read"):
@@ -127,8 +180,7 @@ class JiraClient:
         # process, same shape as the secrets resolver (checkpoint §3). The
         # agent never sees or passes a board id, which keeps it out of the
         # token budget and out of reach as an argument.
-        self._board_warning: Optional[str] = None
-        self._board_checked = False
+        self._profile: Optional[BoardProfile] = None
 
     async def _fetch_boards(self) -> List[Dict[str, Any]]:
         """Agile boards for this project. Separate API from everything else
@@ -142,6 +194,77 @@ class JiraClient:
         values: List[Dict[str, Any]] = res.get("values", [])
         return values
 
+    async def _probe_backlog(self, board_id: int) -> Optional[bool]:
+        """Whether *board_id* has a backlog, asked rather than inferred.
+
+        ``GET /board/{id}/backlog`` answers 400 *"Backlogs are not supported on
+        this board"* when it does not, which is a fact stated by the only
+        authority on it. ``maxResults=0`` because the answer is the status code,
+        not the issues.
+
+        Returns ``None`` when the probe itself failed. That is not the same as
+        ``False``: reporting "no backlog" because a request timed out would
+        invent a limitation the board does not have, and every caller would then
+        refuse work that would have succeeded.
+
+        Column names are not a substitute for this. Board 68's first column is
+        literally called *Backlog* and the board has no backlog.
+        """
+        url = f"{self.base_url}/rest/agile/1.0/board/{board_id}/backlog?maxResults=0"
+        try:
+            await make_request(url, email=self.email, token=self.token)
+        except JiraHTTPError as exc:
+            if exc.status == 400 and backlog.is_no_backlog_response(str(exc)):
+                return False
+            return None
+        except Exception:
+            return None
+        return True
+
+    async def board_profile(self) -> BoardProfile:
+        """This project's board and what it can do. One lookup per process.
+
+        Cached including the healthy answer, so the common case costs two calls
+        for the life of the server and nothing thereafter.
+        """
+        if self._profile is None:
+            self._profile = await self._build_profile()
+        return self._profile
+
+    async def _build_profile(self) -> BoardProfile:
+        try:
+            boards = await self._fetch_boards()
+        except Exception:
+            # Ignorance, not a finding. Everything downstream distinguishes the
+            # two, because "we could not ask" and "there is no board" lead to
+            # different advice.
+            return BoardProfile(known=False)
+
+        if not boards:
+            return BoardProfile(known=True)
+
+        board = boards[0]
+        board_id = board.get("id")
+
+        has_backlog: Optional[bool] = None
+        if board_id:
+            try:
+                has_backlog = await self._probe_backlog(board_id)
+            except Exception:
+                # The board is real and known even when the second question
+                # could not be asked. Losing the whole profile over the
+                # optional half of it would be the cure being worse than the
+                # disease again.
+                has_backlog = None
+
+        return BoardProfile(
+            id=board_id,
+            name=board.get("name"),
+            type=board.get("type"),
+            backlog=has_backlog,
+            known=True,
+        )
+
     async def board_warning(self) -> Optional[str]:
         """One line of warning when work filed here will not appear anywhere.
 
@@ -151,30 +274,61 @@ class JiraClient:
         succeeds and still returns a key; it is simply invisible afterwards.
         Nothing errors, which is what makes it worth saying out loud.
 
-        Looked up once per process and cached, including the healthy answer,
-        so the common case costs one call for the life of the server and no
-        tokens at all.
+        Advisory: a lookup that failed says nothing at all. This exists to add
+        a warning, so letting it fail a create would make the cure worse than
+        the disease.
         """
-        if self._board_checked:
-            return self._board_warning
-
-        self._board_checked = True
-        try:
-            boards = await self._fetch_boards()
-        except Exception:
-            # Advisory only. This exists to add a warning, so failing the
-            # caller's actual work over it would make the cure worse than
-            # the disease — stay quiet and let the real call speak.
+        profile = await self.board_profile()
+        if not profile.known or profile.id is not None:
             return None
+        return (
+            f"{self.project_key} has no agile board (a business-type Jira "
+            "project cannot have one), so this issue will not appear on any "
+            "board. It is still reachable by key and by JQL. To get a board, "
+            "the work has to live in a software-type project."
+        )
 
-        if not boards:
-            self._board_warning = (
-                f"{self.project_key} has no agile board (a business-type Jira "
-                "project cannot have one), so this issue will not appear on any "
-                "board. It is still reachable by key and by JQL. To get a board, "
-                "the work has to live in a software-type project."
-            )
-        return self._board_warning
+    async def _move_issues(self, url: str, issue_keys: List[str]) -> Dict[str, Any]:
+        """POST a move and read what Jira actually did.
+
+        Both endpoints answer 204 with an empty body on a clean move, and 207
+        with per-issue ``entries`` when only some of them went. A 207 is not a
+        success, and reporting it as one would leave the caller believing a
+        batch moved when half of it did not.
+        """
+        res = await make_request(
+            url,
+            method="POST",
+            payload={"issues": issue_keys},
+            email=self.email,
+            token=self.token,
+        )
+        entries = res.get("entries") if isinstance(res, dict) else None
+        if entries:
+            return {"ok": False, "requested": issue_keys, "entries": entries}
+        return {"ok": True, "moved": issue_keys}
+
+    async def move_to_backlog(
+        self, board_id: int, issue_keys: List[str]
+    ) -> Dict[str, Any]:
+        """Take issues off the board and put them in its backlog.
+
+        Keys are the caller's responsibility to scope — see
+        :func:`jira_mcp.backlog.scope_keys`, which the tool runs first. This
+        endpoint will happily move another project's issues.
+        """
+        return await self._move_issues(
+            f"{self.base_url}/rest/agile/1.0/backlog/{board_id}/issue", issue_keys
+        )
+
+    async def move_to_board(
+        self, board_id: int, issue_keys: List[str]
+    ) -> Dict[str, Any]:
+        """Put backlog issues back onto the board. The way home from
+        :meth:`move_to_backlog`."""
+        return await self._move_issues(
+            f"{self.base_url}/rest/agile/1.0/board/{board_id}/issue", issue_keys
+        )
 
     async def search_issues(self, jql: str) -> List[Dict[str, Any]]:
         url = f"{self.base_url}/rest/api/3/search/jql?jql={urllib.parse.quote(jql)}&fields=summary,description,status,priority,assignee"
