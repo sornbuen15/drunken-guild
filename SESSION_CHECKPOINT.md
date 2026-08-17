@@ -19,7 +19,8 @@ ever holding a credential.
 | Branch | `develop` @ `04f29f5`, **653 tests green** |
 | Merged 2026-08-13 | DT-238 · DT-242 · DT-241 · DT-243 · DT-244 · DT-239 · DT-245 · DT-240 · DT-246 · **DT-247** (#94) · #95 · **DT-249** (#96, #99) · **DT-236** (#97) · **DT-225** (#98) · **DT-250** (#100, #102) |
 | Merged 2026-08-16 | **DT-251** (#103) board capability + backlog moves · **DT-95** (#104) usage accounting |
-| Open PRs | **none** |
+| Merged 2026-08-17 | #105 docs · **DT-252** (#106) doctor sees the deployment · #107 CI fix |
+| Open PRs | **none.** #105, #106, #107 merged 2026-08-17 |
 | Jira | DT-95 · DT-225 · DT-236 · DT-249 · DT-250 · DT-251 all **Done** · DT-227 cut · **To Do: DT-226, DT-228, DT-237, DT-248** |
 
 Checked rather than assumed, because this section has been wrong before: `origin/develop` is
@@ -770,3 +771,36 @@ back once something depends on it.
 wording that flagged S2 in `board_mcp`. It is **not** the same finding: this server is a thin client
 to the daemon over the 0600 unix socket, the daemon holds the Discord config, and DT-227 settled that
 one channel serves all. Recorded here so the next reader does not spend an hour rediscovering that.
+
+
+## 18. The acceptance run before 2.3.0 — 2026-08-17
+
+Run because "it works" had been asserted more often than observed. Everything here was watched
+happening. Full record on **DT-253**, which was driven through the workflow to produce it.
+
+```
+away mode              on / status / off, and the switch can turn itself off
+permission rules       7/7 at ~10µs — rm -rf plain, behind `git status &&`, inside $( ),
+                       force-push, hard reset; `drunken-away off` still allowed
+ticket lifecycle       8/8 — create, start, assign, backlog, board, comment, review, Done, unassign
+boundaries             cross-project key, DTX-1 prefix, 51 keys all refused; S8 cross-project = 0
+installed binaries     from cwd=/ — jira 10 tools ×2 projects, discord 3, board 16
+S2 on the deployment   own project served · beta refused · unbound refused
+daemon                 listener alive, socket srw------- (S6 holding in the wild)
+doctor                 drunken-team 14 ok · alpha 14 ok · beta 13 ok + 1 correct warning
+deployment             tool_env all 7 modules · mcp_pin warns 1.29.0 vs lock 1.28.1
+```
+
+**A fifth false negative for §13, and it nearly became a security report.** The first S2 probe printed
+`SERVED` on all three rows. It had called `board_list_tasks`, which does not exist — the tool is
+`board_available_tasks` — so every call returned `Unknown tool`, and the probe's test for the word
+"error" did not match that string and scored it a pass. Read what the thing actually said; do not
+grep for a word you expect to be absent.
+
+**And a sixth, which cost a red trunk.** DT-252's own test asserted `not report.failed` over the
+whole doctor report. That is clean only on a machine that has a registry; CI has none, so
+`registry.file` is a legitimate `fail` there. #106 merged before the correction did, `develop` went
+red at `69580fd`, and #107 fixed it. The same CI log confirmed the new check working as designed —
+`deployment.tool_env` reported `skip` on a runner with no `uv tool` install. **The code was right and
+the test depended on the developer's own state**, which is S9's two-sources problem in a different
+hat, inside the very ticket about deployments differing from checkouts.
