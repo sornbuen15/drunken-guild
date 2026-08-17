@@ -178,8 +178,21 @@ class TestItStillDoesWhatItDid:
         report = doctor.run_doctor(offline=True)
         assert _named(report, name) is not None
 
-    def test_the_new_check_does_not_make_a_healthy_run_fail(self) -> None:
+    def test_the_new_checks_never_raise_the_exit_code(self) -> None:
         """A warning is a warning. `doctor` exits non-zero only on failure, and
-        a tool env that is one merge behind must not break anybody's CI."""
+        a tool env that is one merge behind must not break anybody's CI.
+
+        Asserted on the new checks alone, not on `report.failed`. The first
+        version of this test asserted the whole report was clean and passed
+        only because the machine it was written on happens to have a registry;
+        CI has none, `registry.file` is a legitimate `fail` there, and the test
+        went red for a reason that had nothing to do with what it was testing.
+        A test that depends on the developer's own state is S9's two-sources
+        problem wearing a different hat — and `verify_clean_install.sh` exists
+        precisely because this repo keeps rediscovering it.
+        """
         report = doctor.run_doctor(offline=True)
-        assert not report.failed
+
+        deployment = [c for c in report.checks if c.name.startswith("deployment.")]
+        assert deployment, "the new checks must run in every environment"
+        assert [c for c in deployment if c.status == "fail"] == []
