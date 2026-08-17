@@ -16,16 +16,15 @@ ever holding a credential.
 
 | | |
 |---|---|
-| Branch | `develop` @ `cc3b07f`, 578 tests green · `feature/DT-251-board-backlog` @ `b577e07`, 625 green |
+| Branch | `develop` @ `04f29f5`, **653 tests green** |
 | Merged 2026-08-13 | DT-238 · DT-242 · DT-241 · DT-243 · DT-244 · DT-239 · DT-245 · DT-240 · DT-246 · **DT-247** (#94) · #95 · **DT-249** (#96, #99) · **DT-236** (#97) · **DT-225** (#98) · **DT-250** (#100, #102) |
-| Open PRs | **#103 — DT-251**, board capability + backlog moves. Awaiting the Boss |
-| Jira | **DT-225 and DT-236 both closed** · DT-227 closed as cut · DT-251 filed and In Review · DT-95/226/228/237/248 in To Do |
+| Merged 2026-08-16 | **DT-251** (#103) board capability + backlog moves · **DT-95** (#104) usage accounting |
+| Open PRs | **none** |
+| Jira | DT-95 · DT-225 · DT-236 · DT-249 · DT-250 · DT-251 all **Done** · DT-227 cut · **To Do: DT-226, DT-228, DT-237, DT-248** |
 
-**⚠️ DT-249 and DT-250 are still `In Review` in Jira although #99, #100 and #102 all merged.** This
-is §5's lesson running backwards: there, a ticket said IN REVIEW while nothing was merged; here the
-code is on the trunk while Jira still says it is being looked at. Same cost either way — a surface
-that disagrees with `origin/develop`. Closing them needs the Boss; the agent's transition was
-refused by the permission classifier and was deliberately not routed around.
+Checked rather than assumed, because this section has been wrong before: `origin/develop` is
+`04f29f5`, #103 and #104 both report `MERGED`, and Jira agrees with both. When updating this table,
+verify the same three things — the file's own §5 and the box below are what happens otherwise.
 
 **DT-225 is done in full** — S6 went with DT-241, S1/S2/S8 with #98. **DT-236 is done** — the thing
 the Boss originally asked for, working and proven against live Discord. The two oldest open items in
@@ -49,24 +48,26 @@ you follow PR #95's branch name to a ticket, that is why it does not describe th
 
 ### Next, in order
 
-1. **Refresh the installed tool environment — do this before believing anything is deployed.**
-   `~/.local/bin/drunken-*` symlinks into `~/.local/share/uv/tools/drunken-team/`, and **that is what
-   Antigravity's `mcp_config.json` launches.** Checked after #97 and #98: `core.permission_rules`,
-   `core.away`, `service.approval_hook` and `jira_mcp.jql` are all absent there, and
-   `board_mcp.server` has no `_authorize`. **Merging a security fix does not deploy it to the host
-   that actually runs it.** Until it is reinstalled, Antigravity's board server still serves any
-   project. Same family as §10.3, but with teeth.
-2. **DT-250 — the three-part project layout.** Boss's rule: source code, drunken config and the AI
-   layer never mix, and only source goes to git. Applies to this repo too. **TWA is done** and is now
-   the reference implementation; **ISAC needs the Boss to run the history rewrite** — see §14.
-3. **Two `.env` files still hold the revoked token** — `drunken-team/.env` and `tff-web-app/.env`.
-   Nothing of ours reads them, but they are traps for anyone running the vendored copies. Same rule:
-   the Boss clears them, not an agent.
-4. **DT-237, then tag 2.3.0** — noting that DT-237 is a *decision* the Boss deferred, so it is worth
-   asking whether the tag should wait on it at all. DT-237's own description says doing nothing is a
-   legitimate outcome.
-5. **DT-226** is no longer blocked by S1/S2/S8, and is not thereby approved. Review it on its own
-   merits before opening a transport.
+**For the Boss, because an agent is refused these:**
+
+1. **ISAC's history rewrite** — every step is the Boss's, and step 5 is a force-push. See §14.
+2. **Two `.env` files still hold the revoked token** — `drunken-team/.env` and `tff-web-app/.env`.
+   Nothing of ours reads them, but they are traps for anyone running the vendored copies. Also at the
+   TWA wrapper: `.claude/jira_token.json` and a TLS private key. Reading `.env` is denied and an
+   agent does not delete.
+3. **`$DRUNKEN_HOME/agy_pids.json`** — orphaned by DT-244's rename. `pids.json` is the live one.
+4. **DT-237, then tag 2.3.0** — DT-237 is a *decision* the Boss deferred, and doing nothing is a
+   legitimate outcome by its own description, so the tag probably should not wait on it.
+
+**For whoever picks this up next:**
+
+5. **DT-226** is no longer blocked by S1/S2/S8, and is not thereby approved. Reviewed on its own
+   merits on 2026-08-16 — see §16 for what that review found and what it recommends.
+6. **DT-228** Phase 6 config generator. It must emit `--with-requirements`; see §10.3.
+
+*(The old item 1 here — "refresh the installed tool environment" — is done. The env was reinstalled
+from `04f29f5` on 2026-08-16 and every module merged since is present. §10.3 records what that entry
+correctly generalises to.)*
 
 ### 🔑 The Jira token was rotated on 2026-08-13
 
@@ -286,10 +287,11 @@ throwaway venv. Touches nothing of yours. 22 checks.
 | — | ✅ DT-249 — docs/Jira truth alignment (#96) |
 | — | ⬜ DT-237, then **tag 2.3.0** |
 | — | ✅ DT-250 — three-part layout, and the local board retired (#100, #102) |
-| — | ⬜ **DT-251 — the board's real capabilities, and board ↔ backlog moves (#103)**. See §15 |
+| — | ✅ **DT-251 — the board's real capabilities, and board ↔ backlog moves** (#103). See §15 |
+| — | ✅ **DT-95 — what a run cost, from the host's own transcripts** (#104). See §16 |
 | **2.4.0** | ✅ **DT-236 — the PreToolUse hook. The thing Boss actually asked for** (#97). Proven against live Discord; see §4 |
 | — | ✅ **DT-225 closed in full** — S6 with DT-241, S1/S2/S8 with #98 |
-| **later** | DT-226 dual transport + bearer auth. No longer *blocked* by S1/S2/S8, and not thereby approved — review it on its own merits before opening a transport |
+| **later** | DT-226 dual transport + bearer auth. No longer *blocked* by S1/S2/S8, and not thereby approved. **Reviewed 2026-08-16 — see §17 for the finding and the recommendation** |
 | ~~2.5.0~~ | ~~Discord daemon multi-tenant~~ — **DT-227 cut.** Boss: nobody drives more than one project at a time, and doing so burns tokens for nothing. One channel serves all |
 | **3.0.0** | Removals only: migrate to the mcp 2.x SDK. `--workspace` and `AGY_DAEMON_SOCKET` are already gone (DT-224, DT-244) |
 
@@ -299,23 +301,30 @@ throwaway venv. Touches nothing of yours. 22 checks.
    released. This is a release decision, not drift. *(The old entry here said local `main` had
    diverged from `origin/main` by 20 files. It has not: both are `3d18c2e`, 0 ahead, 0 behind.
    DT-230 closed as stale.)*
-2. **24 bandit LOW findings** — mostly `try/except/pass` in `service/`. Not gated, not hidden.
-3. **The installed tool environment is a separate deployment, and nothing updates it.** This is the
-   worst entry on this list. `~/.local/bin/drunken-*` symlinks into
-   `~/.local/share/uv/tools/drunken-team/`, and **that is what Antigravity's `mcp_config.json`
-   launches** — not this checkout. Verified straight after #97 and #98 merged:
+2. **28 bandit LOW findings** — 18 of them `try/except/pass`, concentrated in `service/`
+   (`discord_runner` 10, `discord_utils` 3, `discord_router` 2). Counted 2026-08-16; the entry said
+   24 and had not been recounted since. **Not gated, not hidden, and deliberately not chased.** Every
+   one sits in a path that is tolerant on purpose — a transcript half-written while being read, an
+   error body that may not decode, a reminder that must not fail the thing it is reminding about.
+   Sprinkling `# nosec` across all 28 would weaken the signal from a real one, which is the whole
+   reason `core/http.py` carries exactly one. `core/usage.py` added none: its handlers return an
+   answer rather than swallowing.
+3. **The installed tool environment is a separate deployment, and nothing updates it.**
+   `~/.local/bin/drunken-*` symlinks into `~/.local/share/uv/tools/drunken-team/`, and **that is what
+   Antigravity's `mcp_config.json` launches** — not this checkout. Merging a fix does not deploy it
+   to the host that actually runs it.
 
-   ```
-   core.permission_rules   ABSENT      core.away               ABSENT
-   service.approval_hook   ABSENT      jira_mcp.jql            ABSENT
-   board_mcp.server._authorize  False
-   ```
+   **Reinstalled from `04f29f5` on 2026-08-16**, and verified module by module: `core.usage`,
+   `core.permission_rules`, `core.away`, `service.approval_hook`, `jira_mcp.jql`, `jira_mcp.backlog`
+   and `jira_mcp.assign` are all present. The alarming version of this entry — *"no S1/S2/S8, the
+   board server still serves any project"* — is **closed**. The likely cause of the reinstall that
+   read `false` on 2026-08-13 is that #102 had not merged when it ran.
 
-   So **merging a security fix does not deploy it to the host that actually runs it.** Until that env
-   is reinstalled, Antigravity's board server still serves any project on request. The older half of
-   this entry is the same shape and still true: `uv tool install` ignores `uv.lock`, so the tool env
-   has mcp 1.29.0 while the lock pins 1.28.1 — both satisfy `<2`, but drift inside the range is
-   possible, and Phase 6's generator should emit `--with-requirements`.
+   What generalises and stays true: the env lags `origin/develop` by whatever merged since the last
+   reinstall, and **nothing reports that gap**, so it must be checked rather than assumed in either
+   direction. Also still true: `uv tool install` ignores `uv.lock`, so the tool env has mcp 1.29.0
+   while the lock pins 1.28.1 — both satisfy `<2`, but drift inside the range is possible, and Phase
+   6's generator (DT-228) should emit `--with-requirements`.
 4. **The `.claude/settings.json` denylist now has a second enforcer** — DT-236's hook checks it
    before anything else and refuses to route a denied call to Discord at all. Note what that is and
    is not: matching a shell command by prefix cannot be made sound (`rm -rf` and `rm -r -f` are the
@@ -516,7 +525,58 @@ be parked.
 Also at the wrapper, untouched and for the Boss: `.claude/jira_token.json` (not opened), a TLS
 private key `172.20.10.3+2-key.pem` beside its certificate, and `.env` with the revoked token.
 
-### ISAC — every remaining step is the Boss's
+### ⚠️ ISAC changed on disk — the steps below are stale, do not run them
+
+**Surveyed 2026-08-16.** ISAC has already been restructured, by a different route than the one this
+section recommends, and **the five steps under "every remaining step is the Boss's" would now fail or
+do damage.** What is actually on disk:
+
+```
+~/Projects/isac/                     wrapper, not a repo
+└── isac/                            not a repo either
+    ├── .ai/  .mcp.json  CLAUDE.md  ANTIGRAVITY.md
+    ├── _not_used/board-retired-DT-250/
+    └── isac-backend/                the only git repository
+```
+
+`isac-backend` holds **one commit** — `58423ef "chore: rebuild ISAC as source code only"` — on branch
+`main`, with **no remote configured**. `.agents/` is gone from the working tree and from history,
+because there is no history: the repo was rebuilt rather than filtered.
+
+**Nothing is lost.** `sornbuen15/isac` on GitHub is untouched and still carries everything, last
+pushed 2026-08-13: `main` `8a709a2`, `develop` `301a04c`, `feature/ISAC-131-voice-tool-calling`
+`cd29371`, `feature/drunken-setup` `103794d`. The local rebuild was never pushed.
+
+But local and remote now have **unrelated histories**, so no push reconciles them. That is a decision
+for the Boss, and the three options are worth stating plainly:
+
+1. **Keep the rebuild, retire the remote's history.** Clean result, and the inert token in `103794d`
+   stops being reachable. Costs 76 commits of source history, plus issues, PR #2 and every link —
+   which is exactly the trade §14 originally recommended against, now already half-made locally.
+2. **Keep the remote's history, redo the layout with `git filter-repo` against a fresh clone.** Gets
+   both, and is what this section was written for. The local rebuild is then discarded.
+3. **Keep both** — rebuild as a new repository, archive the old one. Nothing is deleted and the links
+   survive as an archive.
+
+Two smaller things found in the same survey, both for the Boss:
+
+- **The registry is wrong about ISAC.** `git_root` is `isac`, which resolves to `~/Projects/isac/isac`
+  — not a repository. The repo is one level deeper at `isac/isac-backend`. `drunken-doctor` reports
+  this as its one warning, and the warning is telling the truth; **it should not be silenced by
+  editing `git_root` until the question above is answered**, because a green check here would hide
+  the divergence rather than resolve it.
+- **The registry still carries `board: {"dir": ".ai/board"}`** for ISAC, retired by DT-250. Harmless —
+  nothing reads it — but it is a stale surface of the kind DT-250 exists to remove.
+
+DT-252 covers making a `git_root` check say *what it found* rather than only that it failed; the
+survey above is the sort of thing it should have reported by itself.
+
+### ISAC — the original plan, kept for the decision above
+
+*(Written 2026-08-13, before the rebuild. Steps 1 and 3 refer to `.agents/` files that no longer
+exist, and step 4 would filter a single-commit repository. Retained because option 2 above is exactly
+this plan run against a fresh clone of the remote.)*
+
 
 ISAC is the counter-example: it *is* the repo, with **47 files of AI layer committed inside it** —
 instructions, 13 subagent definitions, `mcp_config.json` and the vendored scripts.
@@ -611,3 +671,102 @@ Proven through real MCP stdio against live Jira: 10 tools listed, `ISAC-5` / `DT
 51 keys each refused with a next step and never sent, and DT-251 moved to the backlog
 (`backlog_total` 0 → 1) and back (1 → 0) with its status `In Progress` throughout. See §13's fourth
 false negative for why the first run of that round trip looked broken.
+
+## 16. DT-95 — what a run cost (#104, merged)
+
+The ticket said there was no telemetry and no per-task usage logging, so no claim about token
+efficiency here could be checked. **Nothing needed instrumenting.** The host already writes
+per-message usage into its own transcripts and stamps each record with the git branch; under this
+project's branch convention that branch carries a Jira key. Cost per ticket is a *read*, and it works
+retroactively over every session on disk.
+
+```bash
+uv run drunken-usage --project drunken-team --by ticket
+uv run drunken-usage --project drunken-team --by model --rates <file>
+```
+
+First real numbers, 2026-08-16: **2.1B tokens across 14 sessions** — 2.0B of it cache reads, 6.4M
+output. DT-65 alone is 428M; DT-189 132M; this session's DT-250/251/95 work 67M and rising.
+
+Three decisions that are the whole point, and none of them should be quietly reversed:
+
+- **The transcript directory name is a guess; `cwd` is the authority.** The naming scheme belongs to
+  another tool and is not a contract, so it only narrows the search — as a *prefix*, so worktrees are
+  found — and each record then proves itself. Without that, `drunken-team-old` counts as ours.
+- **An unpriced model costs `None`, never `0.0`.** Zero reads as "free" and is indistinguishable from
+  a real answer. That is S4's shape, and it would be absurd for the module built to expose that
+  failure to commit it. A *partially* priced model reports nothing either: a rate table missing its
+  cache entry understates by two orders of magnitude here and looks exactly as authoritative.
+- **Rates are an operator input, not a table in this repo.** Prices change and differ by contract.
+  Tokens are facts; money needs someone to supply `{model: {input, output, cache_read,
+  cache_creation}}` in USD per million.
+
+It counts Claude only — Antigravity's usage is under `~/.gemini/`, out of bounds — and every report
+prints that caveat rather than leaving it in documentation. A total without it reads as the whole bill.
+
+## 17. DT-226 reviewed on its own merits — 2026-08-16
+
+§1 has said for weeks that DT-226 is *no longer blocked* by S1/S2/S8 and *not thereby approved*.
+This is that review. **Recommendation: do not open the transport yet.** Not because of anything
+S1/S2/S8 left behind, but because of what the review found in the transport layer itself, and
+because one prerequisite is missing.
+
+### What changes when stdio becomes HTTP
+
+Today the trust boundary is a **process**. The server is a child of the host, and the credential it
+resolves at init lives in that process. Anyone who can spawn it already has the filesystem and the
+secrets file, so there is nothing for a caller to gain by asking nicely.
+
+Over HTTP the boundary becomes a **port**, and a bearer token is then the only thing between the
+network and a credential that reaches DT, TWA and ISAC. Everything S2 and S8 established — that a
+server serves exactly the project it was launched for — stops being defence in depth and becomes the
+primary control.
+
+### The finding
+
+`mcp` 1.29's `FastMCP` defaults to `host="127.0.0.1"`, which is right. But its DNS-rebinding
+protection is enabled **only** when the host is loopback:
+
+```python
+if transport_security is None and host in ("127.0.0.1", "localhost", "::1"):
+    transport_security = TransportSecuritySettings(enable_dns_rebinding_protection=True, ...)
+```
+
+So the Host and Origin validation that barely matters on loopback is present there, and the moment
+somebody sets `--host 0.0.0.0` to satisfy Boss's rule 3 — a container, Kubernetes — **it silently
+turns itself off.** Protection that is absent exactly where it is needed, and nothing says so.
+
+This is S6's lesson in a new place. There the socket was safe only because the usual umask happened
+to strip the bits; here the transport is safe only while it is bound somewhere that does not need
+protecting. *Safe by accident is not safe by construction.* If DT-226 proceeds, drunken-team must
+pass `TransportSecuritySettings` explicitly for every bind, and a test must assert that a non-loopback
+host still gets it — the same shape as the `WAIT_BUDGET_SECONDS` / `timeout` pair.
+
+### What is missing before it can start
+
+- **Nothing guards inbound.** `core/http.py` is the one place every *outbound* call goes through, by
+  design and by principle 7. There is no inbound equivalent, and `AuthError` / `AuthzError` have sat
+  unused in `core/errors.py` since 2.1.0 waiting for one. `paths.py` already reserves the bearer
+  database (*"Consumed from 2.4.0 onwards"*) and nothing consumes it.
+- **DT-228 should land first.** Phase 6 generates the configs — `.mcp.json`, Antigravity's
+  `mcp_config.json`, Docker and K8s manifests. An HTTP deployment whose manifests are hand-written is
+  how one machine's layout ends up committed, which §13's GUI-PATH trap already caught twice.
+- **`drunken-doctor` cannot see a listener.** §10.7 is the widest gap in our own tooling, and opening
+  a network surface with no check that reports its state widens it further.
+
+### Recommended order
+
+DT-228 (generator, no new attack surface) → a `doctor --all` that can actually report drift →
+then DT-226, with explicit transport security, an inbound guard shaped like `core/http.py`, and the
+bearer bound to audience **and** project as §3 already locks in.
+
+**This is a recommendation, not a decision.** Opening a network listener in front of a credential
+that reaches three projects is the Boss's call, and it is the kind of change that is hard to walk
+back once something depends on it.
+
+### Noticed while reviewing, and deliberately not "fixed"
+
+`discord_mcp`'s `main()` still reads `--project (ignored by discord, kept for compat)` — the exact
+wording that flagged S2 in `board_mcp`. It is **not** the same finding: this server is a thin client
+to the daemon over the 0600 unix socket, the daemon holds the Discord config, and DT-227 settled that
+one channel serves all. Recorded here so the next reader does not spend an hour rediscovering that.
