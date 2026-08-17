@@ -19,10 +19,11 @@ quotes upstream error bodies.
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import asdict, dataclass, field
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
-from typing import Any, Final, Literal, Optional
+from typing import Any, Final, Literal, Optional, Sequence
 
 from . import paths, secrets
 from .context import ProjectContext
@@ -163,6 +164,202 @@ def _check_paths(report: Report) -> None:
             )
 
 
+#: Where `uv tool install` puts the environment the host actually launches.
+#: Overridable for the same reason as everything in :mod:`core.paths` — a
+#: container or another machine puts it elsewhere, and a test must be able to
+#: point it at a fixture.
+ENV_TOOL_ROOT: Final = "DRUNKEN_TOOL_ENV"
+DEFAULT_TOOL_ROOT: Final = "~/.local/share/uv/tools/drunken-team"
+
+#: Modules whose absence from the deployment has actually mattered. Not every
+#: module — a list that tries to be exhaustive goes stale silently, and the
+#: point is to notice a *merge* that has not been deployed, which these are the
+#: evidence of.
+DEPLOYED_MODULES: Final = (
+    "core.away",
+    "core.permission_rules",
+    "core.usage",
+    "service.approval_hook",
+    "jira_mcp.jql",
+    "jira_mcp.assign",
+    "jira_mcp.backlog",
+)
+
+
+def tool_env_root() -> Path:
+    raw = os.environ.get(ENV_TOOL_ROOT) or DEFAULT_TOOL_ROOT
+    return Path(os.path.expandvars(raw)).expanduser()
+
+
+def compare_deployment(env_root: Path, modules: Sequence[str]) -> dict[str, list[str]]:
+    """Which of *modules* are present in the installed environment at *env_root*.
+
+    Resolved by looking for the file rather than by importing: importing another
+    environment's modules into this process would be both wrong and unsafe, and
+    what is being asked is whether the code was *deployed*, not whether it runs.
+    A package directory counts, so a module that grows into a package does not
+    read as a false gap.
+    """
+    site_dirs = sorted(env_root.glob("lib/*/site-packages"))
+    present: list[str] = []
+    missing: list[str] = []
+
+    for module in modules:
+        relative = Path(*module.split("."))
+        found = any(
+            (site / relative).with_suffix(".py").is_file() or (site / relative).is_dir()
+            for site in site_dirs
+        )
+        (present if found else missing).append(module)
+
+    return {"present": present, "missing": missing}
+
+
+def deployed_version(env_root: Path, package: str) -> Optional[str]:
+    """The version of *package* inside *env_root*, read from its dist-info.
+
+    ``None`` when it cannot be determined, which is deliberately different from
+    a version that disagrees — see :func:`compare_pin`.
+    """
+    for site in sorted(env_root.glob("lib/*/site-packages")):
+        for dist in site.glob(f"{package}-*.dist-info"):
+            name = dist.name[: -len(".dist-info")]
+            if "-" in name:
+                return name.rsplit("-", 1)[1]
+    return None
+
+
+def compare_pin(deployed: Optional[str], locked: Optional[str]) -> tuple[Status, str]:
+    """Whether what is deployed matches what the lock pins.
+
+    ``uv tool install`` ignores ``uv.lock``, so these drift without anything
+    saying so. Both satisfying ``<2`` is not the same as being the same.
+    """
+    if deployed is None or locked is None:
+        return "skip", "Could not determine one of the two versions."
+    if deployed == locked:
+        return "ok", f"{deployed}, matching uv.lock"
+    return (
+        "warn",
+        f"the deployment has {deployed} while uv.lock pins {locked}. "
+        "`uv tool install` ignores the lock file.",
+    )
+
+
+def _check_deployment(
+    report: Report,
+    env_root: Optional[Path] = None,
+    modules: Optional[Sequence[str]] = None,
+) -> None:
+    """Report the gap between this checkout and the environment the host runs.
+
+    This is the check §10.7 was reaching for. Merging a fix does not deploy it:
+    ``~/.local/bin/drunken-*`` symlinks into the ``uv tool`` environment, and
+    that is what a host config launches — not this checkout. The gap has been
+    found twice by hand and never by a check.
+
+    A missing environment is a **skip**, not a failure: a container, CI or a
+    fresh clone legitimately has none, and a check that cries wolf there is a
+    check everyone learns to ignore.
+    """
+    env_root = env_root if env_root is not None else tool_env_root()
+    modules = modules if modules is not None else DEPLOYED_MODULES
+
+    if not env_root.is_dir():
+        report.add(
+            "deployment.tool_env",
+            "skip",
+            f"No installed tool environment at {env_root}.",
+            remediation=(
+                "Normal in a container or a fresh clone. On a workstation that "
+                "runs the MCP servers, install with: uv tool install --force ."
+            ),
+        )
+        return
+
+    result = compare_deployment(env_root, modules)
+    if result["missing"]:
+        report.add(
+            "deployment.tool_env",
+            "warn",
+            f"{env_root} is behind this checkout — missing: "
+            + ", ".join(result["missing"]),
+            remediation=(
+                "Redeploy it: uv tool install --force . — merging a fix does "
+                "not deploy it to the environment the host actually launches."
+            ),
+        )
+    else:
+        report.add(
+            "deployment.tool_env",
+            "ok",
+            f"{env_root} carries all {len(result['present'])} checked modules",
+        )
+
+    status, detail = compare_pin(deployed_version(env_root, "mcp"), _locked_version())
+    report.add("deployment.mcp_pin", status, detail)
+
+
+def _locked_version(package: str = "mcp") -> Optional[str]:
+    """The version ``uv.lock`` pins, read as text.
+
+    Deliberately not parsed as TOML: the lock is not ours, its shape is free to
+    change, and a doctor check must never be the thing that raises. A shape it
+    does not recognise reads as "unknown", which :func:`compare_pin` reports as
+    a skip.
+    """
+    lock = Path.cwd() / "uv.lock"
+    try:
+        lines = lock.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return None
+
+    for index, line in enumerate(lines):
+        if line.strip() == f'name = "{package}"':
+            for following in lines[index + 1 : index + 3]:
+                stripped = following.strip()
+                if stripped.startswith("version = "):
+                    return stripped.split('"')[1] if '"' in stripped else None
+            return None
+    return None
+
+
+def describe_missing_git_root(git_root: Path) -> str:
+    """Say what was actually found where a repository was expected.
+
+    The old message was ``{path} is not a git repository``. That was literally
+    true of BETA on 2026-08-16 and cost hours, because the two facts the reader
+    needed — that the path did not exist, and that a repository sat one
+    directory deeper — were both knowable at the moment it was written and
+    neither was said.
+
+    One level down only. A `doctor` that walks a filesystem is a `doctor`
+    nobody runs, and a repository three levels away is not the one that was
+    meant anyway.
+    """
+    if not git_root.exists():
+        return f"{git_root} does not exist."
+
+    if not git_root.is_dir():
+        return f"{git_root} is a file, not a directory."
+
+    try:
+        nested = sorted(
+            child.name
+            for child in git_root.iterdir()
+            if child.is_dir() and (child / ".git").exists()
+        )
+    except OSError:
+        nested = []
+
+    if nested:
+        return (
+            f"{git_root} is not a git repository, but {', '.join(nested)} "
+            f"inside it {'is' if len(nested) == 1 else 'are'}."
+        )
+    return f"{git_root} is not a git repository, and nothing directly inside it is."
+
+
 def _check_registry(report: Report, registry: ProjectRegistry) -> list[str]:
     registry_file = Path(registry.registry_path)
     if not registry_file.exists():
@@ -267,10 +464,13 @@ def _check_project_paths(
         report.add(
             f"project.{project_id}.git",
             "warn",
-            f"{git_root} is not a git repository.",
+            describe_missing_git_root(git_root),
             remediation=(
-                "If the repo lives in a subdirectory, set 'git_root' for this "
-                "project so git commands run in the right place."
+                f"If the repo lives in a subdirectory, point at it: "
+                f"drunken-init --project {project_id} --git-root <subdirectory>. "
+                "Under the three-part layout the wrapper is deliberately not a "
+                "repository, so this warning can also be the right answer to "
+                "the wrong question."
             ),
         )
 
@@ -359,6 +559,7 @@ def run_doctor(
         _check_project(report, project_id, registry, offline)
 
     _check_daemon(report)
+    _check_deployment(report)
 
     if secrets.cached_refs():
         report.add(
