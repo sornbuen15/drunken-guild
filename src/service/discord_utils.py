@@ -3,9 +3,12 @@ import os
 import sys
 import time
 import urllib.request
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from core.http import open_url
+
+if TYPE_CHECKING:
+    from core.registry import ProjectConfig
 
 
 def packaged_script(name: str) -> str:
@@ -26,43 +29,6 @@ def packaged_script(name: str) -> str:
 
     package_dir = os.path.dirname(os.path.abspath(scripts.__file__))
     return os.path.join(package_dir, name)
-
-
-def _load_env_file(path: str) -> None:
-    try:
-        with open(path, "r", encoding="utf-8") as f:
-            for line in f:
-                line = line.strip()
-                if not line or line.startswith("#"):
-                    continue
-                if "=" in line:
-                    key, val = line.split("=", 1)
-                    key = key.strip()
-                    val = val.strip().strip('"').strip("'")
-                    if key and key not in os.environ:
-                        os.environ[key] = val
-    except Exception as e:
-        print(f"Warning: Failed to load {path}: {e}", file=sys.stderr)
-
-
-def load_dotenv() -> None:
-    # Look for .env in the workspace or current directory.
-    curr_dir = os.environ.get("DRUNKEN_WORKSPACE", os.getcwd())
-    if not os.path.isdir(curr_dir):
-        print(
-            f"Warning: Workspace {curr_dir} is not a valid directory.", file=sys.stderr
-        )
-        curr_dir = os.getcwd()
-
-    while True:
-        dotenv_path = os.path.join(curr_dir, ".env")
-        if os.path.exists(dotenv_path):
-            _load_env_file(dotenv_path)
-            return
-        parent = os.path.dirname(curr_dir)
-        if parent == curr_dir:
-            break
-        curr_dir = parent
 
 
 def query_gemini_direct(
@@ -167,32 +133,70 @@ def extract_clean_response(log_content: str) -> str:
     return _remove_consecutive_blank_lines(cleaned_lines)
 
 
-def find_config() -> str | None:
-    curr_dir = os.environ.get("DRUNKEN_WORKSPACE", os.getcwd())
-    if not os.path.isdir(curr_dir):
-        curr_dir = os.getcwd()
+def _discord_project() -> "ProjectConfig | None":
+    """The registered project this daemon acts for, or ``None``.
 
-    while True:
-        config_path = os.path.join(curr_dir, ".agents", "discord_config.json")
-        if os.path.exists(config_path):
-            return config_path
-        parent = os.path.dirname(curr_dir)
-        if parent == curr_dir:
-            break
-        curr_dir = parent
+    One traversal, shared by the credential lookup and the ``.agents/`` lookup,
+    so the two cannot disagree — reading a channel id out of one project while
+    writing activity into another's directory is the kind of split nobody
+    notices until the logs are needed.
+
+    There is one Discord identity, not one per project (the multi-tenant daemon
+    was cut), so the first registered project declaring a channel wins.
+
+    Never raises: an absent registry is a first run before ``drunken-init``, and
+    the daemon must not die on the way up (principle 8).
+    """
+    try:
+        from core.registry import ProjectRegistry, parse_project
+
+        for project_id, entry in ProjectRegistry().get_projects().items():
+            if not isinstance(entry, dict) or "discord" not in entry:
+                continue
+            config = parse_project(project_id, entry)
+            if config.discord and config.discord.channel_id:
+                return config
+    except Exception as exc:
+        print(
+            f"[config] Registry unreadable ({exc}); using the environment.",
+            file=sys.stderr,
+        )
     return None
 
 
-def log_activity(event_type: str, author: str, content: str) -> None:
-    config_file = find_config()
-    fallback_dir = os.environ.get("DRUNKEN_WORKSPACE", os.getcwd())
-    if not os.path.isdir(fallback_dir):
-        fallback_dir = os.getcwd()
+def project_root() -> str:
+    """The directory whose ``.agents/`` this daemon reads and writes.
 
-    project_path = (
-        os.path.dirname(os.path.dirname(config_file)) if config_file else fallback_dir
-    )
-    activity_file = os.path.join(project_path, ".agents", "discord_activity.jsonl")
+    The registry answers this, or the working directory does. What it must
+    never do is *climb*: DT-254. The previous version walked up from
+    ``DRUNKEN_WORKSPACE`` or the cwd until something matched, which meant that
+    running the daemon from anywhere under ``$HOME`` could adopt an unrelated
+    project's ``.agents/`` — or, for ``.env``, an unrelated project's
+    credentials, which then outranked the registry that had resolved correctly.
+
+    Falling back to the cwd is bounded and visible: it creates ``.agents/``
+    where you are standing, rather than silently binding to a stranger's.
+    """
+    config = _discord_project()
+    if config and config.path and os.path.isdir(config.path):
+        return config.path
+    return os.getcwd()
+
+
+def find_config() -> str | None:
+    """Path to this project's ``discord_config.json``, if it has one.
+
+    ``.agents/`` belongs to the project it is in. Locating one by climbing until
+    something matches is the same defect as the ``.env`` walk wearing different
+    clothes, so this resolves exactly one candidate and reports its absence
+    rather than searching upward for a substitute.
+    """
+    config_path = os.path.join(project_root(), ".agents", "discord_config.json")
+    return config_path if os.path.exists(config_path) else None
+
+
+def log_activity(event_type: str, author: str, content: str) -> None:
+    activity_file = os.path.join(project_root(), ".agents", "discord_activity.jsonl")
 
     event = {
         "timestamp": time.time(),
@@ -211,24 +215,42 @@ def log_activity(event_type: str, author: str, content: str) -> None:
 def save_config(config: dict[str, Any]) -> None:
     config_file = find_config()
     if not config_file:
-        fallback_dir = os.environ.get("DRUNKEN_WORKSPACE", os.getcwd())
-        if not os.path.isdir(fallback_dir):
-            fallback_dir = os.getcwd()
-        config_file = os.path.join(fallback_dir, ".agents", "discord_config.json")
+        config_file = os.path.join(project_root(), ".agents", "discord_config.json")
         os.makedirs(os.path.dirname(config_file), exist_ok=True)
     with open(config_file, "w", encoding="utf-8") as f:
         json.dump(config, f, indent=4)
 
 
 def load_config() -> dict[str, Any]:
-    # Env vars (.env) take priority per field, matching the jira_mcp config
-    # pattern — falls back to the local JSON file's own
-    # value for whichever field isn't set in the environment. Deliberately
-    # per-field (not "both or neither"): a file with a stale bot_token key
-    # must not shadow a freshly-set DISCORD_BOT_TOKEN env var just because
-    # DISCORD_CHANNEL_ID wasn't also set (dict.setdefault would get this
-    # wrong, since it only fills in keys the file is missing entirely).
-    load_dotenv()
+    """The daemon's Discord identity, and the order that decides it.
+
+    Precedence, per field, highest first — DT-254 made this a decision rather
+    than an accident:
+
+    1. **An environment variable**, read directly from the process environment.
+       Explicit and named: it is how a container passes a different bot in
+       without rewriting the registry, and the operator setting it can see that
+       they did.
+    2. **The registry**, resolved through :mod:`core.secrets`. The supported
+       path since DT-247, and the only one ``drunken-doctor`` can verify.
+    3. **This project's own** ``.agents/discord_config.json``.
+
+    Per field, not both-or-neither: a file holding a stale ``bot_token`` must
+    not shadow a freshly set ``DISCORD_BOT_TOKEN`` merely because
+    ``DISCORD_CHANNEL_ID`` was not also set. (``dict.setdefault`` gets this
+    wrong — it only fills keys the file omits entirely.)
+
+    What is **not** in the list, and used to sit above all three: a ``.env``
+    discovered by walking up the directory tree. It was loaded into
+    ``os.environ`` first, so it arrived disguised as rule 1 and outranked the
+    registry — from any working directory under ``$HOME``, a stranger's
+    credential could win. That is the mechanism a dead token in ALPHA's ``.env``
+    used to answer Jira with an empty board for months, and it is invisible
+    precisely because it fails as success: HTTP 200 with an empty list (S4).
+
+    A ``.env`` is now a thing an operator sources deliberately before starting
+    the daemon, which makes it rule 1 and leaves it visible.
+    """
     bot_token = os.environ.get("DISCORD_BOT_TOKEN")
     channel_id = os.environ.get("DISCORD_CHANNEL_ID")
 
@@ -254,51 +276,36 @@ def load_config() -> dict[str, Any]:
 
 
 def _discord_from_registry() -> dict[str, Any]:
-    """Discord identity from the registry, or nothing.
+    """Discord credentials from the registry, or nothing.
 
-    The last piece of daemon configuration still living in ``.env``. Jira moved
-    to the registry in DT-246; Discord staying behind meant ``drunken-init``
-    wrote a ``discord.channel_id`` that nothing ever read, and
-    ``drunken-doctor`` reported two projects as having no channel while a
-    single channel was in fact serving all three.
+    Jira moved to the registry in DT-246; Discord staying behind meant
+    ``drunken-init`` wrote a ``discord.channel_id`` that nothing ever read, and
+    ``drunken-doctor`` reported two projects as having no channel while a single
+    channel was in fact serving all three.
 
-    There is one Discord identity, not one per project — the multi-tenant
-    daemon was cut, because nobody drives more than one project at a time — so
-    the first registered project that declares one wins.
+    Which project is consulted is :func:`_discord_project`'s decision, shared
+    with :func:`project_root` so credentials and ``.agents/`` always come from
+    the same place.
 
-    Never raises. An absent registry is a first run before ``drunken-init``,
-    and a credential reference that no longer resolves is a bad configuration,
-    not a reason for the daemon to die on the way up (principle 8). Both fall
-    through to the environment, and ``drunken-doctor`` is what says so out loud.
+    Never raises. A credential reference that no longer resolves is a bad
+    configuration, not a reason for the daemon to die on the way up
+    (principle 8); it falls through to the environment, and ``drunken-doctor``
+    is what says so out loud.
     """
-    try:
-        from core.registry import ProjectRegistry, parse_project
+    config = _discord_project()
+    if config is None or config.discord is None:
+        return {}
 
-        for project_id, entry in ProjectRegistry().get_projects().items():
-            if not isinstance(entry, dict) or "discord" not in entry:
-                continue
-            discord_identity = parse_project(project_id, entry).discord
-            if not discord_identity or not discord_identity.channel_id:
-                continue
+    resolved: dict[str, Any] = {"channel_id": config.discord.channel_id}
+    if config.discord.credential:
+        try:
+            from core import secrets
 
-            resolved: dict[str, Any] = {"channel_id": discord_identity.channel_id}
-            if discord_identity.credential:
-                try:
-                    from core import secrets
-
-                    resolved["bot_token"] = secrets.resolve(
-                        discord_identity.credential
-                    ).reveal()
-                except Exception as exc:
-                    print(
-                        f"[config] Discord credential for {project_id!r} did not "
-                        f"resolve ({exc}); falling back to the environment.",
-                        file=sys.stderr,
-                    )
-            return resolved
-    except Exception as exc:
-        print(
-            f"[config] Registry unreadable ({exc}); using the environment.",
-            file=sys.stderr,
-        )
-    return {}
+            resolved["bot_token"] = secrets.resolve(config.discord.credential).reveal()
+        except Exception as exc:
+            print(
+                f"[config] Discord credential for {config.project_id!r} did not "
+                f"resolve ({exc}); falling back to the environment.",
+                file=sys.stderr,
+            )
+    return resolved

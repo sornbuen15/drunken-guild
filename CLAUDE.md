@@ -131,6 +131,13 @@ Things worth knowing before you turn it on:
 
 - **No secret ever enters a commit.** A reference without a scheme is an error, not a literal.
   gitleaks scans full history and `.env` is deliberately not allowlisted.
+- **Config precedence is fixed, and nothing discovers a file by climbing (DT-254).** Per field:
+  an **environment variable** wins, then the **registry**, then the project's own
+  `.agents/*.json`. An env var is explicit and named — that is how a container passes a different
+  bot in. A `.env` found by walking up the tree is neither, and it used to be loaded into
+  `os.environ` first, so it arrived disguised as rule 1 and *outranked* the registry. Nothing reads
+  a `.env` now; source one deliberately before starting the daemon if you want it. `os.getcwd()`
+  plus a loop over `os.path.dirname` is the signature — grep for it, do not reason about it.
 - **Never let import-time failure be a failure mode.** Anything that can fail must fail inside a tool
   call, so the caller reads a message instead of watching a server vanish. Use `core/errors.py` —
   every error carries a remediation, because "unknown project 'alpha'" only tells an agent to give up.
