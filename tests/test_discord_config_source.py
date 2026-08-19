@@ -44,7 +44,6 @@ def registry(tmp_path, monkeypatch):
     for var in ("DISCORD_BOT_TOKEN", "DISCORD_CHANNEL_ID"):
         monkeypatch.delenv(var, raising=False)
     monkeypatch.setattr(discord_utils, "find_config", lambda: None)
-    monkeypatch.setattr(discord_utils, "load_dotenv", lambda: None)
     return tmp_path
 
 
@@ -73,7 +72,6 @@ class TestItStillStartsWithNothingRegistered:
         monkeypatch.setenv("DISCORD_BOT_TOKEN", "from-env")
         monkeypatch.setenv("DISCORD_CHANNEL_ID", "222")
         monkeypatch.setattr(discord_utils, "find_config", lambda: None)
-        monkeypatch.setattr(discord_utils, "load_dotenv", lambda: None)
 
         config = discord_utils.load_config()
 
@@ -102,12 +100,12 @@ class TestItStillStartsWithNothingRegistered:
         )
         monkeypatch.setenv("DRUNKEN_REGISTRY_PATH", str(registry_file))
         monkeypatch.setenv("DISCORD_BOT_TOKEN", "fallback-token")
-        # Explicitly cleared: another test in the suite loads the real .env
-        # into os.environ, and the environment outranks the registry, so
-        # leaving this set makes the assertion depend on test ordering.
+        # Kept hermetic on purpose. Until DT-254 this line was load-bearing
+        # for a worse reason: another test loaded the real .env into
+        # os.environ, and the environment outranks the registry, so the
+        # assertion depended on test ordering. Nothing reads a .env now.
         monkeypatch.delenv("DISCORD_CHANNEL_ID", raising=False)
         monkeypatch.setattr(discord_utils, "find_config", lambda: None)
-        monkeypatch.setattr(discord_utils, "load_dotenv", lambda: None)
 
         config = discord_utils.load_config()
 
