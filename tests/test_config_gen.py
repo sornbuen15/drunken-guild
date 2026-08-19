@@ -134,6 +134,31 @@ class TestMergingLeavesTheHostsOwnServersAlone:
         assert config_gen.merge_into_host_config(host, "alpha") == []
 
 
+class TestTheInstallOutputDoesNotLookLikeAnInstall:
+    """It writes a file and prints a command; it installs nothing.
+
+    The first version printed the filename and the command with no verb between
+    them. That reads as a report of work completed, it was taken as one, and a
+    deployment stayed three tickets behind -- including an unfixed security
+    finding -- while every surface looked fine. Cost a full round-trip on
+    2026-08-19.
+    """
+
+    def test_it_says_not_installed(self, tmp_path, monkeypatch, capsys) -> None:
+        monkeypatch.setattr(
+            config_gen, "export_requirements", lambda root: "mcp==1.28.1\n"
+        )
+
+        config_gen._emit_install(str(tmp_path / "req.txt"))
+
+        out = capsys.readouterr().out
+        assert "NOT INSTALLED" in out, (
+            "Output that only names a file and a command reads as a report of "
+            "work done. It has to say which of the two it did."
+        )
+        assert "uv tool install" in out, "It still has to hand over the command."
+
+
 class TestTheImageInstallsWhatTheLockNames:
     """The Dockerfile is the checkable form of the claim, so the flag that
     makes it true is asserted here rather than trusted.
