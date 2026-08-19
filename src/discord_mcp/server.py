@@ -34,36 +34,12 @@ SOCKET_TIMEOUT_SECONDS = int(os.environ.get("APPROVAL_SOCKET_TIMEOUT_SECONDS", "
 @mcp.tool()  # type: ignore[misc]
 async def request_boss_approval(action: str, reason: str, ticket_key: str) -> str:
     """
-    Request approval from the Boss via Discord and BLOCK until answered.
+    DEPRECATED, kept until 3.0.0 — use request_boss_approval_async instead.
 
-    Use this specifically when the Boss may NOT be watching this conversation
-    right now (a dispatched/background task, or they've stepped away) — that's
-    the whole point of routing through Discord instead of just asking here.
+    Asks the Boss on Discord and blocks until they answer. Blocking is the
+    problem: nothing else gets done while it waits.
 
-    If you're in a live, interactive session and the Boss is right here
-    reading your responses, don't reach for this tool at all — just ask them
-    directly in the conversation, like you normally would. Discord is a
-    fallback channel for reaching them when they're away, not the only way
-    to get approval. If Discord isn't configured or the daemon isn't running,
-    this tool tells you to do exactly that instead of failing you closed.
-
-    This call genuinely waits for a reply — do not schedule a follow-up
-    check and do not end your turn to "come back later". It returns only
-    once the Boss has reacted, or after 2 unanswered reminders trigger
-    auto-escalation (the task is stopped for you at that point).
-
-    Args:
-        action: A short description of the action you want to take or what you need.
-        reason: Why you need to take this action or need this clarification.
-        ticket_key: The Jira ticket key this work belongs to (e.g. "DT-65").
-            Required — it's how an escalation gets commented onto the right
-            ticket and how the pre-commit safety net knows what to block.
-
-    Returns:
-        A final answer string. If it says the task was escalated, treat that
-        as an instruction: stop, do not continue, and do not commit. If it
-        says Discord is unavailable, ask the Boss directly in this
-        conversation instead — do not just proceed without approval.
+    If the Boss is reading this conversation, just ask them here.
     """
     if not os.path.exists(socket_path()):
         return (
@@ -153,35 +129,16 @@ async def _call(payload: dict[str, Any]) -> dict[str, Any] | str:
 @mcp.tool()  # type: ignore[misc]
 async def request_boss_approval_async(action: str, reason: str, ticket_key: str) -> str:
     """
-    Ask the Boss on Discord and return IMMEDIATELY, without waiting.
+    Ask the Boss on Discord and return immediately with a request id.
 
-    Prefer this over request_boss_approval whenever you have other work you
-    could be getting on with. It posts the question and hands you back a
-    request id; the Boss answers in their own time, and you collect the
-    answer later with check_approvals.
+    Then: park this task without doing the action, take the next unblocked one,
+    and collect with check_approvals when you finish a task or start a session
+    — never mid-task. Do not poll and do not schedule a wake-up.
 
-    What to do with the id you get back:
-      1. Park this task — record that it is waiting on this req_id, and do
-         NOT carry on with the action you just asked about.
-      2. Pick up the next task that is not blocked by it. If nothing else is
-         available, say what you are waiting on and end your turn. Do not
-         sit in a loop polling, and do not schedule a wake-up just to check.
-      3. Call check_approvals when you next finish a task, or at the start of
-         your next session. Finish whatever is in your hands first — an
-         answer arriving is never a reason to abandon work half-done.
+    No deadline; nothing is killed for going unanswered. Reminders back off
+    15 min → 1 h → daily.
 
-    There is no deadline and nothing gets killed for going unanswered. The
-    Boss gets reminded at a decreasing rate (15 min, an hour, then daily)
-    until they reply, however long that takes.
-
-    Args:
-        action: The action you want to take, described in one short line.
-        reason: Why it is needed.
-        ticket_key: The Jira ticket this belongs to (e.g. "DT-232").
-
-    Returns:
-        A request id to poll with, or a message explaining that Discord is
-        unreachable — in which case ask the Boss directly instead.
+    If the Boss is reading this conversation, just ask them here.
     """
     result = await _call(
         {
@@ -208,30 +165,18 @@ async def request_boss_approval_async(action: str, reason: str, ticket_key: str)
 @mcp.tool()  # type: ignore[misc]
 async def check_approvals(req_ids: list[str]) -> str:
     """
-    Collect answers to requests made with request_boss_approval_async.
+    Collect answers to request_boss_approval_async. Does not block.
 
-    Does not block: whatever has been answered comes back, and anything
-    still outstanding is reported as pending. Reading an answer does not
-    consume it, so polling again after a crash is safe.
+    Call it when you finish a task or start a session — never mid-task. Reading
+    an answer does not consume it, so retrying after a crash is safe.
 
-    Call this when you finish a task and at the start of a session — not on
-    a timer, and never in the middle of work you have already started.
-
-    Statuses you can get back:
-      - approved  — go ahead with exactly the action that was approved.
-      - rejected  — do not do it. The reason is included; respect it.
-      - pending   — no answer yet. Leave the task parked and move on.
-      - stale     — it was approved, but against a different commit. The code
-                    has changed since the Boss said yes, so that yes no longer
-                    covers it. Ask again with request_boss_approval_async.
-      - unknown   — never submitted, or lost with a daemon that died before
-                    it could persist. Re-submit; do not assume either answer.
-
-    Args:
-        req_ids: The request ids you are waiting on.
-
-    Returns:
-        A readable line per request.
+      approved — do exactly what was approved.
+      rejected — do not. The reason is included; respect it.
+      pending  — leave the task parked and move on.
+      stale    — approved against a different commit, so it no longer covers
+                 the code. Ask again.
+      unknown  — never submitted, or lost with the daemon. Re-submit; do not
+                 assume either answer.
     """
     result = await _call(
         {"cmd": "poll_approvals", "req_ids": req_ids, "commit_sha": _head_sha()}

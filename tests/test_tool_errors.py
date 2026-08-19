@@ -43,8 +43,24 @@ class TestTheWrapperDoesNotEatTheSignature:
     @pytest.mark.parametrize(  # type: ignore[misc]
         "tool, expected",
         [
-            (jira_server.jira_search_issues, {"jql"}),
+            (jira_server.jira_search_issues, {"jql", "detail"}),
             (jira_server.jira_transition_issue, {"issue_key", "target_status"}),
+            # DT-255 added five optional fields here. They are the whole point
+            # of the ticket -- an Epic with no children leaves Timeline empty --
+            # so if the wrapper eats them the feature is gone while every unit
+            # test still passes, which is the failure this class exists for.
+            (
+                jira_server.jira_create_issue,
+                {
+                    "summary",
+                    "description",
+                    "issue_type",
+                    "parent",
+                    "duedate",
+                    "start_date",
+                    "labels",
+                },
+            ),
             (board_server.board_summary, {"project"}),
             (board_server.board_block_task, {"project", "task_id", "req_id", "reason"}),
         ],

@@ -149,23 +149,150 @@ def to_adf(text: str) -> Dict[str, Any]:
     return {"version": 1, "type": "doc", "content": paragraphs}
 
 
-def minify_issues(issues: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+#: Block-level ADF nodes, each of which starts a new line in the flattened text.
+_ADF_BLOCKS: frozenset[str] = frozenset(
+    {
+        "paragraph",
+        "heading",
+        "codeBlock",
+        "blockquote",
+        "listItem",
+        "rule",
+        "tableRow",
+        "mediaSingle",
+        "mediaGroup",
+        "panel",
+    }
+)
+
+
+def _adf_leaf(node: Dict[str, Any]) -> Optional[str]:
+    """The text a leaf node contributes, or ``None`` if it is not a leaf.
+
+    Split out from :func:`from_adf` so the tree walk stays one readable branch.
+    ``None`` and ``""`` mean different things here: the first says "descend into
+    this", the second says "a leaf that renders as nothing".
+    """
+    kind = node.get("type")
+    if kind == "text":
+        return str(node.get("text", ""))
+    if kind == "hardBreak":
+        return "\n"
+    if kind == "rule":
+        return "\n---\n"
+    if kind in ("emoji", "mention"):
+        attrs = node.get("attrs") or {}
+        return str(attrs.get("text") or attrs.get("shortName") or "")
+    return None
+
+
+def _adf_walk(node: Any, out: List[str]) -> None:
+    """Append *node*'s text to *out*, descending into anything not a leaf."""
+    if not isinstance(node, dict):
+        return
+
+    leaf = _adf_leaf(node)
+    if leaf is not None:
+        out.append(leaf)
+        return
+
+    kind = node.get("type")
+    is_block = kind in _ADF_BLOCKS
+    # A block starts a new line, unless one is already open or a bullet marker
+    # is waiting for its text -- "- \none" is not a list item.
+    if is_block and out and not out[-1].endswith(("\n", "- ")):
+        out.append("\n")
+    if kind == "listItem":
+        out.append("- ")
+
+    for child in node.get("content") or []:
+        _adf_walk(child, out)
+
+    if is_block and out and not out[-1].endswith("\n"):
+        out.append("\n")
+
+
+def from_adf(node: Any) -> str:
+    """Flatten an Atlassian Document Format document into plain text.
+
+    The other half of :func:`to_adf`, and the reason DT-255 exists: ADF wraps
+    one sentence in roughly four times its length, and ``minify_issues`` was
+    returning it verbatim. A six-issue search spent 95% of its tokens on markup
+    no reader wanted.
+
+    Unknown node types are walked rather than dropped. ADF gains node types
+    faster than we will notice, and losing a paragraph silently is worse than
+    rendering it plainly -- an agent reading a truncated post-mortem cannot tell
+    that it was truncated.
+
+    Passing something that is already a string returns it unchanged, so callers
+    do not have to know which shape Jira gave them.
+    """
+    if isinstance(node, str):
+        return node
+    if not isinstance(node, dict):
+        return ""
+
+    out: List[str] = []
+    _adf_walk(node, out)
+
+    # Collapse the runs of blank lines the block rule produces at nesting
+    # boundaries, without touching the deliberate ones between paragraphs.
+    text = "".join(out)
+    while "\n\n\n" in text:
+        text = text.replace("\n\n\n", "\n\n")
+    return text.strip()
+
+
+def minify_issues(
+    issues: List[Dict[str, Any]], brief: bool = True
+) -> List[Dict[str, Any]]:
+    """Reduce Jira's search response to what a reader actually uses.
+
+    ``brief`` is the default because the alternative was measured: a six-issue
+    search cost 5,697 tokens and 95% of that was raw ADF description. The same
+    search without descriptions cost 296. Anyone who wants the body asks for one
+    issue by key, which is one cheap call rather than five expensive ones.
+
+    What brief keeps, and why each earns its place:
+
+    * ``key``, ``summary``, ``status`` — the question almost every search asks.
+    * ``assignee`` — since DT-250 this is *whose* the work is; there is no other
+      surface that says so.
+    * ``parent`` and ``parent_summary`` — hierarchy for free. Without them an
+      agent that needs the Epic makes a second call per issue, so omitting them
+      to save characters costs tokens.
+
+    What brief drops:
+
+    * ``description`` — the 95%.
+    * ``priority`` — it cannot be set on a team-managed project at all, so every
+      DT issue reads ``Medium``. A field with one possible value is not
+      information; use ``labels`` (DT-255 B3).
+
+    ``brief=False`` keeps both, with the description flattened out of ADF —
+    still three to four times smaller than what this function used to return.
+    """
     minified = []
     for issue in issues:
         fields = issue.get("fields", {})
         assignee = fields.get("assignee") or {}
-        minified.append(
-            {
-                "key": issue.get("key"),
-                "summary": fields.get("summary"),
-                "status": (fields.get("status") or {}).get("name"),
-                "priority": (fields.get("priority") or {}).get("name"),
-                "description": fields.get("description"),
-                "assignee": assignee.get("displayName")
-                or assignee.get("emailAddress")
-                or "Unassigned",
-            }
-        )
+        parent = fields.get("parent") or {}
+        row: Dict[str, Any] = {
+            "key": issue.get("key"),
+            "summary": fields.get("summary"),
+            "status": (fields.get("status") or {}).get("name"),
+            "assignee": assignee.get("displayName")
+            or assignee.get("emailAddress")
+            or "Unassigned",
+        }
+        if parent:
+            row["parent"] = parent.get("key")
+            row["parent_summary"] = (parent.get("fields") or {}).get("summary")
+        if not brief:
+            row["priority"] = (fields.get("priority") or {}).get("name")
+            row["description"] = from_adf(fields.get("description"))
+        minified.append(row)
     return minified
 
 
@@ -181,6 +308,10 @@ class JiraClient:
         # agent never sees or passes a board id, which keeps it out of the
         # token budget and out of reach as an argument.
         self._profile: Optional[BoardProfile] = None
+        #: Field name -> id, from Jira's own /field. Never hardcoded: Start
+        #: date is customfield_10015 on this instance and something else on
+        #: the next one. Same lazy-once shape as the board profile.
+        self._fields: Optional[Dict[str, str]] = None
 
     async def _fetch_boards(self) -> List[Dict[str, Any]]:
         """Agile boards for this project. Separate API from everything else
@@ -265,6 +396,41 @@ class JiraClient:
             known=True,
         )
 
+    async def issue_types(self) -> List[str]:
+        """Issue type names this project accepts, or an empty list.
+
+        Asked of the project rather than assumed: "Story" exists on some
+        projects and not others, and a create that names a missing type fails
+        with a message that does not say which ones are available.
+        """
+        try:
+            res = await make_request(
+                f"{self.base_url}/rest/api/3/project/"
+                f"{urllib.parse.quote(self.project_key)}",
+                email=self.email,
+                token=self.token,
+            )
+            return [
+                str(t.get("name"))
+                for t in (res.get("issueTypes") or [])
+                if t.get("name")
+            ]
+        except Exception:
+            return []
+
+    async def settable_fields(self) -> Dict[str, str]:
+        """The optional fields ``create_issue`` can set, and their ids here.
+
+        Reported so nobody has to guess, and so nobody hardcodes
+        ``customfield_10015`` after finding it in a payload -- it is Start date
+        on this instance only. Absent names are absent from the map rather than
+        reported as null: "this instance does not have that field" is a
+        different fact from "its id is unknown".
+        """
+        fields = await self.field_map()
+        wanted = ("start date", "due date", "labels", "parent", "rank")
+        return {name: fields[name] for name in wanted if name in fields}
+
     async def board_warning(self) -> Optional[str]:
         """One line of warning when work filed here will not appear anywhere.
 
@@ -330,10 +496,24 @@ class JiraClient:
             f"{self.base_url}/rest/agile/1.0/board/{board_id}/issue", issue_keys
         )
 
-    async def search_issues(self, jql: str) -> List[Dict[str, Any]]:
-        url = f"{self.base_url}/rest/api/3/search/jql?jql={urllib.parse.quote(jql)}&fields=summary,description,status,priority,assignee"
+    async def search_issues(self, jql: str, brief: bool = True) -> List[Dict[str, Any]]:
+        """Search, returning the brief shape unless asked for the full one.
+
+        ``parent`` is requested in both shapes: it is a few characters on the
+        wire and it removes a follow-up call per issue. ``description`` is only
+        requested when it will be returned — asking Jira for ADF and then
+        discarding it costs nothing in tokens but everything in latency on a
+        large board.
+        """
+        fields = "summary,status,assignee,parent"
+        if not brief:
+            fields += ",description,priority"
+        url = (
+            f"{self.base_url}/rest/api/3/search/jql"
+            f"?jql={urllib.parse.quote(jql)}&fields={fields}"
+        )
         res = await make_request(url, email=self.email, token=self.token)
-        return minify_issues(res.get("issues", []))
+        return minify_issues(res.get("issues", []), brief=brief)
 
     async def get_issue(self, issue_key: str) -> Dict[str, Any]:
         url = f"{self.base_url}/rest/api/3/issue/{issue_key}"
@@ -381,25 +561,88 @@ class JiraClient:
             "message": f"Successfully transitioned {issue_key} to '{target_status}'",
         }
 
+    async def field_map(self) -> Dict[str, str]:
+        """Lowercased field name -> field id, as this Jira instance reports it.
+
+        Resolved at runtime and cached, because custom field ids are per
+        instance. Start date is ``customfield_10015`` here and there is no
+        reason to expect it anywhere else; hardcoding it is how a payload
+        silently writes nothing on somebody else's site.
+
+        Never raises: an instance that will not list its fields still creates
+        issues, just without the optional dates.
+        """
+        if self._fields is None:
+            try:
+                res = await make_request(
+                    f"{self.base_url}/rest/api/3/field",
+                    email=self.email,
+                    token=self.token,
+                )
+                self._fields = {
+                    str(f.get("name", "")).lower(): str(f.get("id"))
+                    for f in (res if isinstance(res, list) else [])
+                    if f.get("id")
+                }
+            except Exception:
+                self._fields = {}
+        return self._fields
+
     async def create_issue(
-        self, summary: str, description: Any, issue_type: str = "Task"
+        self,
+        summary: str,
+        description: Any,
+        issue_type: str = "Task",
+        parent: Optional[str] = None,
+        duedate: Optional[str] = None,
+        start_date: Optional[str] = None,
+        labels: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
+        """Create an issue, with the fields that make it visible once created.
+
+        Everything past ``issue_type`` is optional and was absent until DT-255,
+        which is why this project's Timeline was empty: an Epic with no children
+        has nothing to draw. ``parent`` is what makes an issue a child.
+
+        ``labels`` stands in for priority. Priority cannot be set on a
+        team-managed project at all -- every DT issue reads ``Medium`` because
+        that is the only value it can have -- so a label is the only way to mark
+        one ticket as more urgent than another.
+
+        Dates are ISO ``YYYY-MM-DD``. ``start_date`` goes through
+        :meth:`field_map` rather than a hardcoded id.
+        """
         if isinstance(description, str):
             description = to_adf(description)
 
-        payload = {
-            "fields": {
-                "project": {"key": self.project_key},
-                "summary": summary,
-                "description": description,
-                "issuetype": {"name": issue_type},
-            }
+        fields: Dict[str, Any] = {
+            "project": {"key": self.project_key},
+            "summary": summary,
+            "description": description,
+            "issuetype": {"name": issue_type},
         }
+        if parent:
+            fields["parent"] = {"key": parent}
+        if duedate:
+            fields["duedate"] = duedate
+        if labels:
+            fields["labels"] = labels
+        if start_date:
+            start_id = (await self.field_map()).get("start date")
+            if start_id:
+                fields[start_id] = start_date
+
         url = f"{self.base_url}/rest/api/3/issue"
         res = await make_request(
-            url, method="POST", payload=payload, email=self.email, token=self.token
+            url,
+            method="POST",
+            payload={"fields": fields},
+            email=self.email,
+            token=self.token,
         )
-        return {"ok": True, "key": res.get("key"), "self": res.get("self")}
+        # The key, not the `self` URL. The URL is derivable from the key and
+        # nobody ever followed it; it was pure cost on every create (DT-255 A4).
+        return {"ok": True, "key": res.get("key")}
 
     async def assignable_users(self, query: str) -> List[Dict[str, Any]]:
         """Users who can be assigned issues on this project.
