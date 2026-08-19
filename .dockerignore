@@ -1,0 +1,17 @@
+# Everything the build does not need, and two things it must never carry.
+.git
+.venv
+__pycache__
+*.pyc
+htmlcov
+.pytest_cache
+.mypy_cache
+.ruff_cache
+
+# Secrets and host state. The image resolves credentials at runtime through
+# $DRUNKEN_HOME; baking either of these in would put a token in a layer, where
+# it survives every later deletion.
+.env
+.env.*
+.agents
+.claude
