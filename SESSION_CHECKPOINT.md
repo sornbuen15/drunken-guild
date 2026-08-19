@@ -804,3 +804,57 @@ red at `69580fd`, and #107 fixed it. The same CI log confirmed the new check wor
 `deployment.tool_env` reported `skip` on a runner with no `uv tool` install. **The code was right and
 the test depended on the developer's own state**, which is S9's two-sources problem in a different
 hat, inside the very ticket about deployments differing from checkouts.
+
+## 19. Start here — the token-economy round (DT-255)
+
+Everything below was **measured on 2026-08-17**, not estimated. Re-measure after the work and record
+the real numbers; a claimed saving is the kind of thing this file exists to distrust.
+
+### Where the tokens actually go
+
+```
+jira_search_issues, 6 issues     5,697 tokens   ← 95% of it raw ADF description
+  same search without description   296 tokens
+discord, 3 tool descriptions     1,033 tokens   ← 410 of them the DEPRECATED blocking tool
+tickets written in this session   3,079 tokens for 5 — the largest was 803 words
+  the project's own older tickets     49 words
+```
+
+The name `minify_issues` is a promise the function does not keep: it returns Atlassian Document
+Format verbatim, and ADF wraps one sentence in roughly four times its own length.
+
+### The work, highest return first
+
+| | | |
+|---|---|---|
+| **A1** | `jira_search_issues` → default `brief`, no description | −90% per search |
+| **A2** | ADF → plain text when the full issue *is* asked for | −3–4× on what remains |
+| **A3** | brief returns `parent` + `parent_summary` | removes 2–3 follow-up calls for context |
+| **A4** | `create_issue` returns the key, not the `self` URL | free |
+| **B1** | `create_issue` accepts `parent` | without it an Epic has no children and Timeline is empty |
+| **B2** | `duedate` + Start date | the "what is available when" question |
+| **B3** | `labels` | **stands in for priority**, which team-managed projects do not have |
+| **B4** | `board_info` reports issue types and settable field ids | stops anyone hardcoding a custom field |
+| **C1** | The ticket rule lives in the `create_issue` docstring | +57 tokens, returns ~700 per ticket, and **every AI sees it** |
+| **C2** | Warn only when long **and** parentless — never reject | DT-234's mechanism, already proven |
+| **D1–3** | Discord: shrink the deprecated tool, drop `Args:`/`Returns:` the schema already carries | 1,033 → ~300 |
+
+### Things established while working this out
+
+- **`priority` cannot be set on DT at all.** Team-managed projects have no such field, which is why
+  every ticket reads `Medium` — and why the surviving `/refine`, which promotes issues labelled
+  `Critical`, could never have done anything here. Use `labels` or `Rank` instead.
+- **`parent`, `duedate` and Start date all exist on DT already.** Jira is ready; our payload sends
+  four fields and stops.
+- **No story points field**, so Capacity cannot work. Not a gap to fill.
+- **`board_mcp` is declared in no `.mcp.json`.** Leave it that way: wiring it back would cost 2,162
+  tokens per request for a retired server.
+- Context belongs on the Epic or Story and should be **linked, not copied**. §9.1 rotted because it
+  was prose pointing at prose; `parent` is a link the API can resolve, which is the difference.
+
+### Also waiting
+
+**DT-254** — the `.env` parent-walk in the daemon outranks the registry. A real finding, unfixed.
+**PR #109** — release 2.3.0, needs one approval, then `gh release create` with the note in scratch.
+**DT-237** — its stated cost of 170 issues is **wrong**: TWA has 0 open and ISAC has 3. Fix the ticket.
+**DT-248** — nothing left to do; close it.
