@@ -121,8 +121,7 @@ cp .env.example .env
 {
   "mcpServers": {
     "drunken-discord-mcp": { "command": "uv", "args": ["run", "python", "-m", "discord_mcp.server"], "env": { "PYTHONPATH": "src" } },
-    "drunken-jira-mcp": { "command": "uv", "args": ["run", "python", "-m", "jira_mcp.server"], "env": { "PYTHONPATH": "src" } },
-    "drunken-board-mcp": { "command": "uv", "args": ["run", "python", "-m", "board_mcp.server"], "env": { "PYTHONPATH": "src" } }
+    "drunken-jira-mcp": { "command": "uv", "args": ["run", "python", "-m", "jira_mcp.server"], "env": { "PYTHONPATH": "src" } }
   }
 }
 ```
