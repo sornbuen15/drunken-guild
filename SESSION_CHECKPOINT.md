@@ -1,860 +1,178 @@
 # Session Checkpoint
 
-Short-term memory and context handoff between AI coding sessions.
-**Read this at the start of a session and update it before ending your turn.**
+Short-term memory between sessions. **Read this first; update it before ending your turn.**
 
-Last updated: 2026-08-16 · `develop` is past **2.2.0**, unreleased · tagging **2.3.0** is the next
-milestone
+Rule for this file, learned the hard way: **finished work does not live here.** It goes to the
+release note, the Jira ticket, or `CLAUDE.md`, and this file links to it. The previous version reached
+860 lines and 19 sections, several of which existed only to correct earlier sections — at which point
+nobody reads it, and a handoff nobody reads is worse than none. See *What was cut* at the bottom.
+
+Last updated: 2026-08-17 · **v2.3.0 released** · `develop` is where work lands
 
 ---
 
-## 1. Where things stand
+## 1. Start here — the token-economy round (DT-255)
 
-**Active work: "MCP Hardening & Portability"** — shipped as incremental 2.x releases.
-Goal: any AI, any tool, running from any directory can use the MCP servers safely, with no project
-ever holding a credential.
-
-| | |
-|---|---|
-| Branch | `develop` @ `04f29f5`, **653 tests green** |
-| Merged 2026-08-13 | DT-238 · DT-242 · DT-241 · DT-243 · DT-244 · DT-239 · DT-245 · DT-240 · DT-246 · **DT-247** (#94) · #95 · **DT-249** (#96, #99) · **DT-236** (#97) · **DT-225** (#98) · **DT-250** (#100, #102) |
-| Merged 2026-08-16 | **DT-251** (#103) board capability + backlog moves · **DT-95** (#104) usage accounting |
-| Merged 2026-08-17 | #105 docs · **DT-252** (#106) doctor sees the deployment · #107 CI fix |
-| Open PRs | **none.** #105, #106, #107 merged 2026-08-17 |
-| Jira | DT-95 · DT-225 · DT-236 · DT-249 · DT-250 · DT-251 all **Done** · DT-227 cut · **To Do: DT-226, DT-228, DT-237, DT-248** |
-
-Checked rather than assumed, because this section has been wrong before: `origin/develop` is
-`04f29f5`, #103 and #104 both report `MERGED`, and Jira agrees with both. When updating this table,
-verify the same three things — the file's own §5 and the box below are what happens otherwise.
-
-**DT-225 is done in full** — S6 went with DT-241, S1/S2/S8 with #98. **DT-236 is done** — the thing
-the Boss originally asked for, working and proven against live Discord. The two oldest open items in
-this project both closed on the same day.
-
-### ⚠️ This section was wrong for four hours — read why before trusting any checkpoint
-
-The version of §1 that shipped in **#95 described the world before #94**, and told its reader to go
-and merge a PR that had already landed. The mechanism: **#95 branched from `a33e15e`, before #94,
-and merged after it**, so a stale section overwrote a newer one. Nothing conflicted, because only one
-side had touched those lines.
-
-This is §5's DT-225 lesson in its other dialect. There it was *a checkpoint on a feature branch
-describes that branch, not the trunk*. Here it is **a checkpoint written before a merge describes the
-world before that merge, no matter when it lands.** Before believing this section: check the merge
-base against `origin/develop`.
-
-**#95 also carried the key `DT-249`, which did not exist in Jira** — a branch named for a ticket
-nobody filed, merged without one. `DT-249` now belongs to *this* cleanup, filed after the fact. If
-you follow PR #95's branch name to a ticket, that is why it does not describe the same work.
-
-### Next, in order
-
-**For the Boss, because an agent is refused these:**
-
-1. **BETA's history rewrite** — every step is the Boss's, and step 5 is a force-push. See §14.
-2. **Two `.env` files still hold the revoked token** — `drunken-team/.env` and `alpha-workspace/.env`.
-   Nothing of ours reads them, but they are traps for anyone running the vendored copies. Also at the
-   ALPHA wrapper: `.claude/jira_token.json` and a TLS private key. Reading `.env` is denied and an
-   agent does not delete.
-3. **`$DRUNKEN_HOME/agy_pids.json`** — orphaned by DT-244's rename. `pids.json` is the live one.
-4. **DT-237, then tag 2.3.0** — DT-237 is a *decision* the Boss deferred, and doing nothing is a
-   legitimate outcome by its own description, so the tag probably should not wait on it.
-
-**For whoever picks this up next:**
-
-5. **DT-226** is no longer blocked by S1/S2/S8, and is not thereby approved. Reviewed on its own
-   merits on 2026-08-16 — see §16 for what that review found and what it recommends.
-6. **DT-228** Phase 6 config generator. It must emit `--with-requirements`; see §10.3.
-
-*(The old item 1 here — "refresh the installed tool environment" — is done. The env was reinstalled
-from `04f29f5` on 2026-08-16 and every module merged since is present. §10.3 records what that entry
-correctly generalises to.)*
-
-### 🔑 The Jira token was rotated on 2026-08-13
-
-`.agents/jira_config.json` in **BETA** held a live Jira token in plain text, committed in `103794d`
-and again in `bb80153` — whose subject is *"Apply security hardening and workflow
-standardizations"*. Both were pushed. The repo is private, which is the only reason this was a
-cleanup rather than an incident.
-
-The token is **revoked and replaced** (confirmed 401), so what remains in history is inert and no
-history rewrite is proposed. Rotation was a single edit — `scripts/set_secret.py jira.default` —
-because every project references one entry instead of copying it. That is the whole payoff of the
-reference design, and it was earned the hard way: a stale copy in ALPHA's `.env` had been answering
-Jira with an empty board for months.
-
-> **Do not call this work "v3".** Boss ruled it is bugfix + additive throughout. `3.0.0` is reserved
-> for when things are *removed*, not when they are added.
-
-> `~/Projects/todo/drunken-team/MCP-ARCHITECTURE.md` is **retired** as the cross-AI channel — Boss's
-> call. It was a stopgap for when one AI ran out of tokens; this file does that job. It is not in
-> git, is not maintained, and nothing should point at it.
-
-## 2. Boss's four rules — the criteria every decision is judged against
-
-1. Any AI / any tool must be able to use mcp, jira, discord
-2. Every change must weigh cyber security **and** implementation flexibility
-3. Must work in other projects for real — a particular directory, or the cloud, must not be an
-   obstacle. Docker or Kubernetes must be viable
-4. We are building a **tool**: if we can use it, others must be able to — safely, and resistant to attack
-
-Anything that violates one of these is out, without further debate.
-
-## 3. Locked decisions
-
-| Topic | Decision |
-|---|---|
-| Transport | **Dual** — one codebase, `--transport stdio\|http`. stdio default |
-| Auth (HTTP) | **Pluggable** — static bearer bound to audience+project day one; OAuth 2.1/OIDC later |
-| mcp SDK | Pinned `>=1.28,<2`; migrating to `MCPServer` (2.x) is a separate epic |
-| `board_mcp` | **retired, DT-250.** No project wires it. Jira is the only coordination surface — assignee says whose, status says where. Kept on disk, marked unused |
-| Secrets | Pluggable resolver, resolved **once at init** and cached (Antigravity §8.2) |
-| Git in MCP | **Kept** as workflow coordinator + security gateway, with 3 security conditions (§9.1) |
-| Roles | **Claude implements** Phase 1–6; Antigravity reviews and runs client-side acceptance tests (§10.2) |
-
-Architecture is **settled** — Antigravity ACKed all three points in §11. No further consensus rounds.
-
-## 4. Delivered
-
-**2.1.0 (DT-189)** — ten modules under `src/core/`: `paths` (`$DRUNKEN_HOME`, nothing from
-`__file__`) · `secrets` (pluggable `env:// file:// op:// keyring://`, resolved once per process,
-scheme-less references rejected) · `redact` (masked `Secret`, base64-aware redactor) · `errors`
-(`DrunkenError` with remediation, `as_tool_result`) · `registry` v2 (in-memory v1 upgrade, optional
-`path`, validated ids) · `context` (`verify_jira_identity`) · `http` (scheme-guarded `urlopen`) ·
-`doctor` (`drunken-doctor`) · `init` (`drunken-init`)
-
-**2.2.0 (DT-224)** — the three servers rewired onto `ProjectContext`. `--workspace` is gone,
-`jira_mcp/config.py` and its `.env` parent-walk are gone (S3), `drunken-register` is retired (S11).
-
-**Approvals (DT-232, DT-233)** — asking no longer stops the agent. `submit()` returns a handle and
-`poll()` collects the answer later; a waiting task parks in the new `blocked` lane carrying the
-`req_id` that would free it, and `board_available_tasks` offers only tasks whose dependencies are
-done. No deadline and nothing is auto-killed — reminders back off 15 min → 1 h → daily, and survive
-a daemon restart. An approval is bound to the commit it was granted against and reads `stale` from
-any other HEAD. The blocking `request_boss_approval` still works; `mode` defaults to `sync`, so
-anything written by an older daemon behaves exactly as before.
-
-**DT-235** — `drunken-jira-mcp` had `--project` as `required=True`, so argparse killed it with
-`sys.exit(2)` before the MCP handshake and the host saw a process that vanished. Principle 8, from
-this very file, caught in the wild. `core/errors.py` had existed for it since 2.1.0 and no server
-had imported it.
-
-**DT-234** — `jira_create_issue` warns when the project has no agile board. ALPHA and BETA are
-business-type projects; work filed there succeeds and is then invisible.
-
-**DT-236 — the PreToolUse hook.** The oldest complaint in the project, closed. `drunken-away on`
-writes a flag the *machine* can read, and the hook turns each harness permission prompt into a
-Discord question. Deny is checked first and never routed; an allowlisted call gets silence rather
-than `allow`, because the hook's job is to never widen permission.
-
-Two things the ticket had wrong, both found by reading the contract rather than trusting it:
-
-- The hook timeout default is **600s, not ~60s** as the ticket said.
-- **A timed-out hook does not block the call** — it falls through to the normal permission flow, and
-  the documentation says outright not to count on a stalled hook as a gate. So the hook answers
-  *before* its own deadline instead of waiting to be killed. `WAIT_BUDGET_SECONDS` (1500) and the
-  `timeout` in `.claude/settings.json` (1800) are two numbers in two files that must stay in a
-  relationship, so a test asserts it — the same shape as S9 and the stale `requirements-dev.txt`.
-
-And one found only by running it, which is §13's whole point. The live acceptance run ended with the
-agent **stranded**: away mode was on, the Boss pressed 👎, and `drunken-away off` was itself routed
-to Discord along with every `Read` and `Edit` that could have fixed it. A switch that cannot turn
-itself off is not a switch. The way out has to be an **allow rule** — hook silence only means "carry
-on as normal", and carrying on as normal in an unattended terminal is the blocking prompt this
-ticket exists to remove.
-
-Proven end to end against live Discord: 👍 → `allow`, 👎 → `deny` (which blocked the agent's own
-tool call through the real harness, not a simulated stdin), and a denylisted `rm -rf` refused in
-0.06s without reaching Discord at all — including when hidden behind `git status &&`.
-
-## 5. Findings — S1 to S12
-
-**Fixed in 2.1.0:** S4 (Jira 200 + `[]` on a bad token), S5 (`__file__`-derived paths), S9 (version
-drift), S10 (inverted `\n` escaping), S11 (`drunken-register` unusable and writes plaintext tokens
-into the project), S12 (e2e tests writing to live Jira), 3 aiohttp CVEs, 3 bandit MEDIUM.
-
-**Fixed in 2.2.0 (DT-224):** S3 (`.env` parent-walk deleted with `jira_mcp/config.py`), S11.
-
-**S6 — closed by DT-241 (2026-08-13).** The socket is created under `$DRUNKEN_HOME` and chmod-ed
-`0600` immediately after binding; verified live as `srw-------`. Correcting this file's own
-framing while closing it: the socket was never actually reachable by anyone else. Connecting to a
-unix socket needs *write* permission, and the usual umask of 022 stripped it. The defect was that
-**nothing in the code set the mode at all** — the result depended entirely on the umask of whatever
-launched the daemon, and umask 000 would have opened the approval channel to every local process.
-Safe by accident is not safe by construction.
-
-**S1, S2 and S8 — closed by DT-225 (2026-08-13).** Each was seen failing first.
-
-| # | Was | Now |
-|---|---|---|
-| S1 | `query_project_context` did `if os.path.isabs(file_path): resolved = file_path` — no containment check of any kind to traverse *around*. Arbitrary file read | Containment judged on the **resolved** path, both sides. Catches `../`, and catches a symlink that sits inside the project and points out of it — which a string comparison cannot. `access_denied_path_traversal` stays a different answer from `file_not_found`, so a typo does not read as an attack |
-| S2 | No authorization anywhere in `board_mcp/server.py`. `main()` said it out loud: *"--project (ignored by board, kept for compat)"* — a server launched for one project served any other on request | **Default deny.** `--project` (or `DRUNKEN_BOARD_PROJECT`) binds the server to one project; an unbound server refuses every call with a remediation. **Behaviour change** — this repo's `.mcp.json` relied on the old "serve them all" and now passes `--project drunken-team`. Antigravity's config already did |
-| S8 | `jira_search_issues` passed raw JQL through; `--project` named the project and confined nothing to it | The query is **wrapped**, not validated: `project = "KEY" AND (caller's query)`. Parsing a query language to judge safety is the same losing game as prefix-matching a shell command, and conjunction makes it unnecessary |
-
-Two details in S8 carry the guarantee, and both are tested. The parentheses are not cosmetic —
-`project = "DT" AND a OR b` binds as `(project = "DT" AND a) OR b` and the `OR` escapes the scope
-entirely. And `ORDER BY` has to be hoisted outside them or the result is not valid JQL; that hoist
-is quote-aware, so a ticket whose summary contains the words "order by" is searched rather than
-mangled.
-
-Proven against live Jira rather than argued: a cross-project query returned **0 issues**, and
-`status = Done OR project = BETA` returned **50 issues, every one of them DT**. That second one is
-the real proof — without the parentheses it would have returned BETA's.
-
-> **⚠️ HTTP transport (Phase 4 / DT-226) waited on these, and no longer does.** Everything is still
-> local stdio; what changed is that opening Phase 4 no longer exposes an arbitrary file read, an
-> unbounded board server and an unscoped JQL search along with it. DT-226 should still be reviewed
-> on its own merits before it opens.
-
-**How this was missed, because it will happen again otherwise.** The work exists on
-`feature/DT-225-security-hardening` and was never merged. Jira said IN REVIEW, that branch's copy of
-this file said *"Fixed in 2.3.0"* and *"HTTP transport is now safe to open"* — so every surface
-agreed it was done. Nothing checked `develop`. **A ticket in review is not a merged ticket, and a
-checkpoint on a feature branch describes that branch, not the trunk.**
-
-## 6. S12 — read this before running the test suite
-
-`test_jira_e2e.py` and `test_full_system_e2e.py` are marked `@pytest.mark.e2e`, and the marker's own
-comment says it exists "so it doesn't run on standard unit test runs unless requested" — **but nothing
-ever deselected it.** Every plain `pytest` therefore filed two real tickets into the live DT project.
-`DT-169` … `DT-223` are all junk; roughly thirty came from this session's own test runs.
-
-Fixed by implementing what the marker always meant: `addopts` deselects `e2e`, and `tests/conftest.py`
-skips those tests with a readable reason when credentials are absent. Run them deliberately:
-
-```bash
-pytest -m e2e
-```
-
-Side effect: the default suite went from ~17s to ~2s, because it no longer calls Atlassian.
-
-**Cleaned up 2026-08-12 (DT-229).** 52 `[E2E TEST]` tickets plus `DT-104` `[SCRATCH]` were archived
-to a manifest and then deleted with the Boss's authorisation. DT went from 108 issues to 57.
-
-Correcting this file's own earlier claim, because it sent someone looking in the wrong place: it
-said the junk was `DT-169` … `DT-223`, roughly 55 tickets. **50 of those 55 numbers do not exist in
-Jira at all**, and the 5 that do are real work. The junk was actually `DT-66` … `DT-130`, and all of
-it was already `Done`.
-
-## 7. CI — what it now enforces
-
-Two stacked causes kept it red for two months: the `mcp<2` issue (DT-182), and behind it a stale
-hand-maintained `requirements-dev.txt` missing `pytest-asyncio`. Same root cause as S9 — two sources
-of truth. CI now installs `-e ".[dev]"`.
-
-**Nobody saw it because the workflow only ran on `main`, while all work lands via PRs into `develop`.**
-It now watches both.
-
-| job | gates |
-|---|---|
-| `test (py3.10)`, `test (py3.13)` | ruff check, ruff format, mypy `--strict`, pytest — **3.10 is the declared floor and had never once been exercised** |
-| `security` | `pip-audit --strict`, `bandit -ll` (MEDIUM+), `gitleaks` over full history |
-| `clean install` | `scripts/verify_clean_install.sh` |
-
-```bash
-./scripts/verify_clean_install.sh
-```
-
-Clean-room check anyone can run: wiped environment, scratch `HOME` and `DRUNKEN_HOME`, unrelated cwd,
-throwaway venv. Touches nothing of yours. 22 checks.
-
-## 8. Principles that must not be quietly reversed
-
-1. **A reference with no scheme is an error**, not a literal — otherwise someone eventually pastes a
-   real token into the committable registry and it *works* until it is pushed. `literal://` is the
-   greppable opt-out.
-2. **`path` is optional** — a containerised server has no host checkout to name.
-3. **A v1 registry is upgraded in memory and never rewritten**, so downgrading is just running the old
-   code rather than a one-way door.
-4. **A corrupt registry reads as empty instead of raising** — raising at startup recreates §1.1, where
-   the server vanished and said nothing. `doctor` is what says it out loud.
-5. **Redaction catches the base64 `Basic` form** — `jira_client` encodes `email:token` into the header.
-6. **The gitleaks allowlist keys on a marker, not a path.** "Skip `tests/`" would make the scan pass
-   while removing the protection, and tests are exactly where a real token gets pasted. `.env` is
-   deliberately not allowlisted.
-7. **Every outbound HTTP call goes through `core/http.py`** — one `# nosec`, on the guard's own urlopen.
-8. **Never let import-time failure be a failure mode** — anything that can fail must fail inside a tool
-   call, so the agent sees a message instead of a server that silently disappeared.
-
-## 9. Next phases
-
-| version | work |
-|---|---|
-| **2.1.0** | ✅ DT-189 — `core/` foundation |
-| **2.2.0** | ✅ DT-224 — `--workspace` → `--project`, `ProjectContext` wired in, S3 and S11 closed |
-| — | ✅ DT-232 / DT-233 async approval · DT-234 board warning · DT-235 jira-mcp startup |
-| **2.3.0** | ✅ DT-238 docs · DT-242 registry works end to end · DT-241 state paths + **S6** · DT-243 cwd paths + snapshot recovery · DT-244 retire the `agy` name · DT-239 wire `as_tool_result` · DT-245 onboard ALPHA and BETA · DT-240 CI doc-drift check · DT-246 daemon and Antigravity reach the registry |
-| — | ✅ DT-247 — Discord config from the registry, and ALPHA's last stale token (#94) |
-| — | ✅ DT-249 — docs/Jira truth alignment (#96) |
-| — | ⬜ DT-237, then **tag 2.3.0** |
-| — | ✅ DT-250 — three-part layout, and the local board retired (#100, #102) |
-| — | ✅ **DT-251 — the board's real capabilities, and board ↔ backlog moves** (#103). See §15 |
-| — | ✅ **DT-95 — what a run cost, from the host's own transcripts** (#104). See §16 |
-| **2.4.0** | ✅ **DT-236 — the PreToolUse hook. The thing Boss actually asked for** (#97). Proven against live Discord; see §4 |
-| — | ✅ **DT-225 closed in full** — S6 with DT-241, S1/S2/S8 with #98 |
-| **later** | DT-226 dual transport + bearer auth. No longer *blocked* by S1/S2/S8, and not thereby approved. **Reviewed 2026-08-16 — see §17 for the finding and the recommendation** |
-| ~~2.5.0~~ | ~~Discord daemon multi-tenant~~ — **DT-227 cut.** Boss: nobody drives more than one project at a time, and doing so burns tokens for nothing. One channel serves all |
-| **3.0.0** | Removals only: migrate to the mcp 2.x SDK. `--workspace` and `AGY_DAEMON_SOCKET` are already gone (DT-224, DT-244) |
-
-## 10. Outstanding debt
-
-1. **`main` is 7 commits behind `develop`** and has 7 it does not — nothing since 2.1.0 has been
-   released. This is a release decision, not drift. *(The old entry here said local `main` had
-   diverged from `origin/main` by 20 files. It has not: both are `3d18c2e`, 0 ahead, 0 behind.
-   DT-230 closed as stale.)*
-2. **28 bandit LOW findings** — 18 of them `try/except/pass`, concentrated in `service/`
-   (`discord_runner` 10, `discord_utils` 3, `discord_router` 2). Counted 2026-08-16; the entry said
-   24 and had not been recounted since. **Not gated, not hidden, and deliberately not chased.** Every
-   one sits in a path that is tolerant on purpose — a transcript half-written while being read, an
-   error body that may not decode, a reminder that must not fail the thing it is reminding about.
-   Sprinkling `# nosec` across all 28 would weaken the signal from a real one, which is the whole
-   reason `core/http.py` carries exactly one. `core/usage.py` added none: its handlers return an
-   answer rather than swallowing.
-3. **The installed tool environment is a separate deployment, and nothing updates it.**
-   `~/.local/bin/drunken-*` symlinks into `~/.local/share/uv/tools/drunken-team/`, and **that is what
-   Antigravity's `mcp_config.json` launches** — not this checkout. Merging a fix does not deploy it
-   to the host that actually runs it.
-
-   **Reinstalled from `04f29f5` on 2026-08-16**, and verified module by module: `core.usage`,
-   `core.permission_rules`, `core.away`, `service.approval_hook`, `jira_mcp.jql`, `jira_mcp.backlog`
-   and `jira_mcp.assign` are all present. The alarming version of this entry — *"no S1/S2/S8, the
-   board server still serves any project"* — is **closed**. The likely cause of the reinstall that
-   read `false` on 2026-08-13 is that #102 had not merged when it ran.
-
-   What generalises and stays true: the env lags `origin/develop` by whatever merged since the last
-   reinstall, and **nothing reports that gap**, so it must be checked rather than assumed in either
-   direction. Also still true: `uv tool install` ignores `uv.lock`, so the tool env has mcp 1.29.0
-   while the lock pins 1.28.1 — both satisfy `<2`, but drift inside the range is possible, and Phase
-   6's generator (DT-228) should emit `--with-requirements`.
-4. **The `.claude/settings.json` denylist now has a second enforcer** — DT-236's hook checks it
-   before anything else and refuses to route a denied call to Discord at all. Note what that is and
-   is not: matching a shell command by prefix cannot be made sound (`rm -rf` and `rm -r -f` are the
-   same action, spelled differently), so `core/permission_rules.py` documents itself as a soft
-   control and leans every ambiguity toward asking a human. Deny matching is greedy — no word
-   boundary, every segment of a compound command, command substitutions included. Allow matching is
-   strict, and a compound command is allowed only when *every* segment is.
-5. **Two `.env` files still hold the revoked Jira token** — `drunken-team/.env` and
-   `alpha-workspace/.env`. Nothing of ours reads them since #94, but they are live traps for
-   anyone who runs the old tooling. Boss has not said whether to clear them.
-6. **ALPHA and BETA each carry a vendored copy of this tooling** — `monitor.py`, `jira-lite-cli.py`,
-   `.agents/scripts/{jira_bridge,ask_boss,discord_listener,register_project}.py`. They are why
-   ALPHA's `.env` still needs a token at all.
-
-   **This was surveyed on 2026-08-13 and is not a delete job.** Three things an earlier
-   authorisation could not have accounted for:
-
-   - **`~/Projects/alpha-workspace` is not a git repository.** The repo is the `alpha/` subdirectory, so
-     `monitor.py`, `jira-lite-cli.py`, `.agents/` and `.env` at that root are unversioned. Removing
-     them is unrecoverable. *(The registry also points `alpha` at the non-repo parent.)*
-   - **BETA has uncommitted work in a file on the list** — `.agents/scripts/jira_bridge.py` carries
-     a fix for the S10 inverted-`\n` bug and a status-filter change, neither committed.
-   - **BETA's uncommitted `.agents/AGENTS.md` instructs agents to use `jira_bridge.py` and *not* the
-     board MCP.** Antigravity's BETA workflow depends on the vendored copy right now.
-
-   Also note this file's teardown list named `.agents/scripts/*` while `CLAUDE.md` says not to touch
-   `.agents/` at all. Those two contradicted each other; `CLAUDE.md` wins.
-
-   **Boss's standing rule (2026-08-13): an agent does not delete.** Anything needing removal becomes
-   a list for the Boss to run, and marking something unused is preferred over removing it.
-7. **`drunken-doctor` cannot see any of that.** Every failure this session was found by running
-   something and looking, not by a check. A `doctor --all` that walks every registered project and
-   reports the drift would have caught the dead ALPHA token, the missing Discord channels and the
-   unwired Antigravity config on its own. Not ticketed yet; it is the widest gap in our own tooling.
-8. **`scripts/check_doc_drift.py` cannot catch a claim that stopped being true.** It reported 60
-   documents clean while CLAUDE.md stated that `drunken-board-mcp` was not wired up — false since
-   DT-242. It matches names that were retired, which is a different thing. Widening it is a decision,
-   not an oversight: a checker that reads prose is a checker that cries wolf.
-9. **`$DRUNKEN_HOME/agy_pids.json` is orphaned state** left over from before DT-244 renamed it to
-   `pids.json`. Both files exist. Harmless, and deliberately not deleted under a docs ticket.
-
-## 11. Working agreements
-
-- Jira is SSOT: `TODO` → `IN PROGRESS` → `IN REVIEW` → `DONE`. **Never skip IN REVIEW.**
-- One Jira ticket per phase; each phase merges independently without breaking the one before it.
-- A test for a security finding must be **seen failing first**, to prove it has teeth.
-- Never put absolute paths in another project's `.mcp.json` — it leaks into git.
-- No identity, token, or secret may ever enter a commit.
-- **Do not touch or archive `.agents/` files or `~/.gemini/antigravity-cli/brain/*/worktrees/`.**
-- Antigravity does **not** edit `drunken-team` source during this work — a merge conflict inside a
-  security boundary is the easiest way for a hole to slip through.
-- **Approvals (DT-232 / DT-233).** The old "Silent Wait Protocol" — writing `.agents/discord_outbox.json`
-  and approving through IDE `run_command` — stays **retired**; that file is daemon state, not an API.
-  - In a live session where the Boss can read the conversation, **just ask them there.** Discord is for
-    when they are not watching.
-  - Unattended, ask with **`request_boss_approval_async`**, then `board_block_task` to park the task and
-    move on to whatever `board_available_tasks` offers. **Asking must never stop the other work.**
-  - Collect answers with `check_approvals` **when a task finishes and at session start — never mid-task.**
-    Acting on an approval the moment it lands is how a repo ends up half-changed.
-  - **There is no timeout and nothing is killed for going unanswered.** Reminders back off (15 min → 1 h →
-    daily) and the request survives daemon restarts. A question the Boss hasn't reached is not an error.
-  - An approval is bound to the commit it was granted against; from a different HEAD it reads `stale` and
-    must be re-asked. A yes given this morning does not authorise tonight's different code.
-  - Force-push, hard reset, recursive force-delete, and reading `.env` are refused by
-    `.claude/settings.json` **no matter what comes back over Discord**, and since DT-236 the hook
-    refuses them before Discord is even asked. Remote approval is only safe while some actions sit
-    outside it.
-- **An agent does not delete. Boss's standing rule, 2026-08-13.** Anything that would need a
-  recursive force-delete becomes a **list handed to the Boss to run**, and *marking a thing unused is
-  preferred over removing it*. A recorded authorisation from an earlier session does not license a
-  deletion today — see §10.6, where the survey found unversioned files and uncommitted work that no
-  earlier authorisation could have known about.
-  - `request_boss_approval` (blocking, escalates after 2 reminders) still works and is kept until 3.0.0.
-    Prefer the async pair; reach for it only when nothing else could possibly be done meanwhile.
-
-## 12. Verified numbers
-
-On `develop` @ `bb8a37a` — #96, #97 and #98 all merged, 2026-08-13:
-
-```
-578 tests passed (2 deselected)   ·   was 501 before this session's three PRs
-ruff check / ruff format / mypy --strict          clean
-bandit -ll                                        clean
-scripts/check_doc_drift.py                        60 documents, clean
-```
-
-## 13. The acceptance run — and why the numbers above are not enough
-
-Every real defect this session was found by **running the thing**, never by the suite. 465 tests
-passed while `as_tool_result` published `jira_search_issues(args, kwargs)` to the host and every
-call failed. The suite calls the functions directly, where `*args` accepts anything; an MCP probe
-is what caught it. Run this before believing anything is finished:
-
-```
-                     drunken-team   alpha        beta
-drunken-doctor       14 ok          13 ok      14 ok      0 failed
-MCP over stdio       6 tools        6 tools    6 tools
-  jira_search        50 issues      39 issues  50 issues
-bare run in dir      5 To Do        0 To Do    2 To Do
-Antigravity          3 servers, 25 tools, under `env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin`
-```
-
-Re-run in full on `bb8a37a`, 2026-08-13. Every number matches the previous run except DT's To Do,
-which is 5 rather than 6 because DT-227 was closed as cut the same day.
-
-Added by this session, proven through real MCP stdio rather than the suite:
-
-```
-S8  project = BETA, asked from drunken-team        0 issues
-S8  status = Done OR project = BETA                50 issues, every one DT
-S2  bound to drunken-team, asked for drunken-team  served
-S2  bound to drunken-team, asked for beta          refused, names the binding
-S2  unbound, asked for anything                    refused, says how to bind
-```
-
-ALPHA's `0 To Do` is correct — all 39 of its issues are Done. The point is that it no longer means
-*"the credential is dead"*, which is what it meant for months.
-
-**Running the thing has its own ways to be wrong.** Three false negatives in this session's
-acceptance run, none of them a product defect:
-
-1. The `0 failed` in `drunken-doctor`'s summary line was counted *as* a failure by the grep reading it.
-2. `uv run --directory X` overrides the `cd` before it, so three projects were all probed from one
-   directory and returned identical answers.
-3. **zsh does not word-split an unquoted parameter.** `$args` holding `--project drunken-team`
-   arrives as a *single* argv entry, argparse ignores it, and the S2 boundary looks broken when it
-   is not. This one reproduced twice and was nearly reported as a real bug.
-
-4. **The agile API's reads lag its writes by a beat**, and `GET /board/{id}/issue` on a team-managed
-   board returns *backlog* issues too, so it is not a membership test. DT-251's first round-trip run
-   therefore showed each move landing one step late and looking inverted, which read as swapped
-   endpoints. Re-run with settle time, reading only the backlog list, it is clean.
-
-All four failed *safe* — they under-reported success. The lesson is not to trust a harness more than
-the thing it is testing: pass argv as an array, keep `timeout` outside `env -i`, and read the summary
-line rather than grepping for a word that appears in it.
-
-**The GUI PATH trap, twice.** A host config read by an application launched from `/Applications`
-inherits launchd's minimal `PATH`, so a bare command name resolves when you test it in a terminal
-and fails inside the IDE. `setup_daemon_service.py` documents this for `uv`; DT-246 walked into it
-again for the MCP servers. Hence: **a repository's `.mcp.json` gets a bare name** (committed,
-shared, must not carry one machine's layout), **a host's config gets an absolute path** (in `$HOME`,
-never committed). Resolution prefers `~/.local/bin` over `shutil.which`, because `uv run` puts the
-project's own venv first and writing *that* into a host config works until the venv is rebuilt.
-
-Proven against **live Jira** rather than argued:
-
-- **S4, three times now** — a dead token returns HTTP 200 and `[]`, never an error. It hid ALPHA's
-  expired credential for months, it hid BETA's missing config, and it was still hiding
-  `drunken-team`'s revoked token on `develop` at the time of writing. `verify_jira_identity` asks
-  `/rest/api/3/myself`, which 401s. **Never health-check with a search.**
-- **DT-234** — DT, TFH and DC stay silent; ALPHA and BETA warn. Every board on the site was surveyed:
-  **none supports sprints**, and for DT the agile backlog is a strict subset of the board, so
-  nothing is stranded. No sprint support is needed anywhere.
-
-## 14. DT-250 — the three-part layout, and what BETA still needs
-
-Boss's rule, 2026-08-13. Every project has three parts that must not mix, and **only the source code
-goes to git**: the source, the drunken-team config, and that project's AI layer. It applies to
-`drunken-team` itself.
-
-```
-~/Projects/<project>/          wrapper — NOT a git repository
-├── <source-repo>/             the git repo. source code only
-├── .mcp.json                  drunken config — the host looks here, so it stays here
-├── .claude/ or .agents/       AI layer: instructions, agent definitions, board
-└── _not_used/                 parked, never deleted
-```
-
-### ALPHA — done, and now the reference
-
-`~/Projects/alpha-workspace` was already the right shape by accident: it is not a repository, the repo is
-`alpha/`, so everything at the wrapper was already outside git. What it needed was tidying. Fourteen
-entries moved into `_not_used/{vendored,build-artifacts,backups}/` — **moved, not deleted**, with a
-README explaining what replaced each one.
-
-The last warning turned out not to be a defect. `drunken-doctor` said *"…is not a git repository"*
-about the wrapper, and the remediation text already named the fix: the registry has a per-project
-`git_root` offset, added for exactly this case, and ALPHA's entry never set it.
-
-```bash
-uv run drunken-init --project alpha --git-root alpha
-```
-
-**`drunken-doctor --project alpha`: 14 ok, 0 warnings, 0 failed.** A bare `jira_bridge.py` run from the
-wrapper still resolves ALPHA. No drunken-team code changed — the architecture was already supported,
-just unconfigured. Worth remembering before "fixing" the next warning that turns out to be a question
-asked of the wrong path.
-
-### ALPHA — what is deliberately left
-
-`.agents/` still holds its own copy of the vendored scripts, and **`.agents/AGENTS.md` and
-`.agents/skills/ask-boss/SKILL.md` instruct Antigravity to run them.** Moving the scripts before
-those instructions change breaks Antigravity mid-flight. `.agents/` is also Antigravity's by the rule
-in `CLAUDE.md`. The order is: fix the instructions first, then the scripts are unreferenced and can
-be parked.
-
-Also at the wrapper, untouched and for the Boss: `.claude/jira_token.json` (not opened), a TLS
-private key `172.20.10.3+2-key.pem` beside its certificate, and `.env` with the revoked token.
-
-### ⚠️ BETA changed on disk — the steps below are stale, do not run them
-
-**Surveyed 2026-08-16.** BETA has already been restructured, by a different route than the one this
-section recommends, and **the five steps under "every remaining step is the Boss's" would now fail or
-do damage.** What is actually on disk:
-
-```
-~/Projects/beta/                     wrapper, not a repo
-└── beta/                            not a repo either
-    ├── .ai/  .mcp.json  CLAUDE.md  ANTIGRAVITY.md
-    ├── _not_used/board-retired-DT-250/
-    └── beta-backend/                the only git repository
-```
-
-`beta-backend` holds **one commit** — `58423ef "chore: rebuild BETA as source code only"` — on branch
-`main`, with **no remote configured**. `.agents/` is gone from the working tree and from history,
-because there is no history: the repo was rebuilt rather than filtered.
-
-**Nothing is lost.** `sornbuen15/beta` on GitHub is untouched and still carries everything, last
-pushed 2026-08-13: `main` `8a709a2`, `develop` `301a04c`, `feature/BETA-131-voice-tool-calling`
-`cd29371`, `feature/drunken-setup` `103794d`. The local rebuild was never pushed.
-
-But local and remote now have **unrelated histories**, so no push reconciles them. That is a decision
-for the Boss, and the three options are worth stating plainly:
-
-1. **Keep the rebuild, retire the remote's history.** Clean result, and the inert token in `103794d`
-   stops being reachable. Costs 76 commits of source history, plus issues, PR #2 and every link —
-   which is exactly the trade §14 originally recommended against, now already half-made locally.
-2. **Keep the remote's history, redo the layout with `git filter-repo` against a fresh clone.** Gets
-   both, and is what this section was written for. The local rebuild is then discarded.
-3. **Keep both** — rebuild as a new repository, archive the old one. Nothing is deleted and the links
-   survive as an archive.
-
-Two smaller things found in the same survey, both for the Boss:
-
-- **The registry is wrong about BETA.** `git_root` is `beta`, which resolves to `~/Projects/beta/beta`
-  — not a repository. The repo is one level deeper at `beta/beta-backend`. `drunken-doctor` reports
-  this as its one warning, and the warning is telling the truth; **it should not be silenced by
-  editing `git_root` until the question above is answered**, because a green check here would hide
-  the divergence rather than resolve it.
-- **The registry still carries `board: {"dir": ".ai/board"}`** for BETA, retired by DT-250. Harmless —
-  nothing reads it — but it is a stale surface of the kind DT-250 exists to remove.
-
-DT-252 covers making a `git_root` check say *what it found* rather than only that it failed; the
-survey above is the sort of thing it should have reported by itself.
-
-### BETA — the original plan, kept for the decision above
-
-*(Written 2026-08-13, before the rebuild. Steps 1 and 3 refer to `.agents/` files that no longer
-exist, and step 4 would filter a single-commit repository. Retained because option 2 above is exactly
-this plan run against a fresh clone of the remote.)*
-
-
-BETA is the counter-example: it *is* the repo, with **47 files of AI layer committed inside it** —
-instructions, 13 subagent definitions, `mcp_config.json` and the vendored scripts.
-
-Boss asked whether to start a new repo. **Recommended against.** BETA has 76 commits since
-2026-06-08 and only **15 touch `.agents/`**. A new repo discards 76 commits of real source history,
-plus issues, PR #2 and every link, to solve a problem caused by 15. `git filter-repo` gets the clean
-result *and* keeps the history.
-
-It also closes DT-248's largest open item for free: `.agents/jira_config.json` is still in history
-across 4 commits including `103794d` and `bb80153`. DT-248 declined a rewrite because purging an
-inert token cost more than it protected — if the history is being rewritten anyway for structural
-reasons, that cost is already paid.
-
-The steps, **all of them for the Boss to run** — see why below:
-
-1. **Save the in-flight work first.** It includes the S10 escaping fix.
-   `git add .agents/scripts/jira_bridge.py .agents/AGENTS.md`, commit, push.
-2. **Full backup before rewriting anything.**
-   `git clone --mirror ~/Projects/beta ~/Projects/beta-backup-YYYYMMDD.git`
-3. **Lift the AI layer out** to where it will live, outside git.
-   `cp -R ~/Projects/beta/.agents ~/Projects/beta-ai-layer`
-4. **Remove it from all 76 commits.**
-   `git filter-repo --path .agents --invert-paths --force`
-5. **Re-add the remote** — filter-repo drops it on purpose — then force-push all branches and tags.
-
-Then the wrapper, and the registry offset that goes with it:
-
-```bash
-cd ~/Projects && mv beta beta-tmp && mkdir beta && mv beta-tmp beta/beta
-mv ~/Projects/beta-ai-layer ~/Projects/beta/.agents
-uv run --directory ~/Projects/drunken-team drunken-init --project beta --git-root beta
-uv run --directory ~/Projects/drunken-team drunken-doctor --project beta
-```
-
-**Why the Boss runs all of it:** step 5 is a force-push, denied to an agent by
-`.claude/settings.json` and by the DT-236 hook regardless of any Discord answer. Steps 1 and 3 touch
-`.agents/`, which belongs to Antigravity. And the registry path moves under BETA, so anything holding
-`~/Projects/beta` as a repo path needs to know.
-
-**Every commit SHA changes.** DT-248 quotes `103794d` and `bb80153` by name; it needs a comment
-recording that those hashes no longer resolve, and why.
-
-> Writing this section tripped the DT-236 hook twice — the deny scan reads a `git push --force` in
-> *prose* as the command itself. Both times the fix was to write the instruction without the literal
-> string on its own line, or to use `Write` rather than a shell heredoc. It errs toward a prompt,
-> which is the direction chosen, but it is worth knowing before documenting a blocked command.
-
-## 15. DT-251 — what the board can actually do (#103, in review)
-
-`jira_mcp` had touched `/rest/agile/1.0` in exactly one place — a lookup asking whether a board
-exists, for DT-234's warning. It never read what the board *is* and never asked what it can *do*.
-`jira://board` is not the board either: it is a JQL search with `'To Do', 'In Progress', 'In Review'`
-hardcoded, so a project whose columns are named otherwise gets nothing, silently. S4's shape again.
-
-Surveyed live on 2026-08-16, before any code was written:
-
-| board | project | type | backlog | sprints |
-|---|---|---|---|---|
-| 68 Drunken-Agy | DAGY | `kanban` | **no** | no |
-| 71 DP board | DC | `simple` | yes, 5 issues | no |
-| 72 DT board | DT | `simple` | yes | no |
-| 105 TFH board | TFH | `simple` | yes | no |
-
-**`type` does not predict capability**, which is what decided the design. The `kanban` board has no
-backlog while the `simple` ones do, and a team-managed project can switch sprints on without its type
-changing. So capability is *probed* — Jira answers in plain words, `Backlogs are not supported on
-this board` — and type is only reported. **No board here supports sprints**, now established twice,
-so a sprint branch would be code with no caller; the gap is one endpoint wide if that ever changes.
-
-New: `BoardProfile` (cached once per process, and `board_warning()` now derives from it),
-`JiraHTTPError` (keeps the status code `_make_request_sync` used to flatten away), and three tools —
-`jira_board_info`, `jira_move_to_backlog`, `jira_move_to_board`. Both directions deliberately: a tool
-that only moves work out of sight is a one-way door.
-
-**Two things not to reverse.**
-
-- **`POST /rest/agile/1.0/backlog/{boardId}/issue` takes any issue key from any project and moves
-  it.** The board id constrains nothing, and one credential reaches DT, ALPHA and BETA. Keys are
-  checked against the server's own project *before* the call, compared whole rather than by prefix
-  (`DTX-1` starts with `DT`), and one foreign key refuses the whole batch — a half-move that nothing
-  recorded is the hardest state to reason back out of. S8 in a new place, same answer.
-- **Backlog membership is not status**, and every result says so. A ticket parked in the backlog
-  keeps the status it had. Read it as a status and board-versus-backlog becomes exactly the second
-  disagreeing surface DT-250 removed.
-
-Three states are kept apart in `BoardProfile` and must not be collapsed: *lookup failed*, *confirmed
-no board*, and *board present, backlog question unanswered*. Folding the last into "no backlog"
-would invent a limitation from a timeout and refuse work that would have succeeded.
-
-Proven through real MCP stdio against live Jira: 10 tools listed, `BETA-5` / `DTX-1` / a non-key /
-51 keys each refused with a next step and never sent, and DT-251 moved to the backlog
-(`backlog_total` 0 → 1) and back (1 → 0) with its status `In Progress` throughout. See §13's fourth
-false negative for why the first run of that round trip looked broken.
-
-## 16. DT-95 — what a run cost (#104, merged)
-
-The ticket said there was no telemetry and no per-task usage logging, so no claim about token
-efficiency here could be checked. **Nothing needed instrumenting.** The host already writes
-per-message usage into its own transcripts and stamps each record with the git branch; under this
-project's branch convention that branch carries a Jira key. Cost per ticket is a *read*, and it works
-retroactively over every session on disk.
-
-```bash
-uv run drunken-usage --project drunken-team --by ticket
-uv run drunken-usage --project drunken-team --by model --rates <file>
-```
-
-First real numbers, 2026-08-16: **2.1B tokens across 14 sessions** — 2.0B of it cache reads, 6.4M
-output. DT-65 alone is 428M; DT-189 132M; this session's DT-250/251/95 work 67M and rising.
-
-Three decisions that are the whole point, and none of them should be quietly reversed:
-
-- **The transcript directory name is a guess; `cwd` is the authority.** The naming scheme belongs to
-  another tool and is not a contract, so it only narrows the search — as a *prefix*, so worktrees are
-  found — and each record then proves itself. Without that, `drunken-team-old` counts as ours.
-- **An unpriced model costs `None`, never `0.0`.** Zero reads as "free" and is indistinguishable from
-  a real answer. That is S4's shape, and it would be absurd for the module built to expose that
-  failure to commit it. A *partially* priced model reports nothing either: a rate table missing its
-  cache entry understates by two orders of magnitude here and looks exactly as authoritative.
-- **Rates are an operator input, not a table in this repo.** Prices change and differ by contract.
-  Tokens are facts; money needs someone to supply `{model: {input, output, cache_read,
-  cache_creation}}` in USD per million.
-
-It counts Claude only — Antigravity's usage is under `~/.gemini/`, out of bounds — and every report
-prints that caveat rather than leaving it in documentation. A total without it reads as the whole bill.
-
-## 17. DT-226 reviewed on its own merits — 2026-08-16
-
-§1 has said for weeks that DT-226 is *no longer blocked* by S1/S2/S8 and *not thereby approved*.
-This is that review. **Recommendation: do not open the transport yet.** Not because of anything
-S1/S2/S8 left behind, but because of what the review found in the transport layer itself, and
-because one prerequisite is missing.
-
-### What changes when stdio becomes HTTP
-
-Today the trust boundary is a **process**. The server is a child of the host, and the credential it
-resolves at init lives in that process. Anyone who can spawn it already has the filesystem and the
-secrets file, so there is nothing for a caller to gain by asking nicely.
-
-Over HTTP the boundary becomes a **port**, and a bearer token is then the only thing between the
-network and a credential that reaches DT, ALPHA and BETA. Everything S2 and S8 established — that a
-server serves exactly the project it was launched for — stops being defence in depth and becomes the
-primary control.
-
-### The finding
-
-`mcp` 1.29's `FastMCP` defaults to `host="127.0.0.1"`, which is right. But its DNS-rebinding
-protection is enabled **only** when the host is loopback:
-
-```python
-if transport_security is None and host in ("127.0.0.1", "localhost", "::1"):
-    transport_security = TransportSecuritySettings(enable_dns_rebinding_protection=True, ...)
-```
-
-So the Host and Origin validation that barely matters on loopback is present there, and the moment
-somebody sets `--host 0.0.0.0` to satisfy Boss's rule 3 — a container, Kubernetes — **it silently
-turns itself off.** Protection that is absent exactly where it is needed, and nothing says so.
-
-This is S6's lesson in a new place. There the socket was safe only because the usual umask happened
-to strip the bits; here the transport is safe only while it is bound somewhere that does not need
-protecting. *Safe by accident is not safe by construction.* If DT-226 proceeds, drunken-team must
-pass `TransportSecuritySettings` explicitly for every bind, and a test must assert that a non-loopback
-host still gets it — the same shape as the `WAIT_BUDGET_SECONDS` / `timeout` pair.
-
-### What is missing before it can start
-
-- **Nothing guards inbound.** `core/http.py` is the one place every *outbound* call goes through, by
-  design and by principle 7. There is no inbound equivalent, and `AuthError` / `AuthzError` have sat
-  unused in `core/errors.py` since 2.1.0 waiting for one. `paths.py` already reserves the bearer
-  database (*"Consumed from 2.4.0 onwards"*) and nothing consumes it.
-- **DT-228 should land first.** Phase 6 generates the configs — `.mcp.json`, Antigravity's
-  `mcp_config.json`, Docker and K8s manifests. An HTTP deployment whose manifests are hand-written is
-  how one machine's layout ends up committed, which §13's GUI-PATH trap already caught twice.
-- **`drunken-doctor` cannot see a listener.** §10.7 is the widest gap in our own tooling, and opening
-  a network surface with no check that reports its state widens it further.
-
-### Recommended order
-
-DT-228 (generator, no new attack surface) → a `doctor --all` that can actually report drift →
-then DT-226, with explicit transport security, an inbound guard shaped like `core/http.py`, and the
-bearer bound to audience **and** project as §3 already locks in.
-
-**This is a recommendation, not a decision.** Opening a network listener in front of a credential
-that reaches three projects is the Boss's call, and it is the kind of change that is hard to walk
-back once something depends on it.
-
-### Noticed while reviewing, and deliberately not "fixed"
-
-`discord_mcp`'s `main()` still reads `--project (ignored by discord, kept for compat)` — the exact
-wording that flagged S2 in `board_mcp`. It is **not** the same finding: this server is a thin client
-to the daemon over the 0600 unix socket, the daemon holds the Discord config, and DT-227 settled that
-one channel serves all. Recorded here so the next reader does not spend an hour rediscovering that.
-
-
-## 18. The acceptance run before 2.3.0 — 2026-08-17
-
-Run because "it works" had been asserted more often than observed. Everything here was watched
-happening. Full record on **DT-253**, which was driven through the workflow to produce it.
-
-```
-away mode              on / status / off, and the switch can turn itself off
-permission rules       7/7 at ~10µs — rm -rf plain, behind `git status &&`, inside $( ),
-                       force-push, hard reset; `drunken-away off` still allowed
-ticket lifecycle       8/8 — create, start, assign, backlog, board, comment, review, Done, unassign
-boundaries             cross-project key, DTX-1 prefix, 51 keys all refused; S8 cross-project = 0
-installed binaries     from cwd=/ — jira 10 tools ×2 projects, discord 3, board 16
-S2 on the deployment   own project served · beta refused · unbound refused
-daemon                 listener alive, socket srw------- (S6 holding in the wild)
-doctor                 drunken-team 14 ok · alpha 14 ok · beta 13 ok + 1 correct warning
-deployment             tool_env all 7 modules · mcp_pin warns 1.29.0 vs lock 1.28.1
-```
-
-**A fifth false negative for §13, and it nearly became a security report.** The first S2 probe printed
-`SERVED` on all three rows. It had called `board_list_tasks`, which does not exist — the tool is
-`board_available_tasks` — so every call returned `Unknown tool`, and the probe's test for the word
-"error" did not match that string and scored it a pass. Read what the thing actually said; do not
-grep for a word you expect to be absent.
-
-**And a sixth, which cost a red trunk.** DT-252's own test asserted `not report.failed` over the
-whole doctor report. That is clean only on a machine that has a registry; CI has none, so
-`registry.file` is a legitimate `fail` there. #106 merged before the correction did, `develop` went
-red at `69580fd`, and #107 fixed it. The same CI log confirmed the new check working as designed —
-`deployment.tool_env` reported `skip` on a runner with no `uv tool` install. **The code was right and
-the test depended on the developer's own state**, which is S9's two-sources problem in a different
-hat, inside the very ticket about deployments differing from checkouts.
-
-## 19. Start here — the token-economy round (DT-255)
-
-Everything below was **measured on 2026-08-17**, not estimated. Re-measure after the work and record
-the real numbers; a claimed saving is the kind of thing this file exists to distrust.
-
-### Where the tokens actually go
+Every number below was **measured on 2026-08-17**. Re-measure after the work and record the real
+figures; a claimed saving is exactly the sort of thing this file exists to distrust.
 
 ```
 jira_search_issues, 6 issues     5,697 tokens   ← 95% of it raw ADF description
-  same search without description   296 tokens
-discord, 3 tool descriptions     1,033 tokens   ← 410 of them the DEPRECATED blocking tool
-tickets written in this session   3,079 tokens for 5 — the largest was 803 words
+  the same search without it        296 tokens
+discord, 3 tool descriptions     1,033 tokens   ← 410 for the DEPRECATED blocking tool
+tickets written in one session   3,079 for 5 — the longest 803 words
   the project's own older tickets     49 words
 ```
 
-The name `minify_issues` is a promise the function does not keep: it returns Atlassian Document
-Format verbatim, and ADF wraps one sentence in roughly four times its own length.
+`minify_issues` is a promise the function does not keep: it returns Atlassian Document Format
+verbatim, and ADF wraps one sentence in roughly four times its length.
 
-### The work, highest return first
-
-| | | |
+| | Work | Effect |
 |---|---|---|
 | **A1** | `jira_search_issues` → default `brief`, no description | −90% per search |
-| **A2** | ADF → plain text when the full issue *is* asked for | −3–4× on what remains |
-| **A3** | brief returns `parent` + `parent_summary` | removes 2–3 follow-up calls for context |
+| **A2** | ADF → plain text when the full issue *is* requested | −3–4× on the remainder |
+| **A3** | brief returns `parent` + `parent_summary` | removes 2–3 follow-up calls |
 | **A4** | `create_issue` returns the key, not the `self` URL | free |
-| **B1** | `create_issue` accepts `parent` | without it an Epic has no children and Timeline is empty |
+| **B1** | `create_issue` accepts `parent` | without it an Epic has no children, Timeline is empty |
 | **B2** | `duedate` + Start date | the "what is available when" question |
-| **B3** | `labels` | **stands in for priority**, which team-managed projects do not have |
+| **B3** | `labels` | **stands in for priority**, which team-managed projects lack |
 | **B4** | `board_info` reports issue types and settable field ids | stops anyone hardcoding a custom field |
-| **C1** | The ticket rule lives in the `create_issue` docstring | +57 tokens, returns ~700 per ticket, and **every AI sees it** |
-| **C2** | Warn only when long **and** parentless — never reject | DT-234's mechanism, already proven |
-| **D1–3** | Discord: shrink the deprecated tool, drop `Args:`/`Returns:` the schema already carries | 1,033 → ~300 |
+| **C1** | Ticket rule in the `create_issue` docstring | +57 tokens, returns ~700 per ticket, **every AI sees it** |
+| **C2** | Warn when long **and** parentless — never reject | DT-234's mechanism, already proven |
+| **D** | Discord: shrink the deprecated tool, drop `Args:`/`Returns:` the schema already carries | 1,033 → ~300 |
 
-### Things established while working this out
+**Also add to DT-255:** the *state* half of this file — branch, tests, PRs, tickets — should be read
+from git, Jira and CI rather than typed. It went stale within an hour of being written, which is the
+evidence that the idea is necessary rather than over-engineering.
 
-- **`priority` cannot be set on DT at all.** Team-managed projects have no such field, which is why
-  every ticket reads `Medium` — and why the surviving `/refine`, which promotes issues labelled
-  `Critical`, could never have done anything here. Use `labels` or `Rank` instead.
-- **`parent`, `duedate` and Start date all exist on DT already.** Jira is ready; our payload sends
-  four fields and stops.
+### Established while working this out, none of it obvious
+
+- **`priority` cannot be set on a team-managed project at all.** That is why every DT ticket reads
+  `Medium`, and why the surviving `/refine` — which promotes issues labelled `Critical` — could never
+  have done anything here. Use `labels` or `Rank`.
+- **`parent`, `duedate` and Start date already exist on DT.** Jira is ready; our payload sends four
+  fields and stops. Start date is `customfield_10015` *on this instance* — resolve it at runtime.
 - **No story points field**, so Capacity cannot work. Not a gap to fill.
-- **`board_mcp` is declared in no `.mcp.json`.** Leave it that way: wiring it back would cost 2,162
-  tokens per request for a retired server.
-- Context belongs on the Epic or Story and should be **linked, not copied**. §9.1 rotted because it
-  was prose pointing at prose; `parent` is a link the API can resolve, which is the difference.
+- **`board_mcp` is declared in no `.mcp.json`.** Keep it that way: 2,162 tokens per request for a
+  retired server.
+- Context belongs on the Epic or Story and should be **linked, not copied**.
 
-### Also waiting
+## 2. Where things stand
 
-**DT-254** — the `.env` parent-walk in the daemon outranks the registry. A real finding, unfixed.
-**PR #109** — release 2.3.0, needs one approval, then `gh release create` with the note in scratch.
-**DT-237** — its stated cost of 170 issues is **wrong**: ALPHA has 0 open and BETA has 3. Fix the ticket.
-**DT-248** — nothing left to do; close it.
+| | |
+|---|---|
+| `main` | `d8b81c9` — **v2.3.0 released** 2026-08-17 |
+| `develop` | `f53725d`, **670 tests green** |
+| Open PRs | none |
+| Jira | **To Do:** DT-226 · DT-228 · DT-237 · DT-248 · DT-254 · DT-255 · **In Review:** DT-252 |
+
+Verify these three before trusting the table: `origin/develop`, the PR states, and Jira. This section
+has been wrong twice, in both directions.
+
+## 3. Open, and who owns it
+
+**Boss**
+
+- **BETA** — create a new **Software / Kanban** project, then move the 3 open issues (BETA-3, BETA-4,
+  BETA-132). DT-237's stated cost of 170 issues is **wrong**: ALPHA has 0 open, BETA has 3. Fix that
+  ticket. Requirements memo is **BETA-132**.
+- **DT-248** — nothing left to do; close it.
+- **DT-237** — decide. "Do nothing" stopped being the right answer once the plan became to work on
+  BETA and ALPHA.
+
+**Agent**
+
+- **DT-255** — §1.
+- **DT-254** — the `.env` parent-walk in the Discord daemon **outranks the registry**. Real finding,
+  unfixed. Same mechanism that let a stale token answer Jira with an empty board for months.
+- **DT-252** — merged, still In Review in Jira.
+
+**Antigravity** — ALPHA's `.agents/AGENTS.md` still tells it to run the vendored scripts. Those
+instructions change before the scripts can be parked.
+
+## 4. Traps that are still live
+
+1. **The installed tool env is a separate deployment.** `~/.local/bin/drunken-*` symlinks into
+   `~/.local/share/uv/tools/drunken-team/`, and that is what a host config launches — not this
+   checkout. Merging does not deploy. `drunken-doctor` now reports the gap (DT-252); believe it over
+   any assumption. Reinstalled from `04f29f5` on 2026-08-17.
+2. **`uv tool install` ignores `uv.lock`** — the deployment has mcp 1.29.0 while the lock pins
+   1.28.1. Reported by `deployment.mcp_pin`. DT-228's generator should emit `--with-requirements`.
+3. **BETA's registry `git_root` points at a directory that is not a repository.** The warning is
+   correct and **must not be silenced** until the repo question is settled — a green check would hide
+   the divergence rather than close it.
+4. **A finding closed in one module is not closed in the codebase.** S3 was written up as closed by
+   DT-224 and is alive in `service/discord_utils.py`. Grep for the pattern, do not reason about it.
+
+## 5. Six ways running it can lie to you
+
+Every real defect in this project has been found by running something and looking — never by the
+suite. But the harness has its own failure modes, and all six of these under-reported success rather
+than over-reporting it:
+
+1. `drunken-doctor`'s `0 failed` summary line was counted *as* a failure by a grep reading it.
+2. `uv run --directory X` overrides a preceding `cd`, so three projects were probed from one.
+3. **zsh does not word-split an unquoted parameter** — `$args` holding `--project drunken-team`
+   arrives as one argv entry, argparse ignores it, and a security boundary looks broken when it is not.
+4. **The agile API's reads lag its writes**, and `GET /board/{id}/issue` on a team-managed board
+   returns backlog issues too — so it is not a membership test.
+5. An S2 probe printed `SERVED` on all three rows because it called a tool that does not exist and
+   then tested for the word "error", which is absent from `Unknown tool`. **This nearly became a
+   security report.**
+6. A test asserted `not report.failed` over a whole doctor report — clean only on a machine that has
+   a registry. CI has none, `develop` went red.
+
+**Read what the thing actually said. Do not grep for a word you expect to be absent.**
+
+## 6. BETA — the survey that has to survive
+
+The application source **was never in `sornbuen15/beta`**. On the remote, `beta-backend` is a
+dangling gitlink — mode `160000`, commit `69c85d9`, and no `.gitmodules` anywhere. The 77 commits
+there are the *wrapper*: `.agents/`, `scripts/`, `k8s/`, `Makefile`.
+
+| where | what | history |
+|---|---|---|
+| `sornbuen15/beta` | wrapper + AI layer + dangling gitlink | 77 commits, carries the inert token |
+| `~/Projects/new-beta-parked/beta-backend` | **the application** | 67 commits, HEAD `69c85d9`, working tree emptied |
+| `~/Projects/beta/beta/beta-backend` | the application, flattened | 1 commit, no remote |
+| `~/.gemini/history/beta` | Antigravity's. **Do not touch** | — |
+
+The last two are the same thing split in half: checking out `69c85d9` from the parked repository
+produces 122 files **byte-identical** to the rebuild; the rebuild's only extras are 11 `k8s`
+manifests from the wrapper. **Nothing is lost.**
+
+A `git filter-repo` removing `.agents` was run against a throwaway mirror and verified: 77 → 70
+commits, 4 branches intact, `.agents` gone from every commit, token string absent, 27 source files
+preserved. Whether to publish that, or to make the application repo the one that matters, is open —
+and merging the two repos would settle the token question for free, since the wrapper would stop
+being a repository at all.
+
+## 7. DT-226 — reviewed, not approved
+
+**Recommendation: do not open the transport yet**, and not because of anything S1/S2/S8 left behind.
+`mcp` 1.29's `FastMCP` enables DNS-rebinding protection **only when the host is loopback**:
+
+```python
+if transport_security is None and host in ("127.0.0.1", "localhost", "::1"):
+```
+
+So setting `--host 0.0.0.0` to satisfy Boss's rule 3 silently switches it off — protection absent
+exactly where it is needed. S6's lesson in a new place: *safe by accident is not safe by
+construction.* If it proceeds, pass `TransportSecuritySettings` explicitly and test that a
+non-loopback host still gets it.
+
+Also missing first: there is no inbound guard (`core/http.py` covers outbound only; `AuthError` and
+`AuthzError` have been reserved and unused since 2.1.0), and DT-228 should land so manifests are
+generated rather than hand-written.
+
+## 8. What was cut, and where it lives now
+
+Nothing was lost. If you are looking for something that used to be here:
+
+| Was | Now |
+|---|---|
+| §4 Delivered, §5 S1–S12, §12 numbers, §15 DT-251, §16 DT-95, §18 acceptance run | The **v2.3.0 release note** on GitHub |
+| §6 e2e / S12, §7 CI, §8 principles, §11 working agreements | **`CLAUDE.md`** |
+| §14 BETA's five-step plan | Superseded by §6 above — the old steps would fail against what is on disk |
+| §3 locked decisions | `CLAUDE.md`, except the **Git-in-MCP** entry, which pointed at a "§9.1" that never existed in this file. It was never built. Re-decide it with the conditions written down, or drop it |
+| Post-mortems | Their Jira tickets — DT-248, DT-253, DT-254 |
