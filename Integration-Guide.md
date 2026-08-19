@@ -15,29 +15,26 @@ Drunken-Team exposes three separate MCP servers -- there is no single combined s
 - Full reference: [`src/jira_mcp/README.md`](./src/jira_mcp/README.md).
 
 ### `drunken-discord-mcp` -- approvals
-- **Tools:** `request_boss_approval_async(action, reason, ticket_key)` returns a `req_id` immediately; `check_approvals(req_ids)` collects the answers later. Asking never stops the agent -- park the task with `board_block_task` and take the next unblocked one.
+- **Tools:** `request_boss_approval_async(action, reason, ticket_key)` returns a `req_id` immediately; `check_approvals(req_ids)` collects the answers later. Asking never stops the agent -- park the task and take the next unblocked one.
 - `request_boss_approval(action, reason, ticket_key)` is the older blocking form. It still works and is kept until 3.0.0, but prefer the async pair; reach for it only when nothing else could possibly be done meanwhile.
 - There is no timeout and nothing is killed for going unanswered: reminders back off 15 min → 1 h → daily and survive a daemon restart. An approval is bound to the commit it was granted against, so from a different HEAD it reads `stale` and must be asked again.
 
-### `drunken-board-mcp` -- the local task board
-- **Tools:** `board_available_tasks(project)` (offers only tasks whose dependencies are done), `board_claim_task`, `board_move_task`, `board_block_task(project, task_id, req_id, reason)` (parks work in the `blocked` lane carrying the `req_id` that would free it), `board_unblock_task`, `board_done_task`, `board_summary`, `board_report`.
-- Local **stdio only**, by decision: it is filesystem-bound and needs a checkout on disk.
+> **`drunken-board-mcp` is retired and is not wired into any project.** DT-250 removed the local board: a board sitting next to Jira is a second surface that can disagree with the first, which is the failure DT-248 and DT-249 each cost a session to. The code is kept, marked unused rather than deleted, and it costs 2,162 tokens per request. Do not declare it, and do not create `.claude/board/` or `.agents/board/`. Jira is the only coordination surface -- the **assignee** says whose the work is, the **status** says where it is.
 
-All three are registered for you already in `.mcp.json` at the repo root:
+Both are registered for you already in `.mcp.json` at the repo root:
 
 ```json
 {
   "mcpServers": {
     "drunken-discord-mcp": { "command": "uv", "args": ["run", "python", "-m", "discord_mcp.server"], "env": { "PYTHONPATH": "src" } },
-    "drunken-jira-mcp": { "command": "uv", "args": ["run", "python", "-m", "jira_mcp.server"], "env": { "PYTHONPATH": "src" } },
-    "drunken-board-mcp": { "command": "uv", "args": ["run", "python", "-m", "board_mcp.server"], "env": { "PYTHONPATH": "src" } }
+    "drunken-jira-mcp": { "command": "uv", "args": ["run", "python", "-m", "jira_mcp.server"], "env": { "PYTHONPATH": "src" } }
   }
 }
 ```
 
 Which project a server acts on comes from `--project <id>`, resolved against the central registry -- never from the working directory, and never from a `.env` next to the code. Add `"--project", "<id>"` to `args` when running a server against a project other than the one it was launched from.
 
-If your tool auto-discovers project-level `.mcp.json`, you're done. Otherwise, point it at the same three commands manually (Section 4 below has a worked example for Cursor).
+If your tool auto-discovers project-level `.mcp.json`, you're done. Otherwise, point it at the same two commands manually (Section 4 below has a worked example for Cursor).
 
 ---
 
@@ -79,9 +76,15 @@ cd drunken-team
 uv tool install .
 ```
 
-This installs six commands globally: `drunken-init` (create the state directory and register a project), `drunken-doctor` (report where every path and secret actually resolves from), `drunken-listen` (run the Discord daemon), and `drunken-jira-mcp`, `drunken-discord-mcp`, `drunken-board-mcp` (the three MCP servers).
+This installs the commands globally: `drunken-init` (create the state directory and register a project), `drunken-config` (generate MCP and install configuration), `drunken-doctor` (report where every path and secret actually resolves from), `drunken-listen` (run the Discord daemon), and `drunken-jira-mcp`, `drunken-discord-mcp` (the two MCP servers).
 
-> `uv tool install` ignores `uv.lock`, so the tool environment can drift inside the allowed dependency range. Pass `--with-requirements` if you need it pinned.
+> **`uv tool install` ignores `uv.lock`**, so the tool environment drifts inside the allowed dependency range -- the deployment carried `mcp` 1.29.0 against a lock pinning 1.28.1 for two releases, both satisfying `<2`, with nothing reporting it. To install what the lock actually names, let `drunken-config` write the requirements and give you the command:
+>
+> ```bash
+> drunken-config --project <id> --kind install
+> ```
+>
+> `drunken-doctor` reports the gap either way (`deployment.mcp_pin`).
 
 ### Step 2: Onboard the project
 
@@ -147,15 +150,14 @@ cp /path/to/drunken-team/.guild_templates/SESSION_CHECKPOINT.md .
 {
   "mcpServers": {
     "drunken-jira-mcp": { "command": "drunken-jira-mcp", "args": ["--project", "existing-project"] },
-    "drunken-discord-mcp": { "command": "drunken-discord-mcp", "args": ["--project", "existing-project"] },
-    "drunken-board-mcp": { "command": "drunken-board-mcp", "args": ["--project", "existing-project"] }
+    "drunken-discord-mcp": { "command": "drunken-discord-mcp", "args": ["--project", "existing-project"] }
   }
 }
 ```
 
 This depends on step 1 — the commands have to be on `PATH`. Without `uv tool install`, fall back to `uv run --directory /path/to/drunken-team drunken-jira-mcp --project existing-project`, and keep that file out of git.
 
-For Cursor: **Settings > Features > MCP > Add New Server**, type `command`, `drunken-jira-mcp` with args `--project existing-project`, then the same for the other two.
+For Cursor: **Settings > Features > MCP > Add New Server**, type `command`, `drunken-jira-mcp` with args `--project existing-project`, then the same for the other one.
 
 From here, your local AI reads `CLAUDE.md`/`.cursorrules`, checks Jira via the MCP tools, writes code, and hands off through the same lifecycle described in Section 3.
 

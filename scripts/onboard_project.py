@@ -30,7 +30,6 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -39,6 +38,10 @@ from typing import Any, Dict
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 from core import paths  # noqa: E402
+from core.config_gen import (  # noqa: E402
+    mcp_config,
+    merge_into_host_config,
+)
 from core.registry import validate_project_id  # noqa: E402
 
 SECRETS_MODE = 0o600
@@ -46,8 +49,6 @@ SECRETS_MODE = 0o600
 #: Default key inside ``secrets.json``. One account, one entry, every project
 #: pointing at it — see the module docstring.
 SHARED_CREDENTIAL_KEY = "default"
-
-MCP_SERVERS = ("drunken-jira-mcp", "drunken-discord-mcp", "drunken-board-mcp")
 
 
 def _tildify(path: Path) -> str:
@@ -91,103 +92,6 @@ def write_secrets(document: Dict[str, Any]) -> Path:
         handle.write("\n")
     os.chmod(path, SECRETS_MODE)
     return path
-
-
-def mcp_config(project_id: str) -> Dict[str, Any]:
-    """The config another repository gets. No paths, by design.
-
-    Deliberately vendor-neutral: this is plain stdio MCP, which is what Claude
-    Code, Antigravity, Cursor and anything else speaking the protocol all
-    consume. Rule 1 says any AI must be able to use this, and the way to keep
-    that true is to emit one shape rather than one per tool.
-    """
-    return {
-        "mcpServers": {
-            name: {"command": name, "args": ["--project", project_id]}
-            for name in MCP_SERVERS
-        }
-    }
-
-
-def _tool_bin_dir() -> Path:
-    """Where ``uv tool install`` puts executables. The stable location."""
-    override = os.environ.get("UV_TOOL_BIN_DIR")
-    return Path(override).expanduser() if override else Path.home() / ".local" / "bin"
-
-
-def resolve_command(name: str) -> str:
-    """Absolute path to *name*, for a config a GUI application will read.
-
-    This is the one place a path belongs, and the reason is the same one
-    ``setup_daemon_service.py`` already documents for launchd: an application
-    started from ``/Applications`` inherits a minimal ``PATH`` of
-    ``/usr/bin:/bin:/usr/sbin:/sbin``, not a shell's. ``uv tool install`` puts
-    these commands in ``~/.local/bin``, so a bare name resolves when you test
-    it in a terminal and fails silently inside the IDE.
-
-    A repository's own ``.mcp.json`` still gets the bare name: it is committed,
-    shared, and must not carry one machine's layout. A host config lives in the
-    user's home and is never committed, so naming the real location is right
-    there and only there.
-    """
-    installed = _tool_bin_dir() / name
-    if installed.is_file():
-        return str(installed)
-
-    found = shutil.which(name)
-    if found and ".venv" not in Path(found).parts:
-        return found
-
-    if found:
-        # `uv run` puts the project's own virtualenv first on PATH, so this is
-        # what `which` answers while developing. Writing it into a host config
-        # produces something that works until the venv is rebuilt and then
-        # fails with no obvious connection to the cause.
-        print(
-            f"warning: {name} resolved to {found}, inside a development "
-            "virtualenv. Run `uv tool install .` so the host points at a "
-            "stable location instead.",
-            file=sys.stderr,
-        )
-        return found
-
-    print(
-        f"warning: {name} is not installed, so the config will name it bare "
-        "and the host will fail to start it. Run `uv tool install .` first.",
-        file=sys.stderr,
-    )
-    return name
-
-
-def merge_into_mcp_config(path: Path, project_id: str) -> list[str]:
-    """Add our servers to an existing host config, leaving its own alone.
-
-    Antigravity's ``mcp_config.json`` already declares servers of its own.
-    Overwriting the file to add ours would take those with it, so entries are
-    merged by name and anything unrecognised is left untouched.
-    """
-    document: Dict[str, Any] = {}
-    if path.is_file():
-        try:
-            loaded = json.loads(path.read_text(encoding="utf-8"))
-            if isinstance(loaded, dict):
-                document = loaded
-        except json.JSONDecodeError:
-            raise SystemExit(
-                f"error: {path} is not valid JSON. Refusing to rewrite it."
-            ) from None
-
-    servers = document.setdefault("mcpServers", {})
-    added = []
-    for name in MCP_SERVERS:
-        entry = {"command": resolve_command(name), "args": ["--project", project_id]}
-        if servers.get(name) != entry:
-            servers[name] = entry
-            added.append(name)
-
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(document, indent=2) + "\n", encoding="utf-8")
-    return added
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -341,7 +245,7 @@ def main() -> int:
 
     if args.merge_mcp_config:
         host = Path(args.merge_mcp_config).expanduser()
-        added = merge_into_mcp_config(host, args.project)
+        added = merge_into_host_config(host, args.project)
         print(f"host config     : {host}")
         print(f"  added/updated : {', '.join(added) if added else '(already current)'}")
 

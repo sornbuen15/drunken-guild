@@ -18,6 +18,8 @@ from pathlib import Path
 
 import pytest
 
+from core import config_gen
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
 
@@ -32,8 +34,8 @@ def onboard():
 
 
 class TestTheGeneratedConfigCarriesNoPaths:
-    def test_servers_are_named_not_located(self, onboard) -> None:
-        config = onboard.mcp_config("alpha")
+    def test_servers_are_named_not_located(self) -> None:
+        config = config_gen.mcp_config("alpha")
 
         serialised = json.dumps(config)
         assert "/Users/" not in serialised and "/home/" not in serialised, (
@@ -43,10 +45,10 @@ class TestTheGeneratedConfigCarriesNoPaths:
         assert "--directory" not in serialised
         assert "PYTHONPATH" not in serialised
 
-    def test_every_server_is_declared_and_scoped_to_the_project(self, onboard) -> None:
-        config = onboard.mcp_config("alpha")["mcpServers"]
+    def test_every_server_is_declared_and_scoped_to_the_project(self) -> None:
+        config = config_gen.mcp_config("alpha")["mcpServers"]
 
-        assert set(config) == set(onboard.MCP_SERVERS)
+        assert set(config) == set(config_gen.MCP_SERVERS)
         for name, entry in config.items():
             assert entry["command"] == name, (
                 "The command is the entry point name, which is what makes it "
@@ -57,10 +59,28 @@ class TestTheGeneratedConfigCarriesNoPaths:
                 "whichever one it defaulted to."
             )
 
-    def test_the_removed_workspace_flag_is_not_reintroduced(self, onboard) -> None:
+    def test_the_retired_board_server_is_not_wired_in(self) -> None:
+        """DT-250 retired the local board and DT-251 wrote down why: a second
+        coordination surface can disagree with Jira, which is the failure that
+        cost DT-248 and DT-249 whole sessions. CLAUDE.md says do not
+        reintroduce it -- and onboarding was declaring it into every project.
+
+        The test above cannot catch this. It asserts the config matches
+        MCP_SERVERS, so it agrees with whatever that constant says; this one
+        asserts against the decision instead.
+        """
+        serialised = json.dumps(config_gen.mcp_config("alpha"))
+
+        assert "board" not in serialised, (
+            "Onboarding declared drunken-board-mcp, a server retired by "
+            "DT-250. It costs 2,162 tokens per request and reopens the "
+            "two-surfaces problem that retiring it closed."
+        )
+
+    def test_the_removed_workspace_flag_is_not_reintroduced(self) -> None:
         """What ALPHA's previous config passed. It was deleted in DT-224, and
         argparse ignores it silently rather than complaining."""
-        assert "--workspace" not in json.dumps(onboard.mcp_config("alpha"))
+        assert "--workspace" not in json.dumps(config_gen.mcp_config("alpha"))
 
 
 class TestTheCredentialIsSharedByReference:
@@ -103,22 +123,22 @@ class TestAHostConfigIsDifferentFromARepoConfig:
     """
 
     def test_the_host_config_names_an_absolute_command(
-        self, onboard, tmp_path, monkeypatch
+        self, tmp_path, monkeypatch
     ) -> None:
         bin_dir = tmp_path / "bin"
         bin_dir.mkdir()
-        for name in onboard.MCP_SERVERS:
+        for name in config_gen.MCP_SERVERS:
             (bin_dir / name).write_text("#!/bin/sh\n")
         monkeypatch.setenv("UV_TOOL_BIN_DIR", str(bin_dir))
 
         host = tmp_path / "mcp_config.json"
-        onboard.merge_into_mcp_config(host, "alpha")
+        config_gen.merge_into_host_config(host, "alpha")
 
         entry = json.loads(host.read_text())["mcpServers"]["drunken-jira-mcp"]
         assert entry["command"] == str(bin_dir / "drunken-jira-mcp")
 
     def test_a_development_virtualenv_is_not_what_gets_written(
-        self, onboard, tmp_path, monkeypatch
+        self, tmp_path, monkeypatch
     ) -> None:
         """`uv run` puts the project's own venv first on PATH, so that is what
         `which` answers while developing. It works until the venv is rebuilt."""
@@ -130,14 +150,14 @@ class TestAHostConfigIsDifferentFromARepoConfig:
         monkeypatch.setenv("UV_TOOL_BIN_DIR", str(tmp_path / "absent"))
         monkeypatch.setenv("PATH", str(venv_bin))
 
-        resolved = onboard.resolve_command("drunken-jira-mcp")
+        resolved = config_gen.resolve_command("drunken-jira-mcp")
 
         assert resolved == str(venv_bin / "drunken-jira-mcp"), (
             "It still has to return something usable — but the warning is the "
             "point, because the failure otherwise arrives weeks later."
         )
 
-    def test_the_hosts_own_servers_survive(self, onboard, tmp_path) -> None:
+    def test_the_hosts_own_servers_survive(self, tmp_path) -> None:
         """Antigravity declares a kanban script and a third-party Jira server.
         Overwriting the file to add ours would take those with it."""
         host = tmp_path / "mcp_config.json"
@@ -145,19 +165,17 @@ class TestAHostConfigIsDifferentFromARepoConfig:
             json.dumps({"mcpServers": {"kanban-board": {"command": "node"}}})
         )
 
-        onboard.merge_into_mcp_config(host, "alpha")
+        config_gen.merge_into_host_config(host, "alpha")
 
         servers = json.loads(host.read_text())["mcpServers"]
         assert servers["kanban-board"] == {"command": "node"}
-        assert set(onboard.MCP_SERVERS) <= set(servers)
+        assert set(config_gen.MCP_SERVERS) <= set(servers)
 
-    def test_merging_twice_changes_nothing_the_second_time(
-        self, onboard, tmp_path
-    ) -> None:
+    def test_merging_twice_changes_nothing_the_second_time(self, tmp_path) -> None:
         host = tmp_path / "mcp_config.json"
-        onboard.merge_into_mcp_config(host, "alpha")
+        config_gen.merge_into_host_config(host, "alpha")
 
-        assert onboard.merge_into_mcp_config(host, "alpha") == []
+        assert config_gen.merge_into_host_config(host, "alpha") == []
 
 
 class TestSecretsAreWrittenLockedDown:
