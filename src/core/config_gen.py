@@ -270,8 +270,13 @@ def _emit_install(out: Optional[str]) -> int:
 
     target = Path(out).expanduser() if out else root / "requirements.lock.txt"
     target.write_text(exported, encoding="utf-8")
-    print(f"# {target}: {count_pins(exported)} pinned packages")
-    print(install_command(target))
+    # Say what was and was not done, in that order. The first version printed
+    # the filename and the command with no verb between them, which reads as a
+    # report of work completed -- and was taken as one, leaving a deployment
+    # three tickets behind while every surface looked fine.
+    print(f"Wrote {target} ({count_pins(exported)} pinned packages).")
+    print("NOT INSTALLED. To deploy, run:\n")
+    print(f"    {install_command(target)}\n")
     return 0
 
 
