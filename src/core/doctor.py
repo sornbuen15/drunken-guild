@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess  # nosec B404 - git, invoked with a fixed argument list
 from dataclasses import asdict, dataclass, field
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
@@ -100,8 +101,135 @@ def package_version() -> str:
         return "unknown (not installed as a package)"
 
 
+def declared_version() -> Optional[str]:
+    """What the *source tree* declares, read from ``pyproject.toml``.
+
+    Not ``importlib.metadata``. That reports whatever happens to be installed in
+    the environment asking, which during DT-256 meant three different answers on
+    one machine: ``pyproject`` said 2.1.0, the tag said 2.3.0, and the test
+    environment's installed copy said 1.6.0. A check about the declaration has
+    to read the declaration.
+
+    Located relative to ``__file__``, which :mod:`core.paths` bans for state and
+    for good reason. It is right here, and the reason is the failure mode:
+    installed with ``uv tool install`` this resolves inside the virtualenv,
+    finds no ``pyproject.toml``, and returns ``None`` -- which is the honest
+    answer, because a deployment genuinely cannot see the source declaration.
+    The banned pattern fails safe here rather than silently wrong.
+    """
+    pyproject = Path(__file__).resolve().parent.parent.parent / "pyproject.toml"
+    try:
+        lines = pyproject.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return None
+
+    in_project = False
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith("["):
+            # [build-system] comes first in this file, and [tool.*] blocks come
+            # after. Only [project] carries the version that is ours.
+            if in_project:
+                break
+            in_project = stripped == "[project]"
+            continue
+        if in_project and stripped.startswith("version") and "=" in stripped:
+            return stripped.split("=", 1)[1].strip().strip('"').strip("'")
+    return None
+
+
+def _version_tuple(raw: str) -> Optional[tuple[int, ...]]:
+    """``"v2.3.0"`` -> ``(2, 3, 0)``, or ``None`` if it is not a version.
+
+    Deliberately not ``packaging.version``: it is present in this environment
+    only as a transitive dependency of something else, and reaching for an
+    undeclared import is the class of mistake this project keeps writing up.
+    Release tags here are ``vX.Y.Z`` and nothing more exotic.
+    """
+    cleaned = raw.strip().lstrip("vV")
+    parts = cleaned.split(".")
+    if not parts or not all(part.isdigit() for part in parts):
+        return None
+    return tuple(int(part) for part in parts)
+
+
+def version_verdict(
+    declared: Optional[str], newest_tag: Optional[str]
+) -> tuple[Status, str]:
+    """Whether *declared* is behind *newest_tag*, and what to say about it.
+
+    Behind is a failure; equal or ahead is fine. Ahead is the normal shape
+    during development -- the declaration is bumped first and the tag catches
+    up -- and flagging it would make this check noise, which is how a check
+    stops being read.
+
+    Not reachability. ``git describe`` finds no tag at all from ``develop`` in
+    this repository, because ``main`` carries the release commits and the two
+    branches have diverged by design. The question worth asking is "did we
+    release without bumping", and the newest tag anywhere answers it.
+
+    Three states, kept apart: ``ok``, ``fail``, and ``skip`` for "could not
+    ask" -- a shallow checkout has no tags, and reporting that as a pass would
+    be inventing a fact.
+    """
+    if declared is None:
+        return "skip", "no pyproject.toml here, so there is no declaration to check."
+    if newest_tag is None:
+        return (
+            "skip",
+            "no tags in this checkout, so there is nothing to compare against.",
+        )
+
+    tag_parts = _version_tuple(newest_tag)
+    declared_parts = _version_tuple(declared)
+    if tag_parts is None or declared_parts is None:
+        return "skip", f"cannot compare {declared!r} against {newest_tag!r}."
+
+    if declared_parts < tag_parts:
+        return "fail", (
+            f"pyproject declares {declared} while {newest_tag} is tagged. "
+            "Every surface reports the older number, so comparing a checkout "
+            "against a deployment finds them equal when they are not."
+        )
+    return "ok", f"{declared}, at or ahead of the newest tag {newest_tag}."
+
+
+def newest_tag() -> Optional[str]:
+    """The highest version tag in this repository, or ``None``.
+
+    Never raises and never reports a missing tag as a problem: a source tarball
+    or a shallow CI checkout legitimately has none.
+    """
+    try:
+        result = subprocess.run(  # nosec B603 - fixed argv, no shell
+            ["git", "tag", "--sort=-v:refname"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+            cwd=Path(__file__).resolve().parent,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if result.returncode != 0:
+        return None
+    return next(iter(result.stdout.split()), None)
+
+
 def _check_environment(report: Report) -> None:
     report.add("version.drunken-team", "ok", package_version())
+    status, detail = version_verdict(declared_version(), newest_tag())
+    report.add(
+        "version.declared",
+        status,
+        detail,
+        remediation=(
+            "Bump `version` in pyproject.toml to the released tag, and "
+            "reinstall so the deployment reports it too."
+            if status == "fail"
+            else None
+        ),
+    )
     try:
         mcp_version = version("mcp")
     except PackageNotFoundError:

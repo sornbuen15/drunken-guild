@@ -67,6 +67,26 @@ def find(report: doctor.Report, name: str) -> doctor.Check:
     )
 
 
+#: Checks that describe the machine, not what a test set up. They read the
+#: checkout's pyproject, its git tags and the installed tool env, so a test
+#: about a registry or a socket must not be red because this machine's
+#: deployment drifted. Checkpoint lesson 6: an assertion over a whole doctor
+#: report is clean only where the machine happens to agree, and `develop` has
+#: gone red that way before.
+ENVIRONMENT_CHECKS = frozenset(
+    {"version.declared", "deployment.tool_env", "deployment.mcp_pin"}
+)
+
+
+def failures_under_test(report: doctor.Report) -> list[str]:
+    """Names of failing checks this test is actually responsible for."""
+    return [
+        check.name
+        for check in report.checks
+        if check.status == "fail" and check.name not in ENVIRONMENT_CHECKS
+    ]
+
+
 class TestCredentialsNeverAppear:
     def test_the_token_is_absent_from_the_whole_report(self, registry) -> None:
         with mock.patch("urllib.request.urlopen", return_value=_identity_response()):
@@ -191,7 +211,9 @@ class TestRegistryProblems:
         report = doctor.run_doctor(registry=ProjectRegistry(str(target)), offline=True)
 
         assert find(report, "registry.schema").status == "warn"
-        assert report.failed is False
+        assert failures_under_test(report) == [], (
+            "A v1 registry must warn, not take the whole report down."
+        )
 
 
 class TestDaemonSocket:
@@ -200,7 +222,10 @@ class TestDaemonSocket:
         report = doctor.run_doctor(registry=registry, offline=True)
 
         assert find(report, "daemon.socket").status == "warn"
-        assert report.failed is False
+        assert failures_under_test(report) == [], (
+            "Approval falls back to asking in-conversation, so a missing "
+            "socket must not fail the report."
+        )
 
     def test_a_world_accessible_socket_is_a_failure(
         self, registry, monkeypatch, tmp_path
