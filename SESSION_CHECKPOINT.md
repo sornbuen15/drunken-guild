@@ -7,7 +7,7 @@ release note, the Jira ticket, or `CLAUDE.md`, and this file links to it. The pr
 860 lines and 19 sections, several of which existed only to correct earlier sections — at which point
 nobody reads it, and a handoff nobody reads is worse than none. See *What was cut* at the bottom.
 
-Last updated: 2026-08-17 · **v2.3.0 released** · `develop` is where work lands
+Last updated: 2026-08-19 · **v2.3.0 released** · `develop` is where work lands
 
 ---
 
@@ -62,30 +62,52 @@ evidence that the idea is necessary rather than over-engineering.
 | | |
 |---|---|
 | `main` | `d8b81c9` — **v2.3.0 released** 2026-08-17 |
-| `develop` | `f53725d`, **670 tests green** |
-| Open PRs | none |
-| Jira | **To Do:** DT-226 · DT-228 · DT-237 · DT-248 · DT-254 · DT-255 · **In Review:** DT-252 |
+| `develop` | `edcb575`, **670 tests green** |
+| Open PRs | **#112 DT-254** · **#113 DT-255** · **#114 DT-228** — all awaiting the Boss's merge |
+| Jira | **To Do:** DT-226 · DT-237 · DT-248 · DT-256 · DT-257 · DT-258 · **In Review:** DT-228 · DT-254 · DT-255 · **Done:** DT-252 |
 
 Verify these three before trusting the table: `origin/develop`, the PR states, and Jira. This section
-has been wrong twice, in both directions.
+has been wrong twice, in both directions — and DT-257 exists to stop it being typed at all.
+
+### The round of 2026-08-19, integration-tested together
+
+The three PRs were merged onto a throwaway `integration/round-254-255-228` branch before being
+handed over. **No conflicts**, and on the combined tree: 708 tests green, `drunken-doctor` 24 ok /
+2 warning / 0 failed, `verify_clean_install.sh` 22/22. Merge them in any order.
+
+Measured on the merged tree, from a directory unrelated to any project:
+
+```
+DT-254  project_root()   /Users/r.jakkawan/Projects/drunken-team   (via the registry, no walk)
+        DISCORD_* leaked into os.environ: none
+DT-255  a 7-issue search 1,294 chars      — the old shape cost 14,847 for five
+DT-228  servers declared ('drunken-jira-mcp', 'drunken-discord-mcp')   board: absent
+```
 
 ## 3. Open, and who owns it
 
 **Boss**
 
+- **Merge #112, #113, #114.** Integration-tested together, see §2.
 - **BETA** — create a new **Software / Kanban** project, then move the 3 open issues (BETA-3, BETA-4,
   BETA-132). DT-237's stated cost of 170 issues is **wrong**: ALPHA has 0 open, BETA has 3. Fix that
   ticket. Requirements memo is **BETA-132**.
 - **DT-248** — nothing left to do; close it.
 - **DT-237** — decide. "Do nothing" stopped being the right answer once the plan became to work on
   BETA and ALPHA.
+- **DT-258** — three options in the ticket; option 2 is the one that generalises. Narrowing a
+  credential exclusion is not a call to make inside another ticket.
+- Two local Docker images left behind on purpose (an agent does not delete):
+  `docker rmi drunken-team:pinned drunken-team:unpinned`
 
-**Agent**
+**Agent, next**
 
-- **DT-255** — §1.
-- **DT-254** — the `.env` parent-walk in the Discord daemon **outranks the registry**. Real finding,
-  unfixed. Same mechanism that let a stale token answer Jira with an empty board for months.
-- **DT-252** — merged, still In Review in Jira.
+- **DT-256** — pyproject says 2.1.0 while v2.3.0 is tagged. Small, and it defeats DT-252's whole
+  point: comparing checkout against deployment gives 2.1.0 on both.
+- **DT-257** — derive this file's §2 from git, Jira and CI instead of typing it.
+- **DT-258** — see above; needs the Boss's choice first.
+- **DT-226** — still **do not open the transport**. §7 is unchanged, and DT-228 landing does not
+  change it: the DNS-rebinding finding and the missing inbound guard are both untouched.
 
 **Antigravity** — ALPHA's `.agents/AGENTS.md` still tells it to run the vendored scripts. Those
 instructions change before the scripts can be parked.
@@ -97,12 +119,20 @@ instructions change before the scripts can be parked.
    checkout. Merging does not deploy. `drunken-doctor` now reports the gap (DT-252); believe it over
    any assumption. Reinstalled from `04f29f5` on 2026-08-17.
 2. **`uv tool install` ignores `uv.lock`** — the deployment has mcp 1.29.0 while the lock pins
-   1.28.1. Reported by `deployment.mcp_pin`. DT-228's generator should emit `--with-requirements`.
+   1.28.1. Reported by `deployment.mcp_pin`. **Fix is in #114, not yet merged and not yet deployed:**
+   `drunken-config --kind install` writes the pinned requirements and prints the command. Proved by
+   building the image both ways — with the flag it reports 1.28.1, without it 1.29.0.
 3. **BETA's registry `git_root` points at a directory that is not a repository.** The warning is
    correct and **must not be silenced** until the repo question is settled — a green check would hide
    the divergence rather than close it.
 4. **A finding closed in one module is not closed in the codebase.** S3 was written up as closed by
-   DT-224 and is alive in `service/discord_utils.py`. Grep for the pattern, do not reason about it.
+   DT-224 and was still alive in `service/discord_utils.py` — fixed in #112, and the signature
+   (`os.getcwd()` plus a loop over `os.path.dirname`) is now absent from `src/`. The lesson stands:
+   grep for the pattern, do not reason about it.
+5. **`.gitignore` can silently drop source from a commit.** `*token*` swallowed a whole test file on
+   2026-08-19: `git add -A` skipped it, the commit succeeded, pre-commit passed, and the local suite
+   stayed green because the file was on disk. A PR shipped claiming 21 tests it did not contain.
+   Nothing in the pipeline could contradict it. DT-258.
 
 ## 5. Six ways running it can lie to you
 
