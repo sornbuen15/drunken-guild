@@ -50,23 +50,22 @@ def test_extract_clean_response():
 
 
 @mock.patch("service.discord_utils.os.path.exists")
-@mock.patch("service.discord_utils.os.getcwd")
-def test_find_config(mock_getcwd, mock_exists):
-    mock_getcwd.return_value = "/test/dir"
+@mock.patch("service.discord_utils.project_root")
+def test_find_config(mock_root, mock_exists):
+    mock_root.return_value = "/test/dir"
     mock_exists.side_effect = lambda p: p == "/test/dir/.agents/discord_config.json"
 
     assert find_config() == "/test/dir/.agents/discord_config.json"
 
 
 @mock.patch.dict(os.environ, {}, clear=True)
-@mock.patch("service.discord_utils.load_dotenv")
 @mock.patch("service.discord_utils.find_config")
 @mock.patch(
     "builtins.open",
     new_callable=mock.mock_open,
     read_data='{"bot_token": "token", "channel_id": "chan"}',
 )
-def test_load_config(mock_file, mock_find, mock_load_dotenv):
+def test_load_config(mock_file, mock_find):
     mock_find.return_value = "/fake.json"
     assert load_config() == {"bot_token": "token", "channel_id": "chan"}
 
@@ -80,23 +79,19 @@ def test_load_config(mock_file, mock_find, mock_load_dotenv):
     {"DISCORD_BOT_TOKEN": "env_token", "DISCORD_CHANNEL_ID": "env_chan"},
     clear=True,
 )
-@mock.patch("service.discord_utils.load_dotenv")
-def test_load_config_env_priority(mock_load_dotenv):
+def test_load_config_env_priority():
     # Env vars (.env) win over the JSON file when both are set.
     assert load_config() == {"bot_token": "env_token", "channel_id": "env_chan"}
 
 
 @mock.patch.dict(os.environ, {"DISCORD_BOT_TOKEN": "env_token"}, clear=True)
-@mock.patch("service.discord_utils.load_dotenv")
 @mock.patch("service.discord_utils.find_config")
 @mock.patch(
     "builtins.open",
     new_callable=mock.mock_open,
     read_data='{"bot_token": "stale_file_token", "channel_id": "file_chan"}',
 )
-def test_load_config_partial_env_overrides_only_that_field(
-    mock_file, mock_find, mock_load_dotenv
-):
+def test_load_config_partial_env_overrides_only_that_field(mock_file, mock_find):
     # Regression test: only DISCORD_BOT_TOKEN is set in env (not
     # DISCORD_CHANNEL_ID), and a config file already has both keys. The env
     # var must still win for bot_token — an earlier version used
@@ -114,11 +109,11 @@ def test_save_config(mock_file, mock_find):
     mock_file.assert_called_with("/fake.json", "w", encoding="utf-8")
 
 
-@mock.patch("service.discord_utils.find_config")
+@mock.patch("service.discord_utils.project_root")
 @mock.patch("builtins.open", new_callable=mock.mock_open)
 @mock.patch("service.discord_utils.time.time")
-def test_log_activity(mock_time, mock_file, mock_find):
-    mock_find.return_value = "/test/.agents/discord_config.json"
+def test_log_activity(mock_time, mock_file, mock_root):
+    mock_root.return_value = "/test"
     mock_time.return_value = 1000.0
     log_activity("user", "boss", "hello")
     mock_file.assert_called_with(
@@ -174,26 +169,12 @@ def test_query_gemini_direct_global_key(mock_file, mock_expanduser, mock_exists)
         assert res == "response text"
 
 
-from service.discord_utils import load_dotenv  # noqa: E402
-
-
 @mock.patch("service.discord_utils.os.path.exists")
-@mock.patch("service.discord_utils.os.getcwd")
-@mock.patch(
-    "builtins.open", new_callable=mock.mock_open, read_data="TEST_VAR=123\n#comment\n"
-)
-def test_load_dotenv(mock_file, mock_getcwd, mock_exists):
-    mock_getcwd.return_value = "/fake/dir"
-    mock_exists.side_effect = lambda p: p == "/fake/dir/.env"
-
-    load_dotenv()
-    assert os.environ.get("TEST_VAR") == "123"
-
-
-@mock.patch("service.discord_utils.os.path.exists")
-@mock.patch("service.discord_utils.os.getcwd")
-def test_find_config_not_found(mock_getcwd, mock_exists):
-    mock_getcwd.return_value = "/fake/dir"
+@mock.patch("service.discord_utils.project_root")
+def test_find_config_not_found(mock_root, mock_exists):
+    """Absent means absent. It used to mean "keep climbing until something
+    matches", which is how a stranger's .agents/ got adopted (DT-254)."""
+    mock_root.return_value = "/fake/dir"
     mock_exists.return_value = False
     assert find_config() is None
 
@@ -201,10 +182,10 @@ def test_find_config_not_found(mock_getcwd, mock_exists):
 @mock.patch("service.discord_utils.find_config")
 @mock.patch("builtins.open", new_callable=mock.mock_open)
 @mock.patch("service.discord_utils.os.makedirs")
-@mock.patch("service.discord_utils.os.getcwd")
-def test_save_config_no_config(mock_getcwd, mock_makedirs, mock_open, mock_find):
+@mock.patch("service.discord_utils.project_root")
+def test_save_config_no_config(mock_root, mock_makedirs, mock_open, mock_find):
     mock_find.return_value = None
-    mock_getcwd.return_value = "/fake/root"
+    mock_root.return_value = "/fake/root"
     save_config({"key": "val"})
     mock_makedirs.assert_called_with("/fake/root/.agents", exist_ok=True)
     mock_open.assert_called_with(
@@ -213,46 +194,21 @@ def test_save_config_no_config(mock_getcwd, mock_makedirs, mock_open, mock_find)
 
 
 @mock.patch.dict(os.environ, {}, clear=True)
-@mock.patch("service.discord_utils.load_dotenv")
 @mock.patch("service.discord_utils.find_config")
 @mock.patch("builtins.open", new_callable=mock.mock_open)
-def test_load_config_exception(mock_open, mock_find, mock_load_dotenv):
+def test_load_config_exception(mock_open, mock_find):
     mock_find.return_value = "/fake.json"
     mock_open.side_effect = Exception("Read error")
     assert load_config() == {"bot_token": None, "channel_id": None}
 
 
-@mock.patch("service.discord_utils.find_config")
+@mock.patch("service.discord_utils.project_root")
 @mock.patch("builtins.open", new_callable=mock.mock_open)
-def test_log_activity_exception(mock_open, mock_find):
-    mock_find.return_value = "/fake.json"
+def test_log_activity_exception(mock_open, mock_root):
+    mock_root.return_value = "/fake"
     mock_open.side_effect = Exception("Write error")
     # Should silently pass
     log_activity("type", "author", "content")
-
-
-@mock.patch("service.discord_utils.os.path.exists")
-@mock.patch("service.discord_utils.os.getcwd")
-@mock.patch("builtins.open", new_callable=mock.mock_open)
-def test_load_dotenv_parent_dir(mock_open, mock_getcwd, mock_exists):
-    mock_getcwd.return_value = "/fake/dir/subdir"
-
-    def fake_exists(p):
-        return p == "/fake/dir/.env"
-
-    mock_exists.side_effect = fake_exists
-    load_dotenv()
-    mock_open.assert_called_with("/fake/dir/.env", "r", encoding="utf-8")
-
-
-@mock.patch("service.discord_utils.os.path.exists")
-@mock.patch("service.discord_utils.os.getcwd")
-@mock.patch("builtins.open", new_callable=mock.mock_open)
-def test_load_dotenv_exception(mock_open, mock_getcwd, mock_exists):
-    mock_getcwd.return_value = "/fake/dir"
-    mock_exists.return_value = True
-    mock_open.side_effect = Exception("Read error")
-    load_dotenv()  # Should silently catch and print warning
 
 
 @mock.patch("service.discord_utils.os.path.exists")
@@ -264,11 +220,3 @@ def test_query_gemini_direct_global_exception(mock_open, mock_expanduser, mock_e
     mock_exists.return_value = True
     mock_open.side_effect = Exception("Json parse error")
     assert query_gemini_direct("hello") is None
-
-
-@mock.patch("service.discord_utils.os.path.exists")
-@mock.patch("service.discord_utils.os.getcwd")
-def test_load_dotenv_not_found(mock_getcwd, mock_exists):
-    mock_getcwd.return_value = "/fake/dir"
-    mock_exists.return_value = False
-    load_dotenv()
