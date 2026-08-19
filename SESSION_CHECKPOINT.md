@@ -59,15 +59,20 @@ evidence that the idea is necessary rather than over-engineering.
 
 ## 2. Where things stand
 
-| | |
-|---|---|
-| `main` | `d8b81c9` — **v2.3.0 released** 2026-08-17 |
-| `develop` | `edcb575`, **670 tests green** |
-| Open PRs | **#112 DT-254** · **#113 DT-255** · **#114 DT-228** — all awaiting the Boss's merge |
-| Jira | **To Do:** DT-226 · DT-237 · DT-248 · DT-256 · DT-257 · DT-258 · **In Review:** DT-228 · DT-254 · DT-255 · **Done:** DT-252 |
+**Do not type this section. Run it (DT-257):**
 
-Verify these three before trusting the table: `origin/develop`, the PR states, and Jira. This section
-has been wrong twice, in both directions — and DT-257 exists to stop it being typed at all.
+```bash
+uv run drunken-status --project drunken-team          # add --tests for the real suite result
+```
+
+It reports `main`, `origin/develop`, where your branch sits against it, open PRs, and every
+non-Done ticket with its assignee — from git, `gh` and Jira rather than from memory. Anything it
+could not reach says so; an absent source is never rendered as an empty answer.
+
+The typed table that used to live here went stale within an hour of being written, twice in both
+directions, and was wrong again on the day it was replaced — naming three PRs as awaiting merge
+that had all merged, beside a test count 49 behind. What stays hand-written below is what cannot
+be derived: what was decided, and why.
 
 ### The round of 2026-08-19, integration-tested together
 
