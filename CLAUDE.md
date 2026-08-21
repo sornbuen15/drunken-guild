@@ -43,6 +43,12 @@ which is out of bounds by the rule below, so every report says what it did not s
 
 `TODO` → `IN PROGRESS` → `IN REVIEW` → `DONE`. **Never skip IN REVIEW**, including for your own work.
 
+**How to write and run one is `.agents/skills/jira-tickets/SKILL.md`** — the FINDING/SCOPE/ACCEPTANCE
+shape, the fields this Jira can actually set, and what must be verified before anything is Done.
+Read it before opening or closing a ticket. It is the same file Antigravity is pointed at, so the
+rules cannot drift apart per agent. A ticket is scanned, not read: the story of how you found it
+belongs in the commit and the PR.
+
 Use the `drunken-jira-mcp` tools (`jira_search_issues`, `jira_start_task`, `jira_transition_issue`,
 `jira_submit_for_review`, `jira_add_comment`, `jira_assign`). `scripts/jira_bridge.py` still exists
 for shell use, but the MCP tools are the supported path.

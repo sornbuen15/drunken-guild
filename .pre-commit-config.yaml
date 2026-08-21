@@ -32,3 +32,14 @@ repos:
         language: system
         pass_filenames: false
         always_run: true
+
+      # DT-259. .gitignore's `*token*` once swallowed a whole test file: the
+      # commit succeeded, this hook chain passed, and the suite stayed green
+      # because the file was still on disk. Nothing said the commit was
+      # incomplete. Now something does.
+      - id: check-ignored-sources
+        name: Block commits that silently omit a gitignored source file
+        entry: python scripts/check_ignored_sources.py
+        language: system
+        pass_filenames: false
+        always_run: true
