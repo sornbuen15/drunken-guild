@@ -161,8 +161,20 @@ client_secret*.json
 *.p12
 *.pfx
 
-# Local Agent Configurations and Logs
-.agents/
+# Local Agent Configurations and Logs. Antigravity's state lives here and is
+# none of our business -- except the two things that are deliberately shared.
+# `.agents/*` and not `.agents/`: git does not descend into an ignored
+# DIRECTORY, so a negation for a file inside one is never even considered.
+.agents/*
+# AGENTS.md and skills/ are the cross-agent instruction layer: the same files
+# Claude and Antigravity are both pointed at, so the rules cannot drift apart
+# per agent. They were tracked before `.agents/` was ignored, which hid the
+# problem -- gitignore does not affect files already in the index, so existing
+# skills kept working while a NEW one was silently invisible to `git add`.
+# Found the third time that happened in one session (DT-259).
+!.agents/AGENTS.md
+!.agents/skills/
+!.agents/skills/**
 
 # Local Claude Code state (worktrees, scheduled tasks, checkpoints, etc.).
 # settings.json is the one exception: it is the shared permission allowlist
@@ -172,8 +184,10 @@ client_secret*.json
 .claude/*
 !.claude/settings.json
 
-# Docker simulation config (local test only, do not commit)
-Dockerfile
+# Local scratch. Dockerfile used to be listed here as "simulation config, do
+# not commit" -- DT-228 made it a deliverable (it is how the pinned install is
+# verified), and the stale rule silently kept it out of #114 while the PR
+# described it in detail. Found by DT-259's own test failing in CI.
 scratch_*.py
 not_use/
 

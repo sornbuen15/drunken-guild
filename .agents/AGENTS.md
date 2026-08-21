@@ -1,14 +1,14 @@
 # Workspace Rules for Antigravity
 
 ## Core Directives & Policies
-1. **JIRA SSOT**: Jira Cloud is the absolute Single Source of Truth. The word "Board" strictly means Jira Cloud. Read and write task states with the `drunken-jira-mcp` tools (`jira_search_issues`, `jira_start_task`, `jira_transition_issue`, `jira_submit_for_review`, `jira_add_comment`). `scripts/jira_bridge.py` still works for shell use, but the MCP tools are the supported path.
+1. **JIRA SSOT**: Jira Cloud is the absolute Single Source of Truth. The word "Board" strictly means Jira Cloud. Read and write task states with the `drunken-jira-mcp` tools (`jira_search_issues`, `jira_start_task`, `jira_transition_issue`, `jira_submit_for_review`, `jira_add_comment`). `scripts/jira_bridge.py` still works for shell use, but the MCP tools are the supported path. **How to write and run a ticket — the FINDING/SCOPE/ACCEPTANCE shape, the fields this Jira can actually set, and what must be verified before Done — is in the `jira-tickets` skill (`.agents/skills/jira-tickets/SKILL.md`). Read it before opening or closing one.**
 2. **Destructive Commands (`rm`, `rm -rf`, `drop`)**: You MUST NOT delete files/directories immediately.
    - **Notice/List**: Present a Markdown **Table** (Columns: Path/Target, Reason).
    - **Async Workflow**: If there are other tasks you can do without deleting those files, **SKIP** the deletion for now.
    - **If you MUST delete files**: ask the Boss first — see directive 3 for how. Do NOT write to `.agents/discord_outbox.json` directly; that file is internal daemon state, not an API. <!-- drift-ok: naming the retired file is the point — this says not to use it -->
 3. **Ask Boss for Permissions**: For explicit approval or logic clarification, NEVER use `run_command` (it triggers security blocks).
    - **If the Boss is watching this conversation live, just ask directly.** Discord is for when they are not.
-   - Otherwise call `request_boss_approval_async` (`action`, `reason`, `ticket_key`), which returns a `req_id` immediately. Park the task with `board_block_task`, take the next task `board_available_tasks` offers, and collect the answer with `check_approvals` **when you finish a task or start a session — never mid-task.** Half-applied approvals leave the repo in a state nobody can reason about. See the `ask-boss` skill.
+   - Otherwise call `request_boss_approval_async` (`action`, `reason`, `ticket_key`), which returns a `req_id` immediately. Park the task, take the next unblocked one from Jira, and collect the answer with `check_approvals` **when you finish a task or start a session — never mid-task.** Half-applied approvals leave the repo in a state nobody can reason about. See the `ask-boss` skill.
    - **Asking must never stop the other work.** There is no timeout and nothing is killed for going unanswered; reminders back off 15 min → 1 h → daily and survive a daemon restart.
    - An approval is bound to the commit it was granted against. From a different HEAD it reads `stale` and must be asked again.
    - The blocking `request_boss_approval` still works and is kept until 3.0.0. Prefer the async pair.
@@ -57,24 +57,39 @@ This configuration defines the system instructions for handling Jira workflows a
 
 ---
 
-## Local-First Jira Sync Pipeline
+## Planning work
 
-Follow this exact 3-step pipeline for task planning and execution:
+**Superseded 2026-08-19.** This section used to describe a "Local-First Jira
+Sync Pipeline": brainstorm into a local `.local_backlog.md`, mark tasks
+`[TODO]`/`[IN_PROGRESS]` there, then batch-push them to Jira with a hand-written
+REST script, explicitly avoiding the MCP tools because they "read full JSON
+contexts".
 
-### PHASE 1: LOCAL PLANNING (Memory/Temp)
-When a new project or brief is assigned, DO NOT contact Jira immediately. Brainstorm, break down the work, and create a comprehensive task list. Store this list locally in a temporary markdown file (e.g., '.local_backlog.md').
+Both halves are now wrong, and each for a measured reason.
 
-### PHASE 2: DEPENDENCY TRIAGE (Local State Triage)
-Analyze the tasks in '.local_backlog.md':
-- Tasks that have NO dependencies and can be executed immediately MUST be marked as `[IN_PROGRESS]`.
-- Tasks that are blocked, dependent on others, or for later MUST be marked as `[TODO]`.
+**The local file was a second board.** DT-250 retired exactly that: a list
+beside Jira that carries its own statuses is a surface that can disagree with
+the real one, which is the failure DT-248 and DT-249 each cost a session to.
+This project's own local board held three cards, last touched 2026-07-22, still
+using a ticket prefix retired months earlier — while every real ticket of that
+period went through Jira and never touched it.
 
-### PHASE 3: BATCH PUSH VIA LIGHTWEIGHT SCRIPT
-Once the local triage is done, push the tasks to the actual Jira board:
-- DO NOT use native heavy Jira plugins that read full JSON contexts.
-- INSTEAD, use or write a lightweight custom CLI script (e.g., 'jira-lite-cli.sh' or python script) in the workspace to sequentially push the `[TODO]` and `[IN_PROGRESS]` tasks to Jira via REST API.
-- Only push 'summary' and 'description' fields.
-- Once the batch push is successful, clear the temporary file and begin executing the `[IN_PROGRESS]` tasks locally.
+**The token argument no longer holds.** It was a fair objection when a
+six-issue search cost 5,697 tokens, 95% of it raw ADF nobody read. DT-255
+measured and fixed that: the same search is now 894 characters, and a
+hand-written REST script is a second Jira client that can disagree with the
+first.
+
+### What to do instead
+
+Plan in the conversation, then file directly with the MCP tools. `jira_create_issue`
+accepts `parent`, `duedate`, `start_date` and `labels` — the old "only push
+summary and description" limit is gone, and `parent` is what stops an Epic
+having no children and Timeline drawing nothing.
+
+Read the `jira-tickets` skill (`.agents/skills/jira-tickets/SKILL.md`) for the
+ticket shape and the lifecycle. Nothing is stored locally; the assignee says
+whose the work is and the status says where it is.
 
 ### PHASE 4: TRACEABILITY & COMMIT BINDING
 Once tasks are pushed to Jira, Jira becomes the Absolute Source of Truth for project history.
@@ -93,10 +108,10 @@ Once tasks are pushed to Jira, Jira becomes the Absolute Source of Truth for pro
 ### PHASE 7: FEEDBACK LOOP & ISSUE TRIAGE
 Whenever the user provides a list of bugs, feedback, or issues (no matter how urgent), you MUST NOT start writing code or fixing them immediately.
 1. STOP executing code.
-2. Route the list back into PHASE 1 (LOCAL PLANNING).
-3. Convert each bug/issue into a structured task and add it to your '.local_backlog.md'. Clarify and understand by task name: please use prefix labels like `[BUG]` or `[ISSUE]` for feedback tasks (e.g. `[BUG] 500 error on home page`).
-4. Perform triage, then push these new issues to the Jira [TODO] board via the lightweight script.
-5. ONLY AFTER the issues are officially on the Jira board, you may begin pulling them into [IN_PROGRESS] and fixing them one by one following the strict Git branching (feature/<Ticket-ID>) and QA workflow.
+2. Triage the list first: what is one ticket, what is several, what the repository already records and therefore is not a ticket at all.
+3. File each one with `jira_create_issue`, in the FINDING/SCOPE/ACCEPTANCE shape the `jira-tickets` skill defines. Summary lines carry an area prefix: `[BUG] 500 error on home page`.
+4. Give related tickets a `parent` so the Epic has children and Timeline is not empty. Use `labels` for urgency — priority cannot be set on this project.
+5. ONLY AFTER the tickets exist in Jira, pull them into In Progress one at a time, following the branch convention (`feature/<Ticket-ID>-slug`) and the QA workflow.
 
 ---
 
@@ -104,6 +119,6 @@ Whenever the user provides a list of bugs, feedback, or issues (no matter how ur
 
 Whenever a workflow requires an explicit Tech Lead or User approval gate (e.g., approving an execution plan, sprint backlog transition, codebase audit cleanup, or merging a PR):
 - **If the Boss is watching this conversation live**, skip the tool entirely and just ask them directly — Discord is only needed when nobody may be reading this conversation right now.
-- **Otherwise:** call `request_boss_approval_async` (`action`, `reason`, `ticket_key`) — see the `ask-boss` skill for details. It returns a `req_id` straight away rather than an answer. Park the work with `board_block_task`, carry on with something unblocked, and read the verdict with `check_approvals` at the next task boundary: `approved`, `rejected`, `pending`, `stale` (approved against a different commit — ask again) or `unknown` (never submitted; re-submit rather than assume).
+- **Otherwise:** call `request_boss_approval_async` (`action`, `reason`, `ticket_key`) — see the `ask-boss` skill for details. It returns a `req_id` straight away rather than an answer. Park the work, carry on with something unblocked, and read the verdict with `check_approvals` at the next task boundary: `approved`, `rejected`, `pending`, `stale` (approved against a different commit — ask again) or `unknown` (never submitted; re-submit rather than assume).
 - **Force-push, hard reset, `rm -rf` and reading `.env` are refused by `.claude/settings.json` regardless of what comes back over Discord.** Do not route around it; raise it with the Boss.
 - Do NOT write to `.agents/discord_outbox.json` or read `.agents/discord_inbox.json` directly; those are internal daemon state, not an API, and this protocol (write file + `schedule` + end turn) is retired. <!-- drift-ok: the prohibition has to name what it prohibits -->

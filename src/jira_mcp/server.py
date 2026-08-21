@@ -118,19 +118,20 @@ async def jira_create_issue(
     """
     Create an issue in this project.
 
-    HOW TO WRITE ONE: state the finding, the scope, and how it will be
-    accepted. Put shared context on the parent Epic and link to it -- do not
-    copy it into every child. Long is correct for a post-mortem or a security
-    finding and wrong for a task.
+    SHAPE: three headings, FINDING / SCOPE / ACCEPTANCE, and nothing else.
+    Declarative, not narrative -- the story of how you found it belongs in the
+    commit and the PR. A task is <=120 words; a post-mortem or security finding
+    may be as long as it needs.
 
-    `parent` is an Epic or Story key. Without it the issue has no place in the
-    hierarchy and Timeline stays empty.
-    `labels` is comma-separated and stands in for priority, which cannot be set
-    on a team-managed project at all -- every issue there reads Medium.
-    `duedate` and `start_date` are ISO YYYY-MM-DD.
+    `parent` is an Epic or Story key; without it Timeline stays empty, and
+    shared context belongs on the Epic rather than copied into each child.
+    `labels` stands in for priority, which cannot be set on a team-managed
+    project at all. `duedate` and `start_date` are ISO YYYY-MM-DD.
 
-    Warns, never refuses, if the project has no agile board or if a long
-    description has no parent.
+    Full rules, including the status lifecycle and what to verify before Done:
+    `.agents/skills/jira-tickets/SKILL.md`.
+
+    Warns, never refuses.
     """
     client = get_client()
     res = await client.create_issue(
