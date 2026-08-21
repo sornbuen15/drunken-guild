@@ -66,20 +66,59 @@ Not a functional gap — Claude Code discovers agents from their frontmatter. It
 
 ---
 
-## 3. This repo's CLAUDE.md is stale, and should become the catalog
+## 3. CLAUDE.md is stale, and has to serve two jobs
 
 It should answer in one place: **what skills, agents, plugins and MCP servers exist, where
-each comes from, and how a project declares them.**
+each comes from, and how a project declares them** — covering `~/Projects/drunken-team`'s
+capabilities, not only the ones authored here.
+
+And it is also the **template other projects start from**. That is the harder half.
 
 Blocked on §1 — writing the catalog first would only record the contradiction.
 
 **Do, after §1:**
 
-- Rewrite `CLAUDE.md` around the four layers and their sources: skills and agents from here
-  via `sync_*.sh`; MCP servers from `~/Projects/drunken-team` via each project's
-  `.mcp.json`.
-- Emit a block a project can paste into its own `CLAUDE.md`, generated rather than typed.
+- Rewrite around the four layers and their sources: skills and agents from here via
+  `sync_*.sh`; MCP servers (`drunken-jira-mcp`, `drunken-discord-mcp`) from
+  `~/Projects/drunken-team`, declared per project in `.mcp.json`.
+- Produce the project-facing block by generating it, not typing it.
 - State which surface each skill group needs, per §1's decision.
+
+### What to think about before writing it
+
+**This repo does not use what the template teaches.** There is no `.mcp.json` here, no Jira
+and no Discord — today's `CLAUDE.md` is 113 lines about authoring skills and nothing else.
+A template embedded in a project that never exercises it cannot be verified by use, and
+will rot exactly the way §4's docs did. Split it: `CLAUDE.md` stays the live file for
+working *here*, `templates/CLAUDE.md` is the thing projects copy.
+
+**Decide what transfers.** Not all of `drunken-team/CLAUDE.md` is general. The three-part
+layout (DT-250), config precedence (DT-254), never-skip-IN-REVIEW, secrets-by-reference and
+the approval protocol are universal. `drunken-usage`, away-mode's specifics and the S1–S12
+findings are that project's own history. A template that copies everything carries noise
+nobody will prune.
+
+**Point, do not inline.** Three projects holding three copies of the same rules is the
+failure this whole session has been about — one board beside Jira, one credential in three
+files, one skill in five places. `drunken-team/CLAUDE.md` already does it right: it links
+`.agents/skills/jira-tickets/SKILL.md` instead of restating the rules. The template should
+carry pointers and the *project-specific* facts only.
+
+**Two instruction files per project.** Claude reads `CLAUDE.md`, Antigravity reads
+`AGENTS.md`. Both must point at the same skill files or the per-agent drift returns —
+`drunken-team` hit exactly that, with `AGENTS.md` still naming board tools DT-250 retired.
+
+**Version skew is real.** A template that documents `jira_create_issue` with `parent` and
+`labels` is wrong against a deployment installed before DT-255. Include the verification
+step, not just the declaration: `drunken-doctor` reports `deployment.tool_env` and
+`deployment.mcp_pin`, and merging is not deploying.
+
+**Secrets.** A template is exactly where someone pastes a real token. Show references with
+a scheme (`file://…#jira.default`, `env://…`) and never a literal, and say that
+`drunken-init` writes the registry entry.
+
+**Layers are optional.** A project with no Jira or no Discord must be able to use the
+skills and agents alone. Say which parts stand on their own.
 
 ---
 
