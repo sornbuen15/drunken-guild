@@ -53,6 +53,17 @@ UPDATED_COUNT=0
 _skill_list=$(mktemp)
 find "$LOCAL_SKILLS_DIR" -type f -name "SKILL.md" | sort > "$_skill_list"
 
+# Skills install by basename, so two of the same name in different groups would
+# land on top of each other and only the last would survive. Refuse rather than
+# pick one.
+_dupes=$(while IFS= read -r f; do basename "$(dirname "$f")"; done < "$_skill_list" | sort | uniq -d)
+if [ -n "$_dupes" ]; then
+  echo -e "${RED}Error: two skills share a directory name, and they install to the same place:${NC}"
+  echo "$_dupes" | sed 's/^/  /'
+  rm -f "$_skill_list"
+  exit 1
+fi
+
 # Build INDEX.md in a temp file and replace atomically at the end.
 TEMP_INDEX=$(mktemp)
 cat > "$TEMP_INDEX" << 'HEADER'
@@ -83,21 +94,34 @@ while IFS= read -r skill_file; do
     UPDATED_COUNT=$((UPDATED_COUNT + 1))
   fi
 
-  # Extract trigger from YAML description field (e.g. "Trigger on /foo") or
-  # fall back to legacy Trigger/Keywords line for older skill formats.
-  TRIGGER=$(grep -m1 "Trigger/Keywords:" "$skill_file" \
+  # Every extraction below is optional, and every one of them is a grep that
+  # can legitimately find nothing. Under `set -euo pipefail` an unmatched grep
+  # returns 1, pipefail propagates it, and the assignment kills the whole run.
+  #
+  # That is not hypothetical: when skills gained YAML frontmatter the
+  # `Trigger/Keywords:` line went away, this script began exiting 1 on the
+  # second skill, and it printed a green "Updated" for the first one on its way
+  # out. 29 of 30 skills sat stale for weeks because the failure looked like a
+  # short success. Hence `|| true` on each, deliberately.
+  TRIGGER=$(grep -m1 "Trigger/Keywords:" "$skill_file" 2>/dev/null \
     | sed 's/.*Trigger\/Keywords:\*\* //' \
     | grep -oE '/[a-zA-Z][a-zA-Z-]+' \
-    | head -1)
+    | head -1 || true)
   if [ -z "$TRIGGER" ]; then
-    TRIGGER=$(grep -E "Trigger on /[a-zA-Z]" "$skill_file" \
+    TRIGGER=$(grep -E "Trigger on /[a-zA-Z]" "$skill_file" 2>/dev/null \
       | grep -oE '/[a-zA-Z][a-zA-Z-]+' \
-      | head -1)
+      | head -1 || true)
   fi
 
-  DESC=$(grep -m1 "\*\*Description:\*\*" "$skill_file" \
-    | sed 's/.*\*\*Description:\*\* //' \
-    | cut -c1-80)
+  # Prefer the frontmatter description -- it is what Claude reads to decide
+  # whether a skill is relevant. Fall back to the body line for older formats.
+  DESC=$(awk '/^description: >/{f=1; next} f && /^  /{sub(/^  /,""); printf "%s ", $0; next} f{exit}' "$skill_file" \
+    | cut -c1-160 || true)
+  if [ -z "$DESC" ]; then
+    DESC=$(grep -m1 "\*\*Description:\*\*" "$skill_file" 2>/dev/null \
+      | sed 's/.*\*\*Description:\*\* //' \
+      | cut -c1-160 || true)
+  fi
 
   if [ -n "$TRIGGER" ]; then
     echo "- \`${skill_name}\` (\`${TRIGGER}\`) — ${DESC}" >> "$TEMP_INDEX"
@@ -116,3 +140,37 @@ cp "$INDEX_FILE" "$LOCAL_SKILLS_DIR/INDEX.md"
 echo ""
 echo -e "${GREEN}Done.${NC} $NEW_COUNT new  |  $UPDATED_COUNT updated"
 echo -e "  INDEX.md: $INDEX_FILE"
+
+# Anything installed that this repo does not produce. Reported, never deleted:
+# removing is the operator's call, and a stale skill still being offered to
+# every session is worth knowing about either way.
+#
+# skills/.external lists third-party skills that legitimately have no source
+# here, so they are not named every run.
+EXTERNAL_FILE="$LOCAL_SKILLS_DIR/.external"
+_installed=$(find "$GLOBAL_SKILLS_DIR" -mindepth 2 -maxdepth 2 -name "SKILL.md" \
+  -exec dirname {} \; | xargs -n1 basename 2>/dev/null | sort -u)
+_ours=$(while IFS= read -r f; do basename "$(dirname "$f")"; done \
+  < <(find "$LOCAL_SKILLS_DIR" -type f -name "SKILL.md") | sort -u)
+_external=""
+[ -f "$EXTERNAL_FILE" ] && _external=$(grep -vE '^\s*(#|$)' "$EXTERNAL_FILE" | sort -u)
+
+_orphans=$(comm -23 <(echo "$_installed") <(printf '%s\n%s\n' "$_ours" "$_external" | sort -u))
+if [ -n "$_orphans" ]; then
+  echo ""
+  echo -e "${YELLOW}Installed but not produced here:${NC}"
+  echo "$_orphans" | sed 's|^|  ~/.claude/skills/|'
+  echo -e "  Left in place. Add to skills/.external if intended, or remove them yourself."
+fi
+
+# Group directories from an older sync that copied the tree instead of
+# flattening it. This script installs by basename and can never create one, so
+# anything shaped like a group is a leftover holding a frozen old copy.
+_groups=$(find "$GLOBAL_SKILLS_DIR" -mindepth 1 -maxdepth 1 -type d \
+  '!' -exec test -e "{}/SKILL.md" ';' -print | xargs -n1 basename 2>/dev/null | sort)
+if [ -n "$_groups" ]; then
+  echo ""
+  echo -e "${YELLOW}Leftover group directories from an older sync:${NC}"
+  echo "$_groups" | sed 's|^|  ~/.claude/skills/|'
+  echo -e "  They hold stale duplicates of skills that now live at the top level."
+fi
