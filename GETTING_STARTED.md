@@ -1,4 +1,5 @@
-# Getting Started with AI Team Toolkit
+# Getting Started with Drunken AI Team
+*Brought to you by Drunken Programmer*
 
 A complete walkthrough — from installation through your first completed task. Each step links to a matching example in [`examples/`](./examples/) so you can see expected output before you run anything.
 
@@ -42,8 +43,8 @@ A complete walkthrough — from installation through your first completed task. 
 
 ```bash
 # 1. Clone the repo
-git clone <repo-url> ai-team-toolkit
-cd ai-team-toolkit
+git clone <repo-url> drunken-ai-team
+cd drunken-ai-team
 
 # 2. Deploy skills to ~/.claude/skills/
 bash scripts/install/sync_skills.sh
@@ -60,8 +61,8 @@ Open PowerShell (5.1+ or Core 7+):
 
 ```powershell
 # 1. Clone the repo
-git clone <repo-url> ai-team-toolkit
-cd ai-team-toolkit
+git clone <repo-url> drunken-ai-team
+cd drunken-ai-team
 
 # 2. Allow script execution (one-time, current user only)
 Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
@@ -157,14 +158,14 @@ Copy the two context templates into **your project root** and fill them in.
 
 ```bash
 # macOS / Linux
-cp path/to/ai-team-toolkit/templates/PROJECT_BRIEF.md  your-project/
-cp path/to/ai-team-toolkit/templates/REQUIREMENTS.md   your-project/
+cp path/to/drunken-ai-team/templates/PROJECT_BRIEF.md  your-project/
+cp path/to/drunken-ai-team/templates/REQUIREMENTS.md   your-project/
 ```
 
 ```powershell
 # Windows
-Copy-Item path\to\ai-team-toolkit\templates\PROJECT_BRIEF.md  your-project\
-Copy-Item path\to\ai-team-toolkit\templates\REQUIREMENTS.md   your-project\
+Copy-Item path\to\drunken-ai-team\templates\PROJECT_BRIEF.md  your-project\
+Copy-Item path\to\drunken-ai-team\templates\REQUIREMENTS.md   your-project\
 ```
 
 Open each file and fill in every section. The more complete they are, the better every skill and agent performs — these files are the single source of truth for your squad.

@@ -1,6 +1,6 @@
 # Examples & Walkthrough
 
-This directory walks through a complete project lifecycle using the AI Team Toolkit — from blank templates to a running kanban board — using a fictional app called **TaskFlow**.
+This directory walks through a complete project lifecycle using the Drunken AI Team — from blank templates to a running kanban board — using a fictional app called **TaskFlow**.
 
 > **TaskFlow** is a cross-platform mobile task manager (iOS + Android) with a Node.js/PostgreSQL backend. It's simple enough to understand at a glance, complex enough to demonstrate every part of the toolkit.
 

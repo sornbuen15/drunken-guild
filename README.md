@@ -1,4 +1,5 @@
-# AI Team Toolkit
+# Drunken AI Team
+*Brought to you by Drunken Programmer*
 
 > **EXPERIMENTAL WARNING:** This project is a work-in-progress. **Do NOT use in a production environment** — it may cause unexpected errors, delete files, or produce unintended consequences.
 
@@ -36,16 +37,16 @@ A collection of **30 skills**, **5 specialist agents**, and an **8-agent enginee
 
 ```bash
 # macOS / Linux
-git clone <repo-url> ai-team-toolkit
-cd ai-team-toolkit
+git clone <repo-url> drunken-ai-team
+cd drunken-ai-team
 bash scripts/install/sync_skills.sh
 bash scripts/install/sync_agents.sh
 ```
 
 ```powershell
 # Windows (PowerShell — run as Administrator if needed)
-git clone <repo-url> ai-team-toolkit
-cd ai-team-toolkit
+git clone <repo-url> drunken-ai-team
+cd drunken-ai-team
 .\scripts\install\sync_skills.ps1
 .\scripts\install\sync_agents.ps1
 ```
@@ -96,8 +97,8 @@ That's it. See [GETTING_STARTED.md](./GETTING_STARTED.md) for a step-by-step wal
 
 ```bash
 # Clone the repo
-git clone <repo-url> ai-team-toolkit
-cd ai-team-toolkit
+git clone <repo-url> drunken-ai-team
+cd drunken-ai-team
 
 # Install skills to ~/.claude/skills/
 bash scripts/install/sync_skills.sh
@@ -114,8 +115,8 @@ Open PowerShell (5.1+ or Core 7+) and run:
 
 ```powershell
 # Clone the repo
-git clone <repo-url> ai-team-toolkit
-cd ai-team-toolkit
+git clone <repo-url> drunken-ai-team
+cd drunken-ai-team
 
 # If script execution is blocked, enable it first (one-time, current user):
 Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
@@ -368,8 +369,8 @@ your-project/
 Copy the templates from this repo:
 
 ```bash
-cp ai-team-toolkit/templates/PROJECT_BRIEF.md your-project/
-cp ai-team-toolkit/templates/REQUIREMENTS.md  your-project/
+cp drunken-ai-team/templates/PROJECT_BRIEF.md your-project/
+cp drunken-ai-team/templates/REQUIREMENTS.md  your-project/
 ```
 
 Fill them out before running any agent.
@@ -545,7 +546,7 @@ flowchart TD
 ## Repository Structure
 
 ```
-ai-team-toolkit/
+drunken-ai-team/
 ├── agents/
 │   ├── principal-engineer.md      # Orchestrator — routes to specialists
 │   ├── fintech-specialist.md      # Fintech domain expert (payments, KYC, PCI-DSS)

@@ -21,7 +21,7 @@ Copy `templates/mcp-settings.json` from this toolkit and merge it into your proj
   "mcpServers": {
     "kanban-board": {
       "command": "node",
-      "args": ["/ABSOLUTE/PATH/TO/ai-team-toolkit/scripts/mcp/kanban-server.js"],
+      "args": ["/ABSOLUTE/PATH/TO/drunken-ai-team/scripts/mcp/kanban-server.js"],
       "env": {
         "KANBAN_BOARD_DIR": ".claude/board",
         "KANBAN_CLAIM_TTL_SECONDS": "1800"
