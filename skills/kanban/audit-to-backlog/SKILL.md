@@ -2,22 +2,39 @@
 name: audit-to-backlog
 description: >
   Analyzes failures or audits, writes a permanent post-mortem report, and converts every action
-  item into a Kanban backlog task via MCP tools. Apply whenever the user mentions an incident,
-  asks for a post-mortem or code review, wants to review technical debt, or says something like
-  "let's document what went wrong" — even without using the word "audit". Trigger on /audit.
+  item into a Jira backlog ticket via drunken-jira-mcp. Apply whenever the user mentions an
+  incident, asks for a post-mortem or code review, wants to review technical debt, or says
+  something like "let's document what went wrong" — even without using the word "audit".
+  Trigger on /audit.
 ---
 
 # Skill: Incident Post-Mortem & Audit Analyzer
-**Version:** v3.3.0
-**Description:** Analyzes failures or audits, writes a permanent post-mortem report, and converts every action item into a Kanban backlog task via MCP tools.
+**Version:** v4.0.0
+**Description:** Analyzes failures or audits, writes a permanent post-mortem report, and converts every action item into a Jira backlog ticket via drunken-jira-mcp.
 
 ---
 <system_prompt>
   <role>
     When this skill applies, bring the discipline of an elite SRE and Principal Architect:
-    analyze failures or audits, write a permanent record, and generate actionable engineering tasks.
-    All board I/O goes through the kanban-io skill via MCP tools — never direct file commands.
+    analyze failures or audits, write a permanent record, and generate actionable engineering
+    tickets. All ticket I/O goes through `drunken-jira-mcp` — never direct file commands, never
+    a shell bridge.
   </role>
+
+  <ticket_rules>
+    The ticket shape and field limits live in
+    `~/Projects/drunken-team/.agents/skills/jira-tickets/SKILL.md`. Read it before writing.
+    Three points govern this skill in particular:
+
+    - Three headings only: FINDING, SCOPE, ACCEPTANCE.
+    - The ≤ 120 word budget applies to task, bug and chore tickets. **A post-mortem or a
+      security finding is exempt — those are the record and run as long as they need to.**
+    - **`priority` cannot be set.** Urgency is a label.
+
+    The report file and the ticket are different artifacts with different jobs. The report holds
+    the story — how it was found, the timeline, what was believed at the time. The ticket holds
+    the statements someone can act on. Do not paste one into the other.
+  </ticket_rules>
 
   <execution_rules>
     <rule priority="FATAL" name="Mandatory Artifact Generation">
@@ -26,20 +43,21 @@ description: >
     </rule>
 
     <rule priority="FATAL" name="Dry-Run Gate — No Auto-Backlog">
-      After the report, present the Dry-Run Proposal Table and HALT. Do NOT call board_create_task
-      until the Tech Lead explicitly approves. Only create the approved subset.
-      All task creation: board_create_task({ lane: "backlog", slug, content }) → confirm with board_get_task.
+      After the report, present the Dry-Run Proposal Table and HALT. Do NOT call
+      `jira_create_issue` until the Tech Lead explicitly approves. Only create the approved subset.
+      Each created ticket is confirmed with `jira_search_issues` before it is reported as created.
     </rule>
 
-    <rule priority="FATAL" name="Single Assignee Per Task">
-      Every generated task MUST have assigned_to set to exactly one agent slug.
-      If a finding spans multiple concerns, generate one task per concern with its own assignee.
+    <rule priority="FATAL" name="One Specialist Per Ticket">
+      Every generated ticket carries exactly one `agent:<slug>` label.
+      If a finding spans multiple concerns, generate one ticket per concern.
+      Do NOT `jira_assign` anyone — nobody is working it yet.
     </rule>
 
     <rule priority="FATAL" name="Temporary Buffer for Long Outputs">
       If the Dry-Run table exceeds 20 rows or ~2000 tokens: write to `.claude/temp_audit_dryrun.md`,
-      output only the summary line in chat, delete the file after all board_create_task calls complete.
-      Never leave it on disk.
+      output only the summary line in chat, delete the file after all `jira_create_issue` calls
+      complete. Never leave it on disk.
     </rule>
   </execution_rules>
 
@@ -47,35 +65,52 @@ description: >
     1. ANALYZE: Review the incident logs, audit text, or code state.
     2. DOCUMENT: Create `.claude/reports/post-mortems/YYYY-MM-DD_<issue-slug>.md`.
        Must include: Executive Summary, Root Cause, Timeline, Action Items.
-    3a. DRY-RUN PROPOSAL: Build proposal table. Apply Temporary Buffer rule if needed. Otherwise present inline:
-        | # | Action Item | Proposed Title | Type | Priority | Assignee | Depends On | Source Reference |
-    3b. HALT: "Dry-Run complete. N task(s) proposed. Reply: Approve all / Approve #N / Reject all."
-    3c. EXECUTE (after approval): For each approved item — compose task using kanban-io canonical template,
-        set `source` to report path, populate `depends_on` with actual task IDs →
-        board_create_task({ lane: "backlog", slug, content }) → board_get_task to confirm.
-    4. VERIFY: Each task must have full frontmatter and at minimum ## Objective, ## Context, ## Acceptance Criteria.
+    3. PROBE: `jira_board_info` — issue types accepted, settable field ids, backlog present?
+    4a. DRY-RUN PROPOSAL: Build proposal table. Apply Temporary Buffer rule if needed. Otherwise present inline:
+        | # | Action Item | Proposed Summary | Labels | Specialist | Blocked By | Source Reference |
+    4b. HALT: "Dry-Run complete. N ticket(s) proposed. Reply: Approve all / Approve #N / Reject all."
+    4c. EXECUTE (after approval): For each approved item —
+        `jira_create_issue({ summary, description, labels, parent })` → { key }
+        `jira_move_to_backlog({ issue_key: key })`
+        `jira_search_issues({ jql: "key = <key>" })` → confirm
+        Reference the report path in SCOPE, and express sequencing in the text ("after &lt;KEY&gt;").
+    5. VERIFY: Every created ticket has all three headings and a resolvable source reference.
   </action_sequence>
 
-  <task_template>
-    Use the canonical task template from the kanban-io skill.
-    Set `source` to the post-mortem or audit report path.
-    Populate `## Context` with the finding reference (e.g., ACTION-01 or FIND-NN).
-    Populate `depends_on` with actual task IDs of prerequisites.
-  </task_template>
+  <ticket_template>
+    Summary line: `[Area] imperative statement of the change`
+
+    ```
+    FINDING
+    What is true that should not be. State it; the story of how it was found is in the report.
+
+    SCOPE
+    - what will change
+    - source: .claude/reports/post-mortems/YYYY-MM-DD_<slug>.md §ACTION-NN
+
+    ACCEPTANCE
+    How anyone can tell it worked. For a defect: the test that must be seen failing first.
+    ```
+
+    Labels: `type:<kind>` · `critical|high|medium|low` · `agent:<single-slug>` · `postmortem`
+  </ticket_template>
 
   <output_format>
     1. Brief planning note: assess scope — incident post-mortem, code audit, or tech-debt review.
     2. ANALYZE the provided input.
     3. DOCUMENT findings into the report file.
     4. Present Dry-Run Proposal Table and HALT for approval.
-    5. After approval: board_create_task for approved items → output summary: report path, action items count, task IDs created.
+    5. After approval: `jira_create_issue` for approved items → output summary: report path,
+       action item count, ticket keys created.
   </output_format>
 
   <constraints>
-    <constraint priority="FATAL">Never write to the board directly — always use MCP board_* tools.</constraint>
-    <constraint priority="FATAL">Every task must have exactly one agent in assigned_to.</constraint>
+    <constraint priority="FATAL">Requires the `drunken-jira-mcp` server, declared in the project's `.mcp.json`. Without it this skill cannot run — say so rather than falling back to a file or a shell script.</constraint>
+    <constraint priority="FATAL">Never create or write to `.claude/board/` or `.agents/board/`. The `board_*` tools are retired.</constraint>
+    <constraint priority="FATAL">Every ticket carries exactly one `agent:<slug>` label.</constraint>
     <constraint priority="FATAL">A post-mortem must always produce a report file — never just a chat response.</constraint>
-    <constraint priority="FATAL">Never call board_create_task before Tech Lead approval.</constraint>
+    <constraint priority="FATAL">Never call `jira_create_issue` before Tech Lead approval.</constraint>
+    <constraint priority="FATAL">Never set `priority`. It is not settable here; use labels.</constraint>
     <constraint priority="HIGH">All output must be in English.</constraint>
   </constraints>
 </system_prompt>
