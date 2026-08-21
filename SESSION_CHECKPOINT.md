@@ -98,11 +98,7 @@ reported but never deleted.
 `debug-mantra`, `management-talk`, `post-mortem`, `scrutinize`. Do not author or overwrite
 these.
 
-**Left for the operator.** Eight leftover group directories under `~/.claude/skills/` hold
-stale duplicates from an older sync, and an agent does not delete. Remove these when
-convenient:
-
-    architecture  backend  frontend  infrastructure
-    leadership    product  security  workflow
-
-`sync_skills.sh` names them at the end of every run until they are gone.
+The eight leftover group directories under `~/.claude/skills/` — `architecture`, `backend`,
+`frontend`, `infrastructure`, `leadership`, `product`, `security`, `workflow` — were removed
+by the Boss the same day. `~/.claude/skills/` now holds 34 skills and no leftovers, and a
+clean sync run reports none. `sync_skills.sh` will name them again if any reappear.
