@@ -1,6 +1,6 @@
 # Session Checkpoint — ai-team-toolkit
 
-Read this first. It says what is broken, what must be decided, and in what order.
+Read this first. It says what is decided, what is done, and what is next.
 Finished work leaves this file and goes to the commit or the README.
 
 Last updated: 2026-08-21
@@ -10,166 +10,185 @@ Related repos, both referenced throughout:
 - `~/Projects/ai-team-toolkit` — this one. Sandbox where skills and agents are authored,
   then installed to `~/.claude/` by `scripts/install/sync_*.sh`.
 - `~/Projects/drunken-team` — the MCP servers (`drunken-jira-mcp`, `drunken-discord-mcp`),
-  and the rules in its `CLAUDE.md` that the skills here currently contradict.
+  and the rules in its `CLAUDE.md` that are now the authority this repo follows.
 
 ---
 
-## 1. The blocker: 12 skills drive a board that does not exist
+## 0. Where the work stands right now
 
-`drunken-team/CLAUDE.md` says "Jira is the only coordination surface", and "do not create
-`.claude/board/` or `.agents/board/` in any project" (DT-250).
+**Branch: `feature/retire-local-board-for-jira`**, four commits in, working tree clean.
+Stopped cleanly between Phase 2 and Phase 3 — nothing is half-edited.
 
-These skills say the opposite. `kanban-io` calls itself "the required gatekeeper for all
-board operations". No `.mcp.json` in any of the three projects declares a kanban server;
-`scripts/mcp/kanban-server.js` is wired to nothing.
+| phase | what | state |
+|---|---|---|
+| 1 | `CLAUDE.md` declares Jira the only coordination surface | ✅ `91e1df1` |
+| 2 | 8 skills moved from `board_*` to `jira_*` | ✅ `eaf5947`, `c18cef6`, `73a5c3b` |
+| 3 | Retire the 4 orchestration skills to `_not_used/` | ⬜ **next** |
+| 4 | `principal-engineer` merge | ⬜ |
+| 5 | Pull 6 skills from drunken-team, model ids, agents `INDEX.md` | ⬜ (independent — can go first) |
+| 6 | Retire the board code, then docs and examples | ⬜ |
 
-Every session in every project currently receives both instructions.
+### One thing needs a human before anything is pushed
 
-**Decide per group. This is the work; the rest is bookkeeping.**
+`fix/sync-aborts-on-frontmatter-skills` is pushed and **has no PR**. Its 5 commits (the
+`sync_skills.sh` fix and the original checkpoint) are not in `develop` yet. PR creation was
+blocked by the permission classifier in a non-interactive session, so it must be opened by hand:
 
-| group | skills | board tools used | Jira equivalent |
+```bash
+gh pr create --base develop --head fix/sync-aborts-on-frontmatter-skills --fill-verbose
+```
+
+`feature/retire-local-board-for-jira` was branched from that branch's tip, so once the PR merges
+its base becomes an ancestor of `develop` and the two stop being stacked. **Open the feature PR
+against `develop`, and only after the fix PR has merged.**
+
+The remote also still points at the pre-rename URL. GitHub redirects, so pushes work, but:
+
+```bash
+git remote set-url origin https://github.com/sornbuen15/drunken-ai-team.git
+```
+
+---
+
+## 1. The decision that was blocking everything — made
+
+**There is no local board any more. Jira is the only coordination surface, and
+`drunken-team` is the authority.** Skills and agents here follow its rules.
+
+Two clarifications that came out of making the decision, both worth keeping:
+
+**"Follow drunken-team" means follow its rules, not copy its files.** Its
+`.agents/skills/principal-engineer/SKILL.md` still shells out to `jira_bridge.py`, which its own
+`CLAUDE.md` says is not the supported path, and its flow runs In Progress → Done, skipping the
+IN REVIEW its `CLAUDE.md` says in bold to never skip. Copying that file would import the
+contradiction. The authority is `CLAUDE.md` plus `.agents/skills/jira-tickets/SKILL.md`.
+
+**This repo itself has no Jira and needs none.** Work here is tracked in this file and in git.
+`CLAUDE.md` now says so, so nobody creates a project to track it.
+
+### Three limits of the real Jira that changed what the skills may write
+
+Found in `jira-tickets/SKILL.md`, and each one broke a literal translation:
+
+- **`priority` cannot be set on a team-managed project.** Every issue reads `Medium`. The
+  CRITICAL/HIGH/MEDIUM/LOW field became **labels** everywhere.
+- **No story points exist.** `task-estimation` may not write estimates anywhere on a ticket.
+- **`jira_move_to_backlog` / `jira_move_to_board` change membership, not status.** On the board,
+  moving a lane *was* the transition. In Jira it is a separate axis, so
+  `backlog-refinement` is now forbidden to call `jira_transition_issue` at all.
+
+---
+
+## 2. Phase 3 — retire the four orchestration skills (next up)
+
+Decided: **orchestration is cancelled, and no claim primitive is needed.** Jira's `jira_assign`
+says whose work a ticket is; that is enough.
+
+Move to `_not_used/`, with a note saying what replaced them. **Do not delete** — an agent does
+not delete, and marking a thing unused beats removing it.
+
+- `skills/kanban/agentic-kanban`
+- `skills/kanban/kanban-io` — called itself "the required gatekeeper for all board operations"
+- `skills/kanban/next-task`
+- `skills/workflow/squad-workflow`
+
+Check `sync_skills.sh` discovery before moving: if it globs `skills/*/*/SKILL.md`, moving them
+out of `skills/` is enough. They are currently installed in `~/.claude/skills/`, so the next sync
+will report four orphans. That is correct behaviour — reported, never deleted.
+
+---
+
+## 3. Phase 4 — `principal-engineer` is the only agent that needs merging
+
+12 of the 13 agents here differ from their drunken-team twin **only** in `model:` and the
+`Skill index:` path (`~/.claude/…` vs `~/.gemini/config/…`). That is a platform variant, not
+drift. Nothing to do for those 12.
+
+`principal-engineer` is the exception, and **our version is the better one** — 267 lines against
+78. It is also the only agent contaminated with `board_*`.
+
+| block | ours | drunken | action |
 |---|---|---|---|
-| **create** | `issue-intake`, `spec-to-backlog`, `audit-to-backlog`, `project-audit-reviewer` | `board_create_task`, `board_get_task` | `jira_create_issue` — direct swap |
-| **read** | `local-progress-reporter`, `test-report-generator` | `board_list_lane`, `board_summary` | `jira_search_issues` — direct swap |
-| **read + move** | `backlog-refinement` | the above plus `board_move_task` | `jira_transition_issue`, `jira_move_to_backlog` |
-| **claim / orchestrate** | `agentic-kanban`, `kanban-io`, `next-task`, `squad-workflow` | `board_claim_task`, `board_agent_context`, `board_orchestrate`, `board_release_claim` | **no equivalent** — see below |
-| **wording only** | `git-workflow` | none; mentions the board in prose | edit the sentence |
+| `<role>`, `<thinking_model>`, `<product_management>`, `<technical_direction>`, `<leadership_communication>` | richer | thin or absent | keep ours |
+| `<core_principles>` | **absent** | 8 lines — RICE, MoSCoW, Build-vs-Buy, RED metrics | **pull in** |
+| `<squad_delegation>` | `board_agent_context` | thin | rewrite on Jira |
+| `<orchestration_protocol>` | `board_*` | `jira_bridge.py`, skips IN REVIEW | **rewrite — both sides are wrong** |
+| `<task_creation>` | `kanban-io` | thin | → `jira_create_issue` |
 
-The last group is the real decision. Jira has `jira_assign` for "this one is mine", but no
-orchestration primitive and **no claim expiry** — DT-250 recorded that trade deliberately:
-the board released a claim after 1800s, a Jira assignee never expires, and a ticket left
-assigned to a dead agent stays that way until a human looks.
-
-Three ways out. Pick one:
-
-1. **Rewrite onto Jira.** Claim becomes `jira_assign`; orchestration becomes explicit
-   steps. Loses claim expiry.
-2. **Mark the four unused.** Move the other eight to Jira. Smallest change, loses the squad
-   workflow.
-3. **Keep kanban for projects without Jira.** Then it must be declared in an `.mcp.json`,
-   and each skill must say which surface it needs. Two surfaces on purpose, documented.
-
-Do not leave it as it is. Two surfaces by accident is the failure DT-248, DT-249 and DT-250
-each cost a session.
+Phase 3 cancels orchestration, so `<squad_delegation>` and `<orchestration_protocol>` should
+collapse to explicit sequential steps with `jira_assign` and `jira_start_task` — not a
+re-implementation of `board_orchestrate` against Jira.
 
 ---
 
-## 2. Agents have no index
+## 4. Phase 5 — what to pull from drunken-team (independent, can be done first)
 
-`~/.claude/agents/` holds 14 agents and no `INDEX.md`. `scripts/install/sync_agents.sh`
-does not build one, unlike `sync_skills.sh`.
+Its `.agents/skills/` holds 25 directories; 13 are this repo's agents. The flow is
+**drunken-team → here for six items only**, not a wholesale merge.
 
-Not a functional gap — Claude Code discovers agents from their frontmatter. It is a gap for
-§3: there is no catalog to paste into a project's `CLAUDE.md`.
+**Take, as pointers not copies:**
+- `jira-tickets` (182 lines) — already linked from `CLAUDE.md`. Keep linking; do not vendor it.
+- `ask-boss` (92) — the approval protocol.
 
-**Do:** make `sync_agents.sh` emit `INDEX.md` the way `sync_skills.sh` does.
+**Take as real additions:**
+- `zero-defect-mindset` (36) — shift-left
+- `khit-wikhro-yaekyae` (40) — investigate before executing, in E2E
+- `laravel-developer` (50) — **this closes the orphan**. It is installed in `~/.claude/agents/`
+  with no source here; the source is drunken-team's. The old checkpoint asked the wrong question.
+- `electron-ipc-protocol` (40)
 
----
+**Decide, may be duplicates of what we already have** — six role stubs of 15–17 lines:
+`mobile-developer` (vs `cross-platform-mobile` + `native-*`), `insurtech-specialist` (vs
+`insurance-specialist`), `product-manager` (vs `principal-engineer`'s PM hat), plus
+`aitech-specialist`, `desktop-frontend-dev`, `game-developer`.
 
-## 3. CLAUDE.md is stale, and has to serve two jobs
-
-It should answer in one place: **what skills, agents, plugins and MCP servers exist, where
-each comes from, and how a project declares them** — covering `~/Projects/drunken-team`'s
-capabilities, not only the ones authored here.
-
-And it is also the **template other projects start from**. That is the harder half.
-
-Blocked on §1 — writing the catalog first would only record the contradiction.
-
-**Do, after §1:**
-
-- Rewrite around the four layers and their sources: skills and agents from here via
-  `sync_*.sh`; MCP servers (`drunken-jira-mcp`, `drunken-discord-mcp`) from
-  `~/Projects/drunken-team`, declared per project in `.mcp.json`.
-- Produce the project-facing block by generating it, not typing it.
-- State which surface each skill group needs, per §1's decision.
-
-### What to think about before writing it
-
-**This repo does not use what the template teaches.** There is no `.mcp.json` here, no Jira
-and no Discord — today's `CLAUDE.md` is 113 lines about authoring skills and nothing else.
-A template embedded in a project that never exercises it cannot be verified by use, and
-will rot exactly the way §4's docs did. Split it: `CLAUDE.md` stays the live file for
-working *here*, `templates/CLAUDE.md` is the thing projects copy.
-
-**Decide what transfers.** Not all of `drunken-team/CLAUDE.md` is general. The three-part
-layout (DT-250), config precedence (DT-254), never-skip-IN-REVIEW, secrets-by-reference and
-the approval protocol are universal. `drunken-usage`, away-mode's specifics and the S1–S12
-findings are that project's own history. A template that copies everything carries noise
-nobody will prune.
-
-**Point, do not inline.** Three projects holding three copies of the same rules is the
-failure this whole session has been about — one board beside Jira, one credential in three
-files, one skill in five places. `drunken-team/CLAUDE.md` already does it right: it links
-`.agents/skills/jira-tickets/SKILL.md` instead of restating the rules. The template should
-carry pointers and the *project-specific* facts only.
-
-**Two instruction files per project.** Claude reads `CLAUDE.md`, Antigravity reads
-`AGENTS.md`. Both must point at the same skill files or the per-agent drift returns —
-`drunken-team` hit exactly that, with `AGENTS.md` still naming board tools DT-250 retired.
-
-**Version skew is real.** A template that documents `jira_create_issue` with `parent` and
-`labels` is wrong against a deployment installed before DT-255. Include the verification
-step, not just the declaration: `drunken-doctor` reports `deployment.tool_env` and
-`deployment.mcp_pin`, and merging is not deploying.
-
-**Secrets.** A template is exactly where someone pastes a real token. Show references with
-a scheme (`file://…#jira.default`, `env://…`) and never a literal, and say that
-`drunken-init` writes the registry entry.
-
-**Layers are optional.** A project with no Jira or no Discord must be able to use the
-skills and agents alone. Say which parts stand on their own.
+**Also in this phase:**
+- **`model:` ids are stale on every agent** — 4 at `claude-opus-4-8`, 9 at `claude-sonnet-4-6`.
+  Current is the Claude 5 family (`claude-opus-5`, `claude-sonnet-5`).
+- `sync_agents.sh` still emits no `INDEX.md`, unlike `sync_skills.sh`. `CLAUDE.md` now points at
+  `agents/INDEX.md`, so this is a live dangling reference until it is built.
 
 ---
 
-## 4. The docs teach the broken flow
+## 5. Phase 6 — code and docs, last
 
-Every worked example and the install walkthrough are built on the board from §1. They will
-mislead anyone following them until §1 is decided, and they are wrong on plain facts today.
+**Retire, do not delete.** To `_not_used/` with a note:
+- `scripts/mcp/kanban-server.js` and `scripts/kanban/`
+- `templates/mcp-settings.json` — it configures the board server
+- `scripts/ask_boss.py` and `scripts/discord_listener.py` (untracked, 519 lines) — they duplicate
+  `drunken-discord-mcp`, and **hardcode Discord channel id `1518206617336811573`**, which breaks
+  both config precedence (DT-254) and secrets-by-reference. Do not commit them as they are.
 
-**Counts are wrong now.** The docs quote 12, 30 and 34 skills in different places; the repo
-has 30. They say 14 agents; the repo has 13 — `laravel-developer` is installed in
-`~/.claude/agents/` but has no source here. Either bring it in or drop the claim.
+**The 182-line Jira write-through is preserved on branch `wip/kanban-server-jira-sync`**, commit
+`fc1a93c`, not merged. It made the board primary and Jira its mirror — the wrong direction. Its
+message records the two defects it carries so nobody revives it unexamined.
 
-**The examples are the board walkthrough.** `01-spec-to-backlog`, `02-backlog-refinement`,
-`04-next-task` and `05-agentic-kanban` each ship a `board/` fixture as their expected
-output. Four of the five are in §1's board-dependent set. Rewrite them against whatever §1
-decides, or mark them unused — do not leave a walkthrough that cannot be followed.
-
-**The install instructions are incomplete and partly wrong.**
-
-- `GETTING_STARTED.md` still documents a manual fallback that copies `skills/kanban/*` by
-  hand. It predates the flattening `sync_*.sh` does and produces the nested layout that
-  left eight stale directories behind.
-- Nothing mentions `skills/.external`, so the next person will "fix" the four third-party
-  skills by authoring copies here.
-- Nothing says the MCP servers come from `~/Projects/drunken-team` and are declared per
-  project in `.mcp.json`. A reader installing skills alone gets tools that call servers
-  they were never told to set up.
-- No step verifies the install. `sync_skills.sh` exited 1 for two months while looking
-  successful; the walkthrough should end with a check that names the number installed.
-
-**Do:** fix the counts now, since they are wrong regardless of §1. Everything else waits on
-§1 and lands with §3, so the catalog and the walkthrough tell the same story.
+**Docs:**
+- `examples/01-spec-to-backlog`, `02-backlog-refinement`, `04-next-task`, `05-agentic-kanban`
+  each ship a `board/` fixture as expected output. Rewrite the first two against Jira; `04` and
+  `05` cover skills that Phase 3 retires, so they go with them.
+- `GETTING_STARTED.md` still documents the manual fallback that copies `skills/kanban/*` by hand,
+  predating the flattening `sync_*.sh` does. Nothing mentions `skills/.external`. Nothing says
+  the MCP servers come from `~/Projects/drunken-team` and are declared per project in `.mcp.json`.
+  No step verifies the install by naming the number installed.
+- **Counts are already correct** — `README.md:7` reads 30 skills and 5+8=13 agents, and both
+  match. The old checkpoint's claim that 12/34/14 were quoted around the docs no longer holds.
+- Split `CLAUDE.md` per the original §3: it stays the live file for working *here*, and
+  `templates/CLAUDE.md` becomes the thing other projects copy. A template embedded in a project
+  that never exercises it cannot be verified by use.
 
 ---
 
-## 5. Fixed on 2026-08-21, for context
-
-`sync_skills.sh` had been exiting 1 on its second skill since skills gained frontmatter:
-`set -euo pipefail` plus an unmatched `grep` for the removed `Trigger/Keywords:` line. It
-printed a green "Updated" for the first skill on its way out, so 29 of 30 installed skills
-sat at v1.1.0 without frontmatter for two months while this repo held v1.2.0 with it.
-
-Now: `|| true` on every optional extraction, `INDEX.md` built from the frontmatter
-`description:`, duplicate basenames refused, orphans and leftover group directories
-reported but never deleted.
+## 6. Still true, for context
 
 `skills/.external` records the skills that are third-party and have no source here —
-`debug-mantra`, `management-talk`, `post-mortem`, `scrutinize`. Do not author or overwrite
-these.
+`debug-mantra`, `management-talk`, `post-mortem`, `scrutinize`. Do not author or overwrite these.
 
-The eight leftover group directories under `~/.claude/skills/` — `architecture`, `backend`,
-`frontend`, `infrastructure`, `leadership`, `product`, `security`, `workflow` — were removed
-by the Boss the same day. `~/.claude/skills/` now holds 34 skills and no leftovers, and a
-clean sync run reports none. `sync_skills.sh` will name them again if any reappear.
+`sync_skills.sh` was fixed on 2026-08-21: it had been exiting 1 on its second skill since skills
+gained frontmatter (`set -euo pipefail` plus an unmatched `grep` for the removed
+`Trigger/Keywords:` line), printing a green "Updated" for the first skill on its way out. 29 of 30
+installed skills sat at v1.1.0 without frontmatter for two months. That fix is in the unmerged
+PR above.
+
+The eight leftover group directories under `~/.claude/skills/` were removed by the Boss the same
+day. `~/.claude/skills/` holds 34 skills and no leftovers.
