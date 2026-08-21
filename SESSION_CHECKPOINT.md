@@ -83,7 +83,39 @@ Blocked on §1 — writing the catalog first would only record the contradiction
 
 ---
 
-## 4. Fixed on 2026-08-21, for context
+## 4. The docs teach the broken flow
+
+Every worked example and the install walkthrough are built on the board from §1. They will
+mislead anyone following them until §1 is decided, and they are wrong on plain facts today.
+
+**Counts are wrong now.** The docs quote 12, 30 and 34 skills in different places; the repo
+has 30. They say 14 agents; the repo has 13 — `laravel-developer` is installed in
+`~/.claude/agents/` but has no source here. Either bring it in or drop the claim.
+
+**The examples are the board walkthrough.** `01-spec-to-backlog`, `02-backlog-refinement`,
+`04-next-task` and `05-agentic-kanban` each ship a `board/` fixture as their expected
+output. Four of the five are in §1's board-dependent set. Rewrite them against whatever §1
+decides, or mark them unused — do not leave a walkthrough that cannot be followed.
+
+**The install instructions are incomplete and partly wrong.**
+
+- `GETTING_STARTED.md` still documents a manual fallback that copies `skills/kanban/*` by
+  hand. It predates the flattening `sync_*.sh` does and produces the nested layout that
+  left eight stale directories behind.
+- Nothing mentions `skills/.external`, so the next person will "fix" the four third-party
+  skills by authoring copies here.
+- Nothing says the MCP servers come from `~/Projects/drunken-team` and are declared per
+  project in `.mcp.json`. A reader installing skills alone gets tools that call servers
+  they were never told to set up.
+- No step verifies the install. `sync_skills.sh` exited 1 for two months while looking
+  successful; the walkthrough should end with a check that names the number installed.
+
+**Do:** fix the counts now, since they are wrong regardless of §1. Everything else waits on
+§1 and lands with §3, so the catalog and the walkthrough tell the same story.
+
+---
+
+## 5. Fixed on 2026-08-21, for context
 
 `sync_skills.sh` had been exiting 1 on its second skill since skills gained frontmatter:
 `set -euo pipefail` plus an unmatched `grep` for the removed `Trigger/Keywords:` line. It
