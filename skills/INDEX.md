@@ -2,93 +2,93 @@
 
 Map task keywords to their absolute skill file paths. Load ONLY the relevant skill before executing.
 
-- `system-design-rules` (`/system-design`) — System architecture design standard covering Trade-off analysis, API Contract de
+- `system-design-rules` (`/system-design`) — System architecture design standard — trade-off analysis, API contracts, and diagrams before any code. Apply whenever the user is designing a new system, choo
   Path: $HOME/.claude/skills/system-design-rules/SKILL.md
 
-- `clean-architecture` (`/clean-arch`) — The highest standards of system design emphasize layer separation, dependency ru
+- `clean-architecture` (`/clean-arch`) — Enforces Clean Architecture and DDD — layer separation, dependency rules, rich domain models, and boundary management. Apply whenever the user is designing or
   Path: $HOME/.claude/skills/clean-architecture/SKILL.md
 
-- `standard-playbook-generator` (`/playbook`) — Generate an anonymized Engineering Playbook, or a Developer Workflow Guide (Agen
+- `standard-playbook-generator` (`/playbook`) — Generates anonymized Engineering Playbooks and Developer Workflow Guides by cross-referencing actual skill files. Apply whenever the user wants to document engi
   Path: $HOME/.claude/skills/standard-playbook-generator/SKILL.md
 
-- `universal-ui` (`/ui`) — Visual Aesthetics standard for Frontend to prevent "Developer UI" style designs,
+- `universal-ui` (`/ui`) — Visual aesthetics standard to prevent "Developer UI" anti-patterns in frontend work. Apply whenever the user is building or reviewing any UI — forms, layouts,
   Path: $HOME/.claude/skills/universal-ui/SKILL.md
 
-- `universal-ux` (`/ux`) — Frontend architecture standard focused on separating State from UI, resilience a
+- `universal-ux` (`/ux`) — Frontend architecture standard — State/View separation, resilience against user behavior, and complete UX lifecycle. Apply whenever the user is building front
   Path: $HOME/.claude/skills/universal-ux/SKILL.md
 
-- `cloud-native` (`/infra`) — Cloud-Native infrastructure standard focused on resilience, Scalability, and aut
+- `cloud-native` (`/infra`) — Cloud-native infrastructure standard for resilience, scalability, and automation. Apply whenever the user is writing Dockerfiles, Kubernetes manifests, CI/CD pi
   Path: $HOME/.claude/skills/cloud-native/SKILL.md
 
-- `agentic-kanban` (`/task`) — Orchestrates the team workflow when a bug is found or a new feature is needed — 
+- `agentic-kanban` (`/task`) — Orchestrates team workflow — triage, assignment, task promotion, and execution routing — via kanban-io MCP tools. Apply this skill whenever the user reports
   Path: $HOME/.claude/skills/agentic-kanban/SKILL.md
 
-- `audit-to-backlog` (`/audit`) — Analyzes failures or project audits, generates a permanent Markdown report, and 
+- `audit-to-backlog` (`/audit`) — Analyzes failures or audits, writes a permanent post-mortem report, and converts every action item into a Kanban backlog task via MCP tools. Apply whenever the 
   Path: $HOME/.claude/skills/audit-to-backlog/SKILL.md
 
-- `backlog-refinement` (`/refine`) — Scans tasks from backlog/ to promote to todo/ based on Priority levels, with a m
+- `backlog-refinement` (`/refine`) — Promotes backlog tasks to todo/ by priority tier, always selecting CRITICAL tasks first. Apply whenever the user wants to plan a sprint, choose what to work on 
   Path: $HOME/.claude/skills/backlog-refinement/SKILL.md
 
-- `issue-intake` (`/issue`) — Captures user-reported issues, bugs, and problems from conversation and creates 
+- `issue-intake` (`/issue`) — Captures user-reported bugs and problems as properly classified backlog tasks via kanban-io MCP tools. Apply whenever the user reports a bug, says something is 
   Path: $HOME/.claude/skills/issue-intake/SKILL.md
 
-- `kanban-io` (`/kanban-io`) — The single, authoritative interface for all reads and writes to the local Kanban
+- `kanban-io` (`/kanban-io`) — The single authoritative interface for all Kanban board reads and writes via MCP tools. Apply whenever any skill or agent needs to read, create, move, or claim 
   Path: $HOME/.claude/skills/kanban-io/SKILL.md
 
-- `local-progress-reporter` (`/report`) — Aggregates data from the entire Kanban board (backlog, todo, in-progress, done) 
+- `local-progress-reporter` (`/report`) — Aggregates Kanban board data into a structured project status report. Apply whenever the user asks about progress, wants a status update, asks what's done or in
   Path: $HOME/.claude/skills/local-progress-reporter/SKILL.md
 
-- `next-task` (`/next`) — Pulls the highest-priority task from todo/ into in-progress/ using atomic claim 
+- `next-task` (`/next`) — Picks the highest-priority task from todo/, claims it atomically, and enters Plan Mode before writing any code. Apply whenever the user wants to start working, 
   Path: $HOME/.claude/skills/next-task/SKILL.md
 
-- `spec-to-backlog` (`/init-project`) — Analyzes project specification files on Day 0 and generates a comprehensive, pri
+- `spec-to-backlog` (`/init-project`) — Analyzes project spec files on Day 0 and generates a comprehensive, prioritized backlog of atomic tasks via kanban-io MCP tools. Apply whenever starting a new p
   Path: $HOME/.claude/skills/spec-to-backlog/SKILL.md
 
-- `task-estimation` (`/estimate`) — Scans tasks in todo/ to assess complexity, predict the number of execution cycle
+- `task-estimation` (`/estimate`) — Estimates complexity, AI execution cycles, and human review effort for tasks in todo/. Apply whenever the user asks how long something will take, wants to know 
   Path: $HOME/.claude/skills/task-estimation/SKILL.md
 
-- `incident-response` (`/incident`) — Standard for crisis leadership, handling system outages (Mitigation), managing c
+- `incident-response` (`/incident`) — Crisis leadership standard for outage mitigation, stakeholder communication, and blameless RCA. Apply whenever there's a production incident, system outage, cri
   Path: $HOME/.claude/skills/incident-response/SKILL.md
 
-- `servant-leadership` (`/lead`) — Standard for communication, constructive Code Reviews, and a Blameless Culture.
+- `servant-leadership` (`/lead`) — Standard for empathetic communication, constructive code reviews, and blameless engineering culture. Apply whenever the user is writing feedback for a teammate,
   Path: $HOME/.claude/skills/servant-leadership/SKILL.md
 
-- `business-telemetry` (`/telemetry`) — Standard for embedding Structured Data Tracking systems and measuring user behav
+- `business-telemetry` (`/telemetry`) — Standard for structured event tracking and full-funnel analytics. Apply whenever the user is implementing analytics, tracking user behavior, designing event sch
   Path: $HOME/.claude/skills/business-telemetry/SKILL.md
 
-- `product-midset` (`/product`) — Standard for business-oriented thinking, Cloud cost control (FinOps), and data m
+- `product-midset` (`/product`) — Standard for product thinking, FinOps, and data-driven feature decisions. Apply whenever the user is deciding whether to build something, thinking about cloud c
   Path: $HOME/.claude/skills/product-midset/SKILL.md
 
-- `secure-by-design` (`/secure`) — Structural security standard covering defense from the Network and Data Leakage 
+- `secure-by-design` (`/secure`) — Zero Trust security standard from network to application layer. Apply whenever the user is implementing authentication, authorization, handling user input, stor
   Path: $HOME/.claude/skills/secure-by-design/SKILL.md
 
-- `test-architecture` (`/test-arch`) — Standards for architectural testing approaches (BDD, ATDD, Contract, Mutation, P
+- `test-architecture` (`/test-arch`) — Standards for architectural testing approaches (BDD, ATDD, Contract, Mutation, Property-Based) and CI/CD execution strategies. Apply whenever the user is design
   Path: $HOME/.claude/skills/test-architecture/SKILL.md
 
-- `test-strategy` (`/test-types`) — Comprehensive reference for the 4 Core Testing Levels, Functional Testing Types,
+- `test-strategy` (`/test-types`) — Comprehensive reference for all test types across 4 testing levels. Apply whenever the user needs to choose the right kind of test for a scenario, understand te
   Path: $HOME/.claude/skills/test-strategy/SKILL.md
 
-- `ai-output` (`/discipline`) — Ironclad rules for controlling AI Agent behavior, reducing wasteful Token usage,
+- `ai-output` (`/discipline`) — Ironclad discipline rules for AI output quality — no fluff, complete code, safe execution. Apply whenever the user wants tighter AI responses, fewer filler wo
   Path: $HOME/.claude/skills/ai-output/SKILL.md
 
-- `anti-regression` (`/surgical`) — The highest standard for code modification (Refactoring/Bug-Fixing) to prevent e
+- `anti-regression` (`/surgical`) — Surgical modification standard to prevent regressions during refactoring or bug-fixing. Apply whenever the user is modifying existing code, especially shared fi
   Path: $HOME/.claude/skills/anti-regression/SKILL.md
 
-- `core-engineering` (`/tdd`) — Software engineering standard covering TDD-based testing, step-by-step Refactori
+- `core-engineering` — Engineering discipline for TDD, systematic debugging, and safe refactoring. Apply this skill whenever the user is fixing a bug, writing or updating tests, debug
   Path: $HOME/.claude/skills/core-engineering/SKILL.md
 
-- `git-workflow` (`/git-workflow`) — Enforces best-practice Git usage — branch naming, commit conventions, PR lifecyc
+- `git-workflow` (`/git-workflow`) — Best-practice Git discipline — branch naming, commit conventions, PR lifecycle, merge rules, and release hygiene. Apply whenever the user is creating a branch
   Path: $HOME/.claude/skills/git-workflow/SKILL.md
 
-- `project-audit-reviewer` (`/audit-project`) — Performs a comprehensive codebase health audit covering architecture compliance,
+- `project-audit-reviewer` (`/audit-project`) — Comprehensive codebase health audit — architecture compliance, security, code quality, dependencies, and docs — with a scored report and dry-run backlog pro
   Path: $HOME/.claude/skills/project-audit-reviewer/SKILL.md
 
-- `project-hygiene` (`/git`) — Standard for Repository maintenance, Git Workflow management, and documentation 
+- `project-hygiene` (`/git`) — Repository maintenance standard — Git workflow, squash merging, README, and Architecture Decision Records. Apply whenever the user is committing changes, mana
   Path: $HOME/.claude/skills/project-hygiene/SKILL.md
 
-- `squad-workflow` (`/squad-workflow`) — Defines the end-to-end coordination protocol for the AI squad — who acts at each
+- `squad-workflow` (`/squad-workflow`) — End-to-end coordination protocol for the AI squad — phases, gates, and parallel vs sequential execution. Apply whenever multiple agents are working, the user 
   Path: $HOME/.claude/skills/squad-workflow/SKILL.md
 
-- `test-report-generator` (`/test-report`) — Runs the full test suite, audits project board state, checks architecture compli
+- `test-report-generator` (`/test-report`) — Runs the full test suite live, audits board state, checks architecture compliance, and writes a dated Markdown test report as the pre-merge quality gate record.
   Path: $HOME/.claude/skills/test-report-generator/SKILL.md
 
