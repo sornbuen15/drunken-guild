@@ -297,7 +297,16 @@ def _check_paths(report: Report) -> None:
 #: container or another machine puts it elsewhere, and a test must be able to
 #: point it at a fixture.
 ENV_TOOL_ROOT: Final = "DRUNKEN_TOOL_ENV"
-DEFAULT_TOOL_ROOT: Final = "~/.local/share/uv/tools/drunken-team"
+DEFAULT_TOOL_ROOT: Final = "~/.local/share/uv/tools/drunken-guild"
+
+#: Where the *previous* package name installed to. `uv tool` names the
+#: directory after the distribution, so DG-264's rename moved it — and a
+#: constant pointing at the old path made this check answer about a deployment
+#: that is not the one a host launches. Reported by name rather than followed:
+#: an installation under the old name is a real thing to know about, and the
+#: honest report is "you are running a pre-rename install", not silence and not
+#: a green line about the wrong directory.
+LEGACY_TOOL_ROOTS: Final = ("~/.local/share/uv/tools/drunken-team",)
 
 #: Modules whose absence from the deployment has actually mattered. Not every
 #: module — a list that tries to be exhaustive goes stale silently, and the
@@ -374,10 +383,134 @@ def compare_pin(deployed: Optional[str], locked: Optional[str]) -> tuple[Status,
     )
 
 
+#: Where the AI layer is installed to, and what shape it takes there.
+#:
+#: Only skills are compared, and only the ones this repository produces. The
+#: Antigravity *agents* are generated with a transformation — the model is
+#: rewritten to its tier equivalent and the skill-index path is repointed — so
+#: they are correctly not byte-identical to their source and comparing them
+#: would report drift on every healthy install.
+AI_LAYER_ROOTS: Final = (
+    ("claude.skills", "~/.claude/skills"),
+    ("antigravity.skills", "~/.gemini/config/skills"),
+)
+
+
+def source_tree_root() -> Optional[Path]:
+    """The checkout this code was loaded from, or ``None`` once installed.
+
+    Located relative to ``__file__``, which :mod:`core.paths` bans for *state*
+    and rightly. This is not state: the question is literally "where is the
+    source I came from", and installed under `uv tool` it resolves inside the
+    virtualenv, finds no ``skills/`` and returns ``None`` — which is the honest
+    answer, because a deployment has no source tree to compare against.
+    """
+    root = Path(__file__).resolve().parent.parent.parent
+    return root if (root / "skills").is_dir() else None
+
+
+def repo_skills(root: Path) -> dict[str, Path]:
+    """Every skill this repository produces, by name."""
+    return {
+        skill.parent.name: skill.parent
+        for skill in sorted((root / "skills").glob("*/*/SKILL.md"))
+    }
+
+
+def compare_ai_layer(root: Path, install_root: Path) -> dict[str, list[str]]:
+    """Which of the repository's skills are absent or different at *install_root*.
+
+    Compared by reading ``SKILL.md`` rather than by mtime or by counting
+    directories. A count matched while `git-workflow` was installed at 120 lines
+    against 196 in the source, and both surfaces reported themselves healthy.
+    """
+    missing: list[str] = []
+    drifted: list[str] = []
+
+    for name, source in repo_skills(root).items():
+        installed = install_root / name / "SKILL.md"
+        if not installed.is_file():
+            missing.append(name)
+            continue
+        try:
+            if installed.read_bytes() != (source / "SKILL.md").read_bytes():
+                drifted.append(name)
+        except OSError:
+            drifted.append(name)
+
+    return {"missing": missing, "drifted": drifted}
+
+
+def _check_ai_layer(report: Report, root: Optional[Path] = None) -> None:
+    """Whether what is installed is what this repository says.
+
+    Nothing checked this before, and the gap was not theoretical. The
+    session-checkpoint stated that ``~/.claude/`` follows this repository; when
+    somebody finally looked, `git-workflow` was installed at 120 lines against
+    196, `project-hygiene` at 68 against 88, three skills were not installed at
+    all, and Antigravity's copy was two months old with 21 of 28 shared skills
+    drifted. Two agents were reading two different halves of the git rules and
+    neither matched the source.
+
+    An absent install root is a **skip**: a container, CI or a fresh clone
+    legitimately has none, and a check that cries wolf there is one everybody
+    learns to ignore. Drift is a **warn** rather than a failure because the
+    remedy is an install, which is the operator's to run, not this tool's.
+    """
+    root = root if root is not None else source_tree_root()
+    if root is None:
+        report.add(
+            "ai_layer.source",
+            "skip",
+            "Running from an installed package, so there is no source tree to "
+            "compare the installed skills against.",
+        )
+        return
+
+    total = len(repo_skills(root))
+    for name, raw in AI_LAYER_ROOTS:
+        install_root = Path(raw).expanduser()
+        if not install_root.is_dir():
+            report.add(f"ai_layer.{name}", "skip", f"Nothing installed at {raw}.")
+            continue
+
+        result = compare_ai_layer(root, install_root)
+        missing, drifted = result["missing"], result["drifted"]
+        if not missing and not drifted:
+            report.add(
+                f"ai_layer.{name}",
+                "ok",
+                f"all {total} skills match the source",
+            )
+            continue
+
+        parts = []
+        if drifted:
+            parts.append(
+                f"{len(drifted)} differ ({', '.join(sorted(drifted)[:4])}"
+                + (", …" if len(drifted) > 4 else "")
+                + ")"
+            )
+        if missing:
+            parts.append(
+                f"{len(missing)} not installed ({', '.join(sorted(missing)[:4])}"
+                + (", …" if len(missing) > 4 else "")
+                + ")"
+            )
+        report.add(
+            f"ai_layer.{name}",
+            "warn",
+            "; ".join(parts)
+            + ". Run scripts/install/install_skills.sh — an install is the "
+            "operator's to run.",
+        )
+
+
 def _check_deployment(
     report: Report,
     env_root: Optional[Path] = None,
     modules: Optional[Sequence[str]] = None,
+    legacy_roots: Optional[Sequence[str]] = None,
 ) -> None:
     """Report the gap between this checkout and the environment the host runs.
 
@@ -392,8 +525,27 @@ def _check_deployment(
     """
     env_root = env_root if env_root is not None else tool_env_root()
     modules = modules if modules is not None else DEPLOYED_MODULES
+    # Injectable for the same reason as `env_root`: otherwise this check reads
+    # the developer's own machine, and a test asserting "no install is a skip"
+    # passes or fails depending on whose laptop runs it.
+    legacy_roots = legacy_roots if legacy_roots is not None else LEGACY_TOOL_ROOTS
 
     if not env_root.is_dir():
+        stale = [
+            path
+            for path in (Path(raw).expanduser() for raw in legacy_roots)
+            if path.is_dir()
+        ]
+        if stale:
+            report.add(
+                "deployment.tool_env",
+                "warn",
+                f"Nothing installed at {env_root}, but {stale[0]} exists. That "
+                "is an install under the previous package name, so every "
+                "`drunken-*` command on PATH predates the rename. Reinstall "
+                "with `uv tool install .`.",
+            )
+            return
         report.add(
             "deployment.tool_env",
             "skip",
@@ -688,6 +840,7 @@ def run_doctor(
 
     _check_daemon(report)
     _check_deployment(report)
+    _check_ai_layer(report)
 
     if secrets.cached_refs():
         report.add(
