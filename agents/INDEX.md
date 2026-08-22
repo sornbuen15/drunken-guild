@@ -15,6 +15,9 @@ frontmatter instead.
 - `cross-platform-mobile` (`claude-sonnet-5`) — Use when a task requires building, reviewing, or advising on a cross-platform mobile application targeting both iOS and Android from a shared codebase. This agent specializes in Flutter (primary), Rea
   Path: $HOME/.claude/agents/cross-platform-mobile.md
 
+- `desktop-frontend-dev` (`claude-sonnet-5`) — Use when a task requires building, reviewing, or advising on a cross-platform desktop application built with web technologies — Electron, React, and Tailwind CSS. Handles the main/renderer process s
+  Path: $HOME/.claude/agents/desktop-frontend-dev.md
+
 - `devops-engineer` (`claude-sonnet-5`) — Use when a task involves infrastructure, CI/CD pipelines, containerization, container orchestration, networking, cloud resources, observability setup, deployment strategy, or environment configuration
   Path: $HOME/.claude/agents/devops-engineer.md
 
@@ -26,6 +29,9 @@ frontmatter instead.
 
 - `insurance-specialist` (`claude-sonnet-5`) — Use when a task involves insurance technology systems — policy administration, claims processing, underwriting, actuarial data models, or insurance compliance. Invoked for any work where domain accu
   Path: $HOME/.claude/agents/insurance-specialist.md
+
+- `laravel-developer` (`claude-sonnet-5`) — A specialized developer agent fluent in PHP 8.2+ and Laravel 11, focusing on building clean, testable, and type-safe backend services, repositories, and FilamentPHP v3 resources. Follows strict separa
+  Path: $HOME/.claude/agents/laravel-developer.md
 
 - `native-android` (`claude-sonnet-5`) — Use when a task requires building, reviewing, or advising on a native Android application. This agent specializes in Kotlin, Jetpack Compose, Android Jetpack libraries, Gradle, and Google Play deliver
   Path: $HOME/.claude/agents/native-android.md
