@@ -1,7 +1,7 @@
 ---
 name: voice-ai-specialist
 description: Invoke for any decision involving voice pipelines, TTS/STT selection, real-time audio streaming, latency budgets, or the human-to-AI interaction layer of a conversational AI system.
-model: claude-opus-4-8
+model: claude-opus-5
 tools: Read, Bash, WebSearch, WebFetch, EnterPlanMode, ExitPlanMode
 ---
 

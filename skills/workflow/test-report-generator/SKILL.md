@@ -1,7 +1,7 @@
 ---
 name: test-report-generator
 description: >
-  Runs the full test suite live, audits board state, checks architecture compliance, and writes
+  Runs the full test suite live, audits Jira ticket state, checks architecture compliance, and writes
   a dated Markdown test report as the pre-merge quality gate record. Apply whenever the user
   wants to run tests and get a report, check merge readiness, or needs a quality gate summary.
   Trigger on /test-report.
@@ -9,7 +9,7 @@ description: >
 
 # Skill: Test Report Generator
 **Version:** v1.4.0
-**Description:** Runs the full test suite live, audits board state, checks architecture compliance, and writes a dated Markdown test report as the pre-merge quality gate record.
+**Description:** Runs the full test suite live, audits Jira ticket state, checks architecture compliance, and writes a dated Markdown test report as the pre-merge quality gate record.
 
 ---
 
@@ -40,9 +40,12 @@ description: >
       before parsing. Delete it immediately after triage is complete. Never leave it on disk.
     </rule>
 
-    <rule priority="HIGH" name="Board State Audit">
-      Before writing the report, call board_summary() to get task counts. Include counts in the report.
-      Never use ls, find, or cat on .claude/board/ — always use MCP board_* tools.
+    <rule priority="HIGH" name="Ticket State Audit">
+      Before writing the report, call `jira_search_issues` to get ticket counts per status. Include
+      them in the report. Never use ls, find, or cat to discover work, and never read a local board.
+
+      Count `IN REVIEW` as in-flight, never as done — a ticket in review is not merged code.
+      Report backlog membership separately from status; it is not a fifth column.
     </rule>
 
     <rule priority="HIGH" name="Bug Triage">
@@ -59,7 +62,7 @@ description: >
   <action_sequence>
     1. LOAD POLICY: query_project_context POLICY.md. Do NOT read ARCHITECTURE.md or PROJECT_SPEC.md upfront.
     2. DETECT test runner: language, framework, test command.
-    3. AUDIT board: board_summary() → note task counts and any in-progress items.
+    3. AUDIT tickets: `jira_search_issues` → note counts per status and anything in flight.
     4. RUN tests: live execution with verbose output. If output >150 lines, write to temp_test_logs.md first.
     5. TRIAGE failures: root cause each FAILED test. Fix or escalate. Delete temp file after triage.
     6. RE-RUN if fixes were applied; confirm clean pass.
@@ -74,7 +77,7 @@ description: >
     Date | Auditor | Scope | **Verdict: PASS / FAIL — N/N tests passed.**
 
     ### Project State Summary
-    Phase | Board state (counts per lane) | branch | runtime version | test framework
+    Phase | Ticket counts per status | branch | runtime version | test framework
 
     ### Test Execution Summary
     Runner header | Result table: PASSED / FAILED / ERROR / SKIPPED counts
@@ -98,7 +101,9 @@ description: >
 
   <constraints>
     <constraint priority="FATAL">Never fabricate test output — every result must come from a live test run.</constraint>
-    <constraint priority="FATAL">Never read board state via shell (ls/cat/find) — always use the MCP board_* tools.</constraint>
+    <constraint priority="FATAL">Requires the `drunken-jira-mcp` server, declared in the project's `.mcp.json`. Without it, write the report from the live test run alone and say the ticket audit was skipped.</constraint>
+    <constraint priority="FATAL">Never read work state from the file system. `.claude/board/` and the `board_*` tools are retired.</constraint>
+    <constraint priority="FATAL">Never count `IN REVIEW` as done. Merging is not deploying, and a green suite on a branch is not a green suite on the merged tree.</constraint>
     <constraint priority="HIGH">Never leave `.claude/temp_test_logs.md` on disk — delete it immediately after triage.</constraint>
     <constraint priority="HIGH">Every failing test must be root-caused and classified (production bug / test-spec error / environment) before the report is written.</constraint>
     <constraint priority="HIGH">All output must be in English.</constraint>

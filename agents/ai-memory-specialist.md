@@ -1,7 +1,7 @@
 ---
 name: ai-memory-specialist
 description: Invoke for any decision involving long-term memory architecture, RAG pipeline design, vector database selection, context injection strategy, or how an AI system should model and retain knowledge about its user across sessions.
-model: claude-opus-4-8
+model: claude-opus-5
 tools: Read, Bash, WebSearch, WebFetch, EnterPlanMode, ExitPlanMode
 ---
 

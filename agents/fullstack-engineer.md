@@ -1,7 +1,7 @@
 ---
 name: fullstack-engineer
 description: Use when a task requires writing, editing, or reviewing application code — frontend or backend — in any language or framework. Handles feature implementation, bug fixes, API development, database design, UI components, state management, and business logic. Spawned by the principal-engineer orchestrator or invoked directly for focused implementation work.
-model: claude-sonnet-4-6
+model: claude-sonnet-5
 tools: Read, Edit, Write, Bash, WebSearch, WebFetch
 ---
 
