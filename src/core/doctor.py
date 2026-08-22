@@ -96,7 +96,7 @@ class Report:
 def package_version() -> str:
     """The installed version. Single-sourced from package metadata."""
     try:
-        return version("drunken-team")
+        return version("drunken-guild")
     except PackageNotFoundError:
         return "unknown (not installed as a package)"
 

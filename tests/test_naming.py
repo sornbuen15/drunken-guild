@@ -1,5 +1,5 @@
 # mypy: ignore-errors
-"""The product is drunken-team. Nothing we own should still say "agy".
+"""The product is drunken-guild. Nothing we own should still say "agy".
 
 The catch is that the same three letters mean two different things here, and
 only one of them is ours:

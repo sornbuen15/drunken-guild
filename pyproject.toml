@@ -3,19 +3,24 @@ requires = ["setuptools>=61.0.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "drunken-team"
+name = "drunken-guild"
 # Single source of truth for the version. Code reads it back via
 # importlib.metadata (see core.doctor.package_version) rather than keeping a
-# second copy — this field sat at 1.6.0 through the v1.7.0…v2.0.1 releases,
-# so every installed copy reported a version four releases stale and nobody
-# could tell whether they had a given fix.
+# second copy — this field sat at 1.6.0 through the v1.7.0…v2.0.1 releases of
+# the predecessor, so every installed copy reported a version four releases
+# stale and nobody could tell whether they had a given fix.
 #
-# It then happened again: 2.1.0 stood through v2.2.0 and v2.3.0 (DT-256). A
+# It then happened again: 2.1.0 stood through two more releases (DG-256). A
 # comment did not stop the second occurrence, so `drunken-doctor` now checks it
 # — `version.declared` fails when this is behind the newest tag. Bump it in the
 # release commit, or the check will say so.
-version = "2.3.0"
-description = "Drunken Team Inn gateway and dashboard utilities"
+#
+# 1.0.0 and not 2.4.0: this repo is the merge of two products that carried two
+# incompatible tag series reading as one line. Every tag was deleted on purpose
+# and the count starts here. Nothing is released yet — there is no tag at all
+# until `develop` reaches `main`.
+version = "1.0.0"
+description = "Skills, agents and MCP servers for directing AI coding agents"
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
