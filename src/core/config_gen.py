@@ -34,12 +34,15 @@ from typing import Any, Dict, List, Optional
 
 #: The servers a project gets wired to.
 #:
-#: ``drunken-board-mcp`` is deliberately absent. DT-250 retired the local board
-#: and DT-251 wrote down why: a board sitting next to Jira is a second surface
+#: ``drunken-board-mcp`` is deliberately absent. DG-250 retired the local board
+#: and DG-251 wrote down why: a board sitting next to Jira is a second surface
 #: that can disagree with the first, which is the failure this project spent a
-#: session curing. It still exists, marked unused rather than deleted, and it
-#: costs 2,162 tokens per request for a server nothing should call. Onboarding
-#: declared it into every project until DT-228; do not add it back.
+#: session curing. It cost 2,162 tokens per request for a server nothing should
+#: call, and onboarding declared it into every project until DG-228.
+#:
+#: DG-265 finished the job: it is no longer packaged at all, so there is no
+#: command to declare even by accident. The code is kept at
+#: ``_not_used/board-mcp/`` because an agent does not delete. Do not add it back.
 MCP_SERVERS = ("drunken-jira-mcp", "drunken-discord-mcp")
 
 
