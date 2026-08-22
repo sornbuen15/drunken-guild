@@ -11,6 +11,9 @@ Map task keywords to their absolute skill file paths. Load ONLY the relevant ski
 - `standard-playbook-generator` (`/playbook`) — Generates anonymized Engineering Playbooks and Developer Workflow Guides by cross-referencing actual skill files. Apply whenever the user wants to document engi
   Path: $HOME/.claude/skills/standard-playbook-generator/SKILL.md
 
+- `electron-ipc-protocol` — The single IPC contract for Electron applications — context isolation, the preload bridge, channel naming, and validating everything that crosses the process 
+  Path: $HOME/.claude/skills/electron-ipc-protocol/SKILL.md
+
 - `universal-ui` (`/ui`) — Visual aesthetics standard to prevent "Developer UI" anti-patterns in frontend work. Apply whenever the user is building or reviewing any UI — forms, layouts,
   Path: $HOME/.claude/skills/universal-ui/SKILL.md
 
@@ -65,7 +68,7 @@ Map task keywords to their absolute skill file paths. Load ONLY the relevant ski
 - `anti-regression` (`/surgical`) — Surgical modification standard to prevent regressions during refactoring or bug-fixing. Apply whenever the user is modifying existing code, especially shared fi
   Path: $HOME/.claude/skills/anti-regression/SKILL.md
 
-- `core-engineering` — Engineering discipline for TDD, systematic debugging, and safe refactoring. Apply this skill whenever the user is fixing a bug, writing or updating tests, debug
+- `core-engineering` (`/tdd`) — Engineering discipline for TDD, systematic debugging, and safe refactoring. Apply this skill whenever the user is fixing a bug, writing or updating tests, debug
   Path: $HOME/.claude/skills/core-engineering/SKILL.md
 
 - `git-workflow` (`/git-workflow`) — Best-practice Git discipline — branch naming, commit conventions, PR lifecycle, merge rules, and release hygiene. Apply whenever the user is creating a branch
@@ -77,6 +80,12 @@ Map task keywords to their absolute skill file paths. Load ONLY the relevant ski
 - `project-hygiene` (`/git`) — Repository maintenance standard — Git workflow, squash merging, README, and Architecture Decision Records. Apply whenever the user is committing changes, mana
   Path: $HOME/.claude/skills/project-hygiene/SKILL.md
 
-- `test-report-generator` (`/test-report`) — Runs the full test suite live, audits Jira ticket state, checks architecture compliance, and writes a dated Markdown test report as the pre-merge quality gate record.
+- `test-report-generator` (`/test-report`) — Runs the full test suite live, audits Jira ticket state, checks architecture compliance, and writes a dated Markdown test report as the pre-merge quality gate r
   Path: $HOME/.claude/skills/test-report-generator/SKILL.md
+
+- `think-analyze-isolate` (`/isolate`) — Discipline against blind execution during end-to-end runs, server startup, deployment, and integration work — check the prerequisites, verify the thing is act
+  Path: $HOME/.claude/skills/think-analyze-isolate/SKILL.md
+
+- `zero-defect-mindset` (`/zero-defect`) — The shift-left quality standard — get it right at design time rather than catching it at commit time. Apply at the START of any implementation task, before co
+  Path: $HOME/.claude/skills/zero-defect-mindset/SKILL.md
 
