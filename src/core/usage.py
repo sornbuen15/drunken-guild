@@ -1,9 +1,9 @@
 """What a run actually cost, read from what the host already wrote.
 
-DT-95. The ticket's complaint was that no claim about token efficiency in this
+DG-95. The ticket's complaint was that no claim about token efficiency in this
 project could be checked: *"needed before any claim of 'this saves tokens' can
 be substantiated with data rather than assumption."* The claim has been made
-more than once — ``minify_issues`` exists for it, DT-227 was cut for it, the
+more than once — ``minify_issues`` exists for it, DG-227 was cut for it, the
 board's retirement was argued partly on it — and nothing has ever produced a
 number.
 
@@ -20,8 +20,8 @@ a directory named after the working directory with every non-alphanumeric
 character replaced by a dash. That scheme belongs to another tool and is not a
 contract, so it is used only to *narrow* the search — a prefix match, so a
 worktree of the same project is found — and every record then has to prove
-itself by the ``cwd`` it carries. Without that check, ``drunken-team-old`` would
-be counted as ``drunken-team``: a confidently wrong number, which is worse than
+itself by the ``cwd`` it carries. Without that check, ``drunken-guild-old`` would
+be counted as ``drunken-guild``: a confidently wrong number, which is worse than
 no number.
 
 **An unknown model costs ``None``, never ``0.0``.** Zero reads as "this was
@@ -54,7 +54,7 @@ from typing import Any, Final, Iterable, Iterator, Optional
 #: Where the host keeps its transcripts. Overridable like everything in
 #: :mod:`core.paths`, and for the same reason — a container, a different host,
 #: or a test must be able to point this somewhere else. It is deliberately
-#: *not* in ``core.paths``: that module is about where drunken-team keeps its
+#: *not* in ``core.paths``: that module is about where drunken-guild keeps its
 #: own state, and this is another tool's data that we only read.
 ENV_TRANSCRIPT_ROOT: Final = "DRUNKEN_TRANSCRIPT_ROOT"
 DEFAULT_TRANSCRIPT_ROOT: Final = "~/.claude/projects"
@@ -92,8 +92,8 @@ def slug_for(project_path: str | os.PathLike[str]) -> str:
     """The transcript directory name the host derives from *project_path*.
 
     Every character that is not alphanumeric becomes a dash, the leading slash
-    included: ``/Users/operator/Projects/drunken-team`` is stored as
-    ``-Users-r-jakkawan-Projects-drunken-team``.
+    included: ``/Users/you/Projects/drunken-guild`` is stored as
+    ``-Users-you-Projects-drunken-guild``.
 
     Inferred from what is on disk rather than from any documented contract,
     which is why nothing downstream trusts it on its own.
@@ -479,7 +479,7 @@ def main(argv: list[str] | None = None) -> int:
         from core.context import ProjectContext
 
         try:
-            # root_path(), not git_root_path(): under DT-250's layout the
+            # root_path(), not git_root_path(): under DG-250's layout the
             # repository is a subdirectory of the registered project, and a
             # session run from the wrapper is still that project's cost.
             path = str(ProjectContext.build(args.project).root_path())

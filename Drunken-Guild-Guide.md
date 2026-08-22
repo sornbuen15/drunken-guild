@@ -1,14 +1,14 @@
-# Drunken Team: The Guild Guide
+# Drunken Guild: The Guild Guide
 
-This is the operating manual for Drunken-Team ("the Guild"). It covers the architecture, how to install and run it, and how to use the Jira workflow and the Discord bot day to day.
+This is the operating manual for Drunken-Guild ("the Guild"). It covers the architecture, how to install and run it, and how to use the Jira workflow and the Discord bot day to day.
 
 *(This document explains how the Guild's own automation works. For an individual project's feature specs or system design, see that project's own `PROJECT_SPEC.md`/`DESIGN.md`.)*
 
 ---
 
-## 1. What Drunken-Team Is
+## 1. What Drunken-Guild Is
 
-Drunken-Team is a small orchestration layer, not a framework you code against. It has three moving parts:
+Drunken-Guild is a small orchestration layer, not a framework you code against. It has three moving parts:
 
 - **Jira** is the single source of truth for tasks. There is no local task file or board -- every ticket's status lives in Jira, and every command below reads or writes it directly.
 - **A Discord bot** (a persistent background daemon) lets you monitor agent work and approve or reject actions from your phone, plus a set of commands for common Jira/PR operations without opening a terminal.
@@ -50,8 +50,8 @@ The detailed rules an AI agent must follow while working in this repo (when it c
 ### 3.2 Clone and install dependencies
 
 ```bash
-git clone https://github.com/sornbuen15/drunken-team.git
-cd drunken-team
+git clone https://github.com/sornbuen15/drunken-guild.git
+cd drunken-guild
 uv sync
 ```
 
@@ -64,23 +64,23 @@ There are two halves: the **secret itself**, which lives outside the repository,
 ```bash
 mkdir -p ~/.drunken && chmod 700 ~/.drunken
 cat > ~/.drunken/secrets.json <<'JSON'
-{ "jira": { "drunken-team": "your-jira-api-token" } }
+{ "jira": { "drunken-guild": "your-jira-api-token" } }
 JSON
 chmod 600 ~/.drunken/secrets.json
 ```
 
-One file can hold every project's credential — the reference's `#jira.drunken-team` fragment is a dotted path into it.
+One file can hold every project's credential — the reference's `#jira.drunken-guild` fragment is a dotted path into it.
 
 **2. The registry.**
 
 ```bash
 uv run drunken-init \
-  --project drunken-team \
+  --project drunken-guild \
   --path "$PWD" \
   --jira-url https://your-domain.atlassian.net \
   --jira-email you@example.com \
-  --jira-project-key DT \
-  --jira-credential 'file://~/.drunken/secrets.json#jira.drunken-team' \
+  --jira-project-key DG \
+  --jira-credential 'file://~/.drunken/secrets.json#jira.drunken-guild' \
   --discord-channel 123456789012345678
 ```
 
@@ -93,17 +93,17 @@ This writes one central registry under `$DRUNKEN_HOME` (default `~/.drunken`, mo
 **Migrating from an older release.** If you already have a working `.env`, this does both halves without ever printing the token:
 
 ```bash
-uv run python scripts/migrate_env_to_registry.py --project drunken-team --dry-run
-uv run python scripts/migrate_env_to_registry.py --project drunken-team
+uv run python scripts/migrate_env_to_registry.py --project drunken-guild --dry-run
+uv run python scripts/migrate_env_to_registry.py --project drunken-guild
 ```
 
 **3. Prove it resolves.** A separate, deliberate step, because Jira answers a search with `200` and `[]` when the credential is bad -- so searching cannot tell you whether it worked. `drunken-doctor` asks `/rest/api/3/myself`, which 401s:
 
 ```bash
-uv run drunken-doctor --project drunken-team
+uv run drunken-doctor --project drunken-guild
 ```
 
-`project.drunken-team.jira` should come back naming *you*. Until you start the daemon, a warning about a missing socket is expected.
+`project.drunken-guild.jira` should come back naming *you*. Until you start the daemon, a warning about a missing socket is expected.
 
 **The `.env` file is still needed** -- the Discord daemon reads its own bot token from there directly, and `scripts/jira_bridge.py` uses it for shell work:
 
@@ -169,9 +169,9 @@ Each prints a JSON list of `{key, summary, status, priority, description, assign
 ### 4.2 Change ticket state
 
 ```bash
-uv run python scripts/jira_bridge.py transition DT-42 "In Progress"
-uv run python scripts/jira_bridge.py comment DT-42 "Investigated -- root cause was X."
-uv run python scripts/jira_bridge.py label DT-42 round-2
+uv run python scripts/jira_bridge.py transition DG-42 "In Progress"
+uv run python scripts/jira_bridge.py comment DG-42 "Investigated -- root cause was X."
+uv run python scripts/jira_bridge.py label DG-42 round-2
 uv run python scripts/jira_bridge.py create "Fix flaky test" "Steps to reproduce..."
 ```
 
@@ -180,12 +180,12 @@ uv run python scripts/jira_bridge.py create "Fix flaky test" "Steps to reproduce
 ```
 1. uv run python scripts/jira_bridge.py get-todo
    -> pick the first result (already priority-sorted)
-2. uv run python scripts/jira_bridge.py transition DT-42 "In Progress"
-3. git checkout -b feature/DT-42-short-description
+2. uv run python scripts/jira_bridge.py transition DG-42 "In Progress"
+3. git checkout -b feature/DG-42-short-description
    ... write code, tests, commit ...
 4. Open a PR, then:
-   uv run python scripts/jira_bridge.py transition DT-42 "In Review"
-   uv run python scripts/jira_bridge.py comment DT-42 "PR: https://github.com/.../pull/60"
+   uv run python scripts/jira_bridge.py transition DG-42 "In Review"
+   uv run python scripts/jira_bridge.py comment DG-42 "PR: https://github.com/.../pull/60"
 5. Round-integration gate passes (scripts/qa_automation.py) -> ticket auto-transitions to Done.
 ```
 
@@ -222,9 +222,9 @@ Example:
 ```
 You:  /tasks
 Bot:  **To Do** (3)
-      `DT-90` [Medium] Reconcile Drunken-Team-Guide.md and README.md
-      `DT-95` [Medium] Add token/cost tracking for agent runs
-      `DT-104` [Medium] ...
+      `DG-90` [Medium] Reconcile Drunken-Guild-Guide.md and README.md
+      `DG-95` [Medium] Add token/cost tracking for agent runs
+      `DG-104` [Medium] ...
 ```
 
 ### 5.3 Workflow actions
@@ -234,25 +234,25 @@ Bot:  **To Do** (3)
 | `/project [name]` | `/project beta` | Show, or switch, which registered project the commands above (and `/next`/`/refine`) target. No argument shows the current one. |
 | `/next` | `/next` | If nothing is In Progress, pick the top of To Do and transition it there. Refuses if a ticket is already In Progress. |
 | `/refine` | `/refine` | Auto-promote any Critical-priority backlog ticket straight to To Do; report a priority breakdown of everything else (no auto-promotion for non-Critical). |
-| `/approve <ticket>` | `/approve DT-42` | Clear an escalated (timed-out) approval block on a ticket and re-dispatch the work with the original context, so it isn't stuck forever. |
+| `/approve <ticket>` | `/approve DG-42` | Clear an escalated (timed-out) approval block on a ticket and re-dispatch the work with the original context, so it isn't stuck forever. |
 | `/qa` | `/qa` | Run the round-integration QA gate in the background; replies to its own acknowledgement message when done. |
 
 Example:
 ```
 You:  /next
-Bot:  ▶️ DT-42 moved to In Progress.
+Bot:  ▶️ DG-42 moved to In Progress.
       Fix flaky test in test_discord_router.py
 
 You:  /refine
 Bot:  **Backlog refinement** (4 total)
-      🔺 Auto-promoted Critical -> To Do: DT-101
-      **Medium** (2): DT-95, DT-104
-      **Low** (1): DT-88
+      🔺 Auto-promoted Critical -> To Do: DG-101
+      **Medium** (2): DG-95, DG-104
+      **Low** (1): DG-88
 ```
 
 ### 5.4 Anything not starting with `/`
 
-Free-form natural-language task commanding is disabled. Any plain message gets one fixed reply pointing you at `/help`. This is a deliberate, tracked decision (Jira ticket DT-94), not an oversight -- it avoids the cost, latency, and prompt-injection surface of a free-text router while still covering the day-to-day Jira/PR operations above.
+Free-form natural-language task commanding is disabled. Any plain message gets one fixed reply pointing you at `/help`. This is a deliberate, tracked decision (Jira ticket DG-94), not an oversight -- it avoids the cost, latency, and prompt-injection surface of a free-text router while still covering the day-to-day Jira/PR operations above.
 
 ---
 
@@ -279,19 +279,19 @@ While an agent task is running, you can also react **❌** on its status message
 
 ## 7. Multi-Project Orchestration
 
-Drunken-Team can operate on more than one codebase. One central registry -- `projects.json` under `$DRUNKEN_HOME` (default `~/.drunken`) -- answers "which Jira, which repo, which Discord channel" for every project:
+Drunken-Guild can operate on more than one codebase. One central registry -- `projects.json` under `$DRUNKEN_HOME` (default `~/.drunken`) -- answers "which Jira, which repo, which Discord channel" for every project:
 
 ```json
 {
   "version": 2,
   "projects": {
-    "drunken-team": {
-      "path": "/Users/you/Projects/drunken-team",
+    "drunken-guild": {
+      "path": "/Users/you/Projects/drunken-guild",
       "description": "The Guild Headquarters",
       "jira": {
         "url": "https://your-domain.atlassian.net",
         "email": "you@example.com",
-        "project_key": "DT",
+        "project_key": "DG",
         "credential": "env://JIRA_API_TOKEN"
       },
       "discord": { "channel_id": "123456789012345678" }
@@ -313,7 +313,7 @@ Nothing in it is secret -- credentials appear only as references -- so it can be
 
 Add an entry with `drunken-init --project <id> ...` (Section 3.3) rather than by hand. A v1 registry -- the bare `{"name": {...}}` map written by earlier releases -- is upgraded in memory on read and never rewritten behind your back, so downgrading is just running the old code again.
 
-Once registered, `/project <name>` in Discord switches which project the Jira-lane commands and `/next`/`/refine` operate against -- each project can have its own Jira project key, so `/project beta` then `/tasks` lists BETA's own To Do lane, not drunken-team's.
+Once registered, `/project <name>` in Discord switches which project the Jira-lane commands and `/next`/`/refine` operate against -- each project can have its own Jira project key, so `/project beta` then `/tasks` lists BETA's own To Do lane, not drunken-guild's.
 
 ---
 

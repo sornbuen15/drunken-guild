@@ -1,5 +1,5 @@
-# Drunken-Team Cursor Rules
-# This file governs Cursor AI's behavior when interacting with the Drunken-Team repository.
+# Drunken-Guild Cursor Rules
+# This file governs Cursor AI's behavior when interacting with the Drunken-Guild repository.
 
 ## 1. Zero-Defect Pipeline & Code Quality
 - **Code Quality:** Adhere to SOLID principles, modular design, DRY, and high readability. Do not write spaghetti code.
@@ -12,7 +12,7 @@
 - **Use the Guild MCP:** Use Cursor's MCP feature to connect to the `drunken-jira-mcp` and `drunken-discord-mcp` servers (see `.mcp.json`), or run them yourself with `uv run python -m jira_mcp.server` / `uv run python -m discord_mcp.server`.
 - **Start of Session:** Check for tasks first using the `jira_search_issues` MCP tool or by running `python3 scripts/jira_bridge.py get-todo`.
 - **Execution:** Before starting work, transition the Jira issue to 'In Progress' via the `jira_start_task` or `jira_transition_issue` tool.
-- **Commit Format:** Every git branch MUST include the Jira Ticket ID (e.g., `feature/DT-123`). Every commit MUST start with the Jira Ticket ID (e.g., `feat(DT-123): ...`).
+- **Commit Format:** Every git branch MUST include the Jira Ticket ID (e.g., `feature/DG-123`). Every commit MUST start with the Jira Ticket ID (e.g., `feat(DG-123): ...`).
 - **Never Merge to Main:** Do not push or merge directly to the `main` branch. Always use Feature Branches and Pull Requests.
 - **Handoff:** When finished, push your branch, open a PR, and call `jira_submit_for_review(issue_key, pr_link, files_changed)` via MCP.
 
@@ -24,4 +24,4 @@
   - แยกแยะ (Differentiate): Isolate root causes on failure. Do not blindly retry.
 
 ## 4. Documentation boundaries
-- Do not mix architecture details into user guides. Respect the separation of `README.md`, `Drunken-Team-Guide.md`, `Integration-Guide.md`, `PROJECT_SPEC.md`, and `DESIGN.md`.
+- Do not mix architecture details into user guides. Respect the separation of `README.md`, `Drunken-Guild-Guide.md`, `Integration-Guide.md`, `PROJECT_SPEC.md`, and `DESIGN.md`.

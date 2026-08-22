@@ -1,12 +1,12 @@
 """PreToolUse hook — route the harness's permission prompts to Discord.
 
-DT-236, and the oldest open complaint in this project: the Boss says "I'm
+DG-236, and the oldest open complaint in this project: the Boss says "I'm
 going out, send it to Discord", and the terminal still blocks on a permission
 prompt.
 
 Two layers ask for permission.
 
-* **Layer B** — the agent decides it needs approval. DT-232 and DT-233 made
+* **Layer B** — the agent decides it needs approval. DG-232 and DG-233 made
   that asynchronous: submit, park the task, collect the answer later.
 * **Layer A** — the harness asks "Allow this tool call?" *before* the model
   runs. The model never sees this one. That is why saying it in chat never
@@ -90,7 +90,7 @@ UNREACHABLE = (
     "and not a no. Start the daemon with `drunken-listen` to route prompts."
 )
 
-#: Shown on every routed question. The live acceptance run for DT-236 ended
+#: Shown on every routed question. The live acceptance run for DG-236 ended
 #: with the agent stranded — away mode on, and the command that turns it off
 #: routed to Discord like everything else. The way out belongs where the
 #: person who needs it is actually looking, which is the Discord message.
@@ -113,7 +113,7 @@ def ticket_from_branch(branch: str) -> str:
     """The ticket this work belongs to, read off the branch name.
 
     ``submit_approval`` wants a ticket key and the hook has no conversation to
-    ask. The branch convention (``feature/DT-123-slug``) is the one piece of
+    ask. The branch convention (``feature/DG-123-slug``) is the one piece of
     context that is guaranteed to be there, so it is what gets used. ``UNKNOWN``
     is honest rather than a guess when the branch does not carry one.
     """

@@ -1,7 +1,7 @@
 # mypy: ignore-errors
 """A stray ``.env`` above the working directory must not outrank the registry.
 
-DT-254. S3's parent-walk was recorded as closed by DT-224, and it was — for
+DG-254. S3's parent-walk was recorded as closed by DG-224, and it was — for
 ``jira_mcp``. The same pattern in ``service/discord_utils.py`` was never in
 scope, so ``load_dotenv()`` kept climbing to the filesystem root, loading the
 first ``.env`` it met into ``os.environ``. Since the environment outranks the
@@ -38,7 +38,7 @@ def registry_and_decoy(tmp_path, monkeypatch):
             {
                 "version": 2,
                 "projects": {
-                    "drunken-team": {
+                    "drunken-guild": {
                         "path": str(project_dir),
                         "discord": {
                             "channel_id": "registry-channel",
@@ -66,7 +66,7 @@ class TestAStrayDotenvDoesNotOutrankTheRegistry:
     def test_the_token_comes_from_the_registry_not_the_parent_dotenv(
         self, registry_and_decoy
     ) -> None:
-        """The finding itself. Before DT-254 this returned the decoy, because
+        """The finding itself. Before DG-254 this returned the decoy, because
         load_dotenv() climbed out of the project and injected it into the
         environment, which load_config() then preferred over the registry."""
         assert discord_utils.load_config()["bot_token"] == "registry-wins"
@@ -98,7 +98,7 @@ class TestAnExplicitEnvironmentVariableStillWins:
     def test_a_real_env_var_outranks_the_registry(
         self, registry_and_decoy, monkeypatch
     ) -> None:
-        """The override that survives DT-254, and the distinction the ticket
+        """The override that survives DG-254, and the distinction the ticket
         turns on. A variable set in the process environment is explicit and
         named — that is how a container passes a different bot in. A file
         discovered by climbing the tree is neither."""

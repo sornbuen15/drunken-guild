@@ -200,7 +200,7 @@ async def test_handle_socket_client_request_boss_approval(
                     "cmd": "request_boss_approval",
                     "action": "a",
                     "reason": "r",
-                    "ticket_key": "DT-1",
+                    "ticket_key": "DG-1",
                 }
             )
             + "\n"
@@ -211,7 +211,7 @@ async def test_handle_socket_client_request_boss_approval(
 
     await _handle_socket_client(reader, writer)
 
-    mock_approval_manager.request.assert_called_once_with("a", "r", "DT-1")
+    mock_approval_manager.request.assert_called_once_with("a", "r", "DG-1")
     written = writer.write.call_args[0][0]
     assert json.loads(written.decode("utf-8").strip()) == {"status": "approved"}
     writer.close.assert_called_once()
@@ -225,7 +225,7 @@ async def test_handle_socket_client_check_ticket(mock_approval_manager: Any) -> 
     reader = AsyncMock()
     reader.readline = AsyncMock(
         return_value=(
-            json.dumps({"cmd": "check_ticket", "ticket_key": "DT-1"}) + "\n"
+            json.dumps({"cmd": "check_ticket", "ticket_key": "DG-1"}) + "\n"
         ).encode("utf-8")
     )
     writer = mock.MagicMock()
@@ -263,7 +263,7 @@ async def test_handle_socket_client_empty_line() -> None:
     writer.write.assert_not_called()
 
 
-# --- DT-232: async approval socket commands --------------------------------
+# --- DG-232: async approval socket commands --------------------------------
 
 
 async def _socket_roundtrip(payload: dict) -> dict:
@@ -289,12 +289,12 @@ async def test_handle_socket_client_submit_approval(
             "cmd": "submit_approval",
             "action": "a",
             "reason": "r",
-            "ticket_key": "DT-1",
+            "ticket_key": "DG-1",
             "commit_sha": "deadbee",
         }
     )
 
-    mock_approval_manager.submit.assert_called_once_with("a", "r", "DT-1", "deadbee")
+    mock_approval_manager.submit.assert_called_once_with("a", "r", "DG-1", "deadbee")
     assert result == {"status": "submitted", "req_id": "req_xyz"}
 
 
@@ -315,9 +315,9 @@ async def test_handle_socket_client_poll_approvals(mock_approval_manager: Any) -
 @mock.patch("service.discord_listener.approval_manager")
 async def test_handle_socket_client_list_pending(mock_approval_manager: Any) -> None:
     mock_approval_manager.list_pending.return_value = [
-        {"ticket_key": "DT-1", "action": "a", "status": "pending", "created_at": 0}
+        {"ticket_key": "DG-1", "action": "a", "status": "pending", "created_at": 0}
     ]
 
     result = await _socket_roundtrip({"cmd": "list_pending"})
 
-    assert result["pending"][0]["ticket_key"] == "DT-1"
+    assert result["pending"][0]["ticket_key"] == "DG-1"

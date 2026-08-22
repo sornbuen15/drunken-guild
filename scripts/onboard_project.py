@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Bring another project under drunken-team in one command.
+"""Bring another project under drunken-guild in one command.
 
 Onboarding used to be four manual steps — write a secret, register the project,
 write an ``.mcp.json``, then find out whether any of it worked. Every one of
@@ -15,7 +15,7 @@ is how ALPHA's copy quietly drifted to a value that no longer authenticates — 
 because a Jira search answers a dead token with ``200`` and an empty list, its
 board simply looked empty for months.
 
-**No paths in the generated config.** Since DT-241 the servers install as
+**No paths in the generated config.** Since DG-241 the servers install as
 commands, so another repository's ``.mcp.json`` names the command and nothing
 else. An absolute path there is one machine's layout committed into everyone
 else's history.
@@ -100,7 +100,7 @@ def build_parser() -> argparse.ArgumentParser:
         description="Register a project and give it a working .mcp.json.",
         epilog=(
             "The MCP config it writes assumes the servers are installed as "
-            "commands: run `uv tool install .` from drunken-team first."
+            "commands: run `uv tool install .` from drunken-guild first."
         ),
     )
     parser.add_argument("project", help="Project id, e.g. alpha")

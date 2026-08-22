@@ -311,7 +311,11 @@ class AgentRunner:
         agent_name: str,
         env_vars: dict[str, Any] | None = None,
         cwd: str | None = None,
-        project_id: str = "drunken-team",
+        # No default project name here. DG-266 removed the router's literal and
+        # these three survived it, so a Discord-dispatched run was still tagged
+        # with the fallback checkout's id. The caller knows which project it is
+        # for; a parameter that guesses is how the wrong answer travels.
+        project_id: str = "unknown",
     ) -> None:
         if not cmd_args or cmd_args[0] not in ("agy",):
             return

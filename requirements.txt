@@ -13,7 +13,7 @@ aiosignal==1.4.0
 attrs==26.1.0
     # via aiohttp
 discord-py==2.7.1
-    # via drunken-team (pyproject.toml)
+    # via drunken-guild (pyproject.toml)
 frozenlist==1.8.0
     # via
     #   aiohttp
@@ -29,6 +29,6 @@ propcache==0.5.2
     #   aiohttp
     #   yarl
 python-dotenv==1.2.2
-    # via drunken-team (pyproject.toml)
+    # via drunken-guild (pyproject.toml)
 yarl==1.24.2
     # via aiohttp

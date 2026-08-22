@@ -16,7 +16,7 @@ from .jql import scope_to_project
 #: assume. Backlog membership and status are independent: a ticket parked in
 #: the backlog keeps the status it had. Reading "moved to backlog" as "no
 #: longer In Progress" would make board-versus-backlog a second coordination
-#: surface that can disagree with status — the failure DT-250 cured.
+#: surface that can disagree with status — the failure DG-250 cured.
 _NOT_A_STATUS = (
     "Backlog membership is not status. These issues keep the status they had; "
     "only where they appear changed. Use jira_transition_issue to change status."
@@ -63,7 +63,7 @@ async def jira_search_issues(jql: str, detail: str = "brief") -> str:
     project is kept and simply matches nothing.
     """
     client = get_client()
-    # S8 (DT-225). --project named the project and did not confine anything to
+    # S8 (DG-225). --project named the project and did not confine anything to
     # it. Scoping happens here, at the boundary, rather than inside JiraClient:
     # the client is also used by jira_create_issue and the transition tools,
     # which take a key rather than a query and are already project-bound.
@@ -163,7 +163,7 @@ ORPHAN_WORD_LIMIT = 250
 def _orphan_warning(description: str, parent: str) -> Optional[str]:
     """Long *and* parentless, or nothing at all.
 
-    DT-234's mechanism, reused because it is already proven: say something and
+    DG-234's mechanism, reused because it is already proven: say something and
     create the issue anyway. Rejecting is wrong here in both directions -- a
     post-mortem or a security finding *must* stay long, and a long ticket with
     an Epic to hang context on is exactly the right shape. It is the
@@ -203,7 +203,7 @@ def _require_backlog_board(profile: BoardProfile, project_key: str) -> int:
             remediation=(
                 "The work has to live in a software-type project to have a "
                 "board. Nothing else is affected: search, transition, assign "
-                "and comment all work on a business-type project. See DT-237."
+                "and comment all work on a business-type project. See DG-237."
             ),
         )
 
@@ -270,7 +270,7 @@ async def jira_move_to_backlog(issue_keys: str) -> str:
     Move active issues off this project's board and into its backlog.
 
     `issue_keys` is one key or several, separated by commas or spaces, e.g.
-    "DT-251" or "DT-251, DT-250". At most 50 per call, which is Jira's limit.
+    "DG-251" or "DG-251, DG-250". At most 50 per call, which is Jira's limit.
 
     Only issues from the project this server was launched for can be moved; a
     key from another project is refused before the request is sent, because the

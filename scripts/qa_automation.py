@@ -16,7 +16,7 @@ QA_REPORTS_DIR = os.path.join(_REPO_ROOT, ".agents", "qa_reports")
 
 def _matches_ticket_key(issue_key: str, text: str) -> bool:
     """True if `issue_key` appears in `text` as a whole ticket key, not as a
-    substring of a longer one (e.g. "DT-6" must not match "DT-65")."""
+    substring of a longer one (e.g. "DG-6" must not match "DG-65")."""
     pattern = rf"(?<![A-Za-z0-9-]){re.escape(issue_key)}(?!\d)"
     return re.search(pattern, text) is not None
 

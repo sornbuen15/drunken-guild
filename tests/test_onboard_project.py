@@ -60,9 +60,9 @@ class TestTheGeneratedConfigCarriesNoPaths:
             )
 
     def test_the_retired_board_server_is_not_wired_in(self) -> None:
-        """DT-250 retired the local board and DT-251 wrote down why: a second
+        """DG-250 retired the local board and DG-251 wrote down why: a second
         coordination surface can disagree with Jira, which is the failure that
-        cost DT-248 and DT-249 whole sessions. CLAUDE.md says do not
+        cost DG-248 and DG-249 whole sessions. CLAUDE.md says do not
         reintroduce it -- and onboarding was declaring it into every project.
 
         The test above cannot catch this. It asserts the config matches
@@ -73,12 +73,12 @@ class TestTheGeneratedConfigCarriesNoPaths:
 
         assert "board" not in serialised, (
             "Onboarding declared drunken-board-mcp, a server retired by "
-            "DT-250. It costs 2,162 tokens per request and reopens the "
+            "DG-250. It costs 2,162 tokens per request and reopens the "
             "two-surfaces problem that retiring it closed."
         )
 
     def test_the_removed_workspace_flag_is_not_reintroduced(self) -> None:
-        """What ALPHA's previous config passed. It was deleted in DT-224, and
+        """What ALPHA's previous config passed. It was deleted in DG-224, and
         argparse ignores it silently rather than complaining."""
         assert "--workspace" not in json.dumps(config_gen.mcp_config("alpha"))
 
@@ -87,7 +87,7 @@ class TestTheCredentialIsSharedByReference:
     def test_projects_point_at_one_key_by_default(self, onboard, monkeypatch) -> None:
         monkeypatch.setenv("DRUNKEN_HOME", "/tmp/probe-home")
 
-        for project in ("alpha", "beta", "drunken-team"):
+        for project in ("alpha", "beta", "drunken-guild"):
             reference = onboard.credential_reference(onboard.SHARED_CREDENTIAL_KEY)
             assert reference.endswith("#jira.default"), (
                 f"{project} would get its own copy of the token. That is how "
