@@ -205,6 +205,11 @@ tracked file. Both take **`--index-only`**: rebuild the repository's index, writ
 else. Use that, never a hand edit — hand-generation drifts from the generator's output by a byte or
 two per line, which is worse than stale.
 
+**The rename blocks a reinstall until the old package is uninstalled.** `uv tool install .` fails
+with *"Executables already exist"* while `drunken-team` still owns those names, and `--force` is
+the wrong answer: it repoints the symlinks and leaves the old environment installed, still shipping
+a `drunken-board-mcp` this package no longer contains. `uv tool uninstall drunken-team` first.
+
 `install_mcp.sh` is a thin wrapper over `drunken-config` on purpose. `drunken-config` reads the
 registry, knows a repository's config from a host application's, and merges rather than overwrites.
 A second emitter beside it would be two things answering one question.

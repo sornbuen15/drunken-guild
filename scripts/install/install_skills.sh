@@ -84,6 +84,11 @@ fi
 
 NEW_COUNT=0
 UPDATED_COUNT=0
+# Same reason as install_agents.sh: one pair of counters can only describe one
+# target, and reporting more work than happened is the same defect as reporting
+# less. See DG-272.
+AG_NEW_COUNT=0
+AG_UPDATED_COUNT=0
 
 _skill_list=$(mktemp)
 find "$LOCAL_SKILLS_DIR" -type f -name "SKILL.md" | sort > "$_skill_list"
@@ -124,6 +129,11 @@ while IFS= read -r skill_file; do
   fi
 
   if [ "$INSTALL_ANTIGRAVITY" = true ]; then
+    if [ -d "$ANTIGRAVITY_SKILLS_DIR/$skill_name" ]; then
+      AG_UPDATED_COUNT=$((AG_UPDATED_COUNT + 1))
+    else
+      AG_NEW_COUNT=$((AG_NEW_COUNT + 1))
+    fi
     _copy_dir "$skill_dir" "$ANTIGRAVITY_SKILLS_DIR/$skill_name"
   fi
 
@@ -214,6 +224,9 @@ cp "$INDEX_FILE" "$LOCAL_SKILLS_DIR/INDEX.md"
 
 echo ""
 echo -e "${GREEN}Done.${NC} $NEW_COUNT new  |  $UPDATED_COUNT updated"
+if [ "$INSTALL_ANTIGRAVITY" = true ]; then
+  echo -e "  Antigravity: $AG_NEW_COUNT new  |  $AG_UPDATED_COUNT updated"
+fi
 echo -e "  INDEX.md: $INDEX_FILE"
 
 # Anything installed that this repo does not produce. Reported, never deleted:
