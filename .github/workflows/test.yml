@@ -2,7 +2,7 @@ name: CI
 
 # Previously this ran only on main. Nearly all work lands via PRs into develop,
 # so for months the workflow simply never ran for any of it — which is how CI
-# stayed red from 2026-06-25 onward without anyone noticing (DT-179). Watching
+# stayed red from 2026-06-25 onward without anyone noticing (DG-179). Watching
 # develop is the part that makes the rest of this file worth having.
 on:
   push:
@@ -132,7 +132,7 @@ jobs:
           cache: pip
 
       # The project itself is not installed here. bandit reads source, and
-      # pip-audit reads the lockfile — installing would only add drunken-team
+      # pip-audit reads the lockfile — installing would only add drunken-guild
       # itself, which is not on PyPI, so --strict would then fail on its own
       # unauditable package rather than on anything real.
       - name: Install
@@ -165,7 +165,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITLEAKS_CONFIG: .gitleaks.toml
 
-      # DT-238 was a manual sweep of 34 stale references, needed because
+      # DG-238 was a manual sweep of 34 stale references, needed because
       # --workspace stayed advertised in the README for two releases after it
       # was deleted. A sweep has a shelf life; this does not. Deliberately a
       # grep list rather than a real doc-vs-code checker — the discipline it

@@ -173,7 +173,7 @@ def test_query_gemini_direct_global_key(mock_file, mock_expanduser, mock_exists)
 @mock.patch("service.discord_utils.project_root")
 def test_find_config_not_found(mock_root, mock_exists):
     """Absent means absent. It used to mean "keep climbing until something
-    matches", which is how a stranger's .agents/ got adopted (DT-254)."""
+    matches", which is how a stranger's .agents/ got adopted (DG-254)."""
     mock_root.return_value = "/fake/dir"
     mock_exists.return_value = False
     assert find_config() is None

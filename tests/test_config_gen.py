@@ -1,12 +1,12 @@
 # mypy: ignore-errors
-"""DT-228. The configs are generated, and the generated ones honour the lock.
+"""DG-228. The configs are generated, and the generated ones honour the lock.
 
 Every file this module emits was hand-written at least once, and every
 hand-written one drifted. TWA's ``.mcp.json`` was still passing ``--workspace``
 two releases after the flag was deleted. The installed tool environment carries
 ``mcp`` 1.29.0 against a lock pinning 1.28.1, because ``uv tool install`` does
 not read ``uv.lock`` -- both satisfy ``<2``, and nothing reported the
-difference until ``drunken-doctor`` grew a check for it (DT-252).
+difference until ``drunken-doctor`` grew a check for it (DG-252).
 """
 
 import json
@@ -17,8 +17,8 @@ from core import config_gen
 
 class TestTheRetiredServerStaysRetired:
     def test_board_mcp_is_not_in_the_server_list(self) -> None:
-        """DT-250 retired the local board because a second coordination surface
-        can disagree with Jira -- the failure that cost DT-248 and DT-249 whole
+        """DG-250 retired the local board because a second coordination surface
+        can disagree with Jira -- the failure that cost DG-248 and DG-249 whole
         sessions. Onboarding was declaring it into every new project anyway.
         """
         assert not any("board" in name for name in config_gen.MCP_SERVERS)
@@ -163,7 +163,7 @@ class TestTheImageInstallsWhatTheLockNames:
     """The Dockerfile is the checkable form of the claim, so the flag that
     makes it true is asserted here rather than trusted.
 
-    Verified by building it during DT-228: with --with-requirements the image
+    Verified by building it during DG-228: with --with-requirements the image
     reports mcp 1.28.1, which is what uv.lock pins; without it, the same
     Dockerfile on the same base produces 1.29.0 -- exactly the drift the host
     deployment had. One line is the whole difference.

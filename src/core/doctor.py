@@ -105,7 +105,7 @@ def declared_version() -> Optional[str]:
     """What the *source tree* declares, read from ``pyproject.toml``.
 
     Not ``importlib.metadata``. That reports whatever happens to be installed in
-    the environment asking, which during DT-256 meant three different answers on
+    the environment asking, which during DG-256 meant three different answers on
     one machine: ``pyproject`` said 2.1.0, the tag said 2.3.0, and the test
     environment's installed copy said 1.6.0. A check about the declaration has
     to read the declaration.
@@ -217,7 +217,7 @@ def newest_tag() -> Optional[str]:
 
 
 def _check_environment(report: Report) -> None:
-    report.add("version.drunken-team", "ok", package_version())
+    report.add("version.drunken-guild", "ok", package_version())
     status, detail = version_verdict(declared_version(), newest_tag())
     report.add(
         "version.declared",
@@ -879,7 +879,7 @@ def main() -> int:
 
     parser = argparse.ArgumentParser(
         prog="drunken-doctor",
-        description="Diagnose drunken-team configuration, credentials and connectivity.",
+        description="Diagnose drunken-guild configuration, credentials and connectivity.",
     )
     parser.add_argument("--project", help="Check only this project id.")
     parser.add_argument(

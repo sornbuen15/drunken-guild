@@ -1,5 +1,5 @@
 # mypy: ignore-errors
-"""DT-255. What the Jira tools return, and what it costs to return it.
+"""DG-255. What the Jira tools return, and what it costs to return it.
 
 Named "tool_cost" rather than anything containing "token", which .gitignore
 excludes as a credential-hygiene rule. That rule silently swallowed the first
@@ -32,7 +32,7 @@ def client() -> JiraClient:
     ctx.require_jira.return_value.url = "https://example.atlassian.net"
     ctx.require_jira.return_value.email = "someone@example.com"
     ctx.require_jira.return_value.token.reveal.return_value = "token"
-    ctx.require_jira.return_value.project_key = "DT"
+    ctx.require_jira.return_value.project_key = "DG"
     return JiraClient(ctx)
 
 
@@ -108,16 +108,16 @@ class TestBriefIsTheDefault:
     def test_brief_omits_the_description(self) -> None:
         """95% of a six-issue search. Anyone who wants a body asks for one
         issue by key, which is one cheap call rather than five expensive ones."""
-        [row] = minify_issues([_issue("DT-1")])
+        [row] = minify_issues([_issue("DG-1")])
 
         assert "description" not in row
-        assert row["key"] == "DT-1"
+        assert row["key"] == "DG-1"
         assert row["status"] == "To Do"
 
     def test_brief_omits_priority_because_it_cannot_be_set(self) -> None:
-        """Priority is unsettable on a team-managed project, so every DT issue
+        """Priority is unsettable on a team-managed project, so every DG issue
         reads Medium. A field with one possible value is not information."""
-        [row] = minify_issues([_issue("DT-1")])
+        [row] = minify_issues([_issue("DG-1")])
 
         assert "priority" not in row
 
@@ -127,24 +127,24 @@ class TestBriefIsTheDefault:
         [row] = minify_issues(
             [
                 _issue(
-                    "DT-1",
-                    parent={"key": "DT-100", "fields": {"summary": "The Epic"}},
+                    "DG-1",
+                    parent={"key": "DG-100", "fields": {"summary": "The Epic"}},
                 )
             ]
         )
 
-        assert row["parent"] == "DT-100"
+        assert row["parent"] == "DG-100"
         assert row["parent_summary"] == "The Epic"
 
     def test_an_issue_without_a_parent_says_nothing_about_one(self) -> None:
         """Absent, not null. Two null fields per row across a large search is
         exactly the sort of cost this ticket exists to remove."""
-        [row] = minify_issues([_issue("DT-1")])
+        [row] = minify_issues([_issue("DG-1")])
 
         assert "parent" not in row and "parent_summary" not in row
 
     def test_full_returns_the_description_as_text_not_adf(self) -> None:
-        [row] = minify_issues([_issue("DT-1")], brief=False)
+        [row] = minify_issues([_issue("DG-1")], brief=False)
 
         assert row["description"] == "A sentence."
         assert row["priority"] == "Medium"
@@ -158,7 +158,7 @@ class TestBriefIsTheDefault:
         everything in latency on a large board."""
         make_request.return_value = {"issues": []}
 
-        await client.search_issues("project = DT")
+        await client.search_issues("project = DG")
 
         url = make_request.call_args.args[0]
         assert "description" not in url
@@ -171,19 +171,19 @@ class TestCreateIssueCanFinallySetTheFields:
     async def test_parent_is_sent(
         self, make_request: AsyncMock, client: JiraClient
     ) -> None:
-        make_request.return_value = {"key": "DT-2"}
+        make_request.return_value = {"key": "DG-2"}
 
-        await client.create_issue("s", "d", parent="DT-100")
+        await client.create_issue("s", "d", parent="DG-100")
 
         fields = make_request.call_args.kwargs["payload"]["fields"]
-        assert fields["parent"] == {"key": "DT-100"}
+        assert fields["parent"] == {"key": "DG-100"}
 
     @pytest.mark.asyncio
     @patch("jira_mcp.jira_client.make_request", new_callable=AsyncMock)
     async def test_duedate_and_labels_are_sent(
         self, make_request: AsyncMock, client: JiraClient
     ) -> None:
-        make_request.return_value = {"key": "DT-2"}
+        make_request.return_value = {"key": "DG-2"}
 
         await client.create_issue(
             "s", "d", duedate="2026-09-01", labels=["Critical", "security"]
@@ -203,7 +203,7 @@ class TestCreateIssueCanFinallySetTheFields:
         somebody else's site, and writes it without complaining."""
         make_request.side_effect = [
             [{"id": "customfield_99999", "name": "Start date"}],
-            {"key": "DT-2"},
+            {"key": "DG-2"},
         ]
 
         await client.create_issue("s", "d", start_date="2026-08-20")
@@ -218,11 +218,11 @@ class TestCreateIssueCanFinallySetTheFields:
         self, make_request: AsyncMock, client: JiraClient
     ) -> None:
         """Losing an optional date must not lose the ticket."""
-        make_request.side_effect = [[], {"key": "DT-2"}]
+        make_request.side_effect = [[], {"key": "DG-2"}]
 
         result = await client.create_issue("s", "d", start_date="2026-08-20")
 
-        assert result == {"ok": True, "key": "DT-2"}
+        assert result == {"ok": True, "key": "DG-2"}
 
     @pytest.mark.asyncio
     @patch("jira_mcp.jira_client.make_request", new_callable=AsyncMock)
@@ -231,7 +231,7 @@ class TestCreateIssueCanFinallySetTheFields:
     ) -> None:
         """Sending null for an unset optional field is how a create starts
         failing on a project that does not have it."""
-        make_request.return_value = {"key": "DT-2"}
+        make_request.return_value = {"key": "DG-2"}
 
         await client.create_issue("s", "d")
 
@@ -245,11 +245,11 @@ class TestCreateIssueCanFinallySetTheFields:
     ) -> None:
         """The URL is derivable from the key and nobody ever followed it."""
         make_request.return_value = {
-            "key": "DT-2",
+            "key": "DG-2",
             "self": "https://example.atlassian.net/rest/api/3/issue/10917",
         }
 
-        assert await client.create_issue("s", "d") == {"ok": True, "key": "DT-2"}
+        assert await client.create_issue("s", "d") == {"ok": True, "key": "DG-2"}
 
 
 class TestTheTicketRuleWarnsAndNeverRefuses:
@@ -261,7 +261,7 @@ class TestTheTicketRuleWarnsAndNeverRefuses:
     def test_long_with_a_parent_is_silent(self) -> None:
         """A long ticket with an Epic to hang context on is the right shape.
         It is the combination that signals context copied instead of linked."""
-        assert jira_server._orphan_warning("word " * 400, parent="DT-100") is None
+        assert jira_server._orphan_warning("word " * 400, parent="DG-100") is None
 
     def test_short_and_parentless_is_silent(self) -> None:
         """The project's own older tickets run about 49 words. A warning that

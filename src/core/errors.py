@@ -103,7 +103,7 @@ class AuthzError(DrunkenError):
 
 
 _UNEXPECTED: Final = (
-    "Unexpected internal error. This is a bug in drunken-team, not a "
+    "Unexpected internal error. This is a bug in drunken-guild, not a "
     "configuration problem — please report it with the details below."
 )
 

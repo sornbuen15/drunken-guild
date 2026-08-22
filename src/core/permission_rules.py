@@ -1,6 +1,6 @@
 """Matching a tool call against Claude Code permission rules.
 
-DT-236 needs this because the PreToolUse hook has to answer one question
+DG-236 needs this because the PreToolUse hook has to answer one question
 before it does anything else: *is this call already forbidden?* The harness
 keeps its own copy of that judgement, but a hook that hands remote approval
 authority over tool calls cannot depend on being asked in the right order --

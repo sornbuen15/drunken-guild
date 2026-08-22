@@ -1,1 +1,1 @@
-"""Core modules for Drunken Team."""
+"""Core modules for Drunken Guild."""

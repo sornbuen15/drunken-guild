@@ -1,6 +1,6 @@
 """Read the state of the work, instead of typing it into a file.
 
-DT-257. ``SESSION_CHECKPOINT.md`` section 2 -- branch, test count, open PRs,
+DG-257. ``SESSION_CHECKPOINT.md`` section 2 -- branch, test count, open PRs,
 ticket states -- went stale within an hour of being written, and the file itself
 records that the section "has been wrong twice, in both directions". While this
 module was being written it was stale again: it named three PRs as awaiting
@@ -12,7 +12,7 @@ What stays hand-written is what cannot be: what was decided, and why.
 
 **Read-only.** It reports. It does not write the checkpoint, and it does not
 touch Jira beyond a search. Nothing here acquires a schedule -- same rule as
-DT-252, a check that answers when asked.
+DG-252, a check that answers when asked.
 
 **Every source can be absent, and says so.** ``gh`` may not be installed, Jira
 may not answer, a checkout may have no tags. None of those are reported as an
@@ -159,7 +159,7 @@ def jira_section(project_id: str) -> Section:
     try:
         # Lazily imported, and reused rather than reimplemented: a second Jira
         # client here would be a second surface that can disagree with the
-        # first, which is the failure DT-250 spent a session curing.
+        # first, which is the failure DG-250 spent a session curing.
         from jira_mcp.jira_client import JiraClient
         from jira_mcp.jql import scope_to_project
 

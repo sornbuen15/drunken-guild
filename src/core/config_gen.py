@@ -1,6 +1,6 @@
 """Generate the configuration that hosts, installers and deployments read.
 
-DT-228. Every one of these files was hand-written at least once, and every
+DG-228. Every one of these files was hand-written at least once, and every
 hand-written one drifted: TWA's ``.mcp.json`` was still passing ``--workspace``
 two releases after the flag was deleted, and the installed tool environment
 carries ``mcp`` 1.29.0 while ``uv.lock`` pins 1.28.1 because ``uv tool install``
@@ -143,7 +143,7 @@ def export_requirements(project_root: Path) -> Optional[str]:
     ignores ``uv.lock`` entirely and resolves afresh inside the declared
     ranges, which is how the installed environment came to hold ``mcp`` 1.29.0
     against a lock pinning 1.28.1 -- both satisfy ``<2`` and nothing reported
-    the difference until ``drunken-doctor`` grew a check for it (DT-252).
+    the difference until ``drunken-doctor`` grew a check for it (DG-252).
 
     Returns ``None`` rather than raising: an environment without ``uv`` can
     still generate its MCP configs, and the caller says what was skipped.

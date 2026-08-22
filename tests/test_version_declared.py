@@ -1,11 +1,11 @@
 # mypy: ignore-errors
-"""DT-256. The declared version must not be behind the newest release tag.
+"""DG-256. The declared version must not be behind the newest release tag.
 
 pyproject.toml pins 2.1.0. `v2.3.0` is tagged and released, and so was v2.2.0
 before it -- neither bumped the declaration. So `drunken-doctor` reports
-`version.drunken-team 2.1.0`, and so does the installed tool env.
+`version.drunken-guild 2.1.0`, and so does the installed tool env.
 
-Why that is worse than a wrong number: DT-252 built a check so the deployment
+Why that is worse than a wrong number: DG-252 built a check so the deployment
 can be asked what it is. Comparing checkout against deployment gives 2.1.0 on
 both and concludes they agree, which is exactly the drift the check exists to
 expose. A version string that lies defeats the instrument built to catch lying.
@@ -14,7 +14,7 @@ The comparison is a pure function, tested with values rather than with the
 repository. Two reasons, and the second is from the checkpoint's own list of
 ways running things can lie: CI checks out with `actions/checkout@v4` at the
 default depth, which fetches no tags at all, and a test that reads them would
-be green here and red there -- the DT-252 mistake, where an assertion held only
+be green here and red there -- the DG-252 mistake, where an assertion held only
 on a machine that had a registry.
 """
 

@@ -1,9 +1,9 @@
 # mypy: ignore-errors
-"""The PreToolUse hook — DT-236.
+"""The PreToolUse hook — DG-236.
 
 The complaint that started all of this: the Boss says "I'm going out, send it
 to Discord", and the terminal still blocks on a permission prompt. Two layers
-ask for permission and only one was ever addressed. DT-232 made the agent's
+ask for permission and only one was ever addressed. DG-232 made the agent's
 own asking asynchronous; this is the other layer, the one the model never
 sees, which is why no instruction or skill could ever redirect it.
 
@@ -271,7 +271,7 @@ class TestTheTimeoutsCannotDrift:
 class TestAwayModeHasAWayOut:
     """Found by running it, not by reasoning about it.
 
-    During the live acceptance run for DT-236 the hook denied the agent's own
+    During the live acceptance run for DG-236 the hook denied the agent's own
     tool call, correctly. What it also did was strand it: `drunken-away off`
     was not on the allowlist, so the one command that ends away mode was
     itself routed to Discord, along with every Read and Edit that might have
@@ -359,8 +359,8 @@ class TestAwayFlag:
 @pytest.mark.parametrize(
     "branch,expected",
     [
-        ("feature/DT-236-pretooluse-approval-hook", "DT-236"),
-        ("bugfix/DT-9-x", "DT-9"),
+        ("feature/DG-236-pretooluse-approval-hook", "DG-236"),
+        ("bugfix/DG-9-x", "DG-9"),
         ("develop", "UNKNOWN"),
         ("", "UNKNOWN"),
     ],

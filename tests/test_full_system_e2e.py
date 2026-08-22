@@ -36,7 +36,7 @@ async def test_sdlc_e2e_pipeline() -> None:
         assert real_status == "In Progress"
 
         # 3. Simulate work and submit for review
-        pr_link = f"https://github.com/drunken-team/repo/pull/{ticket_key}"
+        pr_link = f"https://github.com/drunken-guild/repo/pull/{ticket_key}"
         files = "tests/test_full_system_e2e.py"
 
         review_result_str = await jira_submit_for_review(ticket_key, pr_link, files)

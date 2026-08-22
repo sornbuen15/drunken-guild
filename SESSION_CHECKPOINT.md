@@ -31,14 +31,17 @@ not ours to touch) all match the source — `drunken-doctor` checks this now and
 
 ## 2. Three things are true right now and will bite you
 
-- **The deployed CLI is still the old package.** `uv tool list` shows `drunken-team v2.1.0`, and
-  `drunken-board-mcp` is on PATH from it although DG-265 removed it from this package. Every
-  `~/.local/bin/drunken-*` predates the merge, including what Antigravity's `mcp_config.json`
-  launches. Fix, and it needs the uninstall first — `--force` leaves the old environment in place:
+- **The deployed CLI is current, and was not until 2026-08-22.** `uv tool list` now shows
+  `drunken-guild v1.0.0` and `drunken-board-mcp` is gone from PATH. It took an uninstall first —
+  `--force` repoints the symlinks and leaves the old environment shipping the retired server:
 
   ```bash
-  uv tool uninstall drunken-team && uv tool install .
+  uv tool uninstall drunken-team || true   # only if `uv tool list` still shows it
+  uv tool install .
   ```
+
+  `drunken-doctor` reports `deployment.tool_env` and names an install under the previous package
+  name rather than skipping, so this state is visible rather than assumed.
 
 - **Four skills are not ours and their licence is unknown.** `debug-mantra`, `post-mortem`,
   `scrutinize`, `management-talk` are byte-identical to the `9arm-skills` plugin, whose pack carries
@@ -64,8 +67,8 @@ What is missing is the wiring and the rules that stop them colliding.
 
 | entry | state | action |
 |---|---|---|
-| `drunken-jira-mcp` | `--project drunken-team` | point at `drunken-guild` |
-| `drunken-discord-mcp` | `--project drunken-team` | point at `drunken-guild` |
+| `drunken-jira-mcp` | `--project drunken-guild` | point at `drunken-guild` |
+| `drunken-discord-mcp` | `--project drunken-guild` | point at `drunken-guild` |
 | `drunken-board-mcp` | retired (DG-250/265) | remove |
 | `kanban-board` | `ai-team-toolkit/scripts/mcp/kanban-server.js`, retired | remove |
 | `jira-board` | `npx @modelcontextprotocol/server-jira` — a **fourth** Jira surface | remove |
@@ -129,7 +132,7 @@ Two agents in one checkout will collide in git, not in Jira. Settle these:
 | key | what |
 |---|---|
 | **DG-260** | `drunken-doctor` reports a project OK when its Jira project key does not exist |
-| **DG-271** | `requirements-dev.txt` pins a different ruff than `pyproject` and still names `drunken-team`. Regenerating moves ~35 packages and `pip-audit --strict` reads it — read that result before merging |
+| **DG-271** | `requirements-dev.txt` pins a different ruff than `pyproject` and still names `drunken-guild`. Regenerating moves ~35 packages and `pip-audit --strict` reads it — read that result before merging |
 | — | Follow-up noted on DG-262: `deployment.tool_env` should warn when a legacy tool root exists *alongside* a current one, not only when the current one is absent |
 | — | DG-263's licence decision, once the Boss makes it → new ticket referencing it |
 

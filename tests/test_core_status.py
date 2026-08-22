@@ -1,5 +1,5 @@
 # mypy: ignore-errors
-"""DT-257. The state is read, and what could not be read says so.
+"""DG-257. The state is read, and what could not be read says so.
 
 SESSION_CHECKPOINT.md section 2 went stale within an hour of being written, and
 the file records that it "has been wrong twice, in both directions". It was

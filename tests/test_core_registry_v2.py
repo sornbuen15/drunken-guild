@@ -53,7 +53,7 @@ def write_registry(tmp_path, document) -> str:
 
 
 class TestProjectIdValidation:
-    @pytest.mark.parametrize("project_id", ["twa", "isac", "drunken-team", "a", "p_1"])
+    @pytest.mark.parametrize("project_id", ["twa", "isac", "drunken-guild", "a", "p_1"])
     def test_accepts_well_formed_ids(self, project_id: str) -> None:
         assert validate_project_id(project_id) == project_id
 

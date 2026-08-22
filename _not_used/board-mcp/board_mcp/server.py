@@ -1,4 +1,4 @@
-"""Vendor-neutral file-based Kanban board MCP server. **UNUSED as of DT-250.**
+"""Vendor-neutral file-based Kanban board MCP server. **UNUSED as of DG-250.**
 
 .. warning::
 
@@ -13,10 +13,10 @@
 
    The reason is not that it was broken. A local board next to Jira is a
    *second surface that can disagree with the first*, which is the failure this
-   repository spent 2026-08-13 curing: four disagreeing surfaces in DT-249, one
-   credential copied to three places in DT-248. The evidence was already on
+   repository spent 2026-08-13 curing: four disagreeing surfaces in DG-249, one
+   credential copied to three places in DG-248. The evidence was already on
    disk — this project's own board held three cards, last touched 2026-07-22,
-   still using the ``DAGY-`` prefix DT-244 retired, while every real ticket of
+   still using the ``DAGY-`` prefix DG-244 retired, while every real ticket of
    that period went through Jira.
 
    What is genuinely lost with it: claims expired after
@@ -26,7 +26,7 @@
 Original description follows.
 
 Exposes 16 tools (the original 12 from kanban-server.js, ``board_report``, and
-the DT-233 scheduling trio: ``board_block_task``, ``board_unblock_task``,
+the DG-233 scheduling trio: ``board_block_task``, ``board_unblock_task``,
 ``board_available_tasks``).
 Every tool accepts a ``project`` argument resolved through
 :class:`~core.registry.ProjectRegistry`, so both Claude Code and Antigravity
@@ -44,7 +44,7 @@ Resolved through :func:`core.paths.registry_path`, so this server reads the
 same registry as the Jira and Discord servers: ``$DRUNKEN_HOME/projects.json``
 by default, overridable with ``DRUNKEN_REGISTRY_PATH``.
 
-Until DT-242 it derived the path from its own ``__file__`` instead, pointing at
+Until DG-242 it derived the path from its own ``__file__`` instead, pointing at
 the repo's ``.agents/projects.json``.  That was the §1.3 bug — under
 ``uv tool install`` the expression resolves inside the virtualenv rather than a
 checkout — and it also meant the board and the Jira server could disagree about
@@ -97,7 +97,7 @@ def bound_project() -> str | None:
 
 
 def _authorize(project: str) -> None:
-    """S2 (DT-225). ``project`` used to be a lookup key, and a key opens
+    """S2 (DG-225). ``project`` used to be a lookup key, and a key opens
     whatever it names.
 
     ``main()`` said so out loud — *"--project (ignored by board, kept for

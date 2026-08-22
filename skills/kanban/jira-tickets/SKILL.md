@@ -41,7 +41,7 @@ to pick up. Write declaratively.
 
 Do not write:
 
-- `Found 2026-08-19 while verifying DT-252 by running drunken-doctor…`
+- `Found 2026-08-19 while verifying DG-252 by running drunken-doctor…`
 - `WHY IT MATTERS BEYOND THIS ONE FILE`
 - `Every surface agreed. The only wrong thing was…`
 
@@ -118,7 +118,7 @@ have recreated the two-surfaces problem.
 
 ## 5. Before anything is called Done
 
-**A ticket marked IN REVIEW is not merged code.** DT-225 sat in review for
+**A ticket marked IN REVIEW is not merged code.** DG-225 sat in review for
 weeks while its branch was never merged and the trunk stayed vulnerable; every
 surface said it was done.
 
