@@ -31,9 +31,69 @@ A complete walkthrough — from installation through your first completed task. 
 
 - [Claude Code CLI](https://claude.ai/code) installed and authenticated
 - Git
-- **[Node.js](https://nodejs.org/) v18 or v24** *(required only by the MCP servers in `~/Projects/drunken-team`. The install scripts here need nothing but bash or PowerShell.)*
 - **macOS / Linux:** Bash 3.2+, `rsync`
 - **Windows:** PowerShell 5.1+ or [PowerShell Core 7+](https://github.com/PowerShell/PowerShell/releases)
+
+### Optional — the companion repo, for coordination only
+
+**21 of the 29 skills need nothing but this repo.** Architecture, testing, security, UI/UX,
+Electron, git discipline — all of it installs and works on its own.
+
+The remaining 8 plus the `principal-engineer` agent coordinate work on Jira, and they need a
+companion repo: **[`sornbuen15/drunken-team`](https://github.com/sornbuen15/drunken-team)**
+(MIT). It provides two things:
+
+| what | why it is needed |
+|---|---|
+| `drunken-jira-mcp` — the MCP server | the `jira_*` tools every coordination skill calls |
+| `.agents/skills/jira-tickets/SKILL.md` | the ticket-writing rules those skills treat as authoritative |
+| `.agents/skills/ask-boss/SKILL.md` | the approval protocol |
+
+```bash
+git clone https://github.com/sornbuen15/drunken-team.git ~/Projects/drunken-team
+```
+
+> **Clone it to `~/Projects/drunken-team` specifically.** The coordination skills reference
+> `~/Projects/drunken-team/.agents/skills/jira-tickets/SKILL.md` by absolute path. Cloning it
+> elsewhere leaves that reference dangling — see *What happens without it* below.
+>
+> It also needs **[Node.js](https://nodejs.org/) v18 or v24** and [`uv`](https://docs.astral.sh/uv/).
+> The install scripts in *this* repo need neither — only bash or PowerShell.
+
+Then declare the server in **your own project's** `.mcp.json` (not in this repo — it has no Jira
+and needs none):
+
+```json
+{
+  "mcpServers": {
+    "drunken-jira-mcp": {
+      "command": "uv",
+      "args": ["--directory", "/absolute/path/to/drunken-team", "run",
+               "python", "-m", "jira_mcp.server", "--project", "<YOUR-JIRA-KEY>"],
+      "env": { "PYTHONPATH": "src" }
+    }
+  }
+}
+```
+
+`--directory` with an **absolute path** is what makes this work from your project's directory
+rather than only from inside `drunken-team`.
+
+### What happens without it
+
+Nothing breaks silently, but the two failure modes are not equally graceful:
+
+- **Server not declared** — handled cleanly. Every coordination skill carries a FATAL constraint
+  naming the server it requires, so it says *"requires `drunken-jira-mcp`, declared in the
+  project's `.mcp.json`"* and stops, rather than falling back to a file or a shell script.
+- **Repo not cloned to that path** — handled less well. The skills point at `jira-tickets` as
+  authoritative for ticket format and have no fallback text if it is absent. They carry the
+  essentials inline (three headings — FINDING / SCOPE / ACCEPTANCE; ≤ 120 words; urgency as a
+  label because `priority` is unsettable), so an agent can still proceed — but it will not know
+  it is working from a summary rather than the source.
+
+If you have no Jira at all, skip this section entirely and ignore the five coordination skills.
+The other 21 are unaffected.
 
 ---
 
