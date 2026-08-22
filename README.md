@@ -12,6 +12,7 @@ A collection of **29 skills**, **5 specialist agents**, and a **10-agent enginee
 ## Table of Contents
 
 - [Quick Start](#quick-start)
+- [Companion Repo (optional)](#companion-repo-optional)
 - [Installation](#installation)
   - [Prerequisites](#prerequisites)
   - [macOS / Linux](#macos--linux)
@@ -130,7 +131,34 @@ Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
 
 Re-run both scripts after any skill or agent update.
 
-> **Coordination needs one MCP server, and it is not authored here.** `drunken-jira-mcp` lives in `~/Projects/drunken-team` and is declared per project in that project's own `.mcp.json`. Most skills in this repo need no MCP server at all — only the Jira ones do, and each names its requirement in its own `<constraints>` block. The old local-board scripts and their server are retired to [`_not_used/scripts/`](./_not_used/scripts/).
+> **Coordination needs one MCP server, and it is not authored here.** See [Companion Repo](#companion-repo-optional) — 21 of the 29 skills need nothing but this repo. The old local-board scripts and their server are retired to [`_not_used/scripts/`](./_not_used/scripts/).
+
+---
+
+## Companion Repo (optional)
+
+**21 of the 29 skills need nothing but this repo.** Architecture, testing, security, UI/UX,
+Electron, git discipline — all of it installs and works standalone. If you have no Jira, install
+this repo and stop reading here.
+
+The other **8** coordinate work on Jira — `spec-to-backlog`, `backlog-refinement`,
+`issue-intake`, `audit-to-backlog`, `task-estimation`, `local-progress-reporter`,
+`test-report-generator`, `project-audit-reviewer` — along with the `principal-engineer` agent.
+They need **[`sornbuen15/drunken-team`](https://github.com/sornbuen15/drunken-team)** (MIT):
+
+| what it provides | why |
+|---|---|
+| `drunken-jira-mcp` | the `jira_*` tools every coordination skill calls |
+| `.agents/skills/jira-tickets/SKILL.md` | ticket-writing rules those skills treat as authoritative and link to rather than copy |
+| `.agents/skills/ask-boss/SKILL.md` | the approval protocol |
+
+```bash
+git clone https://github.com/sornbuen15/drunken-team.git ~/Projects/drunken-team
+```
+
+**Clone it to `~/Projects/drunken-team` specifically** — the skills reference that path
+absolutely. Full setup, the `.mcp.json` snippet, and what degrades without it are in
+[`GETTING_STARTED.md`](./GETTING_STARTED.md#optional--the-companion-repo-for-coordination-only).
 
 ---
 
@@ -643,7 +671,7 @@ drunken-ai-team/
 ## Known Limitations
 
 1. **Token Cost & Latency:** Running multiple agents consumes significant tokens. Handing a specialist a Jira issue key rather than a paraphrased brief keeps each delegation small, but a sequence of them still adds up.
-2. **Jira MCP Required for Coordination:** The coordination skills need `drunken-jira-mcp`, which is authored in `~/Projects/drunken-team` and declared in your project's own `.mcp.json`. Every other skill here stands on its own and needs no server.
+2. **Jira MCP Required for Coordination:** 8 skills and `principal-engineer` need the [companion repo](#companion-repo-optional) — both its MCP server and its `jira-tickets` rules file, which they reference at `~/Projects/drunken-team/...` by absolute path. Clone it elsewhere and that reference dangles; the skills carry the essential ticket rules inline, so they degrade rather than fail, but they will not say they are working from a summary. The other 21 skills stand on their own.
 3. **No Claim Expiry:** A Jira assignee never expires. If an agent stops mid-ticket the ticket stays assigned until a human reassigns it — the retired board released a claim after 1800s, and that is the one capability the move to Jira gave up.
 4. **Process Heavy for Small Tasks:** The strict three-tier architecture is designed for complex features. Using the full squad for a minor CSS tweak is overkill.
 5. **Retry Loops:** Autonomous agents can enter retry cycles. `/isolate` (`think-analyze-isolate`) carries an anti-loop mandate — stop after two identical failures — but monitor execution and intervene if tasks fail repeatedly.
