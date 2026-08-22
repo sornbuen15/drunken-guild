@@ -23,7 +23,7 @@ V2_DOCUMENT = {
                 "project_key": "TWA",
                 "credential": "env://JIRA_TOKEN_TWA",
             },
-            "discord": {"channel_id": "1518206617336811573"},
+            "discord": {"channel_id": "123456789012345678"},
         }
     },
 }

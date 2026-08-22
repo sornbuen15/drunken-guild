@@ -8,43 +8,45 @@ import urllib.parse
 import urllib.request
 from typing import Any, Dict, Optional
 
+
+def _site() -> str:
+    """The Confluence site, from configuration rather than from this file.
+
+    It used to be the real workspace host, written inline in three URLs, in a
+    public repository. CLAUDE.md forbids exactly that: never a token, channel
+    id, workspace URL or account email inline (DG-275).
+    """
+    site = os.environ.get("CONFLUENCE_URL") or os.environ.get("JIRA_URL") or ""
+    if not site:
+        print(
+            "Error: no Confluence site configured.\n"
+            "  -> Set CONFLUENCE_URL, or register the project: "
+            "drunken-init --project <id> --jira-url https://<site> ...",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    return site.rstrip("/")
+
+
 SPACE_KEY = "D"
 SPACE_ID = "2031618"
 HOMEPAGE_ID = "2031725"
 
 
-def _load_env_file(path: str) -> None:
-    try:
-        with open(path, "r", encoding="utf-8") as f:
-            for line in f:
-                line = line.strip()
-                if not line or line.startswith("#"):
-                    continue
-                if "=" in line:
-                    key, val = line.split("=", 1)
-                    os.environ.setdefault(
-                        key.strip(), val.strip().strip('"').strip("'")
-                    )
-    except Exception:
-        pass
-
-
-def load_dotenv() -> None:
-    # Look for .env in the current directory or any parent directory.
-    curr_dir = os.getcwd()
-    while True:
-        dotenv_path = os.path.join(curr_dir, ".env")
-        if os.path.exists(dotenv_path):
-            _load_env_file(dotenv_path)
-            return
-        parent = os.path.dirname(curr_dir)
-        if parent == curr_dir:
-            break
-        curr_dir = parent
+# The `.env` parent-walk that used to live here is gone (DG-275).
+#
+# It walked up from `os.getcwd()` through every parent, loaded the first `.env`
+# it found into `os.environ`, and ran at import. Config precedence puts an
+# environment variable first because an env var is explicit and named -- so a
+# `.env` picked up by climbing arrived disguised as rule 1 and outranked the
+# registry. DG-254 removed exactly this from the daemon; it survived here, in
+# the script the daemon spawns for /tasks, /pr, /next and /refine.
+#
+# Environment variables still work. What no longer happens is this process
+# inventing them from a file nobody named.
 
 
 def get_jira_token() -> Optional[str]:
-    load_dotenv()
     token = os.environ.get("JIRA_TOKEN")
 
     global_jira = os.path.expanduser("~/.gemini/config/jira_config.json")
@@ -60,7 +62,6 @@ def get_jira_token() -> Optional[str]:
 
 
 def get_jira_email() -> Optional[str]:
-    load_dotenv()
     email = os.environ.get("CONFLUENCE_EMAIL") or os.environ.get("JIRA_EMAIL")
 
     local_jira = os.path.join(os.getcwd(), ".agents", "jira.json")
@@ -264,7 +265,7 @@ def markdown_to_html(md_text: str) -> str:  # noqa: C901  # long dispatch chain;
 
 def get_page_by_title(title: str, token: str) -> Optional[Dict[str, Any]]:
     title_quoted = urllib.parse.quote(title)
-    url = f"https://sornbuen15.atlassian.net/wiki/api/v2/spaces/{SPACE_ID}/pages?title={title_quoted}"
+    url = f"{_site()}/wiki/api/v2/spaces/{SPACE_ID}/pages?title={title_quoted}"
     res = make_request(url, token=token)
     results = res.get("results", [])
     return results[0] if results else None
@@ -280,7 +281,7 @@ def create_page(
         "parentId": parent_id or HOMEPAGE_ID,
         "body": {"representation": "storage", "value": body_html},
     }
-    url = "https://sornbuen15.atlassian.net/wiki/api/v2/pages"
+    url = _site() + "/wiki/api/v2/pages"
     return make_request(url, method="POST", payload=payload, token=token)
 
 
@@ -298,7 +299,7 @@ def update_page(
             "message": "Auto-updated by Antigravity",
         },
     }
-    url = f"https://sornbuen15.atlassian.net/wiki/api/v2/pages/{page_id}"
+    url = f"{_site()}/wiki/api/v2/pages/{page_id}"
     return make_request(url, method="PUT", payload=payload, token=token)
 
 

@@ -26,7 +26,7 @@ V2_DOCUMENT = {
                 "project_key": "TWA",
                 "credential": "env://JIRA_TOKEN_TWA",
             },
-            "discord": {"channel_id": "1518206617336811573"},
+            "discord": {"channel_id": "123456789012345678"},
         },
         "bare": {"path": "/abs/bare"},
         "incomplete": {
@@ -76,7 +76,7 @@ class TestBuild:
         context = ProjectContext.build("twa", registry)
 
         assert context.jira.project_key == "TWA"
-        assert context.discord.channel_id == "1518206617336811573"
+        assert context.discord.channel_id == "123456789012345678"
 
     def test_a_project_without_jira_builds_fine(self, registry) -> None:
         """Board-only projects exist and must not be forced to configure Jira."""

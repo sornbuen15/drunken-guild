@@ -49,7 +49,19 @@ class BoardProfile:
     """
 
     id: Optional[int] = None
-    name: Optional[str] = None
+    #: What the board is attached to, from the Agile API's ``location``.
+    #:
+    #: The board's own ``name`` is deliberately not carried. It is frozen at
+    #: creation and there is no way to change it — a team-managed project offers
+    #: no board-rename UI, and the Agile API creates and deletes boards rather
+    #: than renaming them. Rename the project afterwards and the label is wrong
+    #: forever: this board still answered ``DT board`` months after the project
+    #: became ``Drunken-Guild``. Reporting an unchangeable field beside
+    #: changeable ones is what sends a reader looking for a setting that does
+    #: not exist, so it is not reported at all (DG-274).
+    project_key: Optional[str] = None
+    project_name: Optional[str] = None
+    display_name: Optional[str] = None
     type: Optional[str] = None
     backlog: Optional[bool] = None
     known: bool = True
@@ -388,9 +400,15 @@ class JiraClient:
                 # disease again.
                 has_backlog = None
 
+        # Only `location` is read. See BoardProfile for why `board["name"]` is
+        # not carried at all.
+        location = board.get("location") or {}
+
         return BoardProfile(
             id=board_id,
-            name=board.get("name"),
+            project_key=location.get("projectKey"),
+            project_name=location.get("projectName"),
+            display_name=location.get("displayName"),
             type=board.get("type"),
             backlog=has_backlog,
             known=True,
