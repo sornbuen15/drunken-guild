@@ -81,7 +81,11 @@ class TestSeeingTheDeployment:
         install. Failing there would train everyone to ignore this check, which
         is how a real finding gets missed."""
         report = doctor.Report()
-        doctor._check_deployment(report, env_root=tmp_path / "absent")
+        # `legacy_roots` is passed explicitly so this asserts the code, not the
+        # machine: an install under the previous package name is a *different*
+        # answer (a warn, see test_ai_layer_drift), and whether one exists is
+        # not something this test should depend on.
+        doctor._check_deployment(report, env_root=tmp_path / "absent", legacy_roots=())
 
         check = _named(report, "deployment.tool_env")
         assert check is not None and check.status == "skip"
