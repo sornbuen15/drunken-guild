@@ -29,19 +29,34 @@ not ours to touch) all match the source — `drunken-doctor` checks this now and
 
 ---
 
-## 2. Three things are true right now and will bite you
+## 2. Security posture, checked rather than assumed
 
-- **The deployed CLI is current, and was not until 2026-08-22.** `uv tool list` now shows
-  `drunken-guild v1.0.0` and `drunken-board-mcp` is gone from PATH. It took an uninstall first —
-  `--force` repoints the symlinks and leaves the old environment shipping the retired server:
+Audited 2026-08-22, and re-run after the fixes:
 
-  ```bash
-  uv tool uninstall drunken-team || true   # only if `uv tool list` still shows it
-  uv tool install .
-  ```
+| | |
+|---|---|
+| `gitleaks`, 397 commits, **allowlist disabled** | no findings |
+| the live Jira token, working tree and every commit (`git log -S`) | absent |
+| `.env`, `secrets.json`, `*.pem`, `id_rsa` ever added | never |
+| workspace host / personal address inline | removed (DG-275) |
 
-  `drunken-doctor` reports `deployment.tool_env` and names an install under the previous package
-  name rather than skipping, so this state is visible rather than assumed.
+**No credential has ever been committed.** What was there was worse-shaped than
+it looked but not a leak: two bridge scripts still read a `.env` found by
+climbing, which is DG-254's vulnerability alive on the daemon's own path. Fixed
+in DG-275, with an inverted test that fails if it returns.
+
+**One thing is left, and it is the owner's call:** `SECURITY.md` publishes a
+personal address as the vulnerability-reporting contact. GitHub's private
+vulnerability reporting is the usual alternative for a public repository.
+Changing where a project receives security reports is not an agent's decision.
+
+**One is named rather than fixed:** `scripts/sync_customizations.py` climbs for
+`.agents/`. Same banned pattern, no credential surface — it resolves a directory,
+not a secret.
+
+---
+
+## 3. Two things are true right now and will bite you
 
 - **Four skills are not ours and their licence is unknown.** `debug-mantra`, `post-mortem`,
   `scrutinize`, `management-talk` are byte-identical to the `9arm-skills` plugin, whose pack carries
@@ -55,13 +70,13 @@ not ours to touch) all match the source — `drunken-doctor` checks this now and
 
 ---
 
-## 3. Next session — make Claude and Antigravity work together
+## 4. Next session — make Claude and Antigravity work together
 
 **This is the goal: two agents running work in parallel off one board.** Both CLIs already take a
 non-interactive prompt, both read the same skills and agents, and both can reach the same Jira.
 What is missing is the wiring and the rules that stop them colliding.
 
-### 3.1 Fix Antigravity's MCP config first — nothing works before this
+### 4.1 Fix Antigravity's MCP config first — nothing works before this
 
 `~/.gemini/antigravity-cli/mcp_config.json` is stale in four ways. Read it, then correct it:
 
@@ -80,7 +95,7 @@ Do this *after* `uv tool install .`, or the absolute paths point into the old en
 
 **Editing a file under `~/.gemini/` is an install. Hand the Boss the command; do not run it.**
 
-### 3.2 Prove each direction with one read-only call
+### 4.2 Prove each direction with one read-only call
 
 ```bash
 # Claude → Antigravity
@@ -96,7 +111,7 @@ claude -p "Read CLAUDE.md and summarise the git rules in five lines."
 For the second direction, Antigravity's `settings.json` `allowed_commands` currently permits only
 four `ask_boss.py` spellings, so `command(claude)` has to be added there. That is the Boss's file.
 
-### 3.3 Decide the coordination rule *before* running anything in parallel
+### 4.3 Decide the coordination rule *before* running anything in parallel
 
 Two agents in one checkout will collide in git, not in Jira. Settle these:
 
@@ -110,7 +125,7 @@ Two agents in one checkout will collide in git, not in Jira. Settle these:
    machinery. Start there and widen only if it proves limiting.
 3. **Who merges** — unchanged. An agent opens PRs; a human merges them.
 
-### 3.4 What "done" looks like for this
+### 4.4 What "done" looks like for this
 
 - Antigravity answers a read-only prompt from Claude, against `drunken-guild`, with correct Jira.
 - Claude answers a read-only prompt from Antigravity.
@@ -118,7 +133,7 @@ Two agents in one checkout will collide in git, not in Jira. Settle these:
 - The rule from 3.3 is written into `CLAUDE.md` and `.agents/AGENTS.md` — **the same rule in both**,
   because a per-agent copy is the failure this repo was built to cure.
 
-### 3.5 Known unknowns — check, do not assume
+### 4.5 Known unknowns — check, do not assume
 
 - Antigravity has not run since **2026-07-10**. Assume nothing about its session state.
 - `agy --print-timeout` defaults to 5 minutes. A real task will exceed it.
@@ -127,10 +142,11 @@ Two agents in one checkout will collide in git, not in Jira. Settle these:
 
 ---
 
-## 4. Open tickets
+## 5. Open tickets
 
 | key | what |
 |---|---|
+| **DG-275** | `sync_customizations.py` still climbs for `.agents/`. No credential surface, same banned pattern |
 | **DG-260** | `drunken-doctor` reports a project OK when its Jira project key does not exist |
 | **DG-271** | `requirements-dev.txt` pins a different ruff than `pyproject` and still names `drunken-guild`. Regenerating moves ~35 packages and `pip-audit --strict` reads it — read that result before merging |
 | — | Follow-up noted on DG-262: `deployment.tool_env` should warn when a legacy tool root exists *alongside* a current one, not only when the current one is absent |
@@ -138,7 +154,7 @@ Two agents in one checkout will collide in git, not in Jira. Settle these:
 
 ---
 
-## 5. Phase 4 — release `v1.0.0`
+## 6. Phase 4 — release `v1.0.0`
 
 Not started, and nothing blocks it but the decision to do it.
 
@@ -155,7 +171,7 @@ scripts into `drunken <subcommand>` with the old names kept as aliases.
 
 ---
 
-## 6. Standing constraints
+## 7. Standing constraints
 
 - **Do not touch `~/Projects/drunken-team` or `~/Projects/ai-team-toolkit`.** They are the fallback
   until this repo is released and verified. `ai-team-toolkit` is terminated *after* that.
