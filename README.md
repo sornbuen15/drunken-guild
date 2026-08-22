@@ -32,16 +32,23 @@ No Python, no credentials, no server. Clone and install:
 ```bash
 git clone https://github.com/sornbuen15/drunken-guild.git
 cd drunken-guild
-./scripts/install/sync_skills.sh    # → ~/.claude/skills/
-./scripts/install/sync_agents.sh    # → ~/.claude/agents/
+./scripts/install/install_skills.sh    # → ~/.claude/skills/
+./scripts/install/install_agents.sh    # → ~/.claude/agents/
 ```
+
+Both also install into Antigravity's tree when it is present, and neither creates it when it is
+not. Add `--index-only` to rebuild `INDEX.md` without installing anything.
+
+> The PowerShell pair installs to `~/.claude/` only — no Antigravity tree, no `--index-only`. The
+> gap is stated in each script's header: there is no Windows machine here to test against, and an
+> untested installer writing into a shared config directory is worse than one that does less.
 
 Windows (PowerShell):
 
 ```powershell
 Set-ExecutionPolicy -Scope CurrentUser RemoteSigned   # one-time, if blocked
-.\scripts\install\sync_skills.ps1
-.\scripts\install\sync_agents.ps1
+.\scripts\install\install_skills.ps1
+.\scripts\install\install_agents.ps1
 ```
 
 Then invoke a skill by its trigger — `/tdd`, `/secure`, `/scrutinize`, `/post-mortem` — or hand work

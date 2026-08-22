@@ -186,6 +186,29 @@ Every agent is `agents/<agent-name>.md` with frontmatter carrying `name`, `descr
 - `skills/.external` lists skills installed but deliberately not authored here. An empty file is a
   claim that there are none, not a default.
 
+### Installing is the operator's job, not yours
+
+**Do not run the install scripts, copy files into `~/.claude/` or `~/.gemini/`, or deploy anything.
+Installation is always a manual step performed by the Boss.** When a skill or agent is ready, say
+so and give the command; do not run it. This rule came from the toolkit side of the merge, where it
+was FATAL, and it is FATAL here.
+
+```
+scripts/install/install_skills.sh    → ~/.claude/skills/  + the Antigravity tree
+scripts/install/install_agents.sh    → ~/.claude/agents/  + the Antigravity variant, generated
+scripts/install/install_mcp.sh       → prints or writes a project's MCP config
+```
+
+The first two also refresh `INDEX.md`, which is generated *and* committed — so it goes stale on any
+change to a skill's name or description, and an agent that must not install had no way to fix a
+tracked file. Both take **`--index-only`**: rebuild the repository's index, write nothing anywhere
+else. Use that, never a hand edit — hand-generation drifts from the generator's output by a byte or
+two per line, which is worse than stale.
+
+`install_mcp.sh` is a thin wrapper over `drunken-config` on purpose. `drunken-config` reads the
+registry, knows a repository's config from a host application's, and merges rather than overwrites.
+A second emitter beside it would be two things answering one question.
+
 ### Four layers reach a project, from three places
 
 A skill that does not say which layer it needs gets installed into a project that cannot run it.
