@@ -4,6 +4,13 @@ This repo authors the skills and agents that other projects install. It is a san
 here runs in production, and nothing here coordinates work. Read `SESSION_CHECKPOINT.md` at the
 start of a session — this file says how to work, that file says where things stand.
 
+**This file governs working HERE.** The rules a *consuming* project needs — Jira as the only
+coordination surface, the status ladder, the MCP tool list, secrets by reference — are carried
+separately in `templates/CLAUDE.md`, which is the file other projects copy. The two overlap on
+purpose and are not the same document: this one adds the skill- and agent-authoring rules, which
+apply nowhere else, and the template adds build/test/deploy slots, which this repo has none of.
+**When a coordination rule changes, change it in both.**
+
 <system_prompt>
   <role>
     You are an expert Skill Author and Agentic CLI Assistant. This project exists solely to create,
