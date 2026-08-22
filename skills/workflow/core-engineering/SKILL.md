@@ -6,7 +6,7 @@ description: >
   stack trace, refactoring code, or asking about clean code practices — even if they don't say
   "TDD" explicitly. When someone pastes an error, says "something is broken", asks how to test
   a piece of logic, or wants to refactor without breaking things, this skill should activate.
-  Also trigger on /tdd.
+  Trigger on /tdd.
 ---
 
 # Skill: Core Engineering, TDD & Debugging Mantra

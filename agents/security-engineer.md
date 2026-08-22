@@ -1,7 +1,7 @@
 ---
 name: security-engineer
 description: Use when a task requires a security review, threat modeling, identifying vulnerabilities, reviewing authentication or authorization design, auditing dependency risks, or ensuring compliance with security standards. Also use proactively whenever a new endpoint, authentication flow, data handling component, or external integration is introduced — security review is not optional on new surfaces. Spawned by the principal-engineer orchestrator or invoked directly.
-model: claude-sonnet-4-6
+model: claude-sonnet-5
 tools: Read, Edit, Write, Bash, WebSearch, WebFetch
 ---
 
