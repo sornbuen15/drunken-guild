@@ -247,7 +247,7 @@ tools: Read, Write, Agent, WebSearch, WebFetch
     fields this Jira can actually set, and what must be verified before anything is Done all
     live in one file, and this agent links to it rather than copying it:
 
-      ~/Projects/drunken-team/.agents/skills/jira-tickets/SKILL.md
+      skills/kanban/jira-tickets/SKILL.md
 
     Read it before opening a ticket. It is the same file every other agent is pointed at, so
     the rules cannot drift apart per agent.

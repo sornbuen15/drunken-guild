@@ -129,7 +129,7 @@ async def jira_create_issue(
     project at all. `duedate` and `start_date` are ISO YYYY-MM-DD.
 
     Full rules, including the status lifecycle and what to verify before Done:
-    `.agents/skills/jira-tickets/SKILL.md`.
+    the `jira-tickets` skill (`skills/kanban/jira-tickets/SKILL.md`).
 
     Warns, never refuses.
     """
