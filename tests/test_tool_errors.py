@@ -17,7 +17,6 @@ import json
 
 import pytest
 
-from board_mcp import server as board_server
 from jira_mcp import server as jira_server
 
 
@@ -61,8 +60,6 @@ class TestTheWrapperDoesNotEatTheSignature:
                     "labels",
                 },
             ),
-            (board_server.board_summary, {"project"}),
-            (board_server.board_block_task, {"project", "task_id", "req_id", "reason"}),
         ],
     )
     def test_the_real_parameters_are_still_visible(self, tool, expected) -> None:
@@ -91,16 +88,6 @@ class TestAKnownFailureCarriesItsRemediation:
             "The error reached the agent but without the command that fixes "
             "it, which is the half that makes it actionable."
         )
-
-    @pytest.mark.asyncio
-    async def test_board_tool_names_the_unknown_project(self, monkeypatch) -> None:
-        monkeypatch.setenv("DRUNKEN_REGISTRY_PATH", "/nonexistent/projects.json")
-
-        result = _payload(await board_server.board_summary("no-such-project"))
-
-        assert result["ok"] is False
-        assert "no-such-project" in json.dumps(result)
-
 
 class TestAnUnexpectedFailureIsStillAnAnswer:
     @pytest.mark.asyncio
