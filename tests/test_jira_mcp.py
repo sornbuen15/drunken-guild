@@ -128,7 +128,7 @@ async def test_warns_when_the_project_has_no_board() -> None:
 @pytest.mark.asyncio
 async def test_silent_when_a_board_exists() -> None:
     """Zero added tokens on the healthy path."""
-    client = _FakeClient(boards=[{"id": 72, "name": "DG board"}])
+    client = _FakeClient(boards=[{"id": 72, "name": "Drunken-Guild (DG)"}])
     assert await client.board_warning() is None
 
 
