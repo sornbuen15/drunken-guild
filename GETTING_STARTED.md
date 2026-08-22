@@ -198,10 +198,8 @@ field, which cannot be set on a team-managed project and reads `Medium` on every
 **Review the generated tickets in Jira.** Check that the labels look right and that nothing
 important is missing. Edit them in Jira directly.
 
-> See [`examples/01-spec-to-backlog/`](./examples/01-spec-to-backlog/) for what the summary table
-> looks like. **The `examples/` fixtures are pre-Jira** — they still show `board/<lane>/TASK-NN.md`
-> files, the local board that is now retired. Read them for the shape of the work, not for the
-> surface it lands on.
+> See [`examples/01-spec-to-backlog/`](./examples/01-spec-to-backlog/) for the six tickets this
+> produces and the summary table it prints.
 
 ---
 

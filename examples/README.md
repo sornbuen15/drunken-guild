@@ -25,23 +25,22 @@ Stage 0 — Setup
   └── Fill in PROJECT_BRIEF.md + REQUIREMENTS.md
 
 Stage 1 — /init-project  (spec-to-backlog)
-  └── Generates the initial backlog: TASK-01 through TASK-06
+  └── Creates the initial Jira backlog: TF-1 through TF-6
+      Urgency lands as a label; priority is not settable here
 
 Stage 2 — /refine  (backlog-refinement)
   └── Moves the critical tickets onto the board
-      The rest stay in the backlog
+      The rest stay in the backlog. Nothing is transitioned:
+      board membership and status are separate axes
 
 Stage 3 — /estimate  (task-estimation)
   └── Sizes the TODO tickets: T-shirt, AI turns, review effort
+      Printed, never written back — this Jira has no story points
 ```
 
-> **These fixtures are pre-Jira and are being rewritten.** Each stage still ships a
-> `board/<lane>/TASK-NN.md` directory as its expected output — the local board that `CLAUDE.md`
-> now forbids. The skills themselves already run on Jira; only these recorded outputs lag. Read
-> them for the *shape* of the work, not for the surface it lands on.
->
-> Stages 4 (`/next`) and 5 (`/task`) are gone: the skills they demonstrated were retired with the
-> board. Both are kept at [`_not_used/examples/`](../_not_used/examples/).
+> Stages 4 (`/next`) and 5 (`/task`) are gone: the skills they demonstrated were retired with
+> the local board. Both are kept at [`_not_used/examples/`](../_not_used/examples/), where their
+> `board/` fixtures are the clearest surviving record of how that board looked in use.
 
 ---
 
