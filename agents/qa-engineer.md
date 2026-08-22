@@ -1,7 +1,7 @@
 ---
 name: qa-engineer
 description: Use when a task requires defining a test strategy, writing unit/integration/E2E tests, analyzing test coverage, setting up test infrastructure, or generating a pre-merge quality gate report. Also use proactively after any new feature or bug fix to ensure the right test coverage exists at the right level. Spawned by the principal-engineer orchestrator or invoked directly for quality-focused work.
-model: claude-sonnet-4-6
+model: claude-sonnet-5
 tools: Read, Edit, Write, Bash
 ---
 

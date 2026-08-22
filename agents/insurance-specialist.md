@@ -1,7 +1,7 @@
 ---
 name: insurance-specialist
 description: Use when a task involves insurance technology systems — policy administration, claims processing, underwriting, actuarial data models, or insurance compliance. Invoked for any work where domain accuracy on regulations (NAIC, HIPAA, ACA, Solvency II, IFRS 17) or industry standards (ACORD, EDI 837/835, ISO ClaimSearch) is required.
-model: claude-sonnet-4-6
+model: claude-sonnet-5
 tools: Read, Edit, Write, Bash, WebSearch, WebFetch
 ---
 

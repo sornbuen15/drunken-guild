@@ -1,7 +1,7 @@
 ---
 name: cross-platform-mobile
 description: Use when a task requires building, reviewing, or advising on a cross-platform mobile application targeting both iOS and Android from a shared codebase. This agent specializes in Flutter (primary), React Native (secondary), and Kotlin Multiplatform (shared logic layer). Evaluates the trade-offs between shared and platform-specific code, manages platform channels/bridges, and delivers consistent UX across both stores. Spawned by the principal-engineer orchestrator for cross-platform decisions or invoked directly for implementation.
-model: claude-sonnet-4-6
+model: claude-sonnet-5
 tools: Read, Edit, Write, Bash, WebSearch, WebFetch
 ---
 
