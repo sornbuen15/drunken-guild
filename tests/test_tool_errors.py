@@ -89,6 +89,7 @@ class TestAKnownFailureCarriesItsRemediation:
             "it, which is the half that makes it actionable."
         )
 
+
 class TestAnUnexpectedFailureIsStillAnAnswer:
     @pytest.mark.asyncio
     async def test_an_unhandled_exception_does_not_escape_the_tool(
