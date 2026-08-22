@@ -8,12 +8,11 @@ import discord
 
 from core import paths
 from core.context import ProjectContext
-from core.registry import ProjectRegistry
 from jira_mcp.jira_client import JiraClient
 from service.approval_manager import ApprovalManager
 from service.discord_router import DiscordRouter
 from service.discord_runner import AgentRunner
-from service.discord_utils import load_config
+from service.discord_utils import default_project_id, load_config
 
 config = load_config()
 BOT_TOKEN = config["bot_token"]
@@ -40,14 +39,27 @@ client = discord.Client(intents=intents)
 tree = discord.app_commands.CommandTree(client)
 
 
-registry = ProjectRegistry()
-projects = registry.get_projects()
-if projects:
-    project_id = list(projects.keys())[0]
+# Which project this daemon serves is stated, never inferred. This used to read
+# `list(projects.keys())[0]` -- the first key in a JSON file -- so on a machine
+# with four registered projects the answer depended on which had been written
+# first, and nothing anywhere reported the choice.
+#
+# `default_project_id()` takes DRUNKEN_PROJECT if it is set, and otherwise the
+# single registered project when there is exactly one. With several and no
+# variable it returns None, and the daemon starts without a Jira client rather
+# than picking one: every project-scoped command then answers by naming the fix.
+project_id = default_project_id()
+if project_id:
     ctx = ProjectContext.build(project_id)
     jira_client = JiraClient(ctx)
+    print(f"Serving project: {project_id}", file=sys.stderr)
 else:
     jira_client = None  # type: ignore
+    print(
+        "No target project. Set DRUNKEN_PROJECT, or use /project <name> in "
+        "Discord. Jira commands will say so until then.",
+        file=sys.stderr,
+    )
 agent_runner = AgentRunner()
 approval_manager = ApprovalManager(client, int(CHANNEL_ID), agent_runner, jira_client)
 router = None
