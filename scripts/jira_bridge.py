@@ -7,40 +7,17 @@ import urllib.parse
 import urllib.request
 from typing import Any, Dict, List, Optional
 
-
-def _load_env_file(path: str) -> None:
-    try:
-        with open(path, "r", encoding="utf-8") as f:
-            for line in f:
-                line = line.strip()
-                if not line or line.startswith("#"):
-                    continue
-                if "=" in line:
-                    key, val = line.split("=", 1)
-                    key = key.strip()
-                    val = val.strip().strip('"').strip("'")
-                    if key and key not in os.environ:
-                        os.environ[key] = val
-    except Exception as e:
-        print(f"Warning: Failed to load {path}: {e}", file=sys.stderr)
-
-
-def load_dotenv() -> None:
-    # Look for .env in the current directory or any parent directory.
-    curr_dir = os.getcwd()
-    while True:
-        dotenv_path = os.path.join(curr_dir, ".env")
-        if os.path.exists(dotenv_path):
-            _load_env_file(dotenv_path)
-            return
-        parent = os.path.dirname(curr_dir)
-        if parent == curr_dir:
-            break
-        curr_dir = parent
-
-
-# Automatically load local .env variables at startup
-load_dotenv()
+# The `.env` parent-walk that used to live here is gone (DG-275).
+#
+# It walked up from `os.getcwd()` through every parent, loaded the first `.env`
+# it found into `os.environ`, and ran at import. Config precedence puts an
+# environment variable first because an env var is explicit and named -- so a
+# `.env` picked up by climbing arrived disguised as rule 1 and outranked the
+# registry. DG-254 removed exactly this from the daemon; it survived here, in
+# the script the daemon spawns for /tasks, /pr, /next and /refine.
+#
+# Environment variables still work. What no longer happens is this process
+# inventing them from a file nobody named.
 
 
 def get_jira_token() -> Optional[str]:
@@ -395,7 +372,7 @@ def config_from_environment() -> Dict[str, Any]:  # noqa: C901
         raise SystemExit(
             "Error: Missing Jira configuration (JIRA_URL, JIRA_EMAIL, or "
             "JIRA_PROJECT_KEY).\n"
-            "  -> Set them in .env, or name a registered project instead: "
+            "  -> Set them in the environment, or name a registered project: "
             "jira_bridge.py --project <id> <action>"
         )
     return jira_config

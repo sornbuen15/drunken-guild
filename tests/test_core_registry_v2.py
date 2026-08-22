@@ -31,7 +31,7 @@ V2_DOCUMENT = {
                 "project_key": "TWA",
                 "credential": "env://JIRA_TOKEN_TWA",
             },
-            "discord": {"channel_id": "1518206617336811573"},
+            "discord": {"channel_id": "123456789012345678"},
             "board": {"dir": ".claude/board"},
         },
         "api-only": {
@@ -144,7 +144,7 @@ class TestV2Schema:
 
         config = registry.get_project_config("twa")
 
-        assert config.discord.channel_id == "1518206617336811573"
+        assert config.discord.channel_id == "123456789012345678"
         assert config.board_dir == ".claude/board"
         assert config.git_root == "twa"
 
