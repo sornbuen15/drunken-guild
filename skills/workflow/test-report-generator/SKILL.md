@@ -1,7 +1,7 @@
 ---
 name: test-report-generator
 description: >
-  Runs the full test suite live, audits board state, checks architecture compliance, and writes
+  Runs the full test suite live, audits Jira ticket state, checks architecture compliance, and writes
   a dated Markdown test report as the pre-merge quality gate record. Apply whenever the user
   wants to run tests and get a report, check merge readiness, or needs a quality gate summary.
   Trigger on /test-report.
@@ -9,7 +9,7 @@ description: >
 
 # Skill: Test Report Generator
 **Version:** v1.4.0
-**Description:** Runs the full test suite live, audits board state, checks architecture compliance, and writes a dated Markdown test report as the pre-merge quality gate record.
+**Description:** Runs the full test suite live, audits Jira ticket state, checks architecture compliance, and writes a dated Markdown test report as the pre-merge quality gate record.
 
 ---
 

@@ -20,31 +20,22 @@ Map task keywords to their absolute skill file paths. Load ONLY the relevant ski
 - `cloud-native` (`/infra`) — Cloud-native infrastructure standard for resilience, scalability, and automation. Apply whenever the user is writing Dockerfiles, Kubernetes manifests, CI/CD pi
   Path: $HOME/.claude/skills/cloud-native/SKILL.md
 
-- `agentic-kanban` (`/task`) — Orchestrates team workflow — triage, assignment, task promotion, and execution routing — via kanban-io MCP tools. Apply this skill whenever the user reports
-  Path: $HOME/.claude/skills/agentic-kanban/SKILL.md
-
-- `audit-to-backlog` (`/audit`) — Analyzes failures or audits, writes a permanent post-mortem report, and converts every action item into a Kanban backlog task via MCP tools. Apply whenever the 
+- `audit-to-backlog` (`/audit`) — Analyzes failures or audits, writes a permanent post-mortem report, and converts every action item into a Jira backlog ticket via drunken-jira-mcp. Apply whenev
   Path: $HOME/.claude/skills/audit-to-backlog/SKILL.md
 
-- `backlog-refinement` (`/refine`) — Promotes backlog tasks to todo/ by priority tier, always selecting CRITICAL tasks first. Apply whenever the user wants to plan a sprint, choose what to work on 
+- `backlog-refinement` (`/refine`) — Moves backlog tickets onto the board by urgency tier, always selecting critical tickets first. Apply whenever the user wants to plan a sprint, choose what to wo
   Path: $HOME/.claude/skills/backlog-refinement/SKILL.md
 
-- `issue-intake` (`/issue`) — Captures user-reported bugs and problems as properly classified backlog tasks via kanban-io MCP tools. Apply whenever the user reports a bug, says something is 
+- `issue-intake` (`/issue`) — Captures user-reported bugs and problems as properly classified Jira tickets via drunken-jira-mcp. Apply whenever the user reports a bug, says something is brok
   Path: $HOME/.claude/skills/issue-intake/SKILL.md
 
-- `kanban-io` (`/kanban-io`) — The single authoritative interface for all Kanban board reads and writes via MCP tools. Apply whenever any skill or agent needs to read, create, move, or claim 
-  Path: $HOME/.claude/skills/kanban-io/SKILL.md
-
-- `local-progress-reporter` (`/report`) — Aggregates Kanban board data into a structured project status report. Apply whenever the user asks about progress, wants a status update, asks what's done or in
+- `local-progress-reporter` (`/report`) — Aggregates Jira ticket data into a structured project status report. Apply whenever the user asks about progress, wants a status update, asks what's done or in-
   Path: $HOME/.claude/skills/local-progress-reporter/SKILL.md
 
-- `next-task` (`/next`) — Picks the highest-priority task from todo/, claims it atomically, and enters Plan Mode before writing any code. Apply whenever the user wants to start working, 
-  Path: $HOME/.claude/skills/next-task/SKILL.md
-
-- `spec-to-backlog` (`/init-project`) — Analyzes project spec files on Day 0 and generates a comprehensive, prioritized backlog of atomic tasks via kanban-io MCP tools. Apply whenever starting a new p
+- `spec-to-backlog` (`/init-project`) — Analyzes project spec files on Day 0 and generates a comprehensive, labelled Jira backlog of atomic tickets via drunken-jira-mcp. Apply whenever starting a new 
   Path: $HOME/.claude/skills/spec-to-backlog/SKILL.md
 
-- `task-estimation` (`/estimate`) — Estimates complexity, AI execution cycles, and human review effort for tasks in todo/. Apply whenever the user asks how long something will take, wants to know 
+- `task-estimation` (`/estimate`) — Estimates complexity, AI execution cycles, and human review effort for the TODO tickets on the Jira board. Apply whenever the user asks how long something will 
   Path: $HOME/.claude/skills/task-estimation/SKILL.md
 
 - `incident-response` (`/incident`) — Crisis leadership standard for outage mitigation, stakeholder communication, and blameless RCA. Apply whenever there's a production incident, system outage, cri
@@ -86,9 +77,6 @@ Map task keywords to their absolute skill file paths. Load ONLY the relevant ski
 - `project-hygiene` (`/git`) — Repository maintenance standard — Git workflow, squash merging, README, and Architecture Decision Records. Apply whenever the user is committing changes, mana
   Path: $HOME/.claude/skills/project-hygiene/SKILL.md
 
-- `squad-workflow` (`/squad-workflow`) — End-to-end coordination protocol for the AI squad — phases, gates, and parallel vs sequential execution. Apply whenever multiple agents are working, the user 
-  Path: $HOME/.claude/skills/squad-workflow/SKILL.md
-
-- `test-report-generator` (`/test-report`) — Runs the full test suite live, audits board state, checks architecture compliance, and writes a dated Markdown test report as the pre-merge quality gate record.
+- `test-report-generator` (`/test-report`) — Runs the full test suite live, audits Jira ticket state, checks architecture compliance, and writes a dated Markdown test report as the pre-merge quality gate record.
   Path: $HOME/.claude/skills/test-report-generator/SKILL.md
 
