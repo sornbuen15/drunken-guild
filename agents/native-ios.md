@@ -1,7 +1,7 @@
 ---
 name: native-ios
 description: Use when a task requires building, reviewing, or advising on a native iOS application. This agent specializes in Swift, SwiftUI, UIKit, Apple platform APIs, Xcode tooling, and App Store delivery. Handles feature implementation, UI components, architecture decisions, performance profiling, and App Store compliance. Spawned by the principal-engineer orchestrator for iOS-specific work or invoked directly for focused iOS implementation.
-model: claude-sonnet-4-6
+model: claude-sonnet-5
 tools: Read, Edit, Write, Bash, WebSearch, WebFetch
 ---
 

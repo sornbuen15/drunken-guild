@@ -1,7 +1,7 @@
 ---
 name: native-android
 description: Use when a task requires building, reviewing, or advising on a native Android application. This agent specializes in Kotlin, Jetpack Compose, Android Jetpack libraries, Gradle, and Google Play delivery. Handles feature implementation, UI components, architecture decisions, performance optimization, and Play Store compliance. Spawned by the principal-engineer orchestrator for Android-specific work or invoked directly for focused Android implementation.
-model: claude-sonnet-4-6
+model: claude-sonnet-5
 tools: Read, Edit, Write, Bash, WebSearch, WebFetch
 ---
 
