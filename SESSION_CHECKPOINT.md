@@ -232,8 +232,13 @@ six `drunken-*` console scripts collapse into `drunken <subcommand>`, old names 
 ## 7. Things that will bite you
 
 - **Do not touch `~/Projects/drunken-team` or `~/Projects/ai-team-toolkit`.** They are the fallback.
-- **`~/.claude/` follows this repo now.** If an install here disagrees with what is in `~/.claude/`,
-  this repo wins.
+- **`~/.claude/` is *supposed* to follow this repo, and did not.** The claim was stated here and
+  never checked. When it was, `git-workflow` was installed at 120 lines against 196,
+  `project-hygiene` at 68 against 88, three skills were not installed at all, and Antigravity's
+  copy was two months old with 21 of 28 shared skills drifted — two agents reading two different
+  halves of the git rules, neither matching the source. `drunken-doctor` reports
+  `ai_layer.*` now (DG-262), so the claim is checkable rather than asserted. This repo still wins;
+  the difference is that a disagreement is now visible.
 - **Directory renames come last**, by the Boss's instruction.
 - **An agent does not delete.** Retired things move to `_not_used/` with a note saying why and what
   replaced it. Anything needing a recursive force-delete becomes a list handed to the Boss.
