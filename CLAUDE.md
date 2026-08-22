@@ -1,3 +1,7 @@
+> **⚠ STALE — this is `drunken-team`'s file, inherited by the clone that created this repo.**
+> It describes a repo that no longer exists in this shape. Rewriting it is Phase 1 in
+> `SESSION_CHECKPOINT.md`. The rules in it are still good; the framing is not this repo's.
+
 # drunken-team — instructions for Claude Code
 
 Loaded automatically by Claude Code. Keep it short enough that it is actually read.
