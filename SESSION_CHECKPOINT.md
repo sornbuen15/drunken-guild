@@ -197,8 +197,8 @@ scripts/install/install_agents.sh    → ~/.claude/agents/  (+ the Antigravity v
 scripts/install/install_mcp.sh       → writes/prints the .mcp.json snippet
 ```
 
-`sync_skills.sh` and `sync_agents.sh` are already here and battle-tested — **rename and extend,
-do not rewrite.** `sync_skills.sh` carries `|| true` on every optional grep for a reason recorded
+`install_skills.sh` and `install_agents.sh` are already here and battle-tested — **rename and extend,
+do not rewrite.** `install_skills.sh` carries `|| true` on every optional grep for a reason recorded
 in its own comments: under `set -euo pipefail` an unmatched grep once killed the run after
 printing a green success line, and 29 of 30 skills sat stale for two months.
 

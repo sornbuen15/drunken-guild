@@ -1,6 +1,6 @@
 # Skills installed in ~/.claude/skills/ that this repo deliberately does NOT author.
 #
-# sync_skills.sh names anything installed-but-not-produced-here under
+# install_skills.sh names anything installed-but-not-produced-here under
 # "Installed but not produced here". Listing a name here says that is expected,
 # and stops it being reported every run.
 #

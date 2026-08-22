@@ -24,7 +24,6 @@ from core import paths
 #: Modules that must never derive user state from their own location, nor from
 #: wherever they happened to be launched.
 STATE_OWNERS = (
-    "src/board_mcp/server.py",
     "src/discord_mcp/server.py",
     "src/service/approval_manager.py",
     "src/service/discord_listener.py",

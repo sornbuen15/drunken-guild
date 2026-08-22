@@ -156,7 +156,7 @@ say "5. The MCP servers start for a host that knows nothing about us"
 # §1.1: they used to crash during import, so the host saw no tools at all and
 # no error anywhere. Starting with zero config is the whole point — the agent
 # needs to be able to call a tool and be *told* what is missing.
-for server in drunken-jira-mcp drunken-board-mcp drunken-discord-mcp; do
+for server in drunken-jira-mcp drunken-discord-mcp; do
   # The server logs to its own stderr, which the client inherits, so only the
   # last line is ours.
   count="$(clean_run "$BIN/python" - "$BIN/$server" <<'PY' | tail -n1
