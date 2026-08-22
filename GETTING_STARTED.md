@@ -103,9 +103,8 @@ For every folder under `skills/` that contains a `SKILL.md`, copy the whole fold
 
 ```bash
 # macOS / Linux — repeat for each skill
-cp -r skills/kanban/kanban-io             ~/.claude/skills/
-cp -r skills/kanban/agentic-kanban        ~/.claude/skills/
 cp -r skills/kanban/spec-to-backlog       ~/.claude/skills/
+cp -r skills/kanban/issue-intake          ~/.claude/skills/
 cp -r skills/kanban/audit-to-backlog      ~/.claude/skills/
 cp -r skills/workflow/git-workflow        ~/.claude/skills/
 cp -r skills/workflow/project-audit-reviewer ~/.claude/skills/
@@ -114,9 +113,8 @@ cp -r skills/workflow/project-audit-reviewer ~/.claude/skills/
 
 Windows (PowerShell):
 ```powershell
-Copy-Item -Recurse skills\kanban\kanban-io             "$HOME\.claude\skills\"
-Copy-Item -Recurse skills\kanban\agentic-kanban        "$HOME\.claude\skills\"
 Copy-Item -Recurse skills\kanban\spec-to-backlog       "$HOME\.claude\skills\"
+Copy-Item -Recurse skills\kanban\issue-intake          "$HOME\.claude\skills\"
 # ... repeat for all remaining skill folders
 ```
 
@@ -186,19 +184,20 @@ Open Claude Code inside **your project directory**, then run:
 /init-project
 ```
 
-The skill reads your `PROJECT_BRIEF.md` and `REQUIREMENTS.md` and generates one task file per feature in `.claude/board/backlog/`. It prints a summary table when finished, then **halts and asks for your approval** before moving anything.
+The skill reads your `PROJECT_BRIEF.md` and `REQUIREMENTS.md` and creates one Jira ticket per
+feature in the project's backlog, via `jira_create_issue`. It prints a summary table when
+finished, then **halts and asks for your approval** before moving anything onto the board.
 
-```
-.claude/board/
-└── backlog/
-    ├── TASK-001_user-auth-jwt.md
-    ├── TASK-002_product-listing.md
-    └── ...
-```
+Urgency lands as a **label** — `CRITICAL`, `HIGH`, `MEDIUM`, `LOW` — not as Jira's `priority`
+field, which cannot be set on a team-managed project and reads `Medium` on every issue.
 
-**Review the generated tasks.** Check that priorities look right and that nothing important is missing. You can edit task files directly.
+**Review the generated tickets in Jira.** Check that the labels look right and that nothing
+important is missing. Edit them in Jira directly.
 
-> See [`examples/01-spec-to-backlog/`](./examples/01-spec-to-backlog/) for what the generated files and summary table look like.
+> See [`examples/01-spec-to-backlog/`](./examples/01-spec-to-backlog/) for what the summary table
+> looks like. **The `examples/` fixtures are pre-Jira** — they still show `board/<lane>/TASK-NN.md`
+> files, the local board that is now retired. Read them for the shape of the work, not for the
+> surface it lands on.
 
 ---
 
@@ -208,17 +207,14 @@ The skill reads your `PROJECT_BRIEF.md` and `REQUIREMENTS.md` and generates one 
 /refine
 ```
 
-The skill scans your backlog and promotes tasks into `todo/` based on priority:
-- `CRITICAL` tasks are promoted immediately, no confirmation needed
-- `HIGH`, `MEDIUM`, and `LOW` tasks are offered by tier — you choose which to pull in
+The skill probes with `jira_board_info` first — **not every board has a backlog** — then moves
+tickets onto the board with `jira_move_to_board`, by urgency label:
+- `CRITICAL` tickets are moved immediately, no confirmation needed
+- `HIGH`, `MEDIUM`, and `LOW` are offered by tier — you choose which to pull in
 
-After `/refine`:
-
-```
-.claude/board/
-├── todo/       ← tasks ready to execute (CRITICAL first, then HIGH, etc.)
-└── backlog/    ← everything else, waiting for future sprints
-```
+**It does not transition anything.** Backlog membership and status are two separate axes in
+Jira: a ticket moved onto the board is still `TODO` if that is what it was. On the old local
+board, moving a lane *was* the transition — that is the one translation that does not survive.
 
 > See [`examples/02-backlog-refinement/`](./examples/02-backlog-refinement/) for the queue report output.
 
@@ -230,9 +226,14 @@ After `/refine`:
 /estimate
 ```
 
-The skill reads everything in `todo/` and prints an estimation table: T-shirt size (S/M/L/XL), estimated AI turns, and human review effort per task.
+The skill reads the `TODO` tickets on the board and prints an estimation table: T-shirt size
+(S/M/L/XL), estimated AI turns, and human review effort per ticket.
 
-If any task is rated **XL**, the skill flags it and recommends splitting — XL tasks are too large for a single agent context window and produce unreliable output.
+The table is printed, **not written back**. This Jira has no story points, so the skill has
+nowhere on a ticket to put an estimate and is forbidden to invent one.
+
+If any ticket is rated **XL**, the skill flags it and recommends splitting — XL tickets are too
+large for a single agent context window and produce unreliable output.
 
 > See [`examples/03-task-estimation/`](./examples/03-task-estimation/) for a sample estimation table.
 
@@ -240,51 +241,47 @@ If any task is rated **XL**, the skill flags it and recommends splitting — XL 
 
 ### Step 5 — Start the First Task
 
-```
-/next
-```
+There is no `/next` command. Picking up work is two Jira calls and a habit, not a skill —
+`next-task` was retired with the local board (see
+[`_not_used/skills/next-task/RETIRED.md`](./_not_used/skills/next-task/RETIRED.md)).
 
-The skill:
-1. Checks that `in-progress/` is empty (WIP limit = 1)
-2. Picks the highest-priority task from `todo/`
-3. Moves it to `in-progress/`
-4. Reads the relevant project files
-5. Proposes a full **Execution Plan** — target files, implementation steps, and risk notes
+Ask the agent to start the next ticket. It should:
 
-Then **halts completely** and asks:
+1. Call `jira_daily_standup` for the current working set
+2. Pick the highest tier — urgency is a **label** (`CRITICAL` / `HIGH` / `MEDIUM` / `LOW`),
+   because `priority` cannot be set on a team-managed Jira project
+3. Call `jira_assign`, then `jira_start_task` — assignee says whose it is, status says where
+4. Read the relevant project files
+5. Propose a full **Execution Plan** — target files, implementation steps, and risk notes
+
+Then it should **halt completely** and ask:
 
 > "Tech Lead, do you approve this plan, or would you like to make adjustments before I write the code?"
 
 Read the plan carefully. This is your last checkpoint before code is written. Options:
 - **Approve** — agent proceeds with the plan as written
 - **Adjust** — tell the agent what to change; it revises and halts again
-- **Reject** — move the task back to `todo/` and pick a different one
+- **Reject** — transition the ticket back to `TODO` and pick a different one
 
-> See [`examples/04-next-task/`](./examples/04-next-task/) for a full example execution plan.
+> Nothing expires a Jira assignee. If an agent stops mid-ticket, reassign it yourself — that
+> is the one thing the retired board did that Jira does not.
 
 ---
 
 ### Step 6 — Review and Close the Task
 
-Once the agent finishes implementation, run the test suite and review the diff. When satisfied, close the task:
+Once the agent finishes implementation, it calls `jira_submit_for_review` — the ticket goes to
+`IN REVIEW`, never straight to `DONE`. **Never skip `IN REVIEW`, including for your own work.**
 
-```bash
-# macOS / Linux
-./scripts/kanban/kanban_write.sh done TASK-001
-```
-
-```powershell
-# Windows
-.\scripts\kanban\kanban_write.ps1 done TASK-001
-```
-
-Then commit with a conventional commit message:
+A ticket in `IN REVIEW` is not merged code. Run the test suite and review the diff against the
+target branch before you believe any claim that it is fixed. When satisfied, transition it with
+`jira_transition_issue`, and commit with a conventional commit message:
 
 ```bash
 git commit -m "feat: add user authentication (register/login/JWT)"
 ```
 
-Now `in-progress/` is empty again. Run `/next` to pick up the next task.
+Then start the next ticket as in Step 5.
 
 ---
 
@@ -292,20 +289,24 @@ Now `in-progress/` is empty again. Run `/next` to pick up the next task.
 
 ### Handling a Bug Mid-Sprint
 
-If a bug is reported while a task is already in progress, do **not** interrupt the current task. Instead:
+If a bug is reported while a ticket is already in progress, do **not** interrupt the current
+ticket. Instead:
 
 ```
-/task
+/issue
 ```
 
 Describe the bug. The skill will:
 1. Run read-only commands to diagnose the root cause
-2. Create a new task file in `todo/` with the root cause documented
-3. Leave your current `in-progress/` task untouched
+2. Create a Jira ticket with the root cause documented and the urgency label set
+3. Leave your current in-flight ticket untouched
 
-The bug task will be picked up automatically by `/next` after the current task is closed — or earlier if you manually promote it.
+Pick the bug ticket up when the current one reaches `IN REVIEW` — or sooner if it outranks what
+you are holding.
 
-> See [`examples/05-agentic-kanban/`](./examples/05-agentic-kanban/) for an example bug task with pre-flight investigation.
+> `/task` (`agentic-kanban`) is retired. Its triage half is what `/issue` does; its orchestration
+> half is not replaced. See
+> [`_not_used/skills/agentic-kanban/RETIRED.md`](./_not_used/skills/agentic-kanban/RETIRED.md).
 
 ### End-of-Sprint Snapshot
 
@@ -354,11 +355,8 @@ Once comfortable with the basics, see the [Skill Catalog](./README.md#skill-cata
 | `/git` | project-hygiene | Commits, branches, README, ADR |
 | `/init-project` | spec-to-backlog | Day 0 — spec → backlog |
 | `/issue` | issue-intake | Report a bug or problem — captured to backlog automatically |
-| `/squad-workflow` | squad-workflow | Coordinate the full squad: planning → QA → deployment |
-| `/task` | agentic-kanban | Orchestrate full task lifecycle after intake |
-| `/refine` | backlog-refinement | Sprint planning — promote tasks by priority |
-| `/estimate` | task-estimation | Size tasks before sprint |
-| `/next` | next-task | Start next highest-priority task |
+| `/refine` | backlog-refinement | Sprint planning — move backlog tickets onto the board |
+| `/estimate` | task-estimation | Size tickets before sprint |
 | `/report` | local-progress-reporter | Sprint / project status snapshot |
 | `/audit` | audit-to-backlog | Post-mortem or code audit |
 | `/audit-project` | project-audit-reviewer | Full codebase health check |
