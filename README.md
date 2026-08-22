@@ -5,13 +5,14 @@
 
 An AI-powered development team toolkit using Claude — skills, agents, and workflows that assemble a disciplined engineering squad for any software project.
 
-A collection of **30 skills**, **5 specialist agents**, and an **8-agent engineering squad** that transforms Claude Code into a structured, team-based engineering system. Board state is managed through a typed MCP server — agents call board tools natively instead of composing shell commands.
+A collection of **29 skills**, **5 specialist agents**, and a **10-agent engineering squad** that transforms Claude Code into a structured, team-based engineering system. Work is coordinated on **Jira** through the typed `drunken-jira-mcp` server — agents call its tools natively instead of composing shell commands.
 
 ---
 
 ## Table of Contents
 
 - [Quick Start](#quick-start)
+- [Companion Repo (optional)](#companion-repo-optional)
 - [Installation](#installation)
   - [Prerequisites](#prerequisites)
   - [macOS / Linux](#macos--linux)
@@ -130,7 +131,34 @@ Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
 
 Re-run both scripts after any skill or agent update.
 
-> **Kanban board scripts and MCP server** (`scripts/kanban/`, `scripts/mcp/`) are separate — they implement board I/O for your target project and are not part of the install process. Both require **Node.js v18+** to run. See `scripts/mcp/README.md` for MCP server setup.
+> **Coordination needs one MCP server, and it is not authored here.** See [Companion Repo](#companion-repo-optional) — 21 of the 29 skills need nothing but this repo. The old local-board scripts and their server are retired to [`_not_used/scripts/`](./_not_used/scripts/).
+
+---
+
+## Companion Repo (optional)
+
+**21 of the 29 skills need nothing but this repo.** Architecture, testing, security, UI/UX,
+Electron, git discipline — all of it installs and works standalone. If you have no Jira, install
+this repo and stop reading here.
+
+The other **8** coordinate work on Jira — `spec-to-backlog`, `backlog-refinement`,
+`issue-intake`, `audit-to-backlog`, `task-estimation`, `local-progress-reporter`,
+`test-report-generator`, `project-audit-reviewer` — along with the `principal-engineer` agent.
+They need **[`sornbuen15/drunken-team`](https://github.com/sornbuen15/drunken-team)** (MIT):
+
+| what it provides | why |
+|---|---|
+| `drunken-jira-mcp` | the `jira_*` tools every coordination skill calls |
+| `.agents/skills/jira-tickets/SKILL.md` | ticket-writing rules those skills treat as authoritative and link to rather than copy |
+| `.agents/skills/ask-boss/SKILL.md` | the approval protocol |
+
+```bash
+git clone https://github.com/sornbuen15/drunken-team.git ~/Projects/drunken-team
+```
+
+**Clone it to `~/Projects/drunken-team` specifically** — the skills reference that path
+absolutely. Full setup, the `.mcp.json` snippet, and what degrades without it are in
+[`GETTING_STARTED.md`](./GETTING_STARTED.md#optional--the-companion-repo-for-coordination-only).
 
 ---
 
@@ -171,6 +199,7 @@ Re-run both scripts after any skill or agent update.
 │  TIER 3 — Engineering Squad                             │
 │  EXECUTION · code · infra · tests · security · mobile   │
 │  fullstack · devops · qa · security · ios · android     │
+│  cross-platform · laravel · desktop                     │
 └─────────────────────────────────────────────────────────┘
 ```
 
@@ -188,8 +217,8 @@ Domain specialists carry deep industry knowledge: regulations, protocols, data m
 
 | Agent | Model | Invoke when... |
 |---|---|---|
-| `fintech-specialist` | Sonnet 4.6 | Building payments, banking, wallets, lending, KYC/AML, or anything touching PCI-DSS, PSD2, SWIFT, ACH, ISO 20022 |
-| `insurance-specialist` | Sonnet 4.6 | Building policy admin, claims, underwriting, or anything touching NAIC, HIPAA, ACA, Solvency II, IFRS 17 |
+| `fintech-specialist` | Sonnet 5 | Building payments, banking, wallets, lending, KYC/AML, or anything touching PCI-DSS, PSD2, SWIFT, ACH, ISO 20022 |
+| `insurance-specialist` | Sonnet 5 | Building policy admin, claims, underwriting, or anything touching NAIC, HIPAA, ACA, Solvency II, IFRS 17 |
 
 ```bash
 claude --agent fintech-specialist
@@ -207,9 +236,9 @@ Standalone consultants for technical AI domains. Invoke when the task requires e
 
 | Agent | Model | Invoke when... |
 |---|---|---|
-| `agentic-systems-specialist` | Opus 4.8 | Designing agentic loops, tool calling schemas, autonomy boundaries, IoT/API orchestration, or action audit trails |
-| `ai-memory-specialist` | Opus 4.8 | Designing RAG pipelines, vector DB selection, memory taxonomy, context injection strategy, or retrieval relevance scoring |
-| `voice-ai-specialist` | Opus 4.8 | Designing voice pipelines, STT/TTS selection, real-time audio streaming, latency budgets, or graceful degradation in audio systems |
+| `agentic-systems-specialist` | Opus 5 | Designing agentic loops, tool calling schemas, autonomy boundaries, IoT/API orchestration, or action audit trails |
+| `ai-memory-specialist` | Opus 5 | Designing RAG pipelines, vector DB selection, memory taxonomy, context injection strategy, or retrieval relevance scoring |
+| `voice-ai-specialist` | Opus 5 | Designing voice pipelines, STT/TTS selection, real-time audio streaming, latency budgets, or graceful degradation in audio systems |
 
 ```bash
 claude --agent agentic-systems-specialist
@@ -241,7 +270,7 @@ The principal engineer:
 
 ## Tier 3 — Engineering Squad
 
-Eight specialists that execute focused work. The principal engineer routes to them; you can also invoke them directly for single-discipline tasks.
+Ten specialists that execute focused work. The principal engineer routes to them; you can also invoke them directly for single-discipline tasks.
 
 ```
 principal-engineer
@@ -251,19 +280,23 @@ principal-engineer
   ├── security-engineer       ← threat modeling, security review, vulnerability fixes
   ├── native-ios              ← Swift, SwiftUI, UIKit, App Store
   ├── native-android          ← Kotlin, Jetpack Compose, Play Store
-  └── cross-platform-mobile   ← Flutter (primary), React Native, KMM
+  ├── cross-platform-mobile   ← Flutter (primary), React Native, KMM
+  ├── laravel-developer       ← PHP 8.2+, Laravel 11, FilamentPHP v3
+  └── desktop-frontend-dev    ← Electron, React, Tailwind, secure IPC
 ```
 
 | Agent | Model | Role | Invoke directly when... |
 |---|---|---|---|
-| `principal-engineer` | Opus 4.8 | Technical Director + PM | You need strategic direction, roadmap, or architecture guidance |
-| `fullstack-engineer` | Sonnet 4.6 | All application code (any language/framework) | Focused implementation or code review task |
-| `devops-engineer` | Sonnet 4.6 | Infrastructure, CI/CD, containers, observability | Focused infra or pipeline task |
-| `qa-engineer` | Sonnet 4.6 | Test strategy, test writing, quality gates | Writing tests or auditing coverage |
-| `security-engineer` | Sonnet 4.6 | Threat modeling, security review | Security audit or sensitive change review |
-| `native-ios` | Sonnet 4.6 | Swift, SwiftUI, UIKit, App Store delivery | iOS-specific implementation or App Store compliance |
-| `native-android` | Sonnet 4.6 | Kotlin, Jetpack Compose, Play Store delivery | Android-specific implementation or Play Store compliance |
-| `cross-platform-mobile` | Sonnet 4.6 | Flutter (primary), React Native, KMM | Shared-codebase mobile app, platform trade-off analysis |
+| `principal-engineer` | Opus 5 | Technical Director + PM | You need strategic direction, roadmap, or architecture guidance |
+| `fullstack-engineer` | Sonnet 5 | All application code (any language/framework) | Focused implementation or code review task |
+| `devops-engineer` | Sonnet 5 | Infrastructure, CI/CD, containers, observability | Focused infra or pipeline task |
+| `qa-engineer` | Sonnet 5 | Test strategy, test writing, quality gates | Writing tests or auditing coverage |
+| `security-engineer` | Sonnet 5 | Threat modeling, security review | Security audit or sensitive change review |
+| `native-ios` | Sonnet 5 | Swift, SwiftUI, UIKit, App Store delivery | iOS-specific implementation or App Store compliance |
+| `native-android` | Sonnet 5 | Kotlin, Jetpack Compose, Play Store delivery | Android-specific implementation or Play Store compliance |
+| `cross-platform-mobile` | Sonnet 5 | Flutter (primary), React Native, KMM | Shared-codebase mobile app, platform trade-off analysis |
+| `laravel-developer` | Sonnet 5 | PHP 8.2+, Laravel 11, FilamentPHP v3, strict types | Laravel backend work, Filament resources, repository-pattern services |
+| `desktop-frontend-dev` | Sonnet 5 | Electron + React + Tailwind, main/renderer split | Desktop app work, secure IPC, tray/menus/auto-update |
 
 ---
 
@@ -284,6 +317,7 @@ Skills enforce domain standards. Load them via slash command during any task.
 |---|---|---|
 | `universal-ui` | `/ui` | Visual hierarchy, contrast rules, touch targets, responsive layout |
 | `universal-ux` | `/ux` | State-View decoupling, idempotency, form resilience, UX lifecycle |
+| `electron-ipc-protocol` | `/electron-ipc` | Context isolation, preload bridge, channel naming, IPC validation |
 
 ### Infrastructure & DevOps
 
@@ -312,17 +346,15 @@ Skills enforce domain standards. Load them via slash command during any task.
 | `product-midset` | `/product` | Product mindset, FinOps, ROI-driven decisions |
 | `business-telemetry` | `/telemetry` | Event schema design, funnel tracking, PII-safe analytics |
 
-### Project Management (Kanban)
+### Project Management (Jira)
 
 | Skill | Command | Purpose |
 |---|---|---|
-| `kanban-io` | `/kanban-io` | Single interface for all board reads and writes — used by other skills |
-| `spec-to-backlog` | `/init-project` | Day 0: spec → prioritized backlog |
-| `agentic-kanban` | `/task` | Workflow orchestrator — triage, assign, promote tasks |
-| `backlog-refinement` | `/refine` | Promote tasks by priority level, Critical-first rule |
-| `next-task` | `/next` | WIP limit = 1, priority-pick, plan before coding |
+| `issue-intake` | `/issue` | Triage a reported bug into a classified Jira ticket |
+| `spec-to-backlog` | `/init-project` | Day 0: spec → labelled Jira backlog |
+| `backlog-refinement` | `/refine` | Move backlog tickets onto the board, critical-first |
 | `task-estimation` | `/estimate` | T-shirt sizing, AI turns estimate, human review effort |
-| `local-progress-reporter` | `/report` | Board status report with progress bar and blockers |
+| `local-progress-reporter` | `/report` | Ticket status report with progress bar and blockers |
 | `audit-to-backlog` | `/audit` | Post-mortem / code audit → report + backlog tasks |
 | `project-audit-reviewer` | `/audit-project` | Full codebase health check, scored by dimension |
 
@@ -335,6 +367,8 @@ Skills enforce domain standards. Load them via slash command during any task.
 | `anti-regression` | `/surgical` | Blast radius assessment, surgical edits, no silent deletions |
 | `ai-output` | `/discipline` | Token efficiency, atomic code blocks, execution safety |
 | `project-hygiene` | `/git` | Conventional commits, squash merge, ADR, branch strategy |
+| `zero-defect-mindset` | `/zero-defect` | Shift-left: design and threat model before code, not after |
+| `think-analyze-isolate` | `/isolate` | Anti-blind-execution for E2E, startup and deploys; anti-loop mandate |
 
 ### Leadership & Culture
 
@@ -548,24 +582,28 @@ flowchart TD
 ```
 drunken-ai-team/
 ├── agents/
+│   ├── INDEX.md                   # ← GENERATED by sync_agents.sh — do not hand-edit
 │   ├── principal-engineer.md      # Orchestrator — routes to specialists
 │   ├── fintech-specialist.md      # Fintech domain expert (payments, KYC, PCI-DSS)
 │   ├── insurance-specialist.md    # Insurance domain expert (NAIC, HIPAA, claims)
+│   ├── agentic-systems-specialist.md # Tool calling, agent loops, autonomy boundaries
+│   ├── ai-memory-specialist.md    # RAG, vector stores, long-term memory
+│   ├── voice-ai-specialist.md     # STT/TTS, real-time audio, latency budgets
 │   ├── fullstack-engineer.md      # Full-stack developer (any language/framework)
 │   ├── devops-engineer.md         # CI/CD, infra, containers, networking
 │   ├── qa-engineer.md             # Test strategy and test writing
 │   ├── security-engineer.md       # Threat modeling and security review
 │   ├── native-ios.md              # iOS specialist (Swift, SwiftUI, App Store)
 │   ├── native-android.md          # Android specialist (Kotlin, Compose, Play Store)
-│   └── cross-platform-mobile.md   # Flutter/RN/KMM cross-platform specialist
+│   ├── cross-platform-mobile.md   # Flutter/RN/KMM cross-platform specialist
+│   ├── laravel-developer.md       # PHP 8.2+ / Laravel 11 / FilamentPHP v3
+│   └── desktop-frontend-dev.md    # Electron + React desktop, secure IPC
 ├── examples/
 │   ├── README.md                  # Walkthrough guide
 │   ├── 00-setup/                  # Filled project context templates (TaskFlow)
 │   ├── 01-spec-to-backlog/        # Output of /init-project
 │   ├── 02-backlog-refinement/     # Output of /refine
 │   ├── 03-task-estimation/        # Output of /estimate
-│   ├── 04-next-task/              # Output of /next (execution plan)
-│   ├── 05-agentic-kanban/         # Output of /task (mid-sprint bug)
 │   └── contributing/              # Annotated SKILL.md for skill authors
 ├── scripts/
 │   ├── install/                   # ← INSTALL SCRIPTS (deploy to ~/.claude/)
@@ -573,15 +611,6 @@ drunken-ai-team/
 │   │   ├── sync_skills.ps1        #   Deploy skills — Windows (PowerShell)
 │   │   ├── sync_agents.sh         #   Deploy agents — macOS / Linux
 │   │   └── sync_agents.ps1        #   Deploy agents — Windows (PowerShell)
-│   ├── kanban/                    # ← KANBAN SCRIPTS (CLI fallback, board I/O for your project)
-│   │   ├── kanban_read.sh         #   Read board state — macOS / Linux
-│   │   ├── kanban_read.ps1        #   Read board state — Windows (PowerShell)
-│   │   ├── kanban_write.sh        #   Write / move tasks — macOS / Linux
-│   │   ├── kanban_write.ps1       #   Write / move tasks — Windows (PowerShell)
-│   │   └── kanban.js              #   Unified cross-platform CLI (Node.js 18+)
-│   └── mcp/                       # ← MCP SERVER (primary board interface)
-│       ├── kanban-server.js       #   JSON-RPC 2.0 MCP server — 11 typed board tools
-│       └── README.md              #   MCP setup guide and tool reference
 ├── skills/
 │   ├── architecture/
 │   │   └── system-design-rules/
@@ -590,17 +619,16 @@ drunken-ai-team/
 │   ├── documents/
 │   │   └── standard-playbook-generator/
 │   ├── frontend/
+│   │   ├── electron-ipc-protocol/
 │   │   ├── universal-ui/
 │   │   └── universal-ux/
 │   ├── infrastructure/
 │   │   └── cloud-native/
 │   ├── kanban/
-│   │   ├── kanban-io/             # ← single board I/O interface
-│   │   ├── agentic-kanban/
 │   │   ├── audit-to-backlog/
 │   │   ├── backlog-refinement/
+│   │   ├── issue-intake/
 │   │   ├── local-progress-reporter/
-│   │   ├── next-task/
 │   │   ├── spec-to-backlog/
 │   │   └── task-estimation/
 │   ├── leadership/
@@ -621,11 +649,18 @@ drunken-ai-team/
 │       ├── git-workflow/          # ← branching + commit conventions
 │       ├── project-audit-reviewer/
 │       ├── project-hygiene/
-│       └── test-report-generator/
+│       ├── test-report-generator/
+│       ├── think-analyze-isolate/
+│       └── zero-defect-mindset/
+├── _not_used/                     # ← RETIRED, KEPT (see _not_used/README.md)
+│   ├── skills/                    #   4 orchestration skills, each with RETIRED.md
+│   ├── examples/                  #   their recorded outputs
+│   ├── scripts/                   #   the local board server and CLI fallback
+│   └── templates/                 #   mcp-settings.json, which registered that server
 ├── templates/
+│   ├── CLAUDE.md                  # ← COPY THIS to your project root as CLAUDE.md
 │   ├── PROJECT_BRIEF.md           # Project goal, users, platform, constraints
-│   ├── REQUIREMENTS.md            # Functional + non-functional requirements
-│   └── mcp-settings.json          # Copy-paste MCP server registration snippet
+│   └── REQUIREMENTS.md            # Functional + non-functional requirements
 ├── CLAUDE.md                      # Master instructions for this repo
 ├── GETTING_STARTED.md             # Step-by-step user guide
 └── README.md                      # This file
@@ -635,11 +670,11 @@ drunken-ai-team/
 
 ## Known Limitations
 
-1. **Token Cost & Latency:** Orchestrating multiple agents consumes significant tokens. The MCP orchestration protocol reduces per-delegation overhead (~650 tokens vs ~4,200 for free-form prompts), but parallel waves still add up quickly.
-2. **MCP Registration Required:** The board MCP server must be registered in your project's `.claude/settings.json`. See `scripts/mcp/README.md` for setup. CLI scripts remain as fallback.
-3. **Node.js Required:** The kanban MCP server and CLI scripts both require Node.js v18+.
+1. **Token Cost & Latency:** Running multiple agents consumes significant tokens. Handing a specialist a Jira issue key rather than a paraphrased brief keeps each delegation small, but a sequence of them still adds up.
+2. **Jira MCP Required for Coordination:** 8 skills and `principal-engineer` need the [companion repo](#companion-repo-optional) — both its MCP server and its `jira-tickets` rules file, which they reference at `~/Projects/drunken-team/...` by absolute path. Clone it elsewhere and that reference dangles; the skills carry the essential ticket rules inline, so they degrade rather than fail, but they will not say they are working from a summary. The other 21 skills stand on their own.
+3. **No Claim Expiry:** A Jira assignee never expires. If an agent stops mid-ticket the ticket stays assigned until a human reassigns it — the retired board released a claim after 1800s, and that is the one capability the move to Jira gave up.
 4. **Process Heavy for Small Tasks:** The strict three-tier architecture is designed for complex features. Using the full squad for a minor CSS tweak is overkill.
-5. **Agent Orchestration Loops:** Autonomous agent interactions can occasionally enter retry cycles. Monitor execution and apply human-in-the-loop intervention if tasks fail repeatedly.
+5. **Retry Loops:** Autonomous agents can enter retry cycles. `/isolate` (`think-analyze-isolate`) carries an anti-loop mandate — stop after two identical failures — but monitor execution and intervene if tasks fail repeatedly.
 
 ---
 

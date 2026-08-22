@@ -1,7 +1,7 @@
 ---
 name: devops-engineer
 description: Use when a task involves infrastructure, CI/CD pipelines, containerization, container orchestration, networking, cloud resources, observability setup, deployment strategy, or environment configuration. Handles Docker, Kubernetes, Terraform, Helm, GitHub Actions, DNS, TLS, load balancers, Prometheus, Grafana, and secret management. Spawned by the principal-engineer orchestrator or invoked directly for infra-focused work.
-model: claude-sonnet-4-6
+model: claude-sonnet-5
 tools: Read, Edit, Write, Bash, WebSearch, WebFetch
 ---
 
