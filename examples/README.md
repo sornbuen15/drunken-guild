@@ -1,6 +1,6 @@
 # Examples & Walkthrough
 
-This directory walks through a complete project lifecycle using the Drunken AI Team — from blank templates to a running kanban board — using a fictional app called **TaskFlow**.
+This directory walks through a complete project lifecycle using the Drunken AI Team — from blank templates to a working Jira board — using a fictional app called **TaskFlow**.
 
 > **TaskFlow** is a cross-platform mobile task manager (iOS + Android) with a Node.js/PostgreSQL backend. It's simple enough to understand at a glance, complex enough to demonstrate every part of the toolkit.
 
@@ -18,29 +18,30 @@ This directory walks through a complete project lifecycle using the Drunken AI T
 
 ## Walkthrough Map
 
-Each stage shows the **board state after** that skill fires. Files match exactly what the skill would create or move.
+Each stage shows the **state after** that skill fires.
 
 ```
 Stage 0 — Setup
   └── Fill in PROJECT_BRIEF.md + REQUIREMENTS.md
 
 Stage 1 — /init-project  (spec-to-backlog)
-  └── Generates initial backlog: TASK-01 through TASK-06
+  └── Generates the initial backlog: TASK-01 through TASK-06
 
 Stage 2 — /refine  (backlog-refinement)
-  └── Promotes CRITICAL tasks → todo/
-      Remaining tasks stay in backlog/
+  └── Moves the critical tickets onto the board
+      The rest stay in the backlog
 
 Stage 3 — /estimate  (task-estimation)
-  └── Sizes todo/ tasks: T-shirt, AI turns, review effort
-
-Stage 4 — /next  (next-task)
-  └── Picks TASK-01, moves to in-progress/, proposes execution plan
-      Halts — waits for Tech Lead approval before writing code
-
-Stage 5 — /task  (agentic-kanban)
-  └── Mid-sprint bug found → TASK-07 created in todo/
+  └── Sizes the TODO tickets: T-shirt, AI turns, review effort
 ```
+
+> **These fixtures are pre-Jira and are being rewritten.** Each stage still ships a
+> `board/<lane>/TASK-NN.md` directory as its expected output — the local board that `CLAUDE.md`
+> now forbids. The skills themselves already run on Jira; only these recorded outputs lag. Read
+> them for the *shape* of the work, not for the surface it lands on.
+>
+> Stages 4 (`/next`) and 5 (`/task`) are gone: the skills they demonstrated were retired with the
+> board. Both are kept at [`_not_used/examples/`](../_not_used/examples/).
 
 ---
 
@@ -50,6 +51,4 @@ Stage 5 — /task  (agentic-kanban)
 - [`01-spec-to-backlog/`](./01-spec-to-backlog/) — Output of `/init-project`
 - [`02-backlog-refinement/`](./02-backlog-refinement/) — Output of `/refine`
 - [`03-task-estimation/`](./03-task-estimation/) — Output of `/estimate`
-- [`04-next-task/`](./04-next-task/) — Output of `/next`
-- [`05-agentic-kanban/`](./05-agentic-kanban/) — Output of `/task` (mid-sprint bug)
 - [`contributing/`](./contributing/) — How to write a new skill or agent
