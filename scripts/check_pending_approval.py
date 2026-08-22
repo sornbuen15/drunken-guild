@@ -29,7 +29,7 @@ def socket_path() -> str:
 
     This hook fails open by design — a daemon that is down must not stop you
     committing. That is exactly what made the previous version's mistake
-    invisible: it pointed at the pre-DT-241 path, found nothing, reported
+    invisible: it pointed at the pre-DG-241 path, found nothing, reported
     "daemon not running", and returned 0. pre-commit printed Passed while the
     check could not run at all.
     """
@@ -44,7 +44,7 @@ def _current_branch() -> str:
 
     Resolved from the working directory rather than a fixed repo: pre-commit
     runs the hook from the root of whichever repository is being committed to,
-    and pinning it to this checkout would read drunken-team's branch while
+    and pinning it to this checkout would read drunken-guild's branch while
     guarding a commit somewhere else entirely.
     """
     try:
@@ -76,7 +76,7 @@ def main() -> int:
         # safety net with zero visibility.
         print(
             f"[check_pending_approval] Branch '{branch}' has no recognizable "
-            "ticket key (expected e.g. feature/DT-123-...) — cannot check for "
+            "ticket key (expected e.g. feature/DG-123-...) — cannot check for "
             "a pending approval, allowing the commit.",
             file=sys.stderr,
         )

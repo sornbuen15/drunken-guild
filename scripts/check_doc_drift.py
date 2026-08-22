@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Fail the build when documentation names something that no longer exists.
 
-DT-238 was a manual sweep of 34 stale references. The reason it was needed at
+DG-238 was a manual sweep of 34 stale references. The reason it was needed at
 all is that ``--workspace`` stayed advertised in ``README.md`` for two releases
 after it was deleted, and it took four passes over this repo to notice. A sweep
 has a shelf life; this does not.
@@ -34,19 +34,23 @@ class Retired(NamedTuple):
 
 #: Every name that has been removed. Add to this in the PR that removes one.
 RETIRED = (
-    Retired("--workspace", "DT-224", "--project <id>"),
+    Retired("--workspace", "DG-224", "--project <id>"),
     Retired("drunken-register", "S11 / 2.2.0", "drunken-init"),
-    Retired("jira_mcp/config.py", "DT-224 (S3)", "core.registry + core.secrets"),
-    Retired("AGY_DAEMON_SOCKET", "DT-244", "DRUNKEN_DAEMON_SOCKET"),
-    Retired("agy_pids.json", "DT-244", "pids.json"),
-    Retired("com.drunkenteam.agy-daemon", "DT-244", "com.drunkenteam.daemon"),
-    Retired("discord_outbox.json", "DT-232 / DT-243", "$DRUNKEN_HOME/approvals.json"),
-    Retired("Silent Wait Protocol", "DT-232", "request_boss_approval_async"),
+    Retired("jira_mcp/config.py", "DG-224 (S3)", "core.registry + core.secrets"),
+    Retired("AGY_DAEMON_SOCKET", "DG-244", "DRUNKEN_DAEMON_SOCKET"),
+    Retired("agy_pids.json", "DG-244", "pids.json"),
+    Retired("com.drunkenteam.agy-daemon", "DG-244", "com.drunkenteam.daemon"),
+    Retired("discord_outbox.json", "DG-232 / DG-243", "$DRUNKEN_HOME/approvals.json"),
+    Retired("Silent Wait Protocol", "DG-232", "request_boss_approval_async"),
     Retired("sync_skills.sh", "DG-269", "install_skills.sh"),
     Retired("sync_agents.sh", "DG-269", "install_agents.sh"),
     Retired("sync_skills.ps1", "DG-269", "install_skills.ps1"),
     Retired("sync_agents.ps1", "DG-269", "install_agents.ps1"),
     Retired(".agents/skills/", "DG-267", "skills/ and agents/, installed by script"),
+    Retired("Drunken-Team", "DG-274", "Drunken Guild"),
+    Retired("Drunken Team", "DG-274", "Drunken Guild"),
+    Retired("drunken-ai-team", "DG-274", "drunken-guild"),
+    Retired("Drunken-Team-Guide.md", "DG-274", "Drunken-Guild-Guide.md"),
 )
 
 #: Documents whose job is to record what changed. They have to be able to name

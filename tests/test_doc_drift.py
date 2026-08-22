@@ -1,5 +1,5 @@
 # mypy: ignore-errors
-"""The guard that stops DT-238 from being needed a second time.
+"""The guard that stops DG-238 from being needed a second time.
 
 Testing a checker is worth the effort in one specific way: a check that cannot
 fail is worse than no check, because it reports success. Most of what follows
@@ -38,7 +38,7 @@ def test_it_actually_reads_documents(drift) -> None:
 
     assert len(documents) > 20
     names = {path.name for path in documents}
-    assert {"README.md", "Integration-Guide.md", "Drunken-Team-Guide.md"} <= names
+    assert {"README.md", "Integration-Guide.md", "Drunken-Guild-Guide.md"} <= names
 
 
 def test_it_catches_a_retired_name(drift, tmp_path, monkeypatch) -> None:

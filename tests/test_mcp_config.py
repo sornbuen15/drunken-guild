@@ -3,7 +3,7 @@
 that ships without an entry there is code nobody can call.
 
 That is not hypothetical: `board_available_tasks` and the `blocked` lane merged
-in DT-233 and stayed unreachable from inside this project, because `.mcp.json`
+in DG-233 and stayed unreachable from inside this project, because `.mcp.json`
 declared two of the three servers. Nothing failed -- the tools simply were not
 there. This test is the thing that would have said so.
 """
@@ -83,7 +83,7 @@ def test_every_mcp_server_is_reachable_from_this_project(mcp_config: dict) -> No
     assert declared <= configured, (
         f"{sorted(declared - configured)} ship as entry points but are missing "
         "from .mcp.json, so their tools cannot be called from inside this "
-        "project. This is how DT-233's board tools shipped unreachable."
+        "project. This is how DG-233's board tools shipped unreachable."
     )
 
 

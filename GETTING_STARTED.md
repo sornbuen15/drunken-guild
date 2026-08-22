@@ -304,7 +304,7 @@ described in the [README](./README.md#the-three-tier-system).
 |---|---|
 | [`skills/INDEX.md`](./skills/INDEX.md) | every skill, its trigger and its path |
 | [`agents/INDEX.md`](./agents/INDEX.md) | every agent and when to invoke it |
-| [`Drunken-Team-Guide.md`](./Drunken-Team-Guide.md) | the Discord command reference and approval flow |
+| [`Drunken-Guild-Guide.md`](./Drunken-Guild-Guide.md) | the Discord command reference and approval flow |
 | [`Integration-Guide.md`](./Integration-Guide.md) | bringing another project under this workflow |
 | [`CLAUDE.md`](./CLAUDE.md) | the rules, if you are going to contribute here |
 

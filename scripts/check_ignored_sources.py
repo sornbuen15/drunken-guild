@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Stop a commit that is quietly missing a source file.
 
-DT-259, filed because it happened. `.gitignore` carries `*token*` as a
+DG-259, filed because it happened. `.gitignore` carries `*token*` as a
 credential-hygiene rule; it matched ``tests/test_jira_token_economy.py``, and
 ``git add -A`` skipped the file without a word. The commit succeeded,
 pre-commit passed, and the local suite stayed green because the file was still

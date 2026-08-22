@@ -31,7 +31,7 @@ description: >
 
       Allowed types: feat/ | feature/ | fix/ | bugfix/ | refactor/ | docs/ | chore/
 
-      **Include the ticket key when the project has a tracker.** `feature/DT-123-retire-board`
+      **Include the ticket key when the project has a tracker.** `feature/DG-123-retire-board`
       is not decoration: tooling reads the key back off the branch name — `drunken-usage
       --by ticket` attributes a whole run to a ticket that way, and it has no other source.
       A branch without a key on a tracked project reports as untracked cost, silently.
@@ -39,8 +39,8 @@ description: >
       Omit the key only on a project with no tracker at all, where there is nothing to name.
 
       Examples:
-        feature/DT-123-retire-local-board     tracked project
-        fix/DT-260-doctor-verifies-project    tracked project
+        feature/DG-123-retire-local-board     tracked project
+        fix/DG-260-doctor-verifies-project    tracked project
         fix/sync-aborts-on-frontmatter        untracked project
         docs/update-skill-index               untracked project
 
