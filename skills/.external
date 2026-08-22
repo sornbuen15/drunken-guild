@@ -1,0 +1,13 @@
+# Skills installed in ~/.claude/skills/ that this repo deliberately does NOT author.
+#
+# sync_skills.sh names anything installed-but-not-produced-here under
+# "Installed but not produced here". Listing a name here says that is expected,
+# and stops it being reported every run.
+#
+# This file is currently EMPTY on purpose. It was not always:
+# debug-mantra, management-talk, post-mortem and scrutinize were listed here as
+# third-party with no source. Their source was the sibling repo all along, and
+# the merge that produced drunken-guild brought them in. They are first-party
+# now, under skills/workflow/ and skills/leadership/.
+#
+# Add a name here only when a skill is genuinely authored elsewhere.
