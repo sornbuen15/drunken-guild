@@ -6,7 +6,7 @@
 # something". So every exception below matches a specific, self-identifying
 # non-secret rather than a location.
 
-title = "drunken-team"
+title = "drunken-guild"
 
 [extend]
 useDefault = true

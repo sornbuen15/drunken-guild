@@ -650,8 +650,8 @@ wheels = [
 ]
 
 [[package]]
-name = "drunken-team"
-version = "2.3.0"
+name = "drunken-guild"
+version = "1.0.0"
 source = { editable = "." }
 dependencies = [
     { name = "aiohttp" },

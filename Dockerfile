@@ -14,8 +14,8 @@
 # non-loopback host. Manifests for that transport are deferred to that ticket
 # rather than written against something that does not exist.
 #
-#   docker build -t drunken-team:pinned .
-#   docker run --rm drunken-team:pinned          # reports what it installed
+#   docker build -t drunken-guild:pinned .
+#   docker run --rm drunken-guild:pinned          # reports what it installed
 
 FROM python:3.13-slim
 
