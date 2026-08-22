@@ -8,11 +8,24 @@ import discord
 
 from core.registry import ProjectRegistry
 from service.discord_runner import RAW_LOG_FILE, AgentRunner
-from service.discord_utils import find_config, log_activity, packaged_script
+from service.discord_utils import (
+    default_project_id,
+    find_config,
+    log_activity,
+    packaged_script,
+)
 
 DISCORD_MESSAGE_LIMIT = 2000
 LIST_COMMAND_MAX_ITEMS = 8
-DEFAULT_TARGET_PROJECT = "drunken-team"
+
+#: What every project-scoped command answers when nothing says which project it
+#: is for. It names the fix, because "unknown project" only tells the reader to
+#: give up -- the same rule `core/errors.py` states for tool results.
+NO_TARGET_PROJECT = (
+    "⚠️ ยังไม่ได้ตั้ง target project ค่ะ\n"
+    "พิมพ์ `/project <name>` เพื่อเลือก หรือกำหนด `DRUNKEN_PROJECT` "
+    "ตอนสตาร์ท daemon"
+)
 
 # Absolute paths so these resolve correctly regardless of which directory a
 # subprocess is launched with as its cwd (e.g. a non-default target project).
@@ -139,16 +152,24 @@ def _target_project_file() -> str | None:
     return os.path.join(os.path.dirname(config_file), "discord_target_project.json")
 
 
-def _get_target_project() -> str:
+def _get_target_project() -> str | None:
+    """The project `/tasks`, `/pr` and friends act on, or ``None`` if unset.
+
+    ``None`` is a real answer and callers must handle it. It used to be a
+    module-level literal naming ``drunken-team``, so a command sent with no
+    explicit target acted on the fallback checkout — a repository this project
+    is under standing instruction not to touch.
+    """
+    fallback = default_project_id()
     path = _target_project_file()
     if not path or not os.path.exists(path):
-        return DEFAULT_TARGET_PROJECT
+        return fallback
     try:
         with open(path, "r", encoding="utf-8") as f:
             data = json.load(f)
-        return str(data.get("target_project") or DEFAULT_TARGET_PROJECT)
+        return str(data.get("target_project") or "") or fallback
     except Exception:
-        return DEFAULT_TARGET_PROJECT
+        return fallback
 
 
 def _set_target_project(name: str) -> None:
@@ -159,13 +180,15 @@ def _set_target_project(name: str) -> None:
         json.dump({"target_project": name}, f)
 
 
-def _project_cwd(name: str) -> str | None:
+def _project_cwd(name: str | None) -> str | None:
     """Checkout directory for *name*, from the registry.
 
     ``None`` means "no registered path", and the caller falls back to the
     daemon's own working directory. A project that only talks to Jira has no
     checkout, so this is a legitimate answer rather than an error.
     """
+    if name is None:
+        return None
     proj = ProjectRegistry().get_project(name)
     return proj.get("path") if proj else None
 
@@ -193,11 +216,18 @@ async def _run_jira_bridge_raw(
     decides where `gh` and the QA run happen; it no longer decides who we
     authenticate as.
     """
+    project = _get_target_project()
+    if project is None:
+        # Refused rather than defaulted. The previous behaviour named a literal
+        # project here, so a daemon nobody had configured still ran commands --
+        # against `drunken-team`, the fallback checkout.
+        return (2, "", NO_TARGET_PROJECT)
+
     proc = await asyncio.create_subprocess_exec(
         sys.executable,
         JIRA_BRIDGE_SCRIPT,
         "--project",
-        _get_target_project(),
+        project,
         *args,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
@@ -334,7 +364,7 @@ async def _try_handle_query_command(
         action, title = JIRA_LIST_COMMANDS[slash_cmd]
         project = _get_target_project()
         display_title = (
-            title if project == DEFAULT_TARGET_PROJECT else f"{title} ({project})"
+            title if project == default_project_id() else f"{title} ({project})"
         )
         await _handle_jira_list_command(
             message, action, display_title, _target_project_cwd()
@@ -359,7 +389,11 @@ async def _handle_project_command(message: discord.Message, content_str: str) ->
         )
         return
     name = parts[1].strip()
-    if name != DEFAULT_TARGET_PROJECT and not ProjectRegistry().get_project(name):
+    # Every name is checked. This used to read `name != DEFAULT_TARGET_PROJECT
+    # and not ...`, so the one name nobody had verified was the only one that
+    # skipped verification -- and it was a literal, so it stayed trusted even
+    # after that project was deregistered.
+    if not ProjectRegistry().get_project(name):
         known = ", ".join(sorted(ProjectRegistry().get_projects().keys()))
         await message.channel.send(f"⚠️ ไม่พบโปรเจกต์ `{name}` ที่ลงทะเบียนไว้ (มี: {known})")
         return
@@ -526,7 +560,7 @@ async def _run_qa_gate_and_reply(
             QA_AUTOMATION_SCRIPT,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
-            cwd=_project_cwd(DEFAULT_TARGET_PROJECT),
+            cwd=_project_cwd(_get_target_project()),
         )
         stdout, stderr = await proc.communicate()
         output = stdout.decode("utf-8", errors="replace").strip()
