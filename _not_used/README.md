@@ -29,3 +29,4 @@ left byte-for-byte as it was.
 | `scripts/kanban` | 2026-08-22 | CLI fallback for a board that no longer exists |
 | `scripts/mcp` | 2026-08-22 | the MCP server that defined every `board_*` tool |
 | `templates/mcp-settings.json` | 2026-08-22 | it registers the server above, and nothing else |
+| `examples/pre-jira-fixtures` | 2026-08-22 | the `board/` output of examples 01-02, whose skills survive |
