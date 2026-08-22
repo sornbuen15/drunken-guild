@@ -1,5 +1,16 @@
-# Sync skills from this repo to %USERPROFILE%\.claude\skills\
-# Usage: .\scripts\install\sync_skills.ps1
+# Install skills from this repo to %USERPROFILE%\.claude\skills\
+# Usage: .\scripts\install\install_skills.ps1
+#
+# KNOWN GAP -- this does less than install_skills.sh, and the difference is
+# stated rather than hidden. The shell version also installs into
+# Antigravity's tree and accepts --index-only to rebuild skills/INDEX.md
+# without installing anything. Neither is implemented here.
+#
+# Not an oversight and not a TODO left lying around: this project has no
+# Windows machine to run PowerShell against, and shipping an untested
+# install script that writes to a shared config directory is worse than
+# shipping one that does less and says so. Antigravity on Windows and index
+# regeneration on Windows both need a real run before they are written.
 #
 # Requirements: PowerShell 5.1+ or PowerShell Core 7+ (Windows / macOS / Linux)
 
