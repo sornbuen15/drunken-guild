@@ -5,7 +5,7 @@
 
 An AI-powered development team toolkit using Claude — skills, agents, and workflows that assemble a disciplined engineering squad for any software project.
 
-A collection of **30 skills**, **5 specialist agents**, and an **8-agent engineering squad** that transforms Claude Code into a structured, team-based engineering system. Board state is managed through a typed MCP server — agents call board tools natively instead of composing shell commands.
+A collection of **26 skills**, **5 specialist agents**, and an **8-agent engineering squad** that transforms Claude Code into a structured, team-based engineering system. Work is coordinated on **Jira** through the typed `drunken-jira-mcp` server — agents call its tools natively instead of composing shell commands.
 
 ---
 
@@ -312,17 +312,15 @@ Skills enforce domain standards. Load them via slash command during any task.
 | `product-midset` | `/product` | Product mindset, FinOps, ROI-driven decisions |
 | `business-telemetry` | `/telemetry` | Event schema design, funnel tracking, PII-safe analytics |
 
-### Project Management (Kanban)
+### Project Management (Jira)
 
 | Skill | Command | Purpose |
 |---|---|---|
-| `kanban-io` | `/kanban-io` | Single interface for all board reads and writes — used by other skills |
-| `spec-to-backlog` | `/init-project` | Day 0: spec → prioritized backlog |
-| `agentic-kanban` | `/task` | Workflow orchestrator — triage, assign, promote tasks |
-| `backlog-refinement` | `/refine` | Promote tasks by priority level, Critical-first rule |
-| `next-task` | `/next` | WIP limit = 1, priority-pick, plan before coding |
+| `issue-intake` | `/issue` | Triage a reported bug into a classified Jira ticket |
+| `spec-to-backlog` | `/init-project` | Day 0: spec → labelled Jira backlog |
+| `backlog-refinement` | `/refine` | Move backlog tickets onto the board, critical-first |
 | `task-estimation` | `/estimate` | T-shirt sizing, AI turns estimate, human review effort |
-| `local-progress-reporter` | `/report` | Board status report with progress bar and blockers |
+| `local-progress-reporter` | `/report` | Ticket status report with progress bar and blockers |
 | `audit-to-backlog` | `/audit` | Post-mortem / code audit → report + backlog tasks |
 | `project-audit-reviewer` | `/audit-project` | Full codebase health check, scored by dimension |
 
@@ -564,8 +562,6 @@ drunken-ai-team/
 │   ├── 01-spec-to-backlog/        # Output of /init-project
 │   ├── 02-backlog-refinement/     # Output of /refine
 │   ├── 03-task-estimation/        # Output of /estimate
-│   ├── 04-next-task/              # Output of /next (execution plan)
-│   ├── 05-agentic-kanban/         # Output of /task (mid-sprint bug)
 │   └── contributing/              # Annotated SKILL.md for skill authors
 ├── scripts/
 │   ├── install/                   # ← INSTALL SCRIPTS (deploy to ~/.claude/)
@@ -595,12 +591,10 @@ drunken-ai-team/
 │   ├── infrastructure/
 │   │   └── cloud-native/
 │   ├── kanban/
-│   │   ├── kanban-io/             # ← single board I/O interface
-│   │   ├── agentic-kanban/
 │   │   ├── audit-to-backlog/
 │   │   ├── backlog-refinement/
+│   │   ├── issue-intake/
 │   │   ├── local-progress-reporter/
-│   │   ├── next-task/
 │   │   ├── spec-to-backlog/
 │   │   └── task-estimation/
 │   ├── leadership/
@@ -622,6 +616,9 @@ drunken-ai-team/
 │       ├── project-audit-reviewer/
 │       ├── project-hygiene/
 │       └── test-report-generator/
+├── _not_used/                     # ← RETIRED, KEPT (see _not_used/README.md)
+│   ├── skills/                    #   4 orchestration skills, each with RETIRED.md
+│   └── examples/                  #   their recorded outputs
 ├── templates/
 │   ├── PROJECT_BRIEF.md           # Project goal, users, platform, constraints
 │   ├── REQUIREMENTS.md            # Functional + non-functional requirements
