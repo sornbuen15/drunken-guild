@@ -264,7 +264,13 @@ class TestTheMoveTools:
         client = AsyncMock()
         client.project_key = "DG"
         client.board_profile.return_value = BoardProfile(
-            id=68, name="Drunken-Guild", type="kanban", backlog=False, known=True
+            id=68,
+            project_key="DG",
+            project_name="Drunken-Guild",
+            display_name="Drunken-Guild (DG)",
+            type="kanban",
+            backlog=False,
+            known=True,
         )
         with patch("jira_mcp.server.get_client", return_value=client):
             result = await jira_move_to_backlog("DG-251")
@@ -295,7 +301,13 @@ class TestTheMoveTools:
         client = AsyncMock()
         client.project_key = "DG"
         client.board_profile.return_value = BoardProfile(
-            id=72, name="Drunken-Guild (DG)", type="simple", backlog=True, known=True
+            id=72,
+            project_key="DG",
+            project_name="Drunken-Guild",
+            display_name="Drunken-Guild (DG)",
+            type="simple",
+            backlog=True,
+            known=True,
         )
         with patch("jira_mcp.server.get_client", return_value=client):
             result = await jira_move_to_backlog("BETA-5")
@@ -314,7 +326,13 @@ class TestTheMoveTools:
         client = AsyncMock()
         client.project_key = "DG"
         client.board_profile.return_value = BoardProfile(
-            id=72, name="Drunken-Guild (DG)", type="simple", backlog=True, known=True
+            id=72,
+            project_key="DG",
+            project_name="Drunken-Guild",
+            display_name="Drunken-Guild (DG)",
+            type="simple",
+            backlog=True,
+            known=True,
         )
         client.move_to_backlog.return_value = {"ok": True, "moved": ["DG-251"]}
         with patch("jira_mcp.server.get_client", return_value=client):
@@ -333,7 +351,13 @@ class TestTheMoveTools:
         client = AsyncMock()
         client.project_key = "DG"
         client.board_profile.return_value = BoardProfile(
-            id=72, name="Drunken-Guild (DG)", type="simple", backlog=True, known=True
+            id=72,
+            project_key="DG",
+            project_name="Drunken-Guild",
+            display_name="Drunken-Guild (DG)",
+            type="simple",
+            backlog=True,
+            known=True,
         )
         client.move_to_board.return_value = {"ok": True, "moved": ["DG-251"]}
         with patch("jira_mcp.server.get_client", return_value=client):
@@ -352,7 +376,13 @@ class TestTheMoveTools:
         client = AsyncMock()
         client.project_key = "DG"
         client.board_profile.return_value = BoardProfile(
-            id=72, name="Drunken-Guild (DG)", type="simple", backlog=None, known=True
+            id=72,
+            project_key="DG",
+            project_name="Drunken-Guild",
+            display_name="Drunken-Guild (DG)",
+            type="simple",
+            backlog=None,
+            known=True,
         )
         client.move_to_backlog.return_value = {"ok": True, "moved": ["DG-251"]}
         with patch("jira_mcp.server.get_client", return_value=client):
@@ -397,20 +427,21 @@ class TestTheErrorsCarryANextStep:
                 pytest.fail(f"{raw!r} should have been refused")
 
 
-class TestTheBoardNameIsReadFromWhatCanChange:
-    """DG-274. `board["name"]` is frozen at creation.
+class TestTheBoardIsIdentifiedByWhatCanChange:
+    """DG-274. The board's own ``name`` is frozen at creation and unreadable as
+    identity.
 
-    A team-managed project offers no board-rename UI, and the Agile API creates
-    and deletes boards rather than renaming them — so a project renamed later
-    keeps a board still labelled with the old name. This board reported
-    `DT board` long after the project became `Drunken-Guild`, and reporting it
-    sent a reader hunting for a setting that exists nowhere.
+    A team-managed project offers no board-rename UI — its two menus hold
+    stand-up, swimlanes, columns, workflows and filters, nothing else — and the
+    Agile API creates and deletes boards rather than renaming them. This board
+    answered ``DT board`` months after the project became ``Drunken-Guild``.
 
-    `location` carried the right answer the whole time.
+    Reporting an unchangeable field beside changeable ones is what sends a
+    reader hunting for a setting that does not exist, so it is not reported.
     """
 
     @pytest.mark.asyncio
-    async def test_the_live_location_wins_over_the_frozen_label(self) -> None:
+    async def test_the_location_is_what_is_carried(self) -> None:
         client = _FakeClient(
             boards=[
                 {
@@ -428,14 +459,19 @@ class TestTheBoardNameIsReadFromWhatCanChange:
 
         profile = await client.board_profile()
 
-        assert profile.name == "Drunken-Guild (DG)"
+        assert profile.project_key == "DG"
+        assert profile.project_name == "Drunken-Guild"
+        assert profile.display_name == "Drunken-Guild (DG)"
         assert profile.id == 72
 
     @pytest.mark.asyncio
-    async def test_the_label_is_still_used_when_there_is_no_location(self) -> None:
-        """Not every board carries one, and a name is better than none."""
-        client = _FakeClient(boards=[{"id": 9, "name": "Some board", "type": "kanban"}])
+    async def test_the_frozen_label_is_not_carried_at_all(self) -> None:
+        """Not preferred-but-available: absent. A field nobody can change has no
+        place beside fields they can."""
+        client = _FakeClient(boards=[{"id": 72, "name": "DT board", "type": "simple"}])
 
         profile = await client.board_profile()
 
-        assert profile.name == "Some board"
+        assert not hasattr(profile, "name")
+        assert profile.project_key is None
+        assert profile.id == 72
