@@ -36,13 +36,17 @@ class TestWhatCountsAsASourceFile:
         )
 
     def test_a_shared_skill_counts(self) -> None:
-        """The third time this bit, in one session. `.agents/` is ignored as
-        Antigravity's state, but `.agents/skills/` is the cross-agent
-        instruction layer and is deliberately tracked -- so a NEW skill was
-        invisible to `git add` while the existing ones kept working, because
-        gitignore does not affect files already in the index. The docs pointing
-        at it would have shipped referencing a file that was not in the repo."""
-        assert guard.is_source(Path(".agents/skills/jira-tickets/SKILL.md"))
+        """A skill is source, and nothing else in the tool chain would say so.
+
+        ruff, mypy and pytest all stop at `src`, `tests` and `scripts`, so an
+        ignore rule that swallowed a skill would be caught here or nowhere. The
+        original form of this bit three times in one session, back when the
+        tracked copy lived under an ignored `.agents/` -- existing skills kept
+        working because gitignore does not affect files already in the index,
+        so only a NEW one was invisible, and the docs pointing at it would have
+        shipped referencing a file that was not in the repository."""
+        assert guard.is_source(Path("skills/kanban/jira-tickets/SKILL.md"))
+        assert guard.is_source(Path("agents/principal-engineer.md"))
 
     def test_antigravity_state_does_not(self) -> None:
         """`.agents/` proper is not ours and is ignored on purpose."""

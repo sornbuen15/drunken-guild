@@ -78,7 +78,7 @@ description: >
 
   <ticket_rules>
     The ticket shape, the field limits, and the lifecycle are NOT restated here. They live in
-    `~/Projects/drunken-team/.agents/skills/jira-tickets/SKILL.md` and that file is authoritative.
+    the `jira-tickets` skill, and that skill is authoritative.
     Read it before writing a ticket.
   </ticket_rules>
 

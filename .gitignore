@@ -166,15 +166,15 @@ client_secret*.json
 # `.agents/*` and not `.agents/`: git does not descend into an ignored
 # DIRECTORY, so a negation for a file inside one is never even considered.
 .agents/*
-# AGENTS.md and skills/ are the cross-agent instruction layer: the same files
-# Claude and Antigravity are both pointed at, so the rules cannot drift apart
-# per agent. They were tracked before `.agents/` was ignored, which hid the
-# problem -- gitignore does not affect files already in the index, so existing
-# skills kept working while a NEW one was silently invisible to `git add`.
-# Found the third time that happened in one session (DT-259).
+# AGENTS.md is Antigravity's copy of the rules Claude reads in CLAUDE.md, so it
+# is tracked while the rest of `.agents/` is not. `.agents/skills/` used to be
+# carved out here too; it is gone (DG-267) -- skills and agents now have one
+# source, in `skills/` and `agents/`, and both are covered by
+# scripts/check_ignored_sources.py so a rule like this cannot swallow one
+# unnoticed. That happened three times in one session before the guard existed
+# (DG-259): gitignore does not affect files already in the index, so existing
+# files kept working and only a NEW one was invisible to `git add`.
 !.agents/AGENTS.md
-!.agents/skills/
-!.agents/skills/**
 
 # Local Claude Code state (worktrees, scheduled tasks, checkpoints, etc.).
 # settings.json is the one exception: it is the shared permission allowlist
