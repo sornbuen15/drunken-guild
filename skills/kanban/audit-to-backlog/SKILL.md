@@ -22,8 +22,8 @@ description: >
   </role>
 
   <ticket_rules>
-    The ticket shape and field limits live in
-    `~/Projects/drunken-team/.agents/skills/jira-tickets/SKILL.md`. Read it before writing.
+    The ticket shape and field limits live in the `jira-tickets` skill. Read it before
+    writing.
     Three points govern this skill in particular:
 
     - Three headings only: FINDING, SCOPE, ACCEPTANCE.

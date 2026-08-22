@@ -22,7 +22,7 @@ Run this on Day 0, before any code is written.
 
 One Jira ticket per feature, created with `jira_create_issue` and parked in the backlog with
 `jira_move_to_backlog`. Each ticket follows the three-heading shape defined in
-`~/Projects/drunken-team/.agents/skills/jira-tickets/SKILL.md` — **FINDING, SCOPE, ACCEPTANCE**,
+the `jira-tickets` skill — **FINDING, SCOPE, ACCEPTANCE**,
 and nothing else — under a summary line of the form `[Area] imperative statement of the change`.
 
 After creating the tickets, the skill prints a summary table and **halts**. It does not move

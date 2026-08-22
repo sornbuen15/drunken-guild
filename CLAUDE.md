@@ -84,7 +84,7 @@ did not see.
 
 `TODO` → `IN PROGRESS` → `IN REVIEW` → `DONE`. **Never skip IN REVIEW**, including for your own work.
 
-**How to write and run a ticket is `.agents/skills/jira-tickets/SKILL.md`** — the
+**How to write and run a ticket is `skills/kanban/jira-tickets/SKILL.md`** — the
 FINDING/SCOPE/ACCEPTANCE shape, the fields this Jira can actually set, and what must be verified
 before anything is Done. Read it before opening or closing a ticket. It is the same file
 Antigravity is pointed at, so the rules cannot drift apart per agent.
@@ -206,7 +206,7 @@ change it in both.
 
 ## Approvals — ask without stopping
 
-Full protocol in `.agents/skills/ask-boss/SKILL.md`; the short version:
+Full protocol in `skills/workflow/ask-boss/SKILL.md`; the short version:
 
 - The Boss is reading this conversation → **just ask them here.** Discord is for when they are not.
 - Otherwise `request_boss_approval_async(action, reason, ticket_key)`, which returns a `req_id`
