@@ -25,9 +25,9 @@
     Four layers reach this project, from three different places. Knowing which is which is what
     stops a skill being installed into a project that cannot run it.
 
-    1. **Skills** — installed to `~/.claude/skills/` by the toolkit's `sync_skills.sh`.
+    1. **Skills** — installed to `~/.claude/skills/` by the toolkit's `install_skills.sh`.
        Most need no MCP server at all.
-    2. **Agents** — installed to `~/.claude/agents/` by `sync_agents.sh`.
+    2. **Agents** — installed to `~/.claude/agents/` by `install_agents.sh`.
     3. **MCP servers** — NOT installed by either script. They are declared in **this project's
        own `.mcp.json`**, and the servers themselves live in `~/Projects/drunken-team`
        (`drunken-jira-mcp`, `drunken-discord-mcp`).

@@ -7,13 +7,13 @@ agent in `~/.gemini/config/skills/` that belongs to this project is *generated* 
 
 | you read | generated from | by |
 |---|---|---|
-| `~/.gemini/config/skills/<agent>/SKILL.md` | `agents/<agent>.md` | `scripts/install/sync_agents.sh` |
-| `~/.gemini/config/skills/<skill>/` | `skills/<category>/<skill>/` | `scripts/install/sync_skills.sh` |
+| `~/.gemini/config/skills/<agent>/SKILL.md` | `agents/<agent>.md` | `scripts/install/install_agents.sh` |
+| `~/.gemini/config/skills/<skill>/` | `skills/<category>/<skill>/` | `scripts/install/install_skills.sh` |
 
 Editing an installed copy is writing to a file the next install overwrites. Change the source in
 the repository and ask the Boss to re-run the installer.
 
-This replaces `.agents/skills/`, which held fifteen hand-maintained copies of `agents/`. Twelve
+This replaces `.agents/skills/`, which held fifteen hand-maintained copies of `agents/`. Twelve <!-- drift-ok: naming what was replaced is the point of the sentence -->
 matched their source; three had drifted, and `principal-engineer` had fallen to 78 lines against
 311 while still describing an orchestrator retired two tickets earlier. Nothing announced it. The
 copy is gone because the copy was the problem.
