@@ -1,32 +1,63 @@
 # Annotated SKILL.md — Contributor Reference
 
-> This file walks through every section of a `SKILL.md` with inline comments explaining
-> what each field does and how to write it correctly.
-> The skill used as the base is `agentic-kanban` — modified slightly for annotation clarity.
+> This file walks through every section of a `SKILL.md` with inline comments explaining what
+> each field does and how to write it correctly.
+>
+> The skill used as the base is `issue-intake` — trimmed for annotation clarity. It was chosen
+> because it exercises everything a coordination skill needs: frontmatter triggers, an MCP
+> requirement declared in `<constraints>`, and a rule that points at an authority rather than
+> restating it.
 
 ---
 
-# Skill: Bug-Fix & Feature Kanban Task Generator
+<!-- FRONTMATTER — required, and it comes FIRST.
+
+     A skill without frontmatter is invisible: `sync_skills.sh` reads `description:` to build
+     INDEX.md, and Claude reads it to decide whether the skill is relevant at all.
+
+     Two fields:
+       name:        kebab-case, and it MUST match the directory name. The installer flattens
+                    skills by directory basename, so two skills with one name collide and the
+                    install refuses to run.
+       description: an English summary that ALSO carries the activation triggers.
+
+     There is NO separate `**Trigger/Keywords:**` line any more. Triggers live here, in the
+     description, and the description ends with the slash command: "Trigger on /issue."
+     Keep "Trigger on /x." on ONE line -- the installer greps for it line by line, and a
+     description wrapped between "Trigger on" and "/issue" indexes with no trigger at all. -->
+
+```yaml
+---
+name: issue-intake
+description: >
+  Captures user-reported bugs and problems as properly classified Jira tickets via
+  drunken-jira-mcp. Apply whenever the user reports a bug, says something is broken, mentions a
+  problem they found, or wants to log an issue — even casually, like "heads up, the login page is
+  throwing a 500". Trigger on /issue.
+---
+```
+
+<!-- Write the description for the decision it has to support: "should I load this skill?"
+     State WHEN to apply it, include the casual phrasings a user actually types ("something is
+     broken"), and end with the slash command. More phrasings means more coverage. -->
+
+---
+
+# Skill: Issue Intake
 
 <!-- TITLE
      Format: "# Skill: <Human-Readable Title>"
-     This is the display name — used in the README skill catalog and by contributors.
-     Keep it short and action-oriented. -->
+     The display name — used in the README catalog and by contributors.
+     Short and action-oriented. -->
 
-**Description:** An automated system for managing workflow when a bug is found or a new feature is needed. The AI acts as a Project Manager, creating and managing Task Files before writing any code.
+**Version:** v3.0.0
+**Description:** Captures user-reported bugs and problems as properly classified Jira tickets via drunken-jira-mcp.
 
-<!-- DESCRIPTION
-     One line. Should answer: "what does this skill make the AI do?"
-     Write it so a non-technical reader can understand the purpose.
-     Do NOT write "this skill..." — start with the noun or verb. -->
+<!-- VERSION is optional SemVer. Bump the minor when behaviour changes, the major when a rule
+     that other skills depend on changes.
 
-**Trigger/Keywords:** `/task`, Feature Request, Create a task, Plan the fix, Kanban, New task, New bug task
-
-<!-- TRIGGER / KEYWORDS
-     List the slash command first (e.g., `/task`), then natural-language phrases
-     that should activate this skill even without the slash command.
-     Claude Code matches these against what the user types. More phrases = more coverage.
-     Use comma-separated values. -->
+     DESCRIPTION is one line, and it should answer "what does this skill make the AI do?"
+     Do NOT write "this skill..." — start with the noun or the verb. -->
 
 ---
 
@@ -35,143 +66,131 @@
 
 <system_prompt>
   <role>
-    You are an Autonomous Tech Lead and Technical Project Manager. When faced with a new bug
-    report or feature request, you must structure the execution plan into a strict Kanban Task
-    File before writing any application code.
+    When this skill applies, follow the Issue Intake protocol — the front door for user-reported
+    problems: capture, classify, and route issues into Jira via drunken-jira-mcp tools.
+    Do not fix, investigate, or suggest solutions.
   </role>
 
-  <!-- ROLE
-       One paragraph. Set the AI's persona and primary obligation.
-       Be specific: "You are a [job title]" → "Your job is to [primary obligation]."
-       The role statement anchors every rule that follows — write it as if briefing a new hire. -->
+  <!-- ROLE — required.
+       One paragraph. Set the obligation and, just as importantly, the NON-obligation.
+       "Do not fix, investigate, or suggest solutions" is doing more work here than the
+       positive half: it is what stops the skill from quietly becoming a debugging session. -->
 
-  <execution_rules>
+  <ticket_rules>
+    The ticket shape, the field limits, and the lifecycle are NOT restated here. They live in
+    `~/Projects/drunken-team/.agents/skills/jira-tickets/SKILL.md` and that file is authoritative.
+    Read it before writing a ticket.
+  </ticket_rules>
 
-    <!-- EXECUTION RULES
-         Rules the AI must follow. Use priority attributes to signal severity:
-         - priority="FATAL"  → breaking this rule is never acceptable; the AI must refuse
-         - priority="HIGH"   → strong preference; deviation requires explicit user override
-         No priority="MEDIUM" or "LOW" — if a rule isn't at least HIGH, it probably belongs
-         in action_sequence as a step, not here as a constraint. -->
+  <!-- POINT AT AUTHORITIES, DO NOT COPY THEM.
+       This is the single most important habit in this repo. Three projects holding three copies
+       of one rule is the failure the whole Jira migration was about. If a rule already has a
+       home, link to it and name the two or three consequences that matter locally — never
+       paste the rule itself. A copy cannot be kept in sync; a link cannot go out of sync. -->
 
-    <rule priority="FATAL" name="No Immediate Coding">
-      When the user reports a bug or requests a feature, STOP. DO NOT fix the code immediately.
-      You must establish the Task File first.
-    </rule>
+  <workflow>
 
-    <!-- FATAL rule example:
-         State the trigger condition ("When the user reports a bug..."),
-         then the action to take or refuse ("STOP. DO NOT...").
-         Naming the rule (name="No Immediate Coding") makes it easy to reference in logs
-         and easier for contributors to understand what each rule protects against. -->
+    <!-- WORKFLOW / ACTION SEQUENCE — domain-specific, optional, but usually worth having.
+         Ordered steps, written as imperatives. Start with context-gathering, end with a
+         verification or a halt gate. Steps reinforce the rules; they are not redundant with
+         them. -->
 
-    <rule priority="HIGH" name="Pre-flight Investigation (For Bugs)">
-      If the root cause is unknown, you are allowed to execute read-only exploratory commands
-      (e.g., `tail storage/logs/laravel.log`, `grep`, `find`) to diagnose the issue BEFORE
-      creating the task file.
-    </rule>
+    <step name="1. Capture">
+      Extract from the user's message: problem statement, location, onset, severity, evidence.
+    </step>
 
-    <!-- HIGH rule example:
-         This grants a permission with a constraint ("read-only only").
-         Note the concrete examples of allowed commands — always give examples so the AI
-         knows exactly what "read-only" means in this context. -->
+    <step name="2. Classify">
+      Severity becomes a **label**, never the `priority` field.
+      Call `jira_board_info` first to confirm the issue types this project accepts and the
+      settable field ids. They differ per instance — never hardcode one found in a payload.
+    </step>
 
-    <rule priority="HIGH" name="Auto-Increment ID">
-      Before creating the file, run `./scripts/kanban/kanban_read.sh next-id` to get the next
-      available Task ID. Never guess or hardcode — always resolve from the script.
-    </rule>
+    <step name="3. Create">
+        jira_create_issue({ summary, description, labels }) → { key }
+        jira_search_issues({ jql: "key = <key>" }) — confirm before reporting success.
+    </step>
 
-  </execution_rules>
+    <!-- Note the last line of step 3. A tool call that returned is not a ticket that exists.
+         Every skill that writes something should read it back before claiming success. -->
 
-  <action_sequence>
+  </workflow>
 
-    <!-- ACTION SEQUENCE
-         The ordered steps the AI takes when this skill is active.
-         Write steps as imperatives: "EXPLORE → TRIAGE → CREATE → EXECUTE"
-         Always start with context-gathering (read the board) before creating or modifying.
-         The last step should be a verification or halt gate. -->
+  <constraints>
 
-    1. EXPLORE & TRIAGE: Analyze the request.
-       - If it's a critical production bug/incident → target directory is `todo/`
-       - If it's a new feature, refactoring, or backlog item → target directory is `backlog/`
+    <!-- CONSTRAINTS — required.
+         Priority attributes signal severity:
+           priority="FATAL"  → never acceptable; the skill must refuse
+           priority="HIGH"   → strong preference; deviation needs an explicit user override
+         No MEDIUM or LOW. If a rule is not at least HIGH, it is a workflow step, not a
+         constraint.
 
-    2. CREATE: Generate the Task File at `.claude/board/<target_directory>/<ID>_<kebab-slug>.md`
-       using the template below.
+         Write each one as a prohibition with a consequence, not a preference. "Never set
+         `priority`" beats "prefer labels" because there is nothing left to interpret. -->
 
-    3. STATUS TRANSITION (Optional): If the user explicitly asks to fix it *now*, execute
-       `./scripts/kanban/kanban_write.sh move <TASK-ID> in-progress`.
+    <constraint priority="FATAL">Requires the `drunken-jira-mcp` server, declared in the project's `.mcp.json`. Without it this skill cannot run — say so rather than falling back to a file or a shell script.</constraint>
 
-    4. EXECUTE: Proceed with execution ONLY if the task is in `in-progress/`.
+    <!-- ^ A skill that calls an MCP tool MUST name the server it needs, right here. A project
+         without that server otherwise gets a skill that fails in a confusing way instead of one
+         that explains itself. Most skills in this repo need no server at all and say nothing. -->
 
-    <!-- The "ONLY if" gate in step 4 is the enforcement mechanism for the FATAL rule above.
-         Action sequence steps reinforce rules — they are not redundant. -->
+    <constraint priority="FATAL">Never create or write to `.claude/board/` or `.agents/board/`. The `board_*` tools are retired.</constraint>
+    <constraint priority="FATAL">Never set `priority`. It is not settable here; use labels.</constraint>
+    <constraint priority="FATAL">Never investigate, diagnose, or fix the reported issue — only capture and route it.</constraint>
+    <constraint priority="HIGH">Always confirm the created ticket via `jira_search_issues` before reporting success.</constraint>
+    <constraint priority="HIGH">All output must be in English.</constraint>
 
-  </action_sequence>
+    <!-- The English-only constraint appears in every skill and agent in this repo. It is a
+         FATAL project directive, not a per-skill preference. -->
 
-  <template>
+  </constraints>
 
-    <!-- TEMPLATE (optional section)
-         Include a template when the skill's primary output is a structured file.
-         Use this for kanban skills, report generators, and playbook writers.
-         Indent the template content consistently so the AI copies it verbatim. -->
+  <output_format>
 
-    ---
-    id: TASK-<NNN>
-    type: feature | bug | security | tech-debt | infrastructure
-    phase: <phase-number or "?">
-    priority: CRITICAL | HIGH | MEDIUM | LOW
-    title: <concise verb-noun title>
-    assigned_to: "@<single-agent-slug>"
-    depends_on: []
-    blocks: []
-    source: "<spec section, audit report, or post-mortem that originated this task>"
-    ---
+    <!-- OUTPUT FORMAT — required.
+         Specify the structure of what the AI prints TO THE CONVERSATION. If the skill's main
+         product is a file, describe the report about that file here, and put the file's shape
+         in a <template> block of its own.
 
-    ## Objective
-    One sentence: what problem is being solved or what capability is being added.
+         Be concrete. A format the AI has to invent is a format that changes every run. -->
 
-    ## Context
-    - Reference to the spec section, audit finding, or decision that motivated this task.
-    - Key constraints or trade-offs that shaped the scope.
-
-    ## Root Cause  ← BUGS AND SECURITY FINDINGS ONLY — omit otherwise
-    `path/to/file.ext:line` — specific diagnosis of why the defect exists.
-
-    ## Acceptance Criteria
-    - [ ] **`path/to/affected/file.ext`** — what must be true after the fix or feature is delivered
-    - [ ] Tests added or updated to cover the change
-    - [ ] Full test suite green
-
-    ## Technical Notes  ← OPTIONAL — omit if implementation is straightforward
-    Architectural constraints, gotchas, or implementation guidance the assignee needs.
-
-  </template>
-
-  <!-- OUTPUT FORMAT (not shown here — this skill's output is the task file itself)
-       When you DO include an <output_format> section, use it to specify:
-       - The structure of what the AI prints to the conversation (not to a file)
-       - The sequence of steps visible to the user
-       - The halt/approval gate prompt at the end
-
-       Example:
-       <output_format>
-         <step>1. Announce the task ID and title being created.</step>
-         <step>2. Show the task file content.</step>
-         <step>3. Halt: "Task created. Shall I move this to in-progress and start?"</step>
-       </output_format>
-  -->
+    **Issue captured:** &lt;ISSUE-KEY&gt;
+    **Type:** &lt;type&gt; | **Labels:** &lt;label, label&gt; | **Suggested specialist:** @&lt;agent-slug&gt;
+    **Where it is:** Backlog (not in the current working set; status TODO)
+    **Next step:** Run /refine to move this onto the board when ready to schedule it.
+  </output_format>
 
 </system_prompt>
 
 ---
 
+## The required blocks, in order
+
+| # | Block | Required | Notes |
+|---|---|---|---|
+| 1 | YAML frontmatter | yes | `name:` matches the directory; `description:` carries the triggers and ends with the slash command |
+| 2 | `# Skill: <Title>` | yes | display name |
+| 3 | `**Version:**` | no | SemVer |
+| 4 | `**Description:**` | yes | one line |
+| 5 | `---` | yes | separates header from the prompt |
+| 6 | `<system_prompt>` | yes | must contain `<role>`, `<constraints>`, `<output_format>` |
+
+Domain blocks — `<execution_rules>`, `<workflow>`, `<action_sequence>`, `<template>`,
+`<report_structure>` — may be added freely. `<role>`, `<constraints>` and `<output_format>` are
+never optional.
+
+---
+
 ## Checklist before submitting a new skill
 
-- [ ] Title is on line 1 as `# Skill: <Title>`
-- [ ] Description is one line, starts with a noun or verb (not "This skill...")
-- [ ] Trigger/Keywords includes at least one slash command
-- [ ] All `<rule>` elements have `priority=` and `name=` attributes
-- [ ] Action sequence starts with a read/context step
-- [ ] Template is included if the skill produces a file
+- [ ] YAML frontmatter is present, and `name:` matches the directory name exactly
+- [ ] `description:` states when to apply the skill and ends with `Trigger on /<command>.`
+- [ ] `Trigger on /<command>.` is on a single line, not wrapped
+- [ ] The slash command does not collide with an existing one — check `skills/INDEX.md`
+- [ ] Title is `# Skill: <Title>`, description is one line, not starting with "This skill..."
+- [ ] `<role>`, `<constraints>` and `<output_format>` are all present
+- [ ] Every `<rule>` and `<constraint>` has `priority=`, and rules have `name=`
+- [ ] If the skill calls an MCP tool, a `<constraint>` names the server it requires
+- [ ] Rules that live elsewhere are LINKED, not copied
 - [ ] All content is in English
-- [ ] You ran `./scripts/install/sync_skills.sh` to test the skill locally before opening a PR
+- [ ] You ran `./scripts/install/sync_skills.sh` and confirmed the skill appears in `INDEX.md`
+      with the trigger you expected
