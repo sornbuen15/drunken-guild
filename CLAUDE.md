@@ -102,8 +102,8 @@ One ticket per phase, and each phase must merge on its own without breaking the 
 was never merged and the trunk stayed vulnerable; every surface said it was done. Verify against
 `origin/develop` before believing any claim that something is fixed.
 
-**There is no local board.** The `board_*` tools are retired and `drunken-board-mcp` is not wired
-into any project. Do not create `.claude/board/` or `.agents/board/`, and do not author a skill
+**There is no local board.** The `board_*` tools are retired and `drunken-board-mcp` is no longer
+packaged at all (DG-265) — its code is kept at `_not_used/board-mcp/` and nothing installs it. Do not create `.claude/board/` or `.agents/board/`, and do not author a skill
 that reads or writes one. A board beside Jira is a second surface that can disagree with the first.
 What is genuinely lost is claim expiry — a Jira assignee never expires, so a ticket left assigned to
 an agent that died stays that way until a human looks. That is a ten-second fix, weighed against a
