@@ -38,7 +38,7 @@ async def test_full_jira_mcp_workflow() -> None:
         assert real_status == "In Progress"
 
         # 3. Test jira_submit_for_review (MCP Tool)
-        pr_link = "https://github.com/drunken-team/repo/pull/test"
+        pr_link = "https://github.com/drunken-guild/repo/pull/test"
         files = "tests/test_jira_e2e.py"
 
         review_result_str = await jira_submit_for_review(ticket_key, pr_link, files)

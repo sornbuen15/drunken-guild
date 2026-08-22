@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Clean-room verification: does drunken-team work for someone who is not us?
+# Clean-room verification: does drunken-guild work for someone who is not us?
 #
 # Every check here runs in a scratch HOME and a scratch DRUNKEN_HOME, with the
 # environment wiped, from a directory unrelated to any project. That matters

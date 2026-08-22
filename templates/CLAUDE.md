@@ -2,7 +2,7 @@
 
 > **This is a template.** Copy it to your project root as `CLAUDE.md`, then replace every
 > `<angle-bracket>` placeholder and delete the sections that do not apply. It is authored in
-> `~/Projects/ai-team-toolkit/templates/CLAUDE.md`; a project's own copy is its own to change.
+> `drunken-guild`'s `templates/CLAUDE.md`; a project's own copy is its own to change.
 >
 > It carries the **coordination and delivery rules** a project needs in order to work with the
 > skills and agents this toolkit installs. It deliberately does not carry the skill-authoring
@@ -29,8 +29,9 @@
        Most need no MCP server at all.
     2. **Agents** — installed to `~/.claude/agents/` by `install_agents.sh`.
     3. **MCP servers** — NOT installed by either script. They are declared in **this project's
-       own `.mcp.json`**, and the servers themselves live in `~/Projects/drunken-team`
-       (`drunken-jira-mcp`, `drunken-discord-mcp`).
+       own `.mcp.json`** and ship with the toolkit as commands (`drunken-jira-mcp`,
+       `drunken-discord-mcp`), put on PATH by `uv tool install`. Generate the config with
+       `install_mcp.sh` rather than writing it by hand.
     4. **Project instructions** — this file.
 
     A skill that calls an MCP tool names the server it requires in its own `<constraints>` block.

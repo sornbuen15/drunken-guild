@@ -183,7 +183,7 @@ class ApprovalManager:
     ) -> str:
         """Ask the Boss and return immediately with a handle.
 
-        This is the asynchronous half of DT-232 and the one an unattended
+        This is the asynchronous half of DG-232 and the one an unattended
         agent should use: the question goes to Discord, the calling task
         parks itself, and the agent moves on to whatever else is unblocked.
         Collect the answer later with poll().

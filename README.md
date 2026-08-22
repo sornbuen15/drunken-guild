@@ -183,7 +183,7 @@ Full catalogue with triggers: [`skills/INDEX.md`](./skills/INDEX.md).
 |---|---|
 | [`GETTING_STARTED.md`](./GETTING_STARTED.md) | first time here — setup through your first completed task |
 | [`CLAUDE.md`](./CLAUDE.md) | agents and contributors working *in* this repo |
-| [`Drunken-Team-Guide.md`](./Drunken-Team-Guide.md) | architecture, the Jira workflow, the Discord command reference, the approval flow |
+| [`Drunken-Guild-Guide.md`](./Drunken-Guild-Guide.md) | architecture, the Jira workflow, the Discord command reference, the approval flow |
 | [`Integration-Guide.md`](./Integration-Guide.md) | connecting an external tool, or bringing another project under this workflow |
 | [`examples/`](./examples/) | the full project lifecycle walked through with a fictional app |
 | [`SESSION_CHECKPOINT.md`](./SESSION_CHECKPOINT.md) | where the work currently stands |

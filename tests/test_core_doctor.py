@@ -245,7 +245,7 @@ class TestDaemonSocket:
 class TestEnvironment:
     def test_reports_the_installed_version(self, registry) -> None:
         detail = find(
-            doctor.run_doctor(registry=registry, offline=True), "version.drunken-team"
+            doctor.run_doctor(registry=registry, offline=True), "version.drunken-guild"
         ).detail
         assert detail
 

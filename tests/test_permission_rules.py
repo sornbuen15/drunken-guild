@@ -1,7 +1,7 @@
 # mypy: ignore-errors
 """Matching a tool call against a permission rule.
 
-This is the part of DT-236 that has to be right. The hook hands remote
+This is the part of DG-236 that has to be right. The hook hands remote
 approval real authority over tool calls, and the denylist is what stays
 outside that authority -- so a rule that fails to match is not a cosmetic
 bug, it is the control being absent.

@@ -1,1 +1,1 @@
-# Drunken Team Inn scripts module
+# Drunken Guild scripts module

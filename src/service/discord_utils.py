@@ -18,7 +18,7 @@ def default_project_id() -> str | None:
     The Discord daemon was the exception, and it guessed twice: this module's
     caller took ``list(registry.get_projects())[0]`` — the first key in a JSON
     file, so which project the daemon served depended on insertion order — and
-    the router carried a hard-coded default that still named ``drunken-team``,
+    the router carried a hard-coded default that still named ``drunken-guild``,
     the fallback checkout that must not be touched.
 
     The precedence here is the project's own, unchanged: an **environment
@@ -200,7 +200,7 @@ def project_root() -> str:
     """The directory whose ``.agents/`` this daemon reads and writes.
 
     The registry answers this, or the working directory does. What it must
-    never do is *climb*: DT-254. The previous version walked up from
+    never do is *climb*: DG-254. The previous version walked up from
     ``DRUNKEN_WORKSPACE`` or the cwd until something matched, which meant that
     running the daemon from anywhere under ``$HOME`` could adopt an unrelated
     project's ``.agents/`` — or, for ``.env``, an unrelated project's
@@ -256,7 +256,7 @@ def save_config(config: dict[str, Any]) -> None:
 def load_config() -> dict[str, Any]:
     """The daemon's Discord identity, and the order that decides it.
 
-    Precedence, per field, highest first — DT-254 made this a decision rather
+    Precedence, per field, highest first — DG-254 made this a decision rather
     than an accident:
 
     1. **An environment variable**, read directly from the process environment.
@@ -264,7 +264,7 @@ def load_config() -> dict[str, Any]:
        without rewriting the registry, and the operator setting it can see that
        they did.
     2. **The registry**, resolved through :mod:`core.secrets`. The supported
-       path since DT-247, and the only one ``drunken-doctor`` can verify.
+       path since DG-247, and the only one ``drunken-doctor`` can verify.
     3. **This project's own** ``.agents/discord_config.json``.
 
     Per field, not both-or-neither: a file holding a stale ``bot_token`` must
@@ -310,7 +310,7 @@ def load_config() -> dict[str, Any]:
 def _discord_from_registry() -> dict[str, Any]:
     """Discord credentials from the registry, or nothing.
 
-    Jira moved to the registry in DT-246; Discord staying behind meant
+    Jira moved to the registry in DG-246; Discord staying behind meant
     ``drunken-init`` wrote a ``discord.channel_id`` that nothing ever read, and
     ``drunken-doctor`` reported two projects as having no channel while a single
     channel was in fact serving all three.
