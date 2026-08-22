@@ -1,13 +1,15 @@
 # mypy: ignore-errors
-"""Checks that can see past this checkout — DT-252.
+"""Checks that can see past this checkout — DG-252.
 
 Checkpoint §10.7 asked for "a `doctor --all` that walks every registered project
 and reports the drift". Half of that already existed: a bare `drunken-doctor`
 walks every project. The half that did not is the more useful half.
 
 **`drunken-doctor` checks the checkout it is run from.** It has no idea that
-`~/.local/share/uv/tools/drunken-team/` exists, and *that* is the deployment
-Antigravity's `mcp_config.json` actually launches. The gap between the two has
+`~/.local/share/uv/tools/<package>/` exists, and *that* is the deployment
+Antigravity's `mcp_config.json` actually launches. That directory is named after
+the distribution, so DG-264's rename moved it -- see the legacy-root case in
+`test_ai_layer_drift.py`. The gap between the two has
 now caused two incidents inside four days — on 2026-08-13 the tool env was
 missing every S1/S2/S8 fix for hours after they merged, and on 2026-08-16 it was
 two files behind again within minutes of a merge. Both times it was found by a
@@ -37,7 +39,7 @@ class TestSeeingTheDeployment:
         """The whole point. A module that merged and is not deployed is the
         gap, and it has to be named — "drift detected" would send the reader
         back to the shell to find out which."""
-        env = tmp_path / "tools" / "drunken-team"
+        env = tmp_path / "tools" / "drunken-guild"
         site = env / "lib" / "python3.13" / "site-packages"
         (site / "core").mkdir(parents=True)
         (site / "core" / "away.py").write_text("", encoding="utf-8")
@@ -48,7 +50,7 @@ class TestSeeingTheDeployment:
         assert result["missing"] == ["core.usage"]
 
     def test_everything_deployed_is_reported_as_such(self, tmp_path) -> None:
-        env = tmp_path / "tools" / "drunken-team"
+        env = tmp_path / "tools" / "drunken-guild"
         site = env / "lib" / "python3.13" / "site-packages"
         (site / "core").mkdir(parents=True)
         for module in ("away.py", "usage.py"):
@@ -59,7 +61,7 @@ class TestSeeingTheDeployment:
         assert result["missing"] == []
 
     def test_a_dotted_module_resolves_to_its_nested_file(self, tmp_path) -> None:
-        env = tmp_path / "tools" / "drunken-team"
+        env = tmp_path / "tools" / "drunken-guild"
         site = env / "lib" / "python3.13" / "site-packages"
         (site / "jira_mcp").mkdir(parents=True)
         (site / "jira_mcp" / "backlog.py").write_text("", encoding="utf-8")
@@ -69,7 +71,7 @@ class TestSeeingTheDeployment:
     def test_a_package_directory_counts_as_deployed(self, tmp_path) -> None:
         """`core.memory` could be a package rather than a module. Missing it
         would report a false gap, which is worse than reporting none."""
-        env = tmp_path / "tools" / "drunken-team"
+        env = tmp_path / "tools" / "drunken-guild"
         site = env / "lib" / "python3.13" / "site-packages"
         (site / "core" / "memory").mkdir(parents=True)
         (site / "core" / "memory" / "__init__.py").write_text("", encoding="utf-8")
@@ -91,7 +93,7 @@ class TestSeeingTheDeployment:
         assert check is not None and check.status == "skip"
 
     def test_a_drifted_environment_warns_and_names_the_fix(self, tmp_path) -> None:
-        env = tmp_path / "tools" / "drunken-team"
+        env = tmp_path / "tools" / "drunken-guild"
         site = env / "lib" / "python3.13" / "site-packages"
         (site / "core").mkdir(parents=True)
 
@@ -106,7 +108,7 @@ class TestSeeingTheDeployment:
     def test_it_never_reports_a_failure_as_deployed(self, tmp_path) -> None:
         """An unreadable environment is unknown, not healthy. Reporting ok here
         is the S4 shape: a reassuring answer that means nothing was checked."""
-        env = tmp_path / "tools" / "drunken-team"
+        env = tmp_path / "tools" / "drunken-guild"
         env.mkdir(parents=True)
 
         report = doctor.Report()
@@ -177,7 +179,7 @@ class TestThePinThatIsActuallyDeployed:
 class TestItStillDoesWhatItDid:
     """Anti-regression: the checks that already worked must be untouched."""
 
-    @pytest.mark.parametrize("name", ["version.drunken-team", "paths.home"])
+    @pytest.mark.parametrize("name", ["version.drunken-guild", "paths.home"])
     def test_the_existing_checks_are_still_produced(self, name) -> None:
         report = doctor.run_doctor(offline=True)
         assert _named(report, name) is not None

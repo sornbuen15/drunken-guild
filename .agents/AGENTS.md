@@ -96,15 +96,15 @@ contexts".
 
 Both halves are now wrong, and each for a measured reason.
 
-**The local file was a second board.** DT-250 retired exactly that: a list
+**The local file was a second board.** DG-250 retired exactly that: a list
 beside Jira that carries its own statuses is a surface that can disagree with
-the real one, which is the failure DT-248 and DT-249 each cost a session to.
+the real one, which is the failure DG-248 and DG-249 each cost a session to.
 This project's own local board held three cards, last touched 2026-07-22, still
 using a ticket prefix retired months earlier — while every real ticket of that
 period went through Jira and never touched it.
 
 **The token argument no longer holds.** It was a fair objection when a
-six-issue search cost 5,697 tokens, 95% of it raw ADF nobody read. DT-255
+six-issue search cost 5,697 tokens, 95% of it raw ADF nobody read. DG-255
 measured and fixed that: the same search is now 894 characters, and a
 hand-written REST script is a second Jira client that can disagree with the
 first.

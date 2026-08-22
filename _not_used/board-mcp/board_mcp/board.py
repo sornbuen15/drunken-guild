@@ -72,7 +72,7 @@ def _is_within(candidate: Path, root: Path) -> bool:
 
     Both sides must already be resolved. That is the whole point: a string
     comparison misses ``../`` before normalisation, and misses a symlink that
-    lives inside the project and points somewhere else entirely. S1 (DT-225).
+    lives inside the project and points somewhere else entirely. S1 (DG-225).
     """
     return candidate == root or root in candidate.parents
 
@@ -394,7 +394,7 @@ class BoardManager:
     def block_task(self, task_id: str, req_id: str, reason: str) -> dict[str, Any]:
         """Park *task_id* until *req_id* is answered.
 
-        Called when a task asks for approval asynchronously (DT-232). The
+        Called when a task asks for approval asynchronously (DG-232). The
         card moves to the `blocked` lane carrying the request it is waiting
         on, so anyone — the next session, the Boss, /pending — can tell what
         would free it without reading the agent's mind.
@@ -679,11 +679,11 @@ class BoardManager:
     ) -> dict[str, Any]:
         """Search project context files for keyword-matching sections.
 
-        S1 (DT-225). This used to take ``os.path.isabs(file_path)`` as licence
+        S1 (DG-225). This used to take ``os.path.isabs(file_path)`` as licence
         to open the path as given, with no containment check of any kind —
         every other project's board, a private key, ``/etc/passwd``, returned
         as matching lines. It is only not remotely reachable because everything
-        is local stdio today, which is exactly what DT-226 would change.
+        is local stdio today, which is exactly what DG-226 would change.
 
         Containment is judged on the *resolved* path, on both sides. Comparing
         the strings would miss ``../`` before normalisation and would miss a

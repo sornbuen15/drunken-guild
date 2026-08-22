@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Setup utility for the drunken-team approval daemon (`discord_listener.py`)
+Setup utility for the drunken-guild approval daemon (`discord_listener.py`)
 as a macOS launchd LaunchAgent: starts at login, restarts on crash, keeps
 running independent of any particular terminal/CLI session.
 
@@ -20,7 +20,7 @@ import subprocess
 import sys
 
 LABEL = "com.drunkenteam.daemon"
-#: What the label was before DT-244 retired the old product name. Kept only so
+#: What the label was before DG-244 retired the old product name. Kept only so
 #: install() can unload and delete it: launchd keys on the label, so writing
 #: the new plist without removing the old one leaves two definitions
 #: registered, and the old one keeps restarting a stale daemon under KeepAlive.
@@ -99,7 +99,7 @@ def _plist_content() -> str:
 
 
 def _remove_legacy_agent() -> None:
-    """Unload and delete the pre-DT-244 agent, if one is still installed.
+    """Unload and delete the pre-DG-244 agent, if one is still installed.
 
     Without this, upgrading leaves two launch agents pointing at the same
     daemon. Both have KeepAlive, so the old one keeps resurrecting a second

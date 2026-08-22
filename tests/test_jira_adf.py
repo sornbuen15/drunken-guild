@@ -39,7 +39,7 @@ def client() -> JiraClient:
     ctx.require_jira.return_value.url = "https://example.atlassian.net"
     ctx.require_jira.return_value.email = "someone@example.com"
     ctx.require_jira.return_value.token.reveal.return_value = "token"
-    ctx.require_jira.return_value.project_key = "DT"
+    ctx.require_jira.return_value.project_key = "DG"
     return JiraClient(ctx)
 
 
@@ -50,7 +50,7 @@ async def test_add_comment_splits_real_newlines(
 ) -> None:
     make_request.return_value = {"id": "1"}
 
-    await client.add_comment("DT-1", "first line\nsecond line\nthird line")
+    await client.add_comment("DG-1", "first line\nsecond line\nthird line")
 
     payload = make_request.call_args.kwargs["payload"]
     assert _paragraph_texts(payload["body"]) == [
@@ -67,7 +67,7 @@ async def test_add_comment_does_not_split_literal_backslash_n(
 ) -> None:
     make_request.return_value = {"id": "1"}
 
-    await client.add_comment("DT-1", f"path is C:{LITERAL_BACKSLASH_N}ame")
+    await client.add_comment("DG-1", f"path is C:{LITERAL_BACKSLASH_N}ame")
 
     payload = make_request.call_args.kwargs["payload"]
     assert _paragraph_texts(payload["body"]) == [f"path is C:{LITERAL_BACKSLASH_N}ame"]
@@ -78,7 +78,7 @@ async def test_add_comment_does_not_split_literal_backslash_n(
 async def test_create_issue_splits_real_newlines(
     make_request: AsyncMock, client: JiraClient
 ) -> None:
-    make_request.return_value = {"key": "DT-2", "self": "https://example/2"}
+    make_request.return_value = {"key": "DG-2", "self": "https://example/2"}
 
     await client.create_issue("summary", "para one\npara two")
 
@@ -98,7 +98,7 @@ async def test_blank_lines_are_dropped_not_emitted_as_empty_paragraphs(
     with an empty text child is rejected by the Jira API."""
     make_request.return_value = {"id": "1"}
 
-    await client.add_comment("DT-1", "first\n\n   \nsecond")
+    await client.add_comment("DG-1", "first\n\n   \nsecond")
 
     payload = make_request.call_args.kwargs["payload"]
     assert _paragraph_texts(payload["body"]) == ["first", "second"]
@@ -110,7 +110,7 @@ async def test_create_issue_passes_through_prebuilt_adf(
     make_request: AsyncMock, client: JiraClient
 ) -> None:
     """A caller that already has ADF must not have it re-processed as text."""
-    make_request.return_value = {"key": "DT-3", "self": "https://example/3"}
+    make_request.return_value = {"key": "DG-3", "self": "https://example/3"}
     adf = {
         "version": 1,
         "type": "doc",

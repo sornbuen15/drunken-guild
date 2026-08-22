@@ -1,15 +1,15 @@
 # The pinned install, built reproducibly.
 #
-# DT-228. This image exists to make one claim checkable: that
+# DG-228. This image exists to make one claim checkable: that
 # `uv tool install --with-requirements` produces the versions uv.lock names,
 # and a bare `uv tool install .` does not. On the host that difference went
 # unnoticed for two releases -- the deployment carried mcp 1.29.0 against a
 # lock pinning 1.28.1, both satisfy <2, and nothing reported it until
-# drunken-doctor grew a check (DT-252).
+# drunken-doctor grew a check (DG-252).
 #
 # It is deliberately NOT a serving image. The MCP servers speak stdio, so a
 # long-running container would be a process reading stdin from nobody. A
-# serving image needs the HTTP transport, which is DT-226 -- reviewed and not
+# serving image needs the HTTP transport, which is DG-226 -- reviewed and not
 # approved, because FastMCP silently disables DNS-rebinding protection on a
 # non-loopback host. Manifests for that transport are deferred to that ticket
 # rather than written against something that does not exist.

@@ -9,7 +9,7 @@ This is a Model Context Protocol (MCP) server for integrating Jira into AI Agent
 
 ## Installation
 
-If you are using this within the `drunken-team` project, the dependencies are already managed via `pyproject.toml`.
+If you are using this within the `drunken-guild` project, the dependencies are already managed via `pyproject.toml`.
 To install the server and its command-line shortcut into your environment:
 
 ```bash
@@ -33,7 +33,7 @@ Copy the repo-root `.env.example` template (`cp .env.example .env`) and fill it 
 JIRA_URL="https://your-domain.atlassian.net"
 JIRA_EMAIL="your-email@example.com"
 JIRA_API_TOKEN="your-jira-api-token"
-JIRA_PROJECT_KEY="DT"
+JIRA_PROJECT_KEY="DG"
 ```
 *(Note: You can also use `JIRA_TOKEN` instead of `JIRA_API_TOKEN`)*
 
@@ -44,7 +44,7 @@ Create a `.agents/jira.json` file in your project with the following structure:
 {
   "jira_url": "https://your-domain.atlassian.net",
   "jira_email": "your-email@example.com",
-  "project_key": "DT"
+  "project_key": "DG"
 }
 ```
 *(The API Token will still be read from the environment variables or the global config for security reasons).*
@@ -77,7 +77,7 @@ Example configuration:
       "command": "python",
       "args": ["-m", "jira_mcp.server"],
       "env": {
-        "PYTHONPATH": "/absolute/path/to/drunken-team/src"
+        "PYTHONPATH": "/absolute/path/to/drunken-guild/src"
       }
     }
   }
@@ -95,7 +95,7 @@ Once connected, the AI Agent will automatically discover the following capabilit
 - `jira_add_comment`: Add a comment to an existing ticket.
 - `jira_start_task`: Pick up an issue and transition it to 'In Progress' in one call.
 - `jira_submit_for_review`: Transition an issue to 'In Review' and attach a PR link.
-- `jira_assign`: Set or clear an issue's assignee. With the local board retired (DT-250), this is how an agent says "this one is mine".
+- `jira_assign`: Set or clear an issue's assignee. With the local board retired (DG-250), this is how an agent says "this one is mine".
 - `jira_board_info`: What this project's board is and what it can do -- id, name, type, and whether it has a backlog. Capability is **probed, not inferred from type**: a `kanban` board may have no backlog while a team-managed `simple` board has one.
 - `jira_move_to_backlog`: Move active issues off the board and into its backlog.
 - `jira_move_to_board`: The way back out of the backlog.

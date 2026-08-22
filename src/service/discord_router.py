@@ -205,7 +205,7 @@ async def _run_jira_bridge_raw(
     """Run jira_bridge.py without blocking the event loop. sys.executable
     (not a bare "python") and an absolute script path so this resolves
     correctly regardless of the daemon's launchd-restricted PATH or which
-    project's directory `cwd` points at -- the same class of bug DT-93
+    project's directory `cwd` points at -- the same class of bug DG-93
     found and fixed for `uv`/`ruff`/`mypy`/`pytest`.
 
     The project is named with `--project`, not implied by `cwd`. Implying it
@@ -851,7 +851,7 @@ async def _dispatch_swarm(
                 meta["name"],
                 env_vars=env_vars,
                 cwd=project_cwd,
-                project_id=target_project or "drunken-team",
+                project_id=target_project or default_project_id() or "unknown",
             )
         )
     for t in tasks_to_run:
@@ -910,7 +910,7 @@ async def _dispatch_single_agent(
             agent_meta["name"],
             env_vars=env_vars,
             cwd=project_cwd,
-            project_id=target_project or "drunken-team",
+            project_id=target_project or default_project_id() or "unknown",
         )
     )
 
@@ -1014,10 +1014,10 @@ class DiscordRouter:
         if await _handle_reply_continuation(self.client, self.agent_runner, message):
             return
 
-        # Free-form task commanding is disabled pending DT-94 -- every
+        # Free-form task commanding is disabled pending DG-94 -- every
         # non-slash message gets the same answer, regardless of content.
         await message.channel.send(
             "⚡ **Agy [System]:** พิมพ์ `/help` เพื่อดูคำสั่งที่ใช้ได้ตอนนี้ค่ะ "
-            "(การสั่งงานอิสระผ่านข้อความยังปิดอยู่ รอ DT-94)"
+            "(การสั่งงานอิสระผ่านข้อความยังปิดอยู่ รอ DG-94)"
         )
         return

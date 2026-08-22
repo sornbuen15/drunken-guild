@@ -13,7 +13,7 @@ from discord_mcp.server import (
 @pytest.mark.asyncio
 async def test_request_boss_approval_daemon_not_running() -> None:
     with patch("discord_mcp.server.os.path.exists", return_value=False):
-        res = await request_boss_approval("Delete file", "cleanup", "DT-1")
+        res = await request_boss_approval("Delete file", "cleanup", "DG-1")
     assert "unavailable" in res
     assert "not running" in res
     # Must degrade to "ask directly", not silently permit skipping approval.
@@ -27,7 +27,7 @@ async def test_request_boss_approval_approved() -> None:
             "discord_mcp.server.call_daemon",
             AsyncMock(return_value={"status": "approved"}),
         ):
-            res = await request_boss_approval("Delete file", "cleanup", "DT-1")
+            res = await request_boss_approval("Delete file", "cleanup", "DG-1")
     assert res == "Approved by Boss."
 
 
@@ -38,7 +38,7 @@ async def test_request_boss_approval_rejected() -> None:
             "discord_mcp.server.call_daemon",
             AsyncMock(return_value={"status": "rejected"}),
         ):
-            res = await request_boss_approval("Delete file", "cleanup", "DT-1")
+            res = await request_boss_approval("Delete file", "cleanup", "DG-1")
     assert res == "Rejected by Boss."
 
 
@@ -49,7 +49,7 @@ async def test_request_boss_approval_escalated() -> None:
             "discord_mcp.server.call_daemon",
             AsyncMock(return_value={"status": "escalated"}),
         ):
-            res = await request_boss_approval("Delete file", "cleanup", "DT-1")
+            res = await request_boss_approval("Delete file", "cleanup", "DG-1")
     assert "escalated" in res.lower() or "No response" in res
     assert "Do not" in res
 
@@ -61,7 +61,7 @@ async def test_request_boss_approval_unexpected_status() -> None:
             "discord_mcp.server.call_daemon",
             AsyncMock(return_value={"status": "???"}),
         ):
-            res = await request_boss_approval("Delete file", "cleanup", "DT-1")
+            res = await request_boss_approval("Delete file", "cleanup", "DG-1")
     assert "Unexpected daemon response" in res
 
 
@@ -72,12 +72,12 @@ async def test_request_boss_approval_daemon_unreachable() -> None:
             "discord_mcp.server.call_daemon",
             AsyncMock(side_effect=ConnectionError("boom")),
         ):
-            res = await request_boss_approval("Delete file", "cleanup", "DT-1")
+            res = await request_boss_approval("Delete file", "cleanup", "DG-1")
     assert "unavailable" in res
     assert "ask the Boss directly" in res
 
 
-# --- DT-232: the asynchronous pair -----------------------------------------
+# --- DG-232: the asynchronous pair -----------------------------------------
 
 
 @pytest.mark.asyncio
@@ -87,7 +87,7 @@ async def test_async_submit_returns_a_handle_not_an_answer() -> None:
             "discord_mcp.server.call_daemon",
             AsyncMock(return_value={"status": "submitted", "req_id": "req_abc"}),
         ):
-            res = await request_boss_approval_async("Delete file", "cleanup", "DT-1")
+            res = await request_boss_approval_async("Delete file", "cleanup", "DG-1")
     assert "req_abc" in res
     # It must tell the agent to go and do something else, not to wait here.
     assert "Park this task" in res
@@ -100,7 +100,7 @@ async def test_async_submit_sends_the_current_commit() -> None:
     with patch("discord_mcp.server.os.path.exists", return_value=True):
         with patch("discord_mcp.server._head_sha", return_value="deadbee"):
             with patch("discord_mcp.server.call_daemon", call):
-                await request_boss_approval_async("Delete file", "cleanup", "DT-1")
+                await request_boss_approval_async("Delete file", "cleanup", "DG-1")
     assert call.call_args[0][0]["commit_sha"] == "deadbee"
 
 
@@ -113,7 +113,7 @@ async def test_async_submit_still_works_outside_a_checkout() -> None:
                 "discord_mcp.server.call_daemon",
                 AsyncMock(return_value={"status": "submitted", "req_id": "req_abc"}),
             ):
-                res = await request_boss_approval_async("Delete file", "x", "DT-1")
+                res = await request_boss_approval_async("Delete file", "x", "DG-1")
     assert "req_abc" in res
 
 
@@ -122,8 +122,8 @@ async def test_check_approvals_reports_each_request() -> None:
     payload = {
         "status": "ok",
         "results": {
-            "req_1": {"status": "approved", "action": "ship it", "ticket_key": "DT-1"},
-            "req_2": {"status": "pending", "action": "wait", "ticket_key": "DT-2"},
+            "req_1": {"status": "approved", "action": "ship it", "ticket_key": "DG-1"},
+            "req_2": {"status": "pending", "action": "wait", "ticket_key": "DG-2"},
         },
     }
     with patch("discord_mcp.server.os.path.exists", return_value=True):
@@ -141,7 +141,7 @@ async def test_check_approvals_surfaces_a_stale_approval_loudly() -> None:
             "req_1": {
                 "status": "stale",
                 "action": "rm -rf build/",
-                "ticket_key": "DT-1",
+                "ticket_key": "DG-1",
                 "detail": "Approved against commit aaa, but you are now on bbb.",
             }
         },

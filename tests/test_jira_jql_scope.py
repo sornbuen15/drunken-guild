@@ -3,7 +3,7 @@
 
 `--project` named which project the server was for, and then did nothing to
 keep a query inside it. `project = OTHER AND ...` reached whatever the
-credential could reach, and the credential reaches DT, TWA and ISAC.
+credential could reach, and the credential reaches DG, TWA and ISAC.
 
 The fix does not try to *validate* JQL. Parsing a query language to decide
 whether it is safe is the same losing game as matching shell commands by
@@ -26,61 +26,61 @@ from jira_mcp.jql import scope_to_project
 class TestScoping:
     def test_a_plain_query_is_wrapped(self) -> None:
         assert (
-            scope_to_project("status = Done", "DT")
-            == 'project = "DT" AND (status = Done)'
+            scope_to_project("status = Done", "DG")
+            == 'project = "DG" AND (status = Done)'
         )
 
     def test_a_query_naming_another_project_cannot_escape(self) -> None:
-        """The finding. The wrapped form is `project = "DT" AND (project =
+        """The finding. The wrapped form is `project = "DG" AND (project =
         ISAC ...)`, which matches nothing — the caller is constrained by
         conjunction rather than by us understanding their query."""
-        scoped = scope_to_project("project = ISAC AND status = Done", "DT")
-        assert scoped.startswith('project = "DT" AND (')
+        scoped = scope_to_project("project = ISAC AND status = Done", "DG")
+        assert scoped.startswith('project = "DG" AND (')
         assert "ISAC" in scoped, "the clause is kept, not silently rewritten"
 
     def test_an_empty_query_becomes_the_project_alone(self) -> None:
-        assert scope_to_project("", "DT") == 'project = "DT"'
-        assert scope_to_project("   ", "DT") == 'project = "DT"'
+        assert scope_to_project("", "DG") == 'project = "DG"'
+        assert scope_to_project("   ", "DG") == 'project = "DG"'
 
     def test_an_or_clause_cannot_widen_the_scope(self) -> None:
-        """Without the parentheses, `project = "DT" AND a OR b` binds as
-        `(project = DT AND a) OR b` and the OR escapes the scope entirely.
+        """Without the parentheses, `project = "DG" AND a OR b` binds as
+        `(project = DG AND a) OR b` and the OR escapes the scope entirely.
         This is the reason the wrap is parenthesised and not concatenated."""
-        scoped = scope_to_project("status = Done OR project = ISAC", "DT")
-        assert scoped == 'project = "DT" AND (status = Done OR project = ISAC)'
+        scoped = scope_to_project("status = Done OR project = ISAC", "DG")
+        assert scoped == 'project = "DG" AND (status = Done OR project = ISAC)'
 
 
 class TestOrderBy:
     def test_order_by_is_lifted_outside_the_parentheses(self) -> None:
-        """`project = "DT" AND (x ORDER BY y)` is not valid JQL. The sort has
+        """`project = "DG" AND (x ORDER BY y)` is not valid JQL. The sort has
         to be hoisted or every ordered query breaks."""
         assert (
-            scope_to_project("status = Done ORDER BY created DESC", "DT")
-            == 'project = "DT" AND (status = Done) ORDER BY created DESC'
+            scope_to_project("status = Done ORDER BY created DESC", "DG")
+            == 'project = "DG" AND (status = Done) ORDER BY created DESC'
         )
 
     def test_order_by_is_matched_case_insensitively(self) -> None:
-        scoped = scope_to_project("status = Done order by created", "DT")
-        assert scoped == 'project = "DT" AND (status = Done) order by created'
+        scoped = scope_to_project("status = Done order by created", "DG")
+        assert scoped == 'project = "DG" AND (status = Done) order by created'
 
     def test_a_bare_order_by_query_still_works(self) -> None:
         assert (
-            scope_to_project("ORDER BY created", "DT")
-            == 'project = "DT" ORDER BY created'
+            scope_to_project("ORDER BY created", "DG")
+            == 'project = "DG" ORDER BY created'
         )
 
     def test_order_by_inside_a_quoted_value_is_not_treated_as_a_sort(self) -> None:
         """A ticket summary can contain the words "order by". Hoisting that
         out of the query would corrupt the search rather than scope it."""
-        scoped = scope_to_project('summary ~ "order by total" AND status = Done', "DT")
+        scoped = scope_to_project('summary ~ "order by total" AND status = Done', "DG")
         assert (
             scoped
-            == 'project = "DT" AND (summary ~ "order by total" AND status = Done)'
+            == 'project = "DG" AND (summary ~ "order by total" AND status = Done)'
         )
 
 
 class TestTheKeyIsQuoted:
-    @pytest.mark.parametrize("key", ["DT", "TWA", "ISAC"])
+    @pytest.mark.parametrize("key", ["DG", "TWA", "ISAC"])
     def test_every_real_project_key_scopes(self, key: str) -> None:
         assert scope_to_project("status = Done", key).startswith(
             f'project = "{key}" AND'
@@ -92,4 +92,4 @@ class TestTheKeyIsQuoted:
         beats escaping: there is no legal Jira key with a quote in it, so a key
         that has one means the registry is wrong and should say so."""
         with pytest.raises(ValueError):
-            scope_to_project("status = Done", 'DT" OR project = "ISAC')
+            scope_to_project("status = Done", 'DG" OR project = "ISAC')

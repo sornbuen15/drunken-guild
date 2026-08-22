@@ -1,6 +1,6 @@
 """Away mode — the switch that makes "I'm going out" reach the machine.
 
-Layer B of the approval problem was solved by DT-232: when the *agent*
+Layer B of the approval problem was solved by DG-232: when the *agent*
 decides it needs permission, it asks over Discord and parks. Layer A is the
 harness asking "Allow this tool call?" before the agent runs at all. The model
 never sees that question, so no skill, instruction or sentence in chat has

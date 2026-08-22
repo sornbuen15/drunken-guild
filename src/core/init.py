@@ -141,7 +141,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="drunken-init",
         description=(
-            "Create the drunken-team state directory and register a project. "
+            "Create the drunken-guild state directory and register a project. "
             "Non-interactive and idempotent, so it can run in a Dockerfile or a "
             "provisioning script."
         ),

@@ -1,6 +1,6 @@
 """Keeping a backlog move inside the project the server was launched for.
 
-DT-251. Everything else in this server runs on ``/rest/api/3`` and takes an
+DG-251. Everything else in this server runs on ``/rest/api/3`` and takes an
 issue key that already belongs to a project, or a JQL query that
 :mod:`jira_mcp.jql` wraps into one. The agile move endpoints are different in a
 way that matters:
@@ -9,8 +9,8 @@ way that matters:
 
 **takes any issue key from any project and moves it.** The board id constrains
 nothing — Jira reads the keys, not the board, when deciding what to move. A
-server launched for DT could move ISAC's tickets, succeed, and report success.
-One credential reaches DT, TWA and ISAC, so this is the same hole S8 opened in
+server launched for DG could move ISAC's tickets, succeed, and report success.
+One credential reaches DG, TWA and ISAC, so this is the same hole S8 opened in
 ``jira_search_issues`` and it takes the same answer: make the scope structural
 rather than trusting what the caller passed.
 
@@ -21,8 +21,8 @@ from deciding whether an arbitrary expression is safe.
 
 Two details are deliberate:
 
-* The project part is compared **whole**, not as a prefix. ``DTX-1`` starts with
-  ``DT`` and belongs to somebody else.
+* The project part is compared **whole**, not as a prefix. ``DGX-1`` starts with
+  ``DG`` and belongs to somebody else.
 * One foreign key refuses the entire batch. Moving the valid half and reporting
   the rest leaves a partial move that nothing recorded, which is the hardest
   state to reason back out of.
@@ -39,7 +39,7 @@ from core.errors import ValidationError
 MAX_ISSUES: Final = 50
 
 #: ``PROJECT-123``. Project keys start with a letter; the number is the whole
-#: rest of the key, so ``DT-251-x`` is not one.
+#: rest of the key, so ``DG-251-x`` is not one.
 _KEY: Final = re.compile(r"^([A-Za-z][A-Za-z0-9_]*)-([0-9]+)$")
 
 #: Keys may arrive comma-separated, whitespace-separated, or both.

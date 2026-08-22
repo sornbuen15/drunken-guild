@@ -1,10 +1,10 @@
-# Drunken-Team Conventions for Aider
+# Drunken-Guild Conventions for Aider
 
-These are the strict coding conventions for Drunken-Team that Aider must follow:
+These are the strict coding conventions for Drunken-Guild that Aider must follow:
 
 ## Workflow & Git
 1. **Never commit directly to `main`:** You must create a feature branch (`feature/<ISSUE_KEY>`).
-2. **Commit Messages:** Every commit message must start with the Jira Issue Key (e.g., `[DT-123] Fix authentication issue`).
+2. **Commit Messages:** Every commit message must start with the Jira Issue Key (e.g., `[DG-123] Fix authentication issue`).
 3. **No destructive commands:** Do not delete files or directories without explicit permission.
 
 ## Testing & Quality

@@ -1,7 +1,7 @@
 # mypy: ignore-errors
 """S1 and S2 — the two findings left open in board_mcp.
 
-Both sat on `develop` for weeks while DT-225 said IN REVIEW, on a branch that
+Both sat on `develop` for weeks while DG-225 said IN REVIEW, on a branch that
 was never merged. Every surface agreed they were fixed. So each of these was
 run red before the fix existed, and each assertion carries the reason it is
 here rather than just the expectation.
@@ -15,7 +15,7 @@ project through the registry and then serves it, whatever the server was
 launched to serve. `main()` said so out loud: "--project (ignored by board,
 kept for compat)".
 
-Neither is remotely reachable today, because everything is local stdio. DT-226
+Neither is remotely reachable today, because everything is local stdio. DG-226
 is precisely the change that would alter that, which is why it waits on these.
 """
 
@@ -160,7 +160,7 @@ class TestS2ProjectIsABoundary:
         assert "--project" in (caught.value.remediation or "")
 
     def test_any_config_that_does_wire_the_board_binds_it(self) -> None:
-        """DT-250 retired the board and no config here declares it any more, so
+        """DG-250 retired the board and no config here declares it any more, so
         this asserts the conditional rather than the fact: *if* a config wires
         the board server, it must bind it to a project.
 
@@ -179,5 +179,5 @@ class TestS2ProjectIsABoundary:
         )
         entry = config["mcpServers"].get("drunken-board-mcp")
         if entry is None:
-            return  # retired here, which is the expected state after DT-250
+            return  # retired here, which is the expected state after DG-250
         assert "--project" in entry["args"], "a wired board server must be bound"

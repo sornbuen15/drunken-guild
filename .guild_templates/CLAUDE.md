@@ -1,4 +1,4 @@
-# Drunken-Team Instructions for Claude Code
+# Drunken-Guild Instructions for Claude Code
 
 When working in this repository, follow these core directives:
 

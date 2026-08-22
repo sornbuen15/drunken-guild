@@ -1,9 +1,9 @@
 """Keeping a JQL query inside the project the server was launched for.
 
-S8 (DT-225). ``jira_search_issues`` passed the caller's JQL straight to Jira.
+S8 (DG-225). ``jira_search_issues`` passed the caller's JQL straight to Jira.
 ``--project`` named which project the server was *for* and then did nothing to
 keep a query inside it, so ``project = OTHER AND ...`` reached whatever the
-credential could reach — and one credential reaches DT, TWA and ISAC.
+credential could reach — and one credential reaches DG, TWA and ISAC.
 
 The approach is deliberately not "validate the query". Deciding whether a
 query language expression is safe by parsing it is the same losing game as
@@ -16,8 +16,8 @@ be understood, so nothing about it can be got wrong.
 
 Two details carry the whole guarantee:
 
-* The parentheses are not cosmetic. ``project = "DT" AND a OR b`` binds as
-  ``(project = "DT" AND a) OR b``, and the ``OR`` escapes the scope entirely.
+* The parentheses are not cosmetic. ``project = "DG" AND a OR b`` binds as
+  ``(project = "DG" AND a) OR b``, and the ``OR`` escapes the scope entirely.
 * ``ORDER BY`` has to be lifted out of the parentheses, because a sort inside
   them is not valid JQL. That is the one piece of parsing that cannot be
   avoided, and it is done quote-aware so a ticket whose summary contains the

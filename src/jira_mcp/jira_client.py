@@ -215,7 +215,7 @@ def _adf_walk(node: Any, out: List[str]) -> None:
 def from_adf(node: Any) -> str:
     """Flatten an Atlassian Document Format document into plain text.
 
-    The other half of :func:`to_adf`, and the reason DT-255 exists: ADF wraps
+    The other half of :func:`to_adf`, and the reason DG-255 exists: ADF wraps
     one sentence in roughly four times its length, and ``minify_issues`` was
     returning it verbatim. A six-issue search spent 95% of its tokens on markup
     no reader wanted.
@@ -257,7 +257,7 @@ def minify_issues(
     What brief keeps, and why each earns its place:
 
     * ``key``, ``summary``, ``status`` — the question almost every search asks.
-    * ``assignee`` — since DT-250 this is *whose* the work is; there is no other
+    * ``assignee`` — since DG-250 this is *whose* the work is; there is no other
       surface that says so.
     * ``parent`` and ``parent_summary`` — hierarchy for free. Without them an
       agent that needs the Epic makes a second call per issue, so omitting them
@@ -267,8 +267,8 @@ def minify_issues(
 
     * ``description`` — the 95%.
     * ``priority`` — it cannot be set on a team-managed project at all, so every
-      DT issue reads ``Medium``. A field with one possible value is not
-      information; use ``labels`` (DT-255 B3).
+      DG issue reads ``Medium``. A field with one possible value is not
+      information; use ``labels`` (DG-255 B3).
 
     ``brief=False`` keeps both, with the description flattened out of ADF —
     still three to four times smaller than what this function used to return.
@@ -600,12 +600,12 @@ class JiraClient:
     ) -> Dict[str, Any]:
         """Create an issue, with the fields that make it visible once created.
 
-        Everything past ``issue_type`` is optional and was absent until DT-255,
+        Everything past ``issue_type`` is optional and was absent until DG-255,
         which is why this project's Timeline was empty: an Epic with no children
         has nothing to draw. ``parent`` is what makes an issue a child.
 
         ``labels`` stands in for priority. Priority cannot be set on a
-        team-managed project at all -- every DT issue reads ``Medium`` because
+        team-managed project at all -- every DG issue reads ``Medium`` because
         that is the only value it can have -- so a label is the only way to mark
         one ticket as more urgent than another.
 
@@ -641,7 +641,7 @@ class JiraClient:
             token=self.token,
         )
         # The key, not the `self` URL. The URL is derivable from the key and
-        # nobody ever followed it; it was pure cost on every create (DT-255 A4).
+        # nobody ever followed it; it was pure cost on every create (DG-255 A4).
         return {"ok": True, "key": res.get("key")}
 
     async def assignable_users(self, query: str) -> List[Dict[str, Any]]:

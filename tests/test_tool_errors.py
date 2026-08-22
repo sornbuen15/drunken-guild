@@ -7,7 +7,7 @@ read, because "unknown project 'twa'" only tells an agent to give up while
 "register it with drunken-init --project twa" tells it what to do.
 
 `as_tool_result` was written for exactly that in 2.1.0 and then called zero
-times outside its own definition. DT-235 is what that gap costs: the server
+times outside its own definition. DG-235 is what that gap costs: the server
 exited before the MCP handshake and the host saw a process vanish with nothing
 to read. That fix raised a ConfigError by hand; it did not wire the decorator,
 so the principle held at one call site and nowhere else.
@@ -44,7 +44,7 @@ class TestTheWrapperDoesNotEatTheSignature:
         [
             (jira_server.jira_search_issues, {"jql", "detail"}),
             (jira_server.jira_transition_issue, {"issue_key", "target_status"}),
-            # DT-255 added five optional fields here. They are the whole point
+            # DG-255 added five optional fields here. They are the whole point
             # of the ticket -- an Epic with no children leaves Timeline empty --
             # so if the wrapper eats them the feature is gone while every unit
             # test still passes, which is the failure this class exists for.
@@ -76,12 +76,12 @@ class TestAKnownFailureCarriesItsRemediation:
     async def test_jira_tool_without_a_project_explains_the_fix(
         self, monkeypatch
     ) -> None:
-        """The DT-235 scenario, one layer up: started with no project, every
+        """The DG-235 scenario, one layer up: started with no project, every
         tool call has to say so and say what to do about it."""
         monkeypatch.setattr(jira_server, "ctx", None)
         monkeypatch.setattr(jira_server, "jira", None)
 
-        result = _payload(await jira_server.jira_search_issues("project = DT"))
+        result = _payload(await jira_server.jira_search_issues("project = DG"))
 
         assert result["ok"] is False
         assert "drunken-init" in json.dumps(result), (
@@ -104,7 +104,7 @@ class TestAnUnexpectedFailureIsStillAnAnswer:
 
         monkeypatch.setattr(jira_server, "get_client", boom)
 
-        result = _payload(await jira_server.jira_search_issues("project = DT"))
+        result = _payload(await jira_server.jira_search_issues("project = DG"))
 
         assert result["ok"] is False
         assert result["error"]["code"] == "internal_error"
@@ -124,6 +124,6 @@ class TestAnUnexpectedFailureIsStillAnAnswer:
 
         monkeypatch.setattr(jira_server, "get_client", boom)
 
-        raw = await jira_server.jira_search_issues("project = DT")
+        raw = await jira_server.jira_search_issues("project = DG")
 
         assert "s3cr3t-token-value" not in raw
