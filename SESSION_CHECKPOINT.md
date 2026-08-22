@@ -7,55 +7,22 @@ release note, the Jira ticket, or `CLAUDE.md`, and this file links to it. The pr
 860 lines and 19 sections, several of which existed only to correct earlier sections — at which point
 nobody reads it, and a handoff nobody reads is worse than none. See *What was cut* at the bottom.
 
-Last updated: 2026-08-19 · **v2.3.0 released** · `develop` is where work lands
+Last updated: 2026-08-21 · **v2.3.0 released** · `develop` is where work lands
 
 ---
 
-## 1. Start here — the token-economy round (DT-255)
+## 1. Start here
 
-Every number below was **measured on 2026-08-17**. Re-measure after the work and record the real
-figures; a claimed saving is exactly the sort of thing this file exists to distrust.
+The last two rounds are merged, deployed and closed; all three projects read clean. What is
+left is in §3, and it is mostly decisions rather than code.
 
-```
-jira_search_issues, 6 issues     5,697 tokens   ← 95% of it raw ADF description
-  the same search without it        296 tokens
-discord, 3 tool descriptions     1,033 tokens   ← 410 for the DEPRECATED blocking tool
-tickets written in one session   3,079 for 5 — the longest 803 words
-  the project's own older tickets     49 words
-```
-
-`minify_issues` is a promise the function does not keep: it returns Atlassian Document Format
-verbatim, and ADF wraps one sentence in roughly four times its length.
-
-| | Work | Effect |
-|---|---|---|
-| **A1** | `jira_search_issues` → default `brief`, no description | −90% per search |
-| **A2** | ADF → plain text when the full issue *is* requested | −3–4× on the remainder |
-| **A3** | brief returns `parent` + `parent_summary` | removes 2–3 follow-up calls |
-| **A4** | `create_issue` returns the key, not the `self` URL | free |
-| **B1** | `create_issue` accepts `parent` | without it an Epic has no children, Timeline is empty |
-| **B2** | `duedate` + Start date | the "what is available when" question |
-| **B3** | `labels` | **stands in for priority**, which team-managed projects lack |
-| **B4** | `board_info` reports issue types and settable field ids | stops anyone hardcoding a custom field |
-| **C1** | Ticket rule in the `create_issue` docstring | +57 tokens, returns ~700 per ticket, **every AI sees it** |
-| **C2** | Warn when long **and** parentless — never reject | DT-234's mechanism, already proven |
-| **D** | Discord: shrink the deprecated tool, drop `Args:`/`Returns:` the schema already carries | 1,033 → ~300 |
-
-**Also add to DT-255:** the *state* half of this file — branch, tests, PRs, tickets — should be read
-from git, Jira and CI rather than typed. It went stale within an hour of being written, which is the
-evidence that the idea is necessary rather than over-engineering.
-
-### Established while working this out, none of it obvious
-
-- **`priority` cannot be set on a team-managed project at all.** That is why every DT ticket reads
-  `Medium`, and why the surviving `/refine` — which promotes issues labelled `Critical` — could never
-  have done anything here. Use `labels` or `Rank`.
-- **`parent`, `duedate` and Start date already exist on DT.** Jira is ready; our payload sends four
-  fields and stops. Start date is `customfield_10015` *on this instance* — resolve it at runtime.
-- **No story points field**, so Capacity cannot work. Not a gap to fill.
-- **`board_mcp` is declared in no `.mcp.json`.** Keep it that way: 2,162 tokens per request for a
-  retired server.
-- Context belongs on the Epic or Story and should be **linked, not copied**.
+DT-255's measurements are kept because they are the reason the tool surface looks the way it
+does: a five-issue search cost **14,847 characters and now costs 894**, Discord's tool
+descriptions went 4,127 → 1,260, and the Jira ones grew 2,665 → 3,432 on purpose — the
+ticket rule and the field ids are paid once per session and returned by the first search.
+Two things that fell out of it and are easy to re-learn the hard way: **priority cannot be
+set on a team-managed project at all** (Jira's own `createmeta` says so, use `labels`), and
+**there are no story points**, so capacity planning cannot work here.
 
 ## 2. Where things stand
 
@@ -74,48 +41,70 @@ directions, and was wrong again on the day it was replaced — naming three PRs 
 that had all merged, beside a test count 49 behind. What stays hand-written below is what cannot
 be derived: what was decided, and why.
 
-### The round of 2026-08-19, integration-tested together
+### Rounds since v2.3.0, all merged and deployed
 
-The three PRs were merged onto a throwaway `integration/round-254-255-228` branch before being
-handed over. **No conflicts**, and on the combined tree: 708 tests green, `drunken-doctor` 24 ok /
-2 warning / 0 failed, `verify_clean_install.sh` 22/22. Merge them in any order.
+DT-254, DT-255, DT-228 (#112–#114), then DT-256, DT-257, DT-259 (#117–#119). Each round was
+merged onto a throwaway integration branch first and ran clean. `drunken-doctor` reads
+**27 ok, 0 warning, 0 failed** — the first time this project has had no standing warning.
 
-Measured on the merged tree, from a directory unrelated to any project:
+The deployment was reinstalled on 2026-08-21 and matches: `deployment.mcp_pin` is 1.28.1,
+`load_dotenv` is absent from the installed copy. **Merge is not deploy, and deploy is not
+running** — a server process started before a reinstall holds the old code until it
+restarts. Three separate facts; all three were wrong at some point in that round.
 
-```
-DT-254  project_root()   /Users/r.jakkawan/Projects/drunken-team   (via the registry, no walk)
-        DISCORD_* leaked into os.environ: none
-DT-255  a 7-issue search 1,294 chars      — the old shape cost 14,847 for five
-DT-228  servers declared ('drunken-jira-mcp', 'drunken-discord-mcp')   board: absent
-```
+### ALPHA and BETA are usable now
+
+Both are software projects with boards, and both were probed rather than assumed:
+
+| | Jira | board | git |
+|---|---|---|---|
+| `alpha` | ALPHA | 141, backlog | `alpha-workspace/alpha` |
+| `beta` | BETA | 140, backlog | `beta/beta/beta-backend` |
+
+Discord is **one identity shared by all three**, not one channel per project (DT-247). The
+bot authenticates and can read the channel — checked live, not read off a config.
+
+Two things §6 and §3 used to warn about are no longer true: ALPHA's `.env` is untracked and
+gitignored and nothing reads it since DT-254, and `alpha/scripts/` holds two unrelated
+project scripts rather than a vendored copy of this tooling.
 
 ## 3. Open, and who owns it
 
-**Boss**
+**Boss — decisions**
 
-- **Merge #112, #113, #114.** Integration-tested together, see §2.
-- **BETA** — create a new **Software / Kanban** project, then move the 3 open issues (BETA-3, BETA-4,
-  BETA-132). DT-237's stated cost of 170 issues is **wrong**: ALPHA has 0 open, BETA has 3. Fix that
-  ticket. Requirements memo is **BETA-132**.
-- **DT-248** — nothing left to do; close it.
-- **DT-237** — decide. "Do nothing" stopped being the right answer once the plan became to work on
-  BETA and ALPHA.
-- **DT-258** — three options in the ticket; option 2 is the one that generalises. Narrowing a
-  credential exclusion is not a call to make inside another ticket.
+- **Release 2.4.0.** Not 2.3.1: the round added two commands and changed tool contracts —
+  `.env` is no longer read at all, `jira_search_issues` returns a different default shape,
+  `jira_create_issue` no longer returns `self`. Strict semver would call those major; 3.0.0
+  is reserved for removing the deprecated `request_boss_approval`, so 2.4.0 with the
+  breaking changes stated plainly at the top of the note.
+- **DT-260** — do it or close it. `drunken-doctor` verifies the credential (`/myself`) and
+  never that the project key exists, so it printed `OK … (project ALPHA)` while Jira answered
+  `No project could be found with key 'ALPHA'`. The immediate cause is fixed; the blind spot
+  is not.
 - Two local Docker images left behind on purpose (an agent does not delete):
   `docker rmi drunken-team:pinned drunken-team:unpinned`
 
 **Agent, next**
 
-- **DT-256** — pyproject says 2.1.0 while v2.3.0 is tagged. Small, and it defeats DT-252's whole
-  point: comparing checkout against deployment gives 2.1.0 on both.
-- **DT-257** — derive this file's §2 from git, Jira and CI instead of typing it.
-- **DT-258** — see above; needs the Boss's choice first.
-- **DT-226** — still **do not open the transport**. §7 is unchanged, and DT-228 landing does not
-  change it: the DNS-rebinding finding and the missing inbound guard are both untouched.
+- **DT-226** — still **do not open the transport**. §7 is unchanged: the DNS-rebinding
+  finding and the missing inbound guard are both untouched.
 
-**Antigravity** — ALPHA's `.agents/AGENTS.md` still tells it to run the vendored scripts. Those
-instructions change before the scripts can be parked.
+**The agent layer — see `~/Projects/ai-team-toolkit/SESSION_CHECKPOINT.md`**
+
+That repo authors the skills and agents installed into `~/.claude/`, and its checkpoint
+carries the work: 12 of 30 global skills drive a kanban board that no project declares and
+this project's `CLAUDE.md` forbids; agents have no index; its `CLAUDE.md` must become both
+a catalog and the template other projects copy, covering this project's MCP servers. Its
+sync script had been failing silently for two months and is fixed.
+
+Nothing there is actionable from this repo. It is named here so the two do not drift.
+
+**Antigravity** — ALPHA's `.agents/AGENTS.md` still tells it to run the vendored scripts.
+Those instructions change before the scripts can be parked. This project's own `AGENTS.md`
+was corrected in #119.
+
+**Dropped on 2026-08-19, by the Boss:** BETA's project migration, DT-237, DT-248 and
+DT-258. Do not re-raise them in a handoff.
 
 ## 4. Traps that are still live
 
@@ -123,13 +112,16 @@ instructions change before the scripts can be parked.
    `~/.local/share/uv/tools/drunken-team/`, and that is what a host config launches — not this
    checkout. Merging does not deploy. `drunken-doctor` now reports the gap (DT-252); believe it over
    any assumption. Reinstalled from `04f29f5` on 2026-08-17.
-2. **`uv tool install` ignores `uv.lock`** — the deployment has mcp 1.29.0 while the lock pins
-   1.28.1. Reported by `deployment.mcp_pin`. **Fix is in #114, not yet merged and not yet deployed:**
-   `drunken-config --kind install` writes the pinned requirements and prints the command. Proved by
-   building the image both ways — with the flag it reports 1.28.1, without it 1.29.0.
-3. **BETA's registry `git_root` points at a directory that is not a repository.** The warning is
-   correct and **must not be silenced** until the repo question is settled — a green check would hide
-   the divergence rather than close it.
+2. **`uv tool install` ignores `uv.lock`.** Closed end to end: `drunken-config --kind install`
+   writes the pinned requirements and prints the command, and the deployment now reports
+   `deployment.mcp_pin` 1.28.1 matching the lock. Proved by building the image both ways — with
+   the flag 1.28.1, without it 1.29.0. **The command only prints; it installs nothing.** That
+   distinction cost a round: the deploy silently did not happen and every surface looked fine.
+3. **A Jira search cannot tell you a project exists.** `ALPHA` was renamed and our registry kept
+   the dead key; searches returned HTTP 200 with an empty list and `drunken-doctor` printed
+   `OK … (project ALPHA)`, because it verifies the credential and never the project. Both are
+   fixed, the blind spot is DT-260. BETA's `git_root` warning is also gone — it was pointing two
+   levels too shallow, which is what the warning had been saying all along.
 4. **A finding closed in one module is not closed in the codebase.** S3 was written up as closed by
    DT-224 and was still alive in `service/discord_utils.py` — fixed in #112, and the signature
    (`os.getcwd()` plus a loop over `os.path.dirname`) is now absent from `src/`. The lesson stands:
@@ -137,7 +129,7 @@ instructions change before the scripts can be parked.
 5. **`.gitignore` can silently drop source from a commit.** `*token*` swallowed a whole test file on
    2026-08-19: `git add -A` skipped it, the commit succeeded, pre-commit passed, and the local suite
    stayed green because the file was on disk. A PR shipped claiming 21 tests it did not contain.
-   Nothing in the pipeline could contradict it. DT-258.
+   Nothing in the pipeline could contradict it.
 
 ## 5. Six ways running it can lie to you
 
