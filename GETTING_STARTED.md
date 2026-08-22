@@ -81,8 +81,12 @@ empty file is a claim that there are none — not a default. Do not overwrite an
 This gives you the `jira_*` and approval tools.
 
 ```bash
-uv sync
+uv sync --extra dev
 ```
+
+The `--extra dev` is not optional if you intend to run the tests. Without pytest in `.venv`,
+`uv run pytest` falls through to whatever `pytest` is on PATH — which may import a different
+checkout entirely and pass. The suite refuses to start in that state and tells you so.
 
 Put your credentials in a file **outside any repository**, readable only by you:
 
