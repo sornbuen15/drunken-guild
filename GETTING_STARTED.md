@@ -126,8 +126,13 @@ You want the Jira line to come back naming *you*. Two traps worth knowing:
 Install it as a command so other projects need no paths:
 
 ```bash
+uv tool uninstall drunken-team   # only if `uv tool list` shows the old name
 uv tool install .
 ```
+
+If a previous version is installed under the old package name, `uv tool install .` fails with
+*"Executables already exist"*. `--force` is not the fix — it repoints the symlinks and leaves the
+old environment installed, still shipping a `drunken-board-mcp` this package no longer contains.
 
 Then generate the config for **your project** rather than writing it by hand:
 
