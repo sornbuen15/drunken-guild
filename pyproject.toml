@@ -47,8 +47,24 @@ dev = [
     "pytest-cov>=4.0.0",
     "pytest-asyncio>=0.21.0",
     "pytest-html>=4.0.0",
-    "ruff>=0.1.0",
+    # Pinned exactly, and it has to be. A formatter has no right answer
+    # independent of its version: `ruff format --check` asks "does this match
+    # what *this* ruff would write", so a range means CI resolves the newest
+    # while a checkout keeps whatever it locked, and the same tree gets two
+    # answers. That is not hypothetical — 0.15.22 and 0.16.4 disagree about
+    # blank lines before a class, so DG-265 passed `--check` locally and turned
+    # develop red, and two later PRs inherited a failure in a file neither
+    # touched (DG-270).
+    #
+    # To bump: change this, run `ruff format src tests`, and commit the result
+    # in the same commit. Never separately — a bump without the reformat is the
+    # same red build one push later.
+    "ruff==0.16.4",
     "pre-commit>=3.5.0",
+    # mypy and pytest keep their floors deliberately. A new version of either
+    # can also break CI, but it breaks it *loudly and reproducibly*: the error
+    # is the same everywhere once seen. The formatter is the one that lets a
+    # checkout and CI disagree in silence.
     "mypy>=1.0.0"
 ]
 [project.scripts]
