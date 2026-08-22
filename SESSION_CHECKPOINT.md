@@ -29,7 +29,7 @@ the counts in `README.md` match what the repo produces.
 | 2 | 8 skills moved from `board_*` to `jira_*` | ✅ `eaf5947`, `c18cef6`, `73a5c3b` |
 | 3 | Retire the 4 orchestration skills, and the docs that named them | ✅ `7756a6e`, `b04924f` |
 | 4 | `principal-engineer` merge | ✅ `7818bfb` |
-| 5 | Model ids, agents `INDEX.md`, 4 pulls from drunken-team | ✅ `40f16b8`, `cdc04c8` |
+| 5 | Model ids, agents `INDEX.md`, 5 pulls from drunken-team | ✅ `40f16b8`, `cdc04c8` |
 | 6 | Board code retired, examples and docs rewritten, `CLAUDE.md` split | ✅ `605ade3`, `b3d53a3`, `9ed56e4` |
 
 Current inventory: **29 skills**, **15 agents**, both indexes regenerated and matching.
@@ -144,7 +144,8 @@ Its commit message records the two defects it carries, so nobody revives it unex
 
 Its `.agents/skills/` holds 25 directories. 13 are this repo's agents (platform variants, not
 drift). 2 stay **pointers** that `CLAUDE.md` links rather than copies: `jira-tickets` and
-`ask-boss`. Of the remaining 10, four came across and six did not.
+`ask-boss`. Of the remaining 10, **five came across and five did not** — `desktop-frontend-dev`
+was taken from the group originally filed as "probably duplicate stubs".
 
 **Taken** — rewritten to this repo's canonical structure, not vendored:
 
