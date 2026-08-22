@@ -20,8 +20,8 @@ description: >
   </role>
 
   <ticket_rules>
-    The ticket shape, the field limits, and the lifecycle live in
-    `~/Projects/drunken-team/.agents/skills/jira-tickets/SKILL.md`. That file is authoritative;
+    The ticket shape, the field limits, and the lifecycle live in the `jira-tickets` skill.
+    That skill is authoritative;
     do not restate it and do not contradict it. Four things from it shape this skill:
 
     - Three headings only: FINDING, SCOPE, ACCEPTANCE.

@@ -16,12 +16,63 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 LOCAL_AGENTS_DIR="$PROJECT_ROOT/agents"
 GLOBAL_AGENTS_DIR="$HOME/.claude/agents"
 
+# Antigravity reads the same roster from its own tree, in its own shape: one
+# directory per agent holding a SKILL.md, rather than a flat <name>.md.
+#
+# Those files used to be committed as .agents/skills/<name>/SKILL.md and kept in
+# step by hand. Twelve of the fifteen differed from their source only in the two
+# lines rewritten below; three had silently drifted, and principal-engineer's
+# copy had fallen to 78 lines against 311 while still describing an orchestrator
+# retired two tickets earlier. Generating them removes the copy that can drift.
+#
+# Both are overridable: a machine that keeps Antigravity elsewhere, or that has
+# moved to a different Gemini model, sets the variable rather than editing this.
+ANTIGRAVITY_AGENTS_DIR="${ANTIGRAVITY_AGENTS_DIR:-$HOME/.gemini/config/skills}"
+
+# The model is a *tier* mapping, not one constant. The hand-maintained twins
+# encoded it consistently across all fifteen and nobody had written it down:
+# the four agents that reason rather than execute ran on the larger model on
+# both sides, and the ten executors on the faster one. Flattening that to a
+# single value would have quietly demoted principal-engineer and the three
+# specialists, which is the kind of change that shows up as worse output weeks
+# later and is never traced back to an install script.
+ANTIGRAVITY_MODEL_LARGE="${ANTIGRAVITY_MODEL_LARGE:-gemini-2.5-pro}"
+ANTIGRAVITY_MODEL_FAST="${ANTIGRAVITY_MODEL_FAST:-gemini-2.5-flash}"
+
+# An unrecognised tier is reported, never silently mapped. A new Claude model
+# id landing here should make somebody read this function, not inherit whatever
+# the fallback happens to be.
+_antigravity_model() {
+  case "$1" in
+    *opus*)   printf '%s' "$ANTIGRAVITY_MODEL_LARGE" ;;
+    *sonnet*) printf '%s' "$ANTIGRAVITY_MODEL_FAST" ;;
+    *)
+      echo -e "${YELLOW}  [!] $2: unmapped model '$1' — using $ANTIGRAVITY_MODEL_FAST.${NC}" >&2
+      echo -e "${YELLOW}      Add its tier to _antigravity_model in this script.${NC}" >&2
+      printf '%s' "$ANTIGRAVITY_MODEL_FAST"
+      ;;
+  esac
+}
+
 echo -e "${BLUE}=================================================${NC}"
 echo -e "${BLUE}   Claude Agents Installer                      ${NC}"
 echo -e "${BLUE}=================================================${NC}"
 echo -e "  Project:  $PROJECT_ROOT"
 echo -e "  Source:   $LOCAL_AGENTS_DIR"
 echo -e "  Target:   $GLOBAL_AGENTS_DIR"
+
+# Written to only if it already exists. Creating it would mean conjuring an
+# Antigravity install on a machine that has none, and the directory is not ours
+# -- on the machine this was written for it holds 30 Apache-2.0 skills shipped
+# by Google plus Antigravity's own template. We add files beside them and never
+# remove or replace the directory.
+INSTALL_ANTIGRAVITY=false
+if [ -d "$ANTIGRAVITY_AGENTS_DIR" ]; then
+  INSTALL_ANTIGRAVITY=true
+  echo -e "  Also:     $ANTIGRAVITY_AGENTS_DIR ($ANTIGRAVITY_MODEL_LARGE / $ANTIGRAVITY_MODEL_FAST)"
+else
+  echo -e "${YELLOW}  Antigravity not found at $ANTIGRAVITY_AGENTS_DIR — skipping that variant${NC}"
+fi
 echo ""
 
 if [ ! -d "$LOCAL_AGENTS_DIR" ]; then
@@ -82,6 +133,22 @@ while IFS= read -r agent_file; do
     UPDATED_COUNT=$((UPDATED_COUNT + 1))
   fi
 
+  # The Antigravity variant, generated from the same file rather than stored.
+  # Exactly two things differ, and both are mechanical: the model it runs on,
+  # and where its skill index lives. sed rather than a template so that any
+  # other edit to the agent reaches both variants without this script knowing
+  # what the edit was.
+  if [ "$INSTALL_ANTIGRAVITY" = true ]; then
+    _ag_dir="$ANTIGRAVITY_AGENTS_DIR/$agent_name"
+    mkdir -p "$_ag_dir"
+    # `|| true` for the same reason as every other grep in this file.
+    _claude_model=$(grep -m1 "^model: " "$agent_file" | sed 's/^model: //' || true)
+    _ag_model=$(_antigravity_model "$_claude_model" "$agent_name")
+    sed -e "s|^model: .*|model: $_ag_model|" \
+        -e "s|~/\.claude/skills/INDEX\.md|~/.gemini/config/skills/INDEX.md|g" \
+        "$agent_file" > "$_ag_dir/SKILL.md"
+  fi
+
   # Every extraction here is a grep that can legitimately find nothing, and
   # under `set -euo pipefail` an unmatched grep would kill the whole run --
   # exactly the failure that left 29 of 30 skills stale for two months. Hence
@@ -105,6 +172,9 @@ echo ""
 echo -e "${GREEN}Done.${NC} $NEW_COUNT new  |  $UPDATED_COUNT updated"
 echo -e "  Agents:   $GLOBAL_AGENTS_DIR"
 echo -e "  INDEX.md: $INDEX_FILE"
+if [ "$INSTALL_ANTIGRAVITY" = true ]; then
+  echo -e "  Antigravity: $ANTIGRAVITY_AGENTS_DIR/<agent>/SKILL.md"
+fi
 
 # Anything installed that this repo does not produce. Reported, never deleted:
 # removing is the operator's call, and a stale agent still being offered to

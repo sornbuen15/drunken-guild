@@ -27,16 +27,22 @@ from typing import Iterable, List
 #: Where source lives. An ignored file anywhere else -- `.env` at the root,
 #: `htmlcov/` -- is ignored on purpose and is none of this check's business.
 #:
-#: `.agents/skills` earns its place the hard way: `.agents/` is ignored as
-#: Antigravity's state, but `skills/` inside it is the cross-agent instruction
-#: layer and is tracked. The existing skills kept working because gitignore
-#: does not affect files already in the index, so a NEW one was silently
-#: invisible -- and the docs pointing at it would have shipped referencing a
-#: file that was not in the repository.
-SOURCE_DIRS = ("src", "tests", "scripts")
+#: `skills` and `agents` are here because this repository ships two products,
+#: not one. They are markdown rather than Python, and nothing else in the tool
+#: chain looks at them -- ruff, mypy and pytest all stop at `src`, `tests` and
+#: `scripts` -- so an ignore rule that swallowed one would be caught by nothing
+#: at all.
+#:
+#: They were previously reachable only through `.agents/skills`, which was the
+#: Antigravity copy and is now retired (DG-267). The guard had therefore never
+#: covered the real `skills/` tree, and `agents/` never at all.
+SOURCE_DIRS = ("src", "tests", "scripts", "skills", "agents")
 
 #: Nested source roots, checked by prefix rather than by first path component.
-SOURCE_PREFIXES = (("agents", "skills"), (".agents", "skills"))
+#: Empty now that `.agents/skills` is gone; kept because the mechanism is what
+#: makes an ignored source directory nested under an ignored parent findable,
+#: and the next one of those should not have to reinvent it.
+SOURCE_PREFIXES: tuple[tuple[str, ...], ...] = ()
 
 #: Deliverables that live at the repository root and have no source suffix.
 ROOT_SOURCE_NAMES = frozenset({"Dockerfile", "Makefile"})
@@ -116,7 +122,6 @@ def ignored_paths() -> List[str]:
             "--exclude-standard",
             "--",
             *SOURCE_DIRS,
-            ".agents/skills",
             ".",
         ],
         capture_output=True,

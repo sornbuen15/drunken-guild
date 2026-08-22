@@ -1,7 +1,34 @@
 # Workspace Rules for Antigravity
 
+## Where your skills and agents come from
+
+**They are not authored here, and they are not yours to edit in place.** Every skill and every
+agent in `~/.gemini/config/skills/` that belongs to this project is *generated* from one source:
+
+| you read | generated from | by |
+|---|---|---|
+| `~/.gemini/config/skills/<agent>/SKILL.md` | `agents/<agent>.md` | `scripts/install/sync_agents.sh` |
+| `~/.gemini/config/skills/<skill>/` | `skills/<category>/<skill>/` | `scripts/install/sync_skills.sh` |
+
+Editing an installed copy is writing to a file the next install overwrites. Change the source in
+the repository and ask the Boss to re-run the installer.
+
+This replaces `.agents/skills/`, which held fifteen hand-maintained copies of `agents/`. Twelve
+matched their source; three had drifted, and `principal-engineer` had fallen to 78 lines against
+311 while still describing an orchestrator retired two tickets earlier. Nothing announced it. The
+copy is gone because the copy was the problem.
+
+**Anything in `~/.gemini/config/skills/` that this project did not put there is not ours.** That
+directory also holds ~30 Apache-2.0 skills shipped by Google and Antigravity's own template. Do
+not move, overwrite or tidy them.
+
+**Claude and you read the same rules.** `CLAUDE.md` is the same standard written for the other
+agent; where this file and that one disagree, that is a bug — report it rather than picking one.
+
+---
+
 ## Core Directives & Policies
-1. **JIRA SSOT**: Jira Cloud is the absolute Single Source of Truth. The word "Board" strictly means Jira Cloud. Read and write task states with the `drunken-jira-mcp` tools (`jira_search_issues`, `jira_start_task`, `jira_transition_issue`, `jira_submit_for_review`, `jira_add_comment`). `scripts/jira_bridge.py` still works for shell use, but the MCP tools are the supported path. **How to write and run a ticket — the FINDING/SCOPE/ACCEPTANCE shape, the fields this Jira can actually set, and what must be verified before Done — is in the `jira-tickets` skill (`.agents/skills/jira-tickets/SKILL.md`). Read it before opening or closing one.**
+1. **JIRA SSOT**: Jira Cloud is the absolute Single Source of Truth. The word "Board" strictly means Jira Cloud. Read and write task states with the `drunken-jira-mcp` tools (`jira_search_issues`, `jira_start_task`, `jira_transition_issue`, `jira_submit_for_review`, `jira_add_comment`). `scripts/jira_bridge.py` still works for shell use, but the MCP tools are the supported path. **How to write and run a ticket — the FINDING/SCOPE/ACCEPTANCE shape, the fields this Jira can actually set, and what must be verified before Done — is in the `jira-tickets` skill. Read it before opening or closing one.**
 2. **Destructive Commands (`rm`, `rm -rf`, `drop`)**: You MUST NOT delete files/directories immediately.
    - **Notice/List**: Present a Markdown **Table** (Columns: Path/Target, Reason).
    - **Async Workflow**: If there are other tasks you can do without deleting those files, **SKIP** the deletion for now.
@@ -17,7 +44,7 @@
 ## Daily Routine
 - **Auto-Start**: On a new session, proactively act as Scrum Master. Call `check_approvals` for anything still outstanding, then `jira_search_issues` for `status = "In Progress"`. If empty, look at `To Do`. Propose the highest priority task to the Boss.
 
-**Project Purpose:** To evolve Drunken-Agy into an immersive, state-of-the-art **"AI Guild Platform for Devs"**.
+**Project Purpose:** `drunken-guild` — the skills, agents and MCP servers that direct AI coding agents. One repository, two deliverables: the AI layer in `skills/` and `agents/`, the runtime in `src/`.
 
 ## Google Code Assist & Code Quality Standard (100% Quality)
 1. **Shift-Left Quality & Security**: Code quality and security are NOT just pre-commit checks. They must be embedded from the very beginning:
@@ -46,11 +73,13 @@
 5. **The Pre-Flight Mantra**:
    - Before any `git commit`, the Agent MUST scrutinize its own logic ("Did I actually test this, or did I hallucinate it?") and verify Jira states are strictly adhered to.
 
-## 🧠 The "Ai-ขี้เมา" (Drunken AI) Core Mindset: ค.ว.ย. Protocol
-All agents in the **drunken-team** MUST apply the **ค.ว.ย. (คิด วิเคราะห์ แยกแยะ)** skill before executing any End-to-End (E2E) testing, Server Startups, or Complex Integrations:
-1. **ค (คิด - Think/Contextualize)**: Validate paths, ports, env vars, and prerequisites *before* executing commands. Do not assume or blindly execute.
-2. **ว (วิเคราะห์ - Analyze/Verify)**: Analyze logs and runtime states (e.g., HTTP 200 OK). Do not assume a background command succeeded just because it didn't instantly crash.
-3. **ย (แยกแยะ - Differentiate)**: If a failure occurs, isolate the root cause (code bug vs path issue vs permissions). Do not blindly retry without fixing the root cause.
+## 🧠 The Drunken AI Core Mindset: think, analyze, isolate
+Every agent MUST apply the **`think-analyze-isolate`** skill before any end-to-end test, server startup, or complex integration:
+1. **Think / contextualize**: Validate paths, ports, env vars and prerequisites *before* executing commands. Do not assume, do not blindly execute.
+2. **Analyze / verify**: Read logs and runtime state (e.g. an actual HTTP 200). A background command that did not instantly crash has not succeeded.
+3. **Isolate**: On failure, separate the root cause — code bug vs path vs permissions. Do not retry without fixing it.
+
+This is the English rendering of the Thai-language skill that carried the same discipline. That original is retired to `_not_used/agent-layer-stubs/khit-wikhro-yaekyae/` and is no longer installed; load `think-analyze-isolate` by name from the skill index.
 # Global Rules - Local-First Jira Sync Pipeline
 
 This configuration defines the system instructions for handling Jira workflows across all projects.
@@ -87,7 +116,7 @@ accepts `parent`, `duedate`, `start_date` and `labels` — the old "only push
 summary and description" limit is gone, and `parent` is what stops an Epic
 having no children and Timeline drawing nothing.
 
-Read the `jira-tickets` skill (`.agents/skills/jira-tickets/SKILL.md`) for the
+Read the `jira-tickets` skill for the
 ticket shape and the lifecycle. Nothing is stored locally; the assignee says
 whose the work is and the status says where it is.
 

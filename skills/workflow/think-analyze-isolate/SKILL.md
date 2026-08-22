@@ -78,11 +78,10 @@ description: >
   </execution_rules>
 
   <provenance>
-    This protocol is the English rendering of the Thai-language skill **ค.ว.ย.** — คิด (think),
-    วิเคราะห์ (analyze), แยกแยะ (differentiate) — carried in
-    `~/Projects/drunken-team/.agents/skills/khit-wikhro-yaekyae/`. The content is the same
-    discipline; only the language differs, because every skill and agent file in this repository
-    is English-only.
+    This protocol is the English rendering of a Thai-language skill — คิด (think),
+    วิเคราะห์ (analyze), แยกแยะ (differentiate) — which it supersedes and which is kept at
+    `_not_used/agent-layer-stubs/khit-wikhro-yaekyae/`. The content is the same discipline; only
+    the language differs, because every skill and agent file in this repository is English-only.
 
     Its origin is worth keeping: it was written after an incident in which an agent watched a
     wrong directory path for an extended period, reporting progress the whole time, until a
