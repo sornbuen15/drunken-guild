@@ -130,7 +130,7 @@ Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
 
 Re-run both scripts after any skill or agent update.
 
-> **Kanban board scripts and MCP server** (`scripts/kanban/`, `scripts/mcp/`) are separate — they implement board I/O for your target project and are not part of the install process. Both require **Node.js v18+** to run. See `scripts/mcp/README.md` for MCP server setup.
+> **Coordination needs one MCP server, and it is not authored here.** `drunken-jira-mcp` lives in `~/Projects/drunken-team` and is declared per project in that project's own `.mcp.json`. Most skills in this repo need no MCP server at all — only the Jira ones do, and each names its requirement in its own `<constraints>` block. The old local-board scripts and their server are retired to [`_not_used/scripts/`](./_not_used/scripts/).
 
 ---
 
@@ -583,15 +583,6 @@ drunken-ai-team/
 │   │   ├── sync_skills.ps1        #   Deploy skills — Windows (PowerShell)
 │   │   ├── sync_agents.sh         #   Deploy agents — macOS / Linux
 │   │   └── sync_agents.ps1        #   Deploy agents — Windows (PowerShell)
-│   ├── kanban/                    # ← KANBAN SCRIPTS (CLI fallback, board I/O for your project)
-│   │   ├── kanban_read.sh         #   Read board state — macOS / Linux
-│   │   ├── kanban_read.ps1        #   Read board state — Windows (PowerShell)
-│   │   ├── kanban_write.sh        #   Write / move tasks — macOS / Linux
-│   │   ├── kanban_write.ps1       #   Write / move tasks — Windows (PowerShell)
-│   │   └── kanban.js              #   Unified cross-platform CLI (Node.js 18+)
-│   └── mcp/                       # ← MCP SERVER (primary board interface)
-│       ├── kanban-server.js       #   JSON-RPC 2.0 MCP server — 11 typed board tools
-│       └── README.md              #   MCP setup guide and tool reference
 ├── skills/
 │   ├── architecture/
 │   │   └── system-design-rules/
@@ -635,11 +626,12 @@ drunken-ai-team/
 │       └── zero-defect-mindset/
 ├── _not_used/                     # ← RETIRED, KEPT (see _not_used/README.md)
 │   ├── skills/                    #   4 orchestration skills, each with RETIRED.md
-│   └── examples/                  #   their recorded outputs
+│   ├── examples/                  #   their recorded outputs
+│   ├── scripts/                   #   the local board server and CLI fallback
+│   └── templates/                 #   mcp-settings.json, which registered that server
 ├── templates/
 │   ├── PROJECT_BRIEF.md           # Project goal, users, platform, constraints
-│   ├── REQUIREMENTS.md            # Functional + non-functional requirements
-│   └── mcp-settings.json          # Copy-paste MCP server registration snippet
+│   └── REQUIREMENTS.md            # Functional + non-functional requirements
 ├── CLAUDE.md                      # Master instructions for this repo
 ├── GETTING_STARTED.md             # Step-by-step user guide
 └── README.md                      # This file
@@ -649,11 +641,11 @@ drunken-ai-team/
 
 ## Known Limitations
 
-1. **Token Cost & Latency:** Orchestrating multiple agents consumes significant tokens. The MCP orchestration protocol reduces per-delegation overhead (~650 tokens vs ~4,200 for free-form prompts), but parallel waves still add up quickly.
-2. **MCP Registration Required:** The board MCP server must be registered in your project's `.claude/settings.json`. See `scripts/mcp/README.md` for setup. CLI scripts remain as fallback.
-3. **Node.js Required:** The kanban MCP server and CLI scripts both require Node.js v18+.
+1. **Token Cost & Latency:** Running multiple agents consumes significant tokens. Handing a specialist a Jira issue key rather than a paraphrased brief keeps each delegation small, but a sequence of them still adds up.
+2. **Jira MCP Required for Coordination:** The coordination skills need `drunken-jira-mcp`, which is authored in `~/Projects/drunken-team` and declared in your project's own `.mcp.json`. Every other skill here stands on its own and needs no server.
+3. **No Claim Expiry:** A Jira assignee never expires. If an agent stops mid-ticket the ticket stays assigned until a human reassigns it — the retired board released a claim after 1800s, and that is the one capability the move to Jira gave up.
 4. **Process Heavy for Small Tasks:** The strict three-tier architecture is designed for complex features. Using the full squad for a minor CSS tweak is overkill.
-5. **Agent Orchestration Loops:** Autonomous agent interactions can occasionally enter retry cycles. Monitor execution and apply human-in-the-loop intervention if tasks fail repeatedly.
+5. **Retry Loops:** Autonomous agents can enter retry cycles. `/isolate` (`think-analyze-isolate`) carries an anti-loop mandate — stop after two identical failures — but monitor execution and intervene if tasks fail repeatedly.
 
 ---
 

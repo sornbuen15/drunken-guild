@@ -26,3 +26,6 @@ left byte-for-byte as it was.
 | `skills/squad-workflow` | 2026-08-22 | coordination protocol built on `board_*` orchestration |
 | `examples/04-next-task` | 2026-08-22 | example output of a retired skill |
 | `examples/05-agentic-kanban` | 2026-08-22 | example output of a retired skill |
+| `scripts/kanban` | 2026-08-22 | CLI fallback for a board that no longer exists |
+| `scripts/mcp` | 2026-08-22 | the MCP server that defined every `board_*` tool |
+| `templates/mcp-settings.json` | 2026-08-22 | it registers the server above, and nothing else |
