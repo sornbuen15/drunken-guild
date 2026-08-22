@@ -184,6 +184,8 @@ tools: Read, Write, Agent, WebSearch, WebFetch
     - native-ios                 → native iOS apps (Swift, SwiftUI, UIKit, App Store delivery)
     - native-android             → native Android apps (Kotlin, Jetpack Compose, Play Store delivery)
     - cross-platform-mobile      → shared-codebase mobile apps (Flutter primary, React Native, KMM)
+    - laravel-developer          → PHP 8.2+ / Laravel 11 backends, FilamentPHP v3 resources
+    - desktop-frontend-dev       → Electron + React desktop apps, main/renderer split, secure IPC
     - voice-ai-specialist        → STT, TTS, real-time audio pipelines, latency budgets
     - agentic-systems-specialist → tool calling, agent loops, autonomous action boundaries
     - ai-memory-specialist       → RAG pipelines, vector stores, long-term memory design

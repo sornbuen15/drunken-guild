@@ -5,7 +5,7 @@
 
 An AI-powered development team toolkit using Claude — skills, agents, and workflows that assemble a disciplined engineering squad for any software project.
 
-A collection of **26 skills**, **5 specialist agents**, and an **8-agent engineering squad** that transforms Claude Code into a structured, team-based engineering system. Work is coordinated on **Jira** through the typed `drunken-jira-mcp` server — agents call its tools natively instead of composing shell commands.
+A collection of **29 skills**, **5 specialist agents**, and a **10-agent engineering squad** that transforms Claude Code into a structured, team-based engineering system. Work is coordinated on **Jira** through the typed `drunken-jira-mcp` server — agents call its tools natively instead of composing shell commands.
 
 ---
 
@@ -171,6 +171,7 @@ Re-run both scripts after any skill or agent update.
 │  TIER 3 — Engineering Squad                             │
 │  EXECUTION · code · infra · tests · security · mobile   │
 │  fullstack · devops · qa · security · ios · android     │
+│  cross-platform · laravel · desktop                     │
 └─────────────────────────────────────────────────────────┘
 ```
 
@@ -188,8 +189,8 @@ Domain specialists carry deep industry knowledge: regulations, protocols, data m
 
 | Agent | Model | Invoke when... |
 |---|---|---|
-| `fintech-specialist` | Sonnet 4.6 | Building payments, banking, wallets, lending, KYC/AML, or anything touching PCI-DSS, PSD2, SWIFT, ACH, ISO 20022 |
-| `insurance-specialist` | Sonnet 4.6 | Building policy admin, claims, underwriting, or anything touching NAIC, HIPAA, ACA, Solvency II, IFRS 17 |
+| `fintech-specialist` | Sonnet 5 | Building payments, banking, wallets, lending, KYC/AML, or anything touching PCI-DSS, PSD2, SWIFT, ACH, ISO 20022 |
+| `insurance-specialist` | Sonnet 5 | Building policy admin, claims, underwriting, or anything touching NAIC, HIPAA, ACA, Solvency II, IFRS 17 |
 
 ```bash
 claude --agent fintech-specialist
@@ -207,9 +208,9 @@ Standalone consultants for technical AI domains. Invoke when the task requires e
 
 | Agent | Model | Invoke when... |
 |---|---|---|
-| `agentic-systems-specialist` | Opus 4.8 | Designing agentic loops, tool calling schemas, autonomy boundaries, IoT/API orchestration, or action audit trails |
-| `ai-memory-specialist` | Opus 4.8 | Designing RAG pipelines, vector DB selection, memory taxonomy, context injection strategy, or retrieval relevance scoring |
-| `voice-ai-specialist` | Opus 4.8 | Designing voice pipelines, STT/TTS selection, real-time audio streaming, latency budgets, or graceful degradation in audio systems |
+| `agentic-systems-specialist` | Opus 5 | Designing agentic loops, tool calling schemas, autonomy boundaries, IoT/API orchestration, or action audit trails |
+| `ai-memory-specialist` | Opus 5 | Designing RAG pipelines, vector DB selection, memory taxonomy, context injection strategy, or retrieval relevance scoring |
+| `voice-ai-specialist` | Opus 5 | Designing voice pipelines, STT/TTS selection, real-time audio streaming, latency budgets, or graceful degradation in audio systems |
 
 ```bash
 claude --agent agentic-systems-specialist
@@ -241,7 +242,7 @@ The principal engineer:
 
 ## Tier 3 — Engineering Squad
 
-Eight specialists that execute focused work. The principal engineer routes to them; you can also invoke them directly for single-discipline tasks.
+Ten specialists that execute focused work. The principal engineer routes to them; you can also invoke them directly for single-discipline tasks.
 
 ```
 principal-engineer
@@ -251,19 +252,23 @@ principal-engineer
   ├── security-engineer       ← threat modeling, security review, vulnerability fixes
   ├── native-ios              ← Swift, SwiftUI, UIKit, App Store
   ├── native-android          ← Kotlin, Jetpack Compose, Play Store
-  └── cross-platform-mobile   ← Flutter (primary), React Native, KMM
+  ├── cross-platform-mobile   ← Flutter (primary), React Native, KMM
+  ├── laravel-developer       ← PHP 8.2+, Laravel 11, FilamentPHP v3
+  └── desktop-frontend-dev    ← Electron, React, Tailwind, secure IPC
 ```
 
 | Agent | Model | Role | Invoke directly when... |
 |---|---|---|---|
-| `principal-engineer` | Opus 4.8 | Technical Director + PM | You need strategic direction, roadmap, or architecture guidance |
-| `fullstack-engineer` | Sonnet 4.6 | All application code (any language/framework) | Focused implementation or code review task |
-| `devops-engineer` | Sonnet 4.6 | Infrastructure, CI/CD, containers, observability | Focused infra or pipeline task |
-| `qa-engineer` | Sonnet 4.6 | Test strategy, test writing, quality gates | Writing tests or auditing coverage |
-| `security-engineer` | Sonnet 4.6 | Threat modeling, security review | Security audit or sensitive change review |
-| `native-ios` | Sonnet 4.6 | Swift, SwiftUI, UIKit, App Store delivery | iOS-specific implementation or App Store compliance |
-| `native-android` | Sonnet 4.6 | Kotlin, Jetpack Compose, Play Store delivery | Android-specific implementation or Play Store compliance |
-| `cross-platform-mobile` | Sonnet 4.6 | Flutter (primary), React Native, KMM | Shared-codebase mobile app, platform trade-off analysis |
+| `principal-engineer` | Opus 5 | Technical Director + PM | You need strategic direction, roadmap, or architecture guidance |
+| `fullstack-engineer` | Sonnet 5 | All application code (any language/framework) | Focused implementation or code review task |
+| `devops-engineer` | Sonnet 5 | Infrastructure, CI/CD, containers, observability | Focused infra or pipeline task |
+| `qa-engineer` | Sonnet 5 | Test strategy, test writing, quality gates | Writing tests or auditing coverage |
+| `security-engineer` | Sonnet 5 | Threat modeling, security review | Security audit or sensitive change review |
+| `native-ios` | Sonnet 5 | Swift, SwiftUI, UIKit, App Store delivery | iOS-specific implementation or App Store compliance |
+| `native-android` | Sonnet 5 | Kotlin, Jetpack Compose, Play Store delivery | Android-specific implementation or Play Store compliance |
+| `cross-platform-mobile` | Sonnet 5 | Flutter (primary), React Native, KMM | Shared-codebase mobile app, platform trade-off analysis |
+| `laravel-developer` | Sonnet 5 | PHP 8.2+, Laravel 11, FilamentPHP v3, strict types | Laravel backend work, Filament resources, repository-pattern services |
+| `desktop-frontend-dev` | Sonnet 5 | Electron + React + Tailwind, main/renderer split | Desktop app work, secure IPC, tray/menus/auto-update |
 
 ---
 
@@ -284,6 +289,7 @@ Skills enforce domain standards. Load them via slash command during any task.
 |---|---|---|
 | `universal-ui` | `/ui` | Visual hierarchy, contrast rules, touch targets, responsive layout |
 | `universal-ux` | `/ux` | State-View decoupling, idempotency, form resilience, UX lifecycle |
+| `electron-ipc-protocol` | `/electron-ipc` | Context isolation, preload bridge, channel naming, IPC validation |
 
 ### Infrastructure & DevOps
 
@@ -333,6 +339,8 @@ Skills enforce domain standards. Load them via slash command during any task.
 | `anti-regression` | `/surgical` | Blast radius assessment, surgical edits, no silent deletions |
 | `ai-output` | `/discipline` | Token efficiency, atomic code blocks, execution safety |
 | `project-hygiene` | `/git` | Conventional commits, squash merge, ADR, branch strategy |
+| `zero-defect-mindset` | `/zero-defect` | Shift-left: design and threat model before code, not after |
+| `think-analyze-isolate` | `/isolate` | Anti-blind-execution for E2E, startup and deploys; anti-loop mandate |
 
 ### Leadership & Culture
 
@@ -546,16 +554,22 @@ flowchart TD
 ```
 drunken-ai-team/
 ├── agents/
+│   ├── INDEX.md                   # ← GENERATED by sync_agents.sh — do not hand-edit
 │   ├── principal-engineer.md      # Orchestrator — routes to specialists
 │   ├── fintech-specialist.md      # Fintech domain expert (payments, KYC, PCI-DSS)
 │   ├── insurance-specialist.md    # Insurance domain expert (NAIC, HIPAA, claims)
+│   ├── agentic-systems-specialist.md # Tool calling, agent loops, autonomy boundaries
+│   ├── ai-memory-specialist.md    # RAG, vector stores, long-term memory
+│   ├── voice-ai-specialist.md     # STT/TTS, real-time audio, latency budgets
 │   ├── fullstack-engineer.md      # Full-stack developer (any language/framework)
 │   ├── devops-engineer.md         # CI/CD, infra, containers, networking
 │   ├── qa-engineer.md             # Test strategy and test writing
 │   ├── security-engineer.md       # Threat modeling and security review
 │   ├── native-ios.md              # iOS specialist (Swift, SwiftUI, App Store)
 │   ├── native-android.md          # Android specialist (Kotlin, Compose, Play Store)
-│   └── cross-platform-mobile.md   # Flutter/RN/KMM cross-platform specialist
+│   ├── cross-platform-mobile.md   # Flutter/RN/KMM cross-platform specialist
+│   ├── laravel-developer.md       # PHP 8.2+ / Laravel 11 / FilamentPHP v3
+│   └── desktop-frontend-dev.md    # Electron + React desktop, secure IPC
 ├── examples/
 │   ├── README.md                  # Walkthrough guide
 │   ├── 00-setup/                  # Filled project context templates (TaskFlow)
@@ -586,6 +600,7 @@ drunken-ai-team/
 │   ├── documents/
 │   │   └── standard-playbook-generator/
 │   ├── frontend/
+│   │   ├── electron-ipc-protocol/
 │   │   ├── universal-ui/
 │   │   └── universal-ux/
 │   ├── infrastructure/
@@ -615,7 +630,9 @@ drunken-ai-team/
 │       ├── git-workflow/          # ← branching + commit conventions
 │       ├── project-audit-reviewer/
 │       ├── project-hygiene/
-│       └── test-report-generator/
+│       ├── test-report-generator/
+│       ├── think-analyze-isolate/
+│       └── zero-defect-mindset/
 ├── _not_used/                     # ← RETIRED, KEPT (see _not_used/README.md)
 │   ├── skills/                    #   4 orchestration skills, each with RETIRED.md
 │   └── examples/                  #   their recorded outputs

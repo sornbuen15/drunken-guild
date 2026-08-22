@@ -353,6 +353,9 @@ Once comfortable with the basics, see the [Skill Catalog](./README.md#skill-cata
 | `/discipline` | ai-output | Enforcing output formatting standards |
 | `/git-workflow` | git-workflow | Branches, commits, PR lifecycle |
 | `/git` | project-hygiene | Commits, branches, README, ADR |
+| `/zero-defect` | zero-defect-mindset | Starting an implementation — design and threat model first |
+| `/isolate` | think-analyze-isolate | Running, starting, deploying or integrating anything |
+| `/electron-ipc` | electron-ipc-protocol | Any Electron main/renderer communication |
 | `/init-project` | spec-to-backlog | Day 0 — spec → backlog |
 | `/issue` | issue-intake | Report a bug or problem — captured to backlog automatically |
 | `/refine` | backlog-refinement | Sprint planning — move backlog tickets onto the board |
