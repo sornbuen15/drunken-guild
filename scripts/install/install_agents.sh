@@ -109,6 +109,15 @@ fi
 
 NEW_COUNT=0
 UPDATED_COUNT=0
+# Counted separately, because the two targets are genuinely different places and
+# a single pair of counters can only describe one of them. The run that first
+# generated all fifteen Antigravity agents reported "0 new | 15 updated" -- true
+# of ~/.claude, and completely wrong about the fifteen directories it had just
+# created. A green line over work that did not happen is the failure this
+# repository exists to prevent, and reporting *more* work than happened is the
+# same defect wearing the other sign.
+AG_NEW_COUNT=0
+AG_UPDATED_COUNT=0
 
 # INDEX.md is generated below, not an agent. It lives in agents/ so the repo
 # carries the same index the install does, which means the discovery glob has
@@ -160,6 +169,11 @@ while IFS= read -r agent_file; do
   # what the edit was.
   if [ "$INSTALL_ANTIGRAVITY" = true ]; then
     _ag_dir="$ANTIGRAVITY_AGENTS_DIR/$agent_name"
+    if [ -f "$_ag_dir/SKILL.md" ]; then
+      AG_UPDATED_COUNT=$((AG_UPDATED_COUNT + 1))
+    else
+      AG_NEW_COUNT=$((AG_NEW_COUNT + 1))
+    fi
     mkdir -p "$_ag_dir"
     # `|| true` for the same reason as every other grep in this file.
     _claude_model=$(grep -m1 "^model: " "$agent_file" | sed 's/^model: //' || true)
@@ -200,7 +214,8 @@ echo -e "${GREEN}Done.${NC} $NEW_COUNT new  |  $UPDATED_COUNT updated"
 echo -e "  Agents:   $GLOBAL_AGENTS_DIR"
 echo -e "  INDEX.md: $INDEX_FILE"
 if [ "$INSTALL_ANTIGRAVITY" = true ]; then
-  echo -e "  Antigravity: $ANTIGRAVITY_AGENTS_DIR/<agent>/SKILL.md"
+  echo -e "  Antigravity: $AG_NEW_COUNT new  |  $AG_UPDATED_COUNT updated"
+  echo -e "               $ANTIGRAVITY_AGENTS_DIR/<agent>/SKILL.md"
 fi
 
 # Anything installed that this repo does not produce. Reported, never deleted:
