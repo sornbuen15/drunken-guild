@@ -3,7 +3,7 @@
 The `e2e` tests talk to the real Jira instance and **create real tickets**. The
 marker was added with the comment "so it doesn't run on standard unit test runs
 unless requested" — but nothing ever acted on it, so every plain `pytest` run
-filed two more tickets into the live DT project. DT-169 through DT-223 are the
+filed two more tickets into the live DG project. DG-169 through DG-223 are the
 accumulated result.
 
 Two things stop that now. `pyproject.toml`'s addopts deselects `e2e` by default,

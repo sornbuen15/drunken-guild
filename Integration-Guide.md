@@ -1,12 +1,12 @@
-# Drunken-Team: AI Integration Guide
+# Drunken-Guild: AI Integration Guide
 
-This guide is for connecting a local AI coding tool (Claude Code, Cursor, Aider) to Drunken-Team, so it can read and update Jira directly and hand off to the Discord daemon instead of you doing it by hand.
+This guide is for connecting a local AI coding tool (Claude Code, Cursor, Aider) to Drunken-Guild, so it can read and update Jira directly and hand off to the Discord daemon instead of you doing it by hand.
 
 ---
 
 ## 1. The MCP Servers
 
-Drunken-Team exposes three separate MCP servers -- there is no single combined server or `drunken-mcp` binary.
+Drunken-Guild exposes three separate MCP servers -- there is no single combined server or `drunken-mcp` binary.
 
 ### `drunken-jira-mcp` -- Jira operations
 - **Tools:** `jira_search_issues(jql)`, `jira_create_issue(summary, description)`, `jira_transition_issue(issue_key, target_status)`, `jira_add_comment(issue_key, comment)`, `jira_start_task(issue_key)` (transition to In Progress + the git branch command to run), `jira_submit_for_review(issue_key, pr_link, files_changed)` (transition to In Review + comment the PR link).
@@ -49,7 +49,7 @@ If your tool auto-discovers project-level `.mcp.json`, you're done. Otherwise, p
 | `CONVENTIONS.md` | Aider | Same rules, plus commit-message and mocking (`autospec=True`) conventions Aider should follow. |
 | `SESSION_CHECKPOINT.md` | All | A blank template for cross-session context handoff -- read at the start of a session, updated before ending one. |
 
-None of these describe Drunken-Team's own internals in depth; they just tell the local AI which Jira/MCP calls to make and when to ask for approval instead of acting.
+None of these describe Drunken-Guild's own internals in depth; they just tell the local AI which Jira/MCP calls to make and when to ask for approval instead of acting.
 
 ---
 
@@ -64,15 +64,15 @@ The collaboration between your local AI tool and the Guild's Discord daemon foll
 
 ---
 
-## 4. Integrating an Existing (Non-Drunken-Team) Project
+## 4. Integrating an Existing (Non-Drunken-Guild) Project
 
 To bring an existing project under this same workflow:
 
-### Step 1: Install Drunken-Team's CLI tools
+### Step 1: Install Drunken-Guild's CLI tools
 
 ```bash
-git clone https://github.com/sornbuen15/drunken-team.git
-cd drunken-team
+git clone https://github.com/sornbuen15/drunken-guild.git
+cd drunken-guild
 uv tool install .
 ```
 
@@ -91,7 +91,7 @@ This installs the commands globally: `drunken-init` (create the state directory 
 One command registers it and writes its MCP config:
 
 ```bash
-python /path/to/drunken-team/scripts/onboard_project.py existing-project \
+python /path/to/drunken-guild/scripts/onboard_project.py existing-project \
   --jira-project-key XYZ \
   --path /path/to/existing-project \
   --description "..." \
@@ -136,10 +136,10 @@ You want `project.existing-project.jira` to come back naming *you*.
 ### Step 3: Copy the AI templates
 
 ```bash
-cp /path/to/drunken-team/.guild_templates/CLAUDE.md .
-cp /path/to/drunken-team/.guild_templates/.cursorrules .
-cp /path/to/drunken-team/.guild_templates/CONVENTIONS.md .
-cp /path/to/drunken-team/.guild_templates/SESSION_CHECKPOINT.md .
+cp /path/to/drunken-guild/.guild_templates/CLAUDE.md .
+cp /path/to/drunken-guild/.guild_templates/.cursorrules .
+cp /path/to/drunken-guild/.guild_templates/CONVENTIONS.md .
+cp /path/to/drunken-guild/.guild_templates/SESSION_CHECKPOINT.md .
 ```
 
 ### Step 4: The MCP config
@@ -155,11 +155,11 @@ cp /path/to/drunken-team/.guild_templates/SESSION_CHECKPOINT.md .
 }
 ```
 
-This depends on step 1 — the commands have to be on `PATH`. Without `uv tool install`, fall back to `uv run --directory /path/to/drunken-team drunken-jira-mcp --project existing-project`, and keep that file out of git.
+This depends on step 1 — the commands have to be on `PATH`. Without `uv tool install`, fall back to `uv run --directory /path/to/drunken-guild drunken-jira-mcp --project existing-project`, and keep that file out of git.
 
 For Cursor: **Settings > Features > MCP > Add New Server**, type `command`, `drunken-jira-mcp` with args `--project existing-project`, then the same for the other one.
 
 From here, your local AI reads `CLAUDE.md`/`.cursorrules`, checks Jira via the MCP tools, writes code, and hands off through the same lifecycle described in Section 3.
 
 ---
-*This document covers integration and handoff only. For Drunken-Team's own architecture and day-to-day Discord commands, see [Drunken-Team-Guide.md](./Drunken-Team-Guide.md).*
+*This document covers integration and handoff only. For Drunken-Guild's own architecture and day-to-day Discord commands, see [Drunken-Guild-Guide.md](./Drunken-Guild-Guide.md).*

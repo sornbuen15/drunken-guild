@@ -1,6 +1,6 @@
 """Resolving who an issue should be assigned to.
 
-The local board is retired (DT-250). Jira is the one coordination surface, so
+The local board is retired (DG-250). Jira is the one coordination surface, so
 the **assignee** is what says whose work a ticket is and the **status** is what
 says where it is. That only works if an agent can set an assignee — and until
 this module nothing could. ``assignee`` came back in search results and no code

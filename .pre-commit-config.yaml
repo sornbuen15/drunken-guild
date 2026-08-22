@@ -33,7 +33,7 @@ repos:
         pass_filenames: false
         always_run: true
 
-      # DT-259. .gitignore's `*token*` once swallowed a whole test file: the
+      # DG-259. .gitignore's `*token*` once swallowed a whole test file: the
       # commit succeeded, this hook chain passed, and the suite stayed green
       # because the file was still on disk. Nothing said the commit was
       # incomplete. Now something does.

@@ -90,12 +90,12 @@ class TestEntries:
         assert paths.daemon_socket_path().path == tmp_path / "daemon.sock"
 
     def test_the_retired_agy_variable_is_ignored(self, monkeypatch, tmp_path) -> None:
-        """``AGY_DAEMON_SOCKET`` was the deprecated alias, removed in DT-244
+        """``AGY_DAEMON_SOCKET`` was the deprecated alias, removed in DG-244
         along with the rest of the old product name.
 
         Asserted rather than simply deleted: silently ignoring a variable
         someone has set would point their daemon at one socket and their
-        clients at another, which is the exact failure DT-241 was about.
+        clients at another, which is the exact failure DG-241 was about.
         ``drunken-doctor`` reports the path it resolved, so a stale setting
         shows up there.
         """

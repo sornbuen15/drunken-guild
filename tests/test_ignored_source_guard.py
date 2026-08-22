@@ -1,5 +1,5 @@
 # mypy: ignore-errors
-"""DT-259. A source file excluded by .gitignore must stop the commit.
+"""DG-259. A source file excluded by .gitignore must stop the commit.
 
 `.gitignore` carries `*token*` as a credential-hygiene rule. It matched
 tests/test_jira_token_economy.py, `git add -A` skipped it without a word, and
@@ -67,7 +67,7 @@ class TestTheRepositoryRoot:
     """The fourth occurrence, and the first one CI caught rather than a person.
 
     `.gitignore` listed `Dockerfile` under "Docker simulation config (local
-    test only, do not commit)". DT-228 turned it into a deliverable -- it is how
+    test only, do not commit)". DG-228 turned it into a deliverable -- it is how
     the pinned install is verified -- and the stale rule kept it out of #114
     while that PR described it at length. `.dockerignore` went in; the
     Dockerfile did not.
@@ -118,7 +118,7 @@ class TestTheGuardItself:
 
 class TestItIsWiredIntoPreCommit:
     def test_the_hook_is_declared(self) -> None:
-        """A guard nobody runs is a comment. DT-258's whole lesson is that the
+        """A guard nobody runs is a comment. DG-258's whole lesson is that the
         pipeline reported success throughout."""
         config = Path(__file__).resolve().parent.parent / ".pre-commit-config.yaml"
 

@@ -91,7 +91,7 @@ echo ""
 
 if [ ! -d "$LOCAL_AGENTS_DIR" ]; then
   echo -e "${RED}Error: agents/ directory not found at $LOCAL_AGENTS_DIR${NC}"
-  echo -e "${RED}Make sure you are running this from inside the drunken-ai-team repo.${NC}"
+  echo -e "${RED}Make sure you are running this from inside the drunken-guild repo.${NC}"
   exit 1
 fi
 

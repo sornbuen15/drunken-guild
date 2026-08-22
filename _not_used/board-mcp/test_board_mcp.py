@@ -726,11 +726,11 @@ def _get_only_task_id(manager: BoardManager, lane: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# DT-233 — a lane to park work in, and a scheduler that skips what is parked.
+# DG-233 — a lane to park work in, and a scheduler that skips what is parked.
 #
 # Without a `blocked` lane a task waiting on the Boss either sat in
 # in-progress (blocking everything behind it) or was quietly dropped. The
-# point of asking asynchronously (DT-232) is that the agent picks up the
+# point of asking asynchronously (DG-232) is that the agent picks up the
 # next thing that *isn't* waiting -- which needs somewhere to put the one
 # that is, and a rule for what "isn't waiting" means transitively.
 # ---------------------------------------------------------------------------

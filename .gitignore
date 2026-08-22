@@ -185,9 +185,9 @@ client_secret*.json
 !.claude/settings.json
 
 # Local scratch. Dockerfile used to be listed here as "simulation config, do
-# not commit" -- DT-228 made it a deliverable (it is how the pinned install is
+# not commit" -- DG-228 made it a deliverable (it is how the pinned install is
 # verified), and the stale rule silently kept it out of #114 while the PR
-# described it in detail. Found by DT-259's own test failing in CI.
+# described it in detail. Found by DG-259's own test failing in CI.
 scratch_*.py
 not_use/
 

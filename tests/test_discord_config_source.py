@@ -1,7 +1,7 @@
 # mypy: ignore-errors
 """The daemon's Discord identity comes from the registry, like everything else.
 
-DT-242 moved the MCP servers onto the registry and DT-246 moved the daemon's
+DG-242 moved the MCP servers onto the registry and DG-246 moved the daemon's
 Jira access. Discord stayed on ``.env``, which left the registry's
 ``discord.channel_id`` written by ``drunken-init`` and read by nobody —
 ``drunken-doctor`` reported SKIP for two projects while a single channel was in
@@ -29,7 +29,7 @@ def registry(tmp_path, monkeypatch):
             {
                 "version": 2,
                 "projects": {
-                    "drunken-team": {
+                    "drunken-guild": {
                         "path": str(tmp_path),
                         "discord": {
                             "channel_id": "999",
@@ -100,7 +100,7 @@ class TestItStillStartsWithNothingRegistered:
         )
         monkeypatch.setenv("DRUNKEN_REGISTRY_PATH", str(registry_file))
         monkeypatch.setenv("DISCORD_BOT_TOKEN", "fallback-token")
-        # Kept hermetic on purpose. Until DT-254 this line was load-bearing
+        # Kept hermetic on purpose. Until DG-254 this line was load-bearing
         # for a worse reason: another test loaded the real .env into
         # os.environ, and the environment outranks the registry, so the
         # assertion depended on test ordering. Nothing reads a .env now.
