@@ -54,9 +54,21 @@ printed `OK … (project TWA)` while Jira answered *"No project could be found"*
 `style=next-gen` confirms the three limits still apply: **`priority` cannot be set** (urgency is a
 label), **no story points**, and **backlog membership is not a status**.
 
-**Discord is NOT verified.** The channel id is configured and the credential resolves, but nobody
-has confirmed the bot was invited to the new room, and `drunken-doctor` cannot tell — it only
-checks that a channel id is set. **Send one real test message before trusting it.**
+**Discord is verified.** A real message was posted to the new room on 2026-08-22 — message id
+`1540643798223429692`, author `drunken-guild-app` (bot). The bot is in the room, the credential
+resolves, and the channel id is right. `drunken-doctor` could not have told you any of that; it
+only checks that a channel id is set.
+
+**Found while doing it — worth a ticket.** `require_discord()` returns the credential as the
+**unresolved reference string** (`file://…#discord.default`), while `require_jira()` returns a
+`ResolvedJira` carrying a ready `auth_header`. The two are not symmetric and nothing says so, so
+the obvious call sends the literal reference as a bearer token and Discord answers `401
+Unauthorized` — which reads exactly like a bad token or a bot that was never invited, when both
+are fine. Callers must pass it through `core.secrets.resolve()` themselves.
+
+That contradicts this repo's own rule that *"every error carries a remediation, because 'unknown
+project' only tells an agent to give up"*. Either make `require_discord()` resolve like its Jira
+twin, or have it return a type that cannot be mistaken for a token.
 
 ---
 
@@ -212,8 +224,6 @@ six `drunken-*` console scripts collapse into `drunken <subcommand>`, old names 
 
 ## 6. What needs the Boss
 
-- **Confirm the Discord bot is in the new room**, or send one test message. Nothing else can
-  verify it.
 - **Merge every PR.** An agent opens them; a human merges them. No exception.
 - **Terminate `ai-team-toolkit` only after** this repo is released and verified.
 
