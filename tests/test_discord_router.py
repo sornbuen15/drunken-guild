@@ -6,6 +6,7 @@ from unittest import mock
 import discord
 import pytest
 
+from service import discord_utils
 from service.discord_router import (
     DiscordRouter,
     _build_agent_suffix,
@@ -343,7 +344,8 @@ async def test_router_route(mock_single, mock_detail, mock_reply, mock_slash):
 
 
 @pytest.mark.anyio
-async def test_run_jira_bridge_success():
+async def test_run_jira_bridge_success(monkeypatch):
+    monkeypatch.setenv("DRUNKEN_PROJECT", "a-project")
     issues = [{"key": "DT-1", "summary": "s", "priority": "High"}]
     fake = FakeProcess(json.dumps(issues).encode(), b"", 0)
     with mock.patch(
@@ -356,7 +358,8 @@ async def test_run_jira_bridge_success():
 
 
 @pytest.mark.anyio
-async def test_run_jira_bridge_nonzero_exit():
+async def test_run_jira_bridge_nonzero_exit(monkeypatch):
+    monkeypatch.setenv("DRUNKEN_PROJECT", "a-project")
     fake = FakeProcess(b"", b"boom", 1)
     with mock.patch(
         "service.discord_router.asyncio.create_subprocess_exec",
@@ -368,7 +371,8 @@ async def test_run_jira_bridge_nonzero_exit():
 
 
 @pytest.mark.anyio
-async def test_run_jira_bridge_bad_json():
+async def test_run_jira_bridge_bad_json(monkeypatch):
+    monkeypatch.setenv("DRUNKEN_PROJECT", "a-project")
     fake = FakeProcess(b"not json", b"", 0)
     with mock.patch(
         "service.discord_router.asyncio.create_subprocess_exec",
@@ -952,3 +956,83 @@ async def test_handle_slash_command_help_documents_round_2_commands():
     help_text = msg.channel.send.call_args[0][0]
     for cmd in ("/project", "/next", "/refine", "/approve", "/qa"):
         assert cmd in help_text
+
+
+class TestTheDaemonDoesNotPickAProjectForYou:
+    """DG-266. Two guesses, one root cause: nothing told the daemon which
+    project it was for.
+
+    `discord_listener` took `list(registry.get_projects())[0]` -- the first key
+    in a JSON file, so on a machine with four registered projects the answer
+    depended on which had been written first. The router carried a hard-coded
+    default naming `drunken-team`, the fallback checkout this project is under
+    standing instruction not to touch. Neither reported the choice it made.
+    """
+
+    def test_an_explicit_variable_wins(self, monkeypatch):
+        monkeypatch.setenv("DRUNKEN_PROJECT", "chosen")
+        assert discord_utils.default_project_id() == "chosen"
+
+    def test_one_registered_project_is_a_fact_not_a_guess(self, monkeypatch, tmp_path):
+        monkeypatch.delenv("DRUNKEN_PROJECT", raising=False)
+        registry_file = tmp_path / "projects.json"
+        registry_file.write_text(
+            json.dumps({"version": 2, "projects": {"only-one": {"path": "/x"}}})
+        )
+        monkeypatch.setenv("DRUNKEN_REGISTRY_PATH", str(registry_file))
+
+        assert discord_utils.default_project_id() == "only-one"
+
+    def test_several_projects_and_no_variable_is_no_answer(self, monkeypatch, tmp_path):
+        """The case the old code got wrong, and the reason `None` exists.
+
+        Returning the first key here is how work would land in whichever
+        project happened to be written to the registry first.
+        """
+        monkeypatch.delenv("DRUNKEN_PROJECT", raising=False)
+        registry_file = tmp_path / "projects.json"
+        registry_file.write_text(
+            json.dumps(
+                {
+                    "version": 2,
+                    "projects": {
+                        "first": {"path": "/a"},
+                        "second": {"path": "/b"},
+                    },
+                }
+            )
+        )
+        monkeypatch.setenv("DRUNKEN_REGISTRY_PATH", str(registry_file))
+
+        assert discord_utils.default_project_id() is None
+
+    @pytest.mark.anyio
+    async def test_a_command_with_no_project_names_the_fix(self, monkeypatch, tmp_path):
+        """It refuses, and the refusal is actionable.
+
+        Previously this ran against the literal default, so a daemon nobody had
+        configured still executed Jira commands -- against the fallback repo.
+        """
+        monkeypatch.delenv("DRUNKEN_PROJECT", raising=False)
+        registry_file = tmp_path / "projects.json"
+        registry_file.write_text(
+            json.dumps(
+                {"version": 2, "projects": {"a": {"path": "/a"}, "b": {"path": "/b"}}}
+            )
+        )
+        monkeypatch.setenv("DRUNKEN_REGISTRY_PATH", str(registry_file))
+
+        with (
+            mock.patch("service.discord_router.find_config", return_value=None),
+            mock.patch(
+                "service.discord_router.asyncio.create_subprocess_exec"
+            ) as spawn,
+        ):
+            result, error = await _run_jira_bridge("get-todo")
+
+        # The refusal happens before the subprocess, not after it fails.
+        spawn.assert_not_called()
+        assert not result
+        assert error is not None
+        assert "/project" in error
+        assert "DRUNKEN_PROJECT" in error
