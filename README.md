@@ -630,6 +630,7 @@ drunken-ai-team/
 │   ├── scripts/                   #   the local board server and CLI fallback
 │   └── templates/                 #   mcp-settings.json, which registered that server
 ├── templates/
+│   ├── CLAUDE.md                  # ← COPY THIS to your project root as CLAUDE.md
 │   ├── PROJECT_BRIEF.md           # Project goal, users, platform, constraints
 │   └── REQUIREMENTS.md            # Functional + non-functional requirements
 ├── CLAUDE.md                      # Master instructions for this repo

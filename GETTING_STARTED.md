@@ -55,6 +55,18 @@ bash scripts/install/sync_agents.sh
 
 Both scripts are safe to re-run — they only update files that have changed.
 
+**Verify the install by the number, not by the absence of an error.** Each script prints
+`N new | M updated` at the end; the totals must match what the repo actually holds:
+
+```bash
+find skills -name SKILL.md | wc -l          # skills the repo produces
+ls ~/.claude/skills/*/SKILL.md | wc -l      # skills now installed
+ls agents/*.md | grep -v INDEX | wc -l      # agents the repo produces
+```
+
+The first two numbers will differ if you have skills from elsewhere installed — see
+*Skills not authored here* below, which is the normal case and not a problem.
+
 ### Windows
 
 Open PowerShell (5.1+ or Core 7+):
@@ -75,6 +87,26 @@ Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
 ```
 
 Both scripts are safe to re-run after any update.
+
+### Skills not authored here
+
+`sync_skills.sh` ends by listing anything installed in `~/.claude/skills/` that this repo does
+not produce, under **"Installed but not produced here"**. It never deletes them — removing an
+installed skill is your call, not the script's.
+
+Two kinds of thing show up in that list:
+
+- **Third-party skills you installed from elsewhere.** Record them in
+  [`skills/.external`](./skills/.external), one name per line, and the script stops naming them
+  every run. It currently lists `debug-mantra`, `management-talk`, `post-mortem` and
+  `scrutinize`.
+- **Skills this repo retired.** They stay installed until you remove them, and they will be
+  named every run until you do. That is deliberate: a retired skill still being offered to every
+  session is worth knowing about. See [`_not_used/`](./_not_used/) for what was retired and why.
+
+`sync_agents.sh` reports the same way for `~/.claude/agents/`.
+
+---
 
 > **Note:** Coordination needs one MCP server, and it is not authored in this repo.
 > `drunken-jira-mcp` lives in `~/Projects/drunken-team` and is declared per project in that
@@ -101,9 +133,17 @@ New-Item -ItemType Directory -Force -Path "$HOME\.claude\skills"
 New-Item -ItemType Directory -Force -Path "$HOME\.claude\agents"
 ```
 
-**2. Copy each skill folder**
+**2. Copy each skill folder — flattened**
 
-For every folder under `skills/` that contains a `SKILL.md`, copy the whole folder to `~/.claude/skills/`. For example:
+Skills are grouped into categories in this repo (`skills/kanban/`, `skills/workflow/`, …) but
+they install **flat**: the category directory is not copied, only the skill directory inside it.
+`skills/kanban/issue-intake/` becomes `~/.claude/skills/issue-intake/`, not
+`~/.claude/skills/kanban/issue-intake/`. Copying the category directories instead is the one
+mistake that quietly breaks discovery — Claude reads `~/.claude/skills/<name>/SKILL.md` and
+nothing else.
+
+For every folder under `skills/` that contains a `SKILL.md`, copy that folder — not its parent —
+to `~/.claude/skills/`:
 
 ```bash
 # macOS / Linux — repeat for each skill
@@ -122,9 +162,14 @@ Copy-Item -Recurse skills\kanban\issue-intake          "$HOME\.claude\skills\"
 # ... repeat for all remaining skill folders
 ```
 
-To see every skill that needs copying:
+To see every skill that needs copying, and to copy them all in one go:
+
 ```bash
+# List them
 find skills -name "SKILL.md" | sort
+
+# Or copy every one of them, flattened, in a single command
+find skills -name SKILL.md -exec dirname {} \; | xargs -I{} cp -r {} ~/.claude/skills/
 ```
 
 **3. Copy each agent file**
@@ -139,16 +184,32 @@ Windows (PowerShell):
 Copy-Item agents\*.md "$HOME\.claude\agents\"
 ```
 
-**4. Copy the Skill Index**
+**4. Copy both indexes**
 
 ```bash
 cp skills/INDEX.md ~/.claude/skills/INDEX.md
+cp agents/INDEX.md ~/.claude/agents/INDEX.md
 ```
 
 Windows (PowerShell):
 ```powershell
 Copy-Item skills\INDEX.md "$HOME\.claude\skills\INDEX.md"
+Copy-Item agents\INDEX.md "$HOME\.claude\agents\INDEX.md"
 ```
+
+Both indexes are **generated** by the sync scripts from the frontmatter of the files they
+install. Copying them by hand means they are only as current as the last script run — if you
+have added or changed a skill, edit the frontmatter and regenerate rather than editing an index
+directly.
+
+**5. Verify**
+
+```bash
+ls ~/.claude/skills/*/SKILL.md | wc -l    # should be at least the count in this repo
+ls ~/.claude/agents/*.md | wc -l          # includes INDEX.md, so one more than the agent count
+```
+
+A copy that silently did nothing looks exactly like a copy that worked. Count.
 
 ---
 
@@ -162,13 +223,21 @@ Copy the two context templates into **your project root** and fill them in.
 # macOS / Linux
 cp path/to/drunken-ai-team/templates/PROJECT_BRIEF.md  your-project/
 cp path/to/drunken-ai-team/templates/REQUIREMENTS.md   your-project/
+cp path/to/drunken-ai-team/templates/CLAUDE.md         your-project/CLAUDE.md
 ```
 
 ```powershell
 # Windows
 Copy-Item path\to\drunken-ai-team\templates\PROJECT_BRIEF.md  your-project\
 Copy-Item path\to\drunken-ai-team\templates\REQUIREMENTS.md   your-project\
+Copy-Item path\to\drunken-ai-team\templates\CLAUDE.md         your-project\CLAUDE.md
 ```
+
+`CLAUDE.md` is the one that carries the **rules**: which Jira project this is, that Jira is the
+only coordination surface, the `TODO → IN PROGRESS → IN REVIEW → DONE` ladder that must never
+skip review, the MCP tools available, and your build and test commands. Fill in every
+`<angle-bracket>` placeholder and delete what does not apply. Skills and agents read it every
+session; a placeholder left in reads as an instruction.
 
 Open each file and fill in every section. The more complete they are, the better every skill and agent performs — these files are the single source of truth for your squad.
 
