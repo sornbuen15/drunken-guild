@@ -7,7 +7,7 @@ release note, the Jira ticket, or `CLAUDE.md`, and this file links to it. The pr
 860 lines and 19 sections, several of which existed only to correct earlier sections — at which point
 nobody reads it, and a handoff nobody reads is worse than none. See *What was cut* at the bottom.
 
-Last updated: 2026-08-21 · **v2.3.0 released** · `develop` is where work lands
+Last updated: 2026-08-22 · **v2.3.0 released** · `develop` is where work lands
 
 ---
 
@@ -89,15 +89,50 @@ project scripts rather than a vendored copy of this tooling.
 - **DT-226** — still **do not open the transport**. §7 is unchanged: the DNS-rebinding
   finding and the missing inbound guard are both untouched.
 
-**The agent layer — see `~/Projects/ai-team-toolkit/SESSION_CHECKPOINT.md`**
+**The agent layer — `drunken-ai-team`, see `~/Projects/drunken-ai-team/SESSION_CHECKPOINT.md`**
 
-That repo authors the skills and agents installed into `~/.claude/`, and its checkpoint
-carries the work: 12 of 30 global skills drive a kanban board that no project declares and
-this project's `CLAUDE.md` forbids; agents have no index; its `CLAUDE.md` must become both
-a catalog and the template other projects copy, covering this project's MCP servers. Its
-sync script had been failing silently for two months and is fixed.
+(Renamed from `ai-team-toolkit`. GitHub: `sornbuen15/drunken-ai-team`, public, MIT.)
 
-Nothing there is actionable from this repo. It is named here so the two do not drift.
+**That side is done.** Everything previously listed here closed on 2026-08-22: no skill or
+agent calls a `board_*` tool, the four orchestration skills are retired to `_not_used/`,
+`agents/INDEX.md` now exists, and its `CLAUDE.md` was split — one half stays the authoring
+rules, the other became `templates/CLAUDE.md`, the file other projects copy. It ships 29
+skills and 15 agents. The sync-script fix from two months of silent failure is still
+unmerged there, in a PR that has to be opened by hand.
+
+**What is now actionable HERE, because that repo consumes this one:**
+
+- **`.mcp.json` cannot be copied out of this repo.** `"uv run"` plus `PYTHONPATH: "src"` are
+  both cwd-relative, so a consuming project that copies them runs `uv` in its own directory
+  and never finds `src/`. `drunken-ai-team` now documents the portable form in its
+  `GETTING_STARTED.md`, verified working from an unrelated cwd:
+  `uv --directory /abs/path/to/drunken-team run python -m jira_mcp.server --project <KEY>`.
+  Either ship that form here as the documented one, or state that `.mcp.json` is
+  local-only and not an example.
+
+- **`.agents/skills/jira-tickets/SKILL.md` is now a consumed contract, not a private file.**
+  Eight skills and the `principal-engineer` agent over there reference it — and `ask-boss` —
+  at the absolute path `~/Projects/drunken-team/.agents/skills/…`, deliberately linking
+  rather than copying so the rules cannot drift per agent. Two consequences: **moving or
+  renaming either file breaks the other repo silently**, and its docs now tell users to
+  clone this repo to exactly `~/Projects/drunken-team` because of it.
+
+- **`drunken-board-mcp` is still a published entry point.** `pyproject.toml:60` exposes
+  `board_mcp.server:main` and `board_mcp` is in `packages`. It is correctly absent from
+  `.mcp.json`, so nothing runs it — but it is installable, while `drunken-ai-team`'s
+  `CLAUDE.md` declares every `board_*` tool retired. Anyone who registers it puts the two
+  repos back in disagreement. Drop the entry point, or record here that it is kept
+  deliberately (an agent does not delete, so keeping it is a defensible answer — it just is
+  not written down).
+
+- **`.agents/skills/principal-engineer/SKILL.md` is the one real twin drift.** It still runs
+  `jira_bridge.py get-todo` / `transition`, which this project's own `CLAUDE.md` says is not
+  the supported path, and transitions In Progress → Done, skipping the IN REVIEW the same
+  file says in bold never to skip. Its twin over there was rewritten on the MCP tools with
+  no orchestrator; the two are supposed to differ only in `model:` and the skill-index path.
+
+Nothing above is blocked on that repo. It is listed here because these four are this
+project's to decide.
 
 **Antigravity** — TWA's `.agents/AGENTS.md` still tells it to run the vendored scripts.
 Those instructions change before the scripts can be parked. This project's own `AGENTS.md`
