@@ -100,8 +100,19 @@ You want `project.drunken-guild.jira` to come back naming *you*.
 
 ### Installing it as a command
 
+If a previous version is installed under the old package name, **uninstall it first**:
+
 ```bash
+uv tool uninstall drunken-team   # only if `uv tool list` shows it
 uv tool install .
+```
+
+`uv tool install .` fails with *"Executables already exist"* while the old package owns those
+names, and **`--force` is not the fix**: it repoints the symlinks but leaves the previous tool
+environment installed, and that environment still ships `drunken-board-mcp`, which is no longer
+part of this package (DG-265). Uninstalling first is what actually removes it from your PATH.
+
+```bash
 drunken-doctor --project drunken-guild
 ```
 
