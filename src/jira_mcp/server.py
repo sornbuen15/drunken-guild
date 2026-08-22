@@ -209,7 +209,7 @@ def _require_backlog_board(profile: BoardProfile, project_key: str) -> int:
 
     if profile.backlog is False:
         raise ConfigError(
-            f"{project_key}'s board ({profile.name!r}, type {profile.type!r}) "
+            f"{project_key}'s board ({profile.display_name!r}, type {profile.type!r}) "
             "has no backlog, so there is nowhere to move issues to or from.",
             remediation=(
                 "Enable the backlog for this board in Jira's board settings, or "
@@ -228,7 +228,10 @@ async def jira_board_info() -> str:
     """
     What this project's Jira board is, and what it can actually do.
 
-    Reports the board's id, name and type, and whether it has a backlog — the
+    Reports the board's id and type, what it is attached to, and whether it has
+    a backlog. The attachment is `project_key`, `project_name` and
+    `display_name`; the board's own `name` is deliberately absent because it is
+    frozen at creation and nothing can change it — see BoardProfile. The
     latter probed rather than inferred, because type does not predict it. A
     kanban board may have no backlog while a team-managed 'simple' board has
     one. `backlog: null` means the question could not be answered, which is not
@@ -246,7 +249,13 @@ async def jira_board_info() -> str:
     return json.dumps(
         {
             "project": client.project_key,
-            "board": {"id": profile.id, "name": profile.name, "type": profile.type},
+            "board": {
+                "id": profile.id,
+                "project_key": profile.project_key,
+                "project_name": profile.project_name,
+                "display_name": profile.display_name,
+                "type": profile.type,
+            },
             "backlog": profile.backlog,
             "sprints": False,
             "known": profile.known,
