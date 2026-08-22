@@ -11,6 +11,38 @@ if TYPE_CHECKING:
     from core.registry import ProjectConfig
 
 
+def default_project_id() -> str | None:
+    """Which project this daemon is for, or ``None`` when nothing says.
+
+    Every MCP server in this repository takes ``--project`` and refuses to guess.
+    The Discord daemon was the exception, and it guessed twice: this module's
+    caller took ``list(registry.get_projects())[0]`` — the first key in a JSON
+    file, so which project the daemon served depended on insertion order — and
+    the router carried a hard-coded default that still named ``drunken-team``,
+    the fallback checkout that must not be touched.
+
+    The precedence here is the project's own, unchanged: an **environment
+    variable** wins, because it is explicit and named and is how a container
+    passes a different project in. Then the **registry**, but only when it holds
+    exactly one project, where "the only one" is a fact rather than a guess.
+
+    Anything else returns ``None``. A machine with four registered projects has
+    no default, and saying so is the whole point — the caller reports it and the
+    operator names one, instead of work landing in whichever project happened to
+    be written first.
+    """
+    explicit = os.environ.get("DRUNKEN_PROJECT", "").strip()
+    if explicit:
+        return explicit
+
+    from core.registry import ProjectRegistry
+
+    projects = ProjectRegistry().get_projects()
+    if len(projects) == 1:
+        return next(iter(projects))
+    return None
+
+
 def packaged_script(name: str) -> str:
     """Absolute path to a helper that ships inside the ``scripts`` package.
 
