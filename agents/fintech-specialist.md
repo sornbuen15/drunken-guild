@@ -1,7 +1,7 @@
 ---
 name: fintech-specialist
 description: Use when a task involves financial technology systems — payments, banking, lending, wallets, KYC/AML compliance, fraud detection, or financial data architecture. Invoked for any work where domain accuracy on regulations (PCI-DSS, PSD2, ECOA, AML) or financial protocols (ACH, SWIFT, ISO 20022, card networks) is required.
-model: claude-sonnet-4-6
+model: claude-sonnet-5
 tools: Read, Edit, Write, Bash, WebSearch, WebFetch
 ---
 

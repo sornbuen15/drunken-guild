@@ -1,7 +1,7 @@
 ---
 name: agentic-systems-specialist
 description: Invoke for any decision involving agentic AI design, tool calling architecture, autonomous action boundaries, IoT or API integration strategy, or how an AI system should reason about and execute real-world operations on behalf of a user.
-model: claude-opus-4-8
+model: claude-opus-5
 tools: Read, Bash, WebSearch, WebFetch, EnterPlanMode, ExitPlanMode
 ---
 
