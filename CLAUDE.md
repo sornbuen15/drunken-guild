@@ -61,9 +61,28 @@ something is fixed, verify against `origin/develop` before believing it.
 
 ## Git
 
-Work lands on `develop` through a PR. Never push to `main` — `main` is deliberately behind and stays
-that way until the current work is finished. Branch as `feature/DT-123-slug`, `bugfix/...`, `chore/...`,
-`docs/...`.
+**The full rules are one file: `~/.claude/skills/git-workflow/SKILL.md` (`/git-workflow`)** —
+branch naming, which merge strategy belongs to which target, and the release flow. It is a global
+skill, not a path into another repo, so both this project and `drunken-ai-team` read the same
+copy and there is nothing to keep in sync. Load it rather than reasoning from the summary here.
+
+Work lands on `develop` through a PR. Branch as `feature/DT-123-slug`, `bugfix/...`, `chore/...`,
+`docs/...` — **the `DT-` key is not decoration:** `drunken-usage --by ticket` reads it back off
+the branch name and has no other source, so a branch without one reports as untracked cost,
+silently.
+
+Four that are unrecoverable if you get one wrong:
+
+- Never push to `main`. `main` is deliberately behind and stays that way until the current work
+  is finished, and it accepts a PR **from `develop` and from nothing else**.
+- **An agent opens pull requests; a human merges them.** Into `develop`, and into `main` for a
+  release. No exception for your own PR, a one-line change, a green CI, or a 👍 that arrived over
+  Discord — an approval authorises the work, it does not press the button.
+- **Never `git merge` locally against `main` or `develop` and push the result** — squash, no-ff or
+  fast-forward alike. A local merge puts a commit on a protected branch that no PR described, and
+  afterwards it is indistinguishable from one that went through review.
+- Merge strategy is chosen by target, not preference: `develop` ← branch is **squash**, `main` ←
+  `develop` is a **merge commit**, rebase only what you have not pushed, and fast-forward never.
 
 Do not stack a PR on another PR's branch: when the base merges and is deleted, GitHub closes the
 stacked one. Branch from `develop` and cherry-pick if you need something that has not landed yet.
@@ -184,6 +203,17 @@ observation about the wrapper and the wrong question**, not a defect to fix in t
 **TWA is the reference implementation.** `~/Projects/tff-web-app` is the wrapper, `twa/` is the repo,
 nothing at the wrapper level is in git, and `drunken-doctor --project twa` reads 14 ok / 0 warnings.
 ISAC is the counter-example: it *is* the repo, with 47 files of AI layer committed inside it.
+
+**Two known exceptions, so nobody "fixes" them:**
+
+- **This project.** `~/Projects/drunken-team` *is* the git repo — the wrapper and the repo are the
+  same directory. The rule above says it applies to every project including this one, and that has
+  never been true here. It is recorded rather than corrected: the migration is real work with real
+  risk, and pretending the rule holds is worse than naming the gap.
+- **`drunken-ai-team`** (`~/Projects/ai-team-toolkit`, GitHub `sornbuen15/drunken-ai-team`) tracks
+  86 files of skills, agents and instructions in git **on purpose** — there the AI layer *is* the
+  product, and applying this rule literally would move the deliverable out of version control. Its
+  own `CLAUDE.md` carries a FATAL directive saying so.
 
 ## There is no local board (DT-250)
 
