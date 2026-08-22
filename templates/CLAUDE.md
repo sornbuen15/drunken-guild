@@ -64,8 +64,8 @@
     </directive>
 
     <directive priority="FATAL" name="Point At The Ticket Rules, Do Not Restate Them">
-      **How to write and run a ticket is
-      `~/Projects/drunken-team/.agents/skills/jira-tickets/SKILL.md`.**
+      **How to write and run a ticket is the `jira-tickets` skill**, installed alongside the
+      rest of this toolkit.
 
       The FINDING / SCOPE / ACCEPTANCE shape, the length budget, the fields this Jira can
       actually set, and what must be verified before anything is Done all live there.
@@ -96,8 +96,8 @@
     </mcp_tools>
 
     <approvals>
-      When something needs the Boss to approve it, the protocol is
-      `~/Projects/drunken-team/.agents/skills/ask-boss/SKILL.md`. The short version: if the Boss
+      When something needs the Boss to approve it, the protocol is the `ask-boss` skill.
+      The short version: if the Boss
       is reading the conversation, just ask them there. Otherwise submit async, park the task,
       take the next unblocked one, and collect **when you finish a task or start a session —
       never mid-task.**
