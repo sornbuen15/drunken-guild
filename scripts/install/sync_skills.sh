@@ -17,6 +17,11 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 LOCAL_SKILLS_DIR="$PROJECT_ROOT/skills"
 GLOBAL_SKILLS_DIR="$HOME/.claude/skills"
+
+# Antigravity reads the same skills from its own tree. Unlike the agents, a
+# skill needs no rewriting on the way across -- nothing under skills/ names a
+# per-agent index path -- so this is the same directory, installed twice.
+ANTIGRAVITY_SKILLS_DIR="${ANTIGRAVITY_SKILLS_DIR:-$HOME/.gemini/config/skills}"
 INDEX_FILE="$GLOBAL_SKILLS_DIR/INDEX.md"
 
 echo -e "${BLUE}=================================================${NC}"
@@ -25,6 +30,20 @@ echo -e "${BLUE}=================================================${NC}"
 echo -e "  Project:  $PROJECT_ROOT"
 echo -e "  Source:   $LOCAL_SKILLS_DIR"
 echo -e "  Target:   $GLOBAL_SKILLS_DIR"
+
+# Written to only if it already exists, and only ever *added to*. That
+# directory is shared: alongside ours it holds ~30 Apache-2.0 skills shipped by
+# Google and Antigravity's own template, none of which have another copy on
+# this machine. Never replace the directory, never sync with --delete, and do
+# not create it -- a machine with no Antigravity should not grow a config for
+# one because an installer ran.
+INSTALL_ANTIGRAVITY=false
+if [ -d "$ANTIGRAVITY_SKILLS_DIR" ]; then
+  INSTALL_ANTIGRAVITY=true
+  echo -e "  Also:     $ANTIGRAVITY_SKILLS_DIR"
+else
+  echo -e "${YELLOW}  Antigravity not found at $ANTIGRAVITY_SKILLS_DIR — skipping that variant${NC}"
+fi
 echo ""
 
 if [ ! -d "$LOCAL_SKILLS_DIR" ]; then
@@ -85,6 +104,10 @@ while IFS= read -r skill_file; do
   [ ! -d "$TARGET_DIR" ] && IS_NEW=true
 
   _copy_dir "$skill_dir" "$TARGET_DIR"
+
+  if [ "$INSTALL_ANTIGRAVITY" = true ]; then
+    _copy_dir "$skill_dir" "$ANTIGRAVITY_SKILLS_DIR/$skill_name"
+  fi
 
   if [ "$IS_NEW" = true ]; then
     echo -e "${GREEN}  [+] Installed:${NC} $skill_name"

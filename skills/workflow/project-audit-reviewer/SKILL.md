@@ -76,9 +76,8 @@ description: >
   </report_structure>
 
   <ticket_template>
-    The ticket shape and field limits live in
-    `~/Projects/drunken-team/.agents/skills/jira-tickets/SKILL.md` — authoritative, do not
-    restate it. Summary line: `[Area] imperative statement of the change`.
+    The ticket shape and field limits live in the `jira-tickets` skill — authoritative, do
+    not restate it. Summary line: `[Area] imperative statement of the change`.
 
     ```
     FINDING
