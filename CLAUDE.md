@@ -39,6 +39,7 @@ Do not "fix" this repo by moving `skills/` or `agents/` out of git.
 ## Commands
 
 ```bash
+uv sync --extra dev                 # required, not optional — see below
 uv run pytest -q                    # e2e is deselected by default, on purpose
 uv run ruff check src/ tests/ scripts/
 uv run ruff format src/ tests/
@@ -50,6 +51,14 @@ uv run mypy src                     # --strict via pyproject
 It is deselected because for months it was not, and it filed 52 junk tickets before anyone noticed.
 
 `bandit -ll` and `pip-audit --strict` also gate CI; `uvx bandit -ll -q -r src/` runs it locally.
+
+**`uv sync --extra dev` is required, and a fresh clone does not have it.** Without pytest in
+`.venv`, `uv run pytest` falls through to whatever `pytest` is on PATH — a different interpreter,
+whose site-packages may carry an editable install claiming `core`, `scripts`, `service` and the
+rest. That is not hypothetical: it ran this repository's suite against `~/Projects/drunken-team`
+for two rounds of review, green the whole time, with coverage reading 0% because nothing in `src/`
+was ever imported (DG-268). `tests/conftest.py` now fails the run at session start rather than
+letting it pass, and names the fix.
 
 ### Which gates cover which half
 
