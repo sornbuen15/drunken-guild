@@ -118,7 +118,7 @@ class _FakeClient(JiraClient):
         return self._backlog_probe
 
 
-BOARD = [{"id": 72, "name": "DG board", "type": "simple"}]
+BOARD = [{"id": 72, "name": "Drunken-Guild (DG)", "type": "simple"}]
 
 
 class TestTheBoardProfile:
@@ -295,7 +295,7 @@ class TestTheMoveTools:
         client = AsyncMock()
         client.project_key = "DG"
         client.board_profile.return_value = BoardProfile(
-            id=72, name="DG board", type="simple", backlog=True, known=True
+            id=72, name="Drunken-Guild (DG)", type="simple", backlog=True, known=True
         )
         with patch("jira_mcp.server.get_client", return_value=client):
             result = await jira_move_to_backlog("ISAC-5")
@@ -314,7 +314,7 @@ class TestTheMoveTools:
         client = AsyncMock()
         client.project_key = "DG"
         client.board_profile.return_value = BoardProfile(
-            id=72, name="DG board", type="simple", backlog=True, known=True
+            id=72, name="Drunken-Guild (DG)", type="simple", backlog=True, known=True
         )
         client.move_to_backlog.return_value = {"ok": True, "moved": ["DG-251"]}
         with patch("jira_mcp.server.get_client", return_value=client):
@@ -333,7 +333,7 @@ class TestTheMoveTools:
         client = AsyncMock()
         client.project_key = "DG"
         client.board_profile.return_value = BoardProfile(
-            id=72, name="DG board", type="simple", backlog=True, known=True
+            id=72, name="Drunken-Guild (DG)", type="simple", backlog=True, known=True
         )
         client.move_to_board.return_value = {"ok": True, "moved": ["DG-251"]}
         with patch("jira_mcp.server.get_client", return_value=client):
@@ -352,7 +352,7 @@ class TestTheMoveTools:
         client = AsyncMock()
         client.project_key = "DG"
         client.board_profile.return_value = BoardProfile(
-            id=72, name="DG board", type="simple", backlog=None, known=True
+            id=72, name="Drunken-Guild (DG)", type="simple", backlog=None, known=True
         )
         client.move_to_backlog.return_value = {"ok": True, "moved": ["DG-251"]}
         with patch("jira_mcp.server.get_client", return_value=client):
@@ -395,3 +395,47 @@ class TestTheErrorsCarryANextStep:
                 assert exc.remediation, f"{raw!r} refused without a next step"
             else:
                 pytest.fail(f"{raw!r} should have been refused")
+
+
+class TestTheBoardNameIsReadFromWhatCanChange:
+    """DG-274. `board["name"]` is frozen at creation.
+
+    A team-managed project offers no board-rename UI, and the Agile API creates
+    and deletes boards rather than renaming them — so a project renamed later
+    keeps a board still labelled with the old name. This board reported
+    `DT board` long after the project became `Drunken-Guild`, and reporting it
+    sent a reader hunting for a setting that exists nowhere.
+
+    `location` carried the right answer the whole time.
+    """
+
+    @pytest.mark.asyncio
+    async def test_the_live_location_wins_over_the_frozen_label(self) -> None:
+        client = _FakeClient(
+            boards=[
+                {
+                    "id": 72,
+                    "name": "DT board",
+                    "type": "simple",
+                    "location": {
+                        "projectKey": "DG",
+                        "projectName": "Drunken-Guild",
+                        "displayName": "Drunken-Guild (DG)",
+                    },
+                }
+            ]
+        )
+
+        profile = await client.board_profile()
+
+        assert profile.name == "Drunken-Guild (DG)"
+        assert profile.id == 72
+
+    @pytest.mark.asyncio
+    async def test_the_label_is_still_used_when_there_is_no_location(self) -> None:
+        """Not every board carries one, and a name is better than none."""
+        client = _FakeClient(boards=[{"id": 9, "name": "Some board", "type": "kanban"}])
+
+        profile = await client.board_profile()
+
+        assert profile.name == "Some board"

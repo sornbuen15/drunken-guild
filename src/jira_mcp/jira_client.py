@@ -388,9 +388,22 @@ class JiraClient:
                 # disease again.
                 has_backlog = None
 
+        # `board["name"]` is frozen at creation and there is no way to change
+        # it: a team-managed project offers no board-rename UI, and the Agile
+        # API creates and deletes boards rather than renaming them. So a project
+        # renamed later keeps a board still labelled with the old name — this
+        # one reported `DT board` long after the project became `Drunken-Guild`,
+        # and reporting it sent a reader looking for a setting that exists
+        # nowhere.
+        #
+        # `location` is the live half and was correct the whole time, so prefer
+        # it and fall back only when it is absent (DG-274).
+        location = board.get("location") or {}
+        display = location.get("displayName") or location.get("projectName")
+
         return BoardProfile(
             id=board_id,
-            name=board.get("name"),
+            name=display or board.get("name"),
             type=board.get("type"),
             backlog=has_backlog,
             known=True,
