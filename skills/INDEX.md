@@ -8,10 +8,16 @@ Map task keywords to their absolute skill file paths. Load ONLY the relevant ski
 - `clean-architecture` (`/clean-arch`) — Enforces Clean Architecture and DDD — layer separation, dependency rules, rich domain models, and boundary management. Apply whenever the user is designing or
   Path: $HOME/.claude/skills/clean-architecture/SKILL.md
 
+- `acronym-namer` — Generates meaningful, thematic acronyms (like S.H.I.E.L.D., I.S.A.C., M.I.N.A.) for projects, bots, architectures, and features.
+  Path: $HOME/.claude/skills/acronym-namer/SKILL.md
+
+- `confluence-sync` (`/confluence-sync`) — Synchronizes project documentation files (Architecture, Specs, ADRs, and API docs) to the Confluence Cloud space, maintaining page hierachies. Trigger on `/conf
+  Path: $HOME/.claude/skills/confluence-sync/SKILL.md
+
 - `standard-playbook-generator` (`/playbook`) — Generates anonymized Engineering Playbooks and Developer Workflow Guides by cross-referencing actual skill files. Apply whenever the user wants to document engi
   Path: $HOME/.claude/skills/standard-playbook-generator/SKILL.md
 
-- `electron-ipc-protocol` — The single IPC contract for Electron applications — context isolation, the preload bridge, channel naming, and validating everything that crosses the process 
+- `electron-ipc-protocol` (`/electron-ipc`) — The single IPC contract for Electron applications — context isolation, the preload bridge, channel naming, and validating everything that crosses the process 
   Path: $HOME/.claude/skills/electron-ipc-protocol/SKILL.md
 
 - `universal-ui` (`/ui`) — Visual aesthetics standard to prevent "Developer UI" anti-patterns in frontend work. Apply whenever the user is building or reviewing any UI — forms, layouts,
@@ -32,6 +38,9 @@ Map task keywords to their absolute skill file paths. Load ONLY the relevant ski
 - `issue-intake` (`/issue`) — Captures user-reported bugs and problems as properly classified Jira tickets via drunken-jira-mcp. Apply whenever the user reports a bug, says something is brok
   Path: $HOME/.claude/skills/issue-intake/SKILL.md
 
+- `jira-tickets` — How to write and run a ticket in this project: the three-part shape, the fields this Jira can actually set, the status lifecycle, and what must be verified befo
+  Path: $HOME/.claude/skills/jira-tickets/SKILL.md
+
 - `local-progress-reporter` (`/report`) — Aggregates Jira ticket data into a structured project status report. Apply whenever the user asks about progress, wants a status update, asks what's done or in-
   Path: $HOME/.claude/skills/local-progress-reporter/SKILL.md
 
@@ -43,6 +52,9 @@ Map task keywords to their absolute skill file paths. Load ONLY the relevant ski
 
 - `incident-response` (`/incident`) — Crisis leadership standard for outage mitigation, stakeholder communication, and blameless RCA. Apply whenever there's a production incident, system outage, cri
   Path: $HOME/.claude/skills/incident-response/SKILL.md
+
+- `management-talk` — Rewrite engineer-to-engineer content for engineering-org leadership (VPs, directors, PMs, release managers, execs in an engineering-savvy company) and shape it 
+  Path: $HOME/.claude/skills/management-talk/SKILL.md
 
 - `servant-leadership` (`/lead`) — Standard for empathetic communication, constructive code reviews, and blameless engineering culture. Apply whenever the user is writing feedback for a teammate,
   Path: $HOME/.claude/skills/servant-leadership/SKILL.md
@@ -68,17 +80,32 @@ Map task keywords to their absolute skill file paths. Load ONLY the relevant ski
 - `anti-regression` (`/surgical`) — Surgical modification standard to prevent regressions during refactoring or bug-fixing. Apply whenever the user is modifying existing code, especially shared fi
   Path: $HOME/.claude/skills/anti-regression/SKILL.md
 
+- `ask-boss` — Ask the Boss for permission without stopping: submit the question, park the task, keep working on what isn't blocked, and collect the answer at the next task bo
+  Path: $HOME/.claude/skills/ask-boss/SKILL.md
+
 - `core-engineering` (`/tdd`) — Engineering discipline for TDD, systematic debugging, and safe refactoring. Apply this skill whenever the user is fixing a bug, writing or updating tests, debug
   Path: $HOME/.claude/skills/core-engineering/SKILL.md
 
-- `git-workflow` (`/git-workflow`) — Best-practice Git discipline — branch naming, commit conventions, PR lifecycle, merge rules, and release hygiene. Apply whenever the user is creating a branch
+- `debug-mantra` (`/debug-mantra`) — Four-mantra debugging discipline — reproduce, trace the fail path, falsify the hypothesis, cross-reference every breadcrumb. Recite the mantra block verbatim 
+  Path: $HOME/.claude/skills/debug-mantra/SKILL.md
+
+- `git-workflow` (`/git-workflow`) — Best-practice Git discipline — branch naming, commit conventions, PR lifecycle, which merge strategy belongs to which target, and release hygiene. Apply whene
   Path: $HOME/.claude/skills/git-workflow/SKILL.md
+
+- `post-mortem` (`/post-mortem`) — Write the canonical engineering record of a fixed bug — root cause, mechanism, fix, validation, and how it slipped through. Engineer-audience, code identifier
+  Path: $HOME/.claude/skills/post-mortem/SKILL.md
 
 - `project-audit-reviewer` (`/audit-project`) — Comprehensive codebase health audit — architecture compliance, security, code quality, dependencies, and docs — with a scored report and dry-run backlog pro
   Path: $HOME/.claude/skills/project-audit-reviewer/SKILL.md
 
-- `project-hygiene` (`/git`) — Repository maintenance standard — Git workflow, squash merging, README, and Architecture Decision Records. Apply whenever the user is committing changes, mana
+- `project-hygiene` (`/git`) — Repository maintenance standard — commit hygiene, README, and Architecture Decision Records. Defers every branch and merge rule to `git-workflow`. Apply whene
   Path: $HOME/.claude/skills/project-hygiene/SKILL.md
+
+- `release-notes-writer` — Standardizes the generation of professional, readable Release Notes and Tag Version descriptions using markdown tables and clear categorizations.
+  Path: $HOME/.claude/skills/release-notes-writer/SKILL.md
+
+- `scrutinize` (`/scrutinize`) — Outsider-perspective end-to-end review of a plan, PR, or code change. First questions intent and whether a simpler/more elegant approach would achieve the same 
+  Path: $HOME/.claude/skills/scrutinize/SKILL.md
 
 - `test-report-generator` (`/test-report`) — Runs the full test suite live, audits Jira ticket state, checks architecture compliance, and writes a dated Markdown test report as the pre-merge quality gate r
   Path: $HOME/.claude/skills/test-report-generator/SKILL.md

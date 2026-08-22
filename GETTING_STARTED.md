@@ -39,16 +39,16 @@ Python, no credentials and no server. Add the runtime only when you want work co
 ```bash
 git clone https://github.com/sornbuen15/drunken-guild.git
 cd drunken-guild
-./scripts/install/sync_skills.sh    # → ~/.claude/skills/
-./scripts/install/sync_agents.sh    # → ~/.claude/agents/
+./scripts/install/install_skills.sh    # → ~/.claude/skills/
+./scripts/install/install_agents.sh    # → ~/.claude/agents/
 ```
 
 Windows:
 
 ```powershell
 Set-ExecutionPolicy -Scope CurrentUser RemoteSigned   # one-time, only if blocked
-.\scripts\install\sync_skills.ps1
-.\scripts\install\sync_agents.ps1
+.\scripts\install\install_skills.ps1
+.\scripts\install\install_agents.ps1
 ```
 
 Verify — you should see the skill directories and an index:
@@ -133,18 +133,16 @@ Install it as a command so other projects need no paths:
 uv tool install .
 ```
 
-Then declare it in **your project's** `.mcp.json`:
+Then generate the config for **your project** rather than writing it by hand:
 
-```json
-{
-  "mcpServers": {
-    "drunken-jira-mcp": {
-      "command": "drunken-jira-mcp",
-      "args": ["--project", "my-project"]
-    }
-  }
-}
+```bash
+./scripts/install/install_mcp.sh my-project --out ~/Projects/my-project/.mcp.json
 ```
+
+It prints by default and only writes when you pass `--out`. `--host` (the default) emits absolute
+paths and merges, so any other MCP servers that config already declares survive; `--repo` emits the
+names-only form, which is what a repository's own `.mcp.json` should carry so one machine's
+directory layout never reaches another repo's git history.
 
 ---
 

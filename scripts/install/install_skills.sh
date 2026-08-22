@@ -1,7 +1,7 @@
 #!/bin/bash
 # Deploy skills from this repo to ~/.claude/skills/
 # Works from any directory and any clone location.
-# Usage: bash scripts/install/sync_skills.sh
+# Usage: bash scripts/install/install_skills.sh
 
 set -euo pipefail
 
@@ -22,6 +22,18 @@ GLOBAL_SKILLS_DIR="$HOME/.claude/skills"
 # skill needs no rewriting on the way across -- nothing under skills/ names a
 # per-agent index path -- so this is the same directory, installed twice.
 ANTIGRAVITY_SKILLS_DIR="${ANTIGRAVITY_SKILLS_DIR:-$HOME/.gemini/config/skills}"
+
+# --index-only rebuilds the repository's INDEX.md and writes nothing else --
+# not to ~/.claude, not to Antigravity, not to any target. It exists because
+# the index is generated but also committed, so it goes stale on any change to
+# a skill's name or description, and the only way to refresh it used to be to
+# perform an install. An agent that must not install had no way to keep a
+# tracked file correct, and hand-editing it drifts from the generator's output
+# by a byte or two per line, which is worse than stale.
+INDEX_ONLY=false
+if [ "${1:-}" = "--index-only" ]; then
+  INDEX_ONLY=true
+fi
 INDEX_FILE="$GLOBAL_SKILLS_DIR/INDEX.md"
 
 echo -e "${BLUE}=================================================${NC}"
@@ -38,7 +50,9 @@ echo -e "  Target:   $GLOBAL_SKILLS_DIR"
 # not create it -- a machine with no Antigravity should not grow a config for
 # one because an installer ran.
 INSTALL_ANTIGRAVITY=false
-if [ -d "$ANTIGRAVITY_SKILLS_DIR" ]; then
+if [ "$INDEX_ONLY" = true ]; then
+  echo -e "${YELLOW}  --index-only: rebuilding skills/INDEX.md, installing nothing${NC}"
+elif [ -d "$ANTIGRAVITY_SKILLS_DIR" ]; then
   INSTALL_ANTIGRAVITY=true
   echo -e "  Also:     $ANTIGRAVITY_SKILLS_DIR"
 else
@@ -52,7 +66,9 @@ if [ ! -d "$LOCAL_SKILLS_DIR" ]; then
   exit 1
 fi
 
-mkdir -p "$GLOBAL_SKILLS_DIR"
+if [ "$INDEX_ONLY" = false ]; then
+  mkdir -p "$GLOBAL_SKILLS_DIR"
+fi
 
 # Prefer rsync (checksum-based, skips unchanged files).
 # Fall back to cp if rsync is not available.
@@ -103,13 +119,17 @@ while IFS= read -r skill_file; do
   IS_NEW=false
   [ ! -d "$TARGET_DIR" ] && IS_NEW=true
 
-  _copy_dir "$skill_dir" "$TARGET_DIR"
+  if [ "$INDEX_ONLY" = false ]; then
+    _copy_dir "$skill_dir" "$TARGET_DIR"
+  fi
 
   if [ "$INSTALL_ANTIGRAVITY" = true ]; then
     _copy_dir "$skill_dir" "$ANTIGRAVITY_SKILLS_DIR/$skill_name"
   fi
 
-  if [ "$IS_NEW" = true ]; then
+  if [ "$INDEX_ONLY" = true ]; then
+    :
+  elif [ "$IS_NEW" = true ]; then
     echo -e "${GREEN}  [+] Installed:${NC} $skill_name"
     NEW_COUNT=$((NEW_COUNT + 1))
   else
@@ -126,24 +146,49 @@ while IFS= read -r skill_file; do
   # second skill, and it printed a green "Updated" for the first one on its way
   # out. 29 of 30 skills sat stale for weeks because the failure looked like a
   # short success. Hence `|| true` on each, deliberately.
+  # The slash command must be the one that *follows* "Trigger on". Matching the
+  # first `/word` on the line instead published `scrutinize` as `/more`, taken
+  # from the phrase "a simpler/more elegant approach" earlier in its own
+  # description. An index that names the wrong command is worse than one that
+  # names none: the agent types it and gets nothing.
   TRIGGER=$(grep -m1 "Trigger/Keywords:" "$skill_file" 2>/dev/null \
     | sed 's/.*Trigger\/Keywords:\*\* //' \
     | grep -oE '/[a-zA-Z][a-zA-Z-]+' \
     | head -1 || true)
   if [ -z "$TRIGGER" ]; then
-    TRIGGER=$(grep -E "Trigger on /[a-zA-Z]" "$skill_file" 2>/dev/null \
-      | grep -oE '/[a-zA-Z][a-zA-Z-]+' \
-      | head -1 || true)
+    TRIGGER=$(grep -oE 'Trigger on `?/[a-zA-Z][a-zA-Z-]*' "$skill_file" 2>/dev/null \
+      | head -1 \
+      | grep -oE '/[a-zA-Z][a-zA-Z-]*' || true)
   fi
 
-  # Prefer the frontmatter description -- it is what Claude reads to decide
-  # whether a skill is relevant. Fall back to the body line for older formats.
-  DESC=$(awk '/^description: >/{f=1; next} f && /^  /{sub(/^  /,""); printf "%s ", $0; next} f{exit}' "$skill_file" \
-    | cut -c1-160 || true)
+  # The description is what an agent reads to decide whether a skill is
+  # relevant at all, and CLAUDE.md routes every lookup through this index -- so
+  # a blank one makes the skill effectively invisible. The previous extractor
+  # understood only the folded `description: >` form, and nine of the skills
+  # here write it on one line, so nine were published with no description.
+  #
+  # Both frontmatter forms are handled below, quoted or not, with the old
+  # `**Description:**` body line kept as a fallback for anything older.
+  DESC=$(awk '
+    NR == 1 && $0 == "---" { fm = 1; next }
+    fm && $0 == "---" { exit }
+    fm && /^description:[[:space:]]*[>|]/ { block = 1; next }
+    block && /^[[:space:]]+[^[:space:]]/ { sub(/^[[:space:]]+/, ""); printf "%s ", $0; next }
+    block { exit }
+    fm && /^description:[[:space:]]*[^[:space:]]/ {
+      sub(/^description:[[:space:]]*/, "")
+      sub(/^"/, ""); sub(/"$/, "")
+      printf "%s", $0
+      exit
+    }
+  ' "$skill_file" | cut -c1-160 || true)
   if [ -z "$DESC" ]; then
     DESC=$(grep -m1 "\*\*Description:\*\*" "$skill_file" 2>/dev/null \
       | sed 's/.*\*\*Description:\*\* //' \
       | cut -c1-160 || true)
+  fi
+  if [ -z "$DESC" ]; then
+    echo -e "${YELLOW}  [!] $skill_name has no description — it will be invisible in the index.${NC}"
   fi
 
   if [ -n "$TRIGGER" ]; then
@@ -156,6 +201,13 @@ while IFS= read -r skill_file; do
 
 done < "$_skill_list"
 rm -f "$_skill_list"
+
+if [ "$INDEX_ONLY" = true ]; then
+  mv "$TEMP_INDEX" "$LOCAL_SKILLS_DIR/INDEX.md"
+  echo ""
+  echo -e "${GREEN}Done.${NC} Rebuilt $LOCAL_SKILLS_DIR/INDEX.md. Nothing was installed."
+  exit 0
+fi
 
 mv "$TEMP_INDEX" "$INDEX_FILE"
 cp "$INDEX_FILE" "$LOCAL_SKILLS_DIR/INDEX.md"

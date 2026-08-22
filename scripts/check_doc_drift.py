@@ -42,6 +42,11 @@ RETIRED = (
     Retired("com.drunkenteam.agy-daemon", "DT-244", "com.drunkenteam.daemon"),
     Retired("discord_outbox.json", "DT-232 / DT-243", "$DRUNKEN_HOME/approvals.json"),
     Retired("Silent Wait Protocol", "DT-232", "request_boss_approval_async"),
+    Retired("sync_skills.sh", "DG-269", "install_skills.sh"),
+    Retired("sync_agents.sh", "DG-269", "install_agents.sh"),
+    Retired("sync_skills.ps1", "DG-269", "install_skills.ps1"),
+    Retired("sync_agents.ps1", "DG-269", "install_agents.ps1"),
+    Retired(".agents/skills/", "DG-267", "skills/ and agents/, installed by script"),
 )
 
 #: Documents whose job is to record what changed. They have to be able to name
@@ -53,6 +58,14 @@ RECORDS = frozenset(
         "CHANGELOG.md",
     }
 )
+
+#: Directories where *every* document is a record. `_not_used/` is one by
+#: definition: the standing rule is that a retired thing moves there with a note
+#: saying what it was and what replaced it, so a note that may not name the
+#: retired thing cannot do its job. Listing each RETIRED.md by name in RECORDS
+#: would mean this check needs editing every time something is retired -- which
+#: is the moment it would instead be switched off.
+RECORD_DIRS = ("_not_used",)
 
 #: Put this on a line that must keep a retired name for a stated reason.
 ESCAPE = "drift-ok"
@@ -75,7 +88,9 @@ def documents() -> list[Path]:
     found = [
         path
         for path in REPO_ROOT.rglob("*.md")
-        if not (SKIPPED_DIRS & set(path.parts)) and path.name not in RECORDS
+        if not (SKIPPED_DIRS & set(path.parts))
+        and path.name not in RECORDS
+        and not (set(RECORD_DIRS) & set(path.parts))
     ]
     found += [
         path
