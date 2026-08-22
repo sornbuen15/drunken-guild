@@ -1,13 +1,84 @@
-# Skills installed in ~/.claude/skills/ that this repo deliberately does NOT author.
+# Skills that this repository ships but did NOT author.
 #
-# sync_skills.sh names anything installed-but-not-produced-here under
-# "Installed but not produced here". Listing a name here says that is expected,
-# and stops it being reported every run.
+# WHAT THIS FILE MEANS
 #
-# This file is currently EMPTY on purpose. It was not always:
-# debug-mantra, management-talk, post-mortem and scrutinize were listed here as
-# third-party with no source. Their source was the sibling repo all along, and
-# the merge that produced drunken-guild brought them in. They are first-party
-# now, under skills/workflow/ and skills/leadership/.
+# Two things, and the second is the one that was missing:
 #
-# Add a name here only when a skill is genuinely authored elsewhere.
+# 1. sync_skills.sh names anything installed-but-not-produced-here under
+#    "Installed but not produced here". A name listed here says that is
+#    expected, and stops it being reported every run.
+#
+# 2. It is the repository's statement of provenance. An empty file is a claim
+#    that everything under skills/ originates here -- not a default, and not
+#    the absence of a claim. This repository is public and MIT-licensed, so
+#    that claim is made to everyone who installs it.
+#
+# ---------------------------------------------------------------------------
+# UNRESOLVED (DG-263) -- these four are third-party and their licence is unknown
+# ---------------------------------------------------------------------------
+#
+# Not listed as names below, because listing a name here means "expected, stop
+# reporting it", and this is the opposite of settled. Written out instead, so
+# nobody reads a silent file as an answer.
+#
+#   skills/workflow/debug-mantra/SKILL.md
+#   skills/workflow/post-mortem/SKILL.md
+#   skills/workflow/scrutinize/SKILL.md
+#   skills/leadership/management-talk/SKILL.md
+#
+# All four are byte-identical to a third-party skill pack on this machine at
+# ~/Documents/9arm-skills-main, and that pack's .claude-plugin/plugin.json
+# lists exactly these four as its entire contents:
+#
+#   {"name": "9arm-skills", "skills": ["./skills/engineering/debug-mantra",
+#    "./skills/engineering/post-mortem", "./skills/engineering/scrutinize",
+#    "./skills/productivity/management-talk"]}
+#
+# So this is not four coincidental name collisions. It is one plugin, vendored.
+#
+# The pack carries NO LICENCE FILE. It is not a git checkout either -- the
+# `-main` suffix is the shape of a GitHub zip download -- so there is no remote
+# to read terms from, and nothing in the four files carries an attribution line.
+#
+# The four installed under ~/.claude/skills/ are symlinks pointing INTO that
+# pack rather than at this repository, so what a session actually loads has
+# never been this repo's copy.
+#
+# ---------------------------------------------------------------------------
+# WHY THIS FILE PREVIOUSLY SAID THE OPPOSITE
+# ---------------------------------------------------------------------------
+#
+# It said these four "were listed here as third-party with no source. Their
+# source was the sibling repo all along... They are first-party now."
+#
+# Half of that is right and the conclusion is backwards. The sibling repo did
+# have copies -- because the sibling repo had vendored them too. Finding a
+# second copy of somebody else's work does not make it yours. The ORIGINAL
+# entry, declaring them third-party, was correct; the merge resolved it in the
+# wrong direction and this file has claimed authorship of them since.
+#
+# This is the same failure the merge was meant to end -- a surface asserting
+# something nobody had checked -- with the sign flipped.
+#
+# ---------------------------------------------------------------------------
+# WHAT HAS TO HAPPEN, AND BY WHOM
+# ---------------------------------------------------------------------------
+#
+# Licensing someone else's work is not an agent's call, and it cannot be
+# settled from what is on this disk. For the Boss:
+#
+#   a. Find the upstream and its terms. If they permit redistribution, add the
+#      four as names below with the source and the licence, and add the
+#      attribution the licence requires.
+#   b. If they do not, or the upstream cannot be identified, move the four to
+#      _not_used/ with a note. Four skills is a smaller loss than shipping
+#      unlicensed work under MIT from a public repository.
+#   c. If they were authored by someone reachable, ask.
+#
+# Until then they stay where they are, tracked and shipping, and this file says
+# so out loud rather than implying otherwise.
+#
+# ---------------------------------------------------------------------------
+# Add a name below only when a skill is genuinely authored elsewhere AND its
+# terms are known. One name per line.
+# ---------------------------------------------------------------------------
