@@ -2,10 +2,10 @@
 
 Map task keywords to their absolute skill file paths. Load ONLY the relevant skill before executing.
 
-- `system-design-rules` (`/system-design`) — System architecture design standard — trade-off analysis, API contracts, and diagrams before any code. Apply whenever the user is designing a new system, choo
+- `system-design-rules` (`/system-design`) — System architecture design standard — trade-off analysis, API contracts, and diagrams before any code. Apply whenever the user is designing a new system, choosi
   Path: $HOME/.claude/skills/system-design-rules/SKILL.md
 
-- `clean-architecture` (`/clean-arch`) — Enforces Clean Architecture and DDD — layer separation, dependency rules, rich domain models, and boundary management. Apply whenever the user is designing or
+- `clean-architecture` (`/clean-arch`) — Enforces Clean Architecture and DDD — layer separation, dependency rules, rich domain models, and boundary management. Apply whenever the user is designing or r
   Path: $HOME/.claude/skills/clean-architecture/SKILL.md
 
 - `acronym-namer` — Generates meaningful, thematic acronyms (like S.H.I.E.L.D., I.S.A.C., M.I.N.A.) for projects, bots, architectures, and features.
@@ -17,13 +17,13 @@ Map task keywords to their absolute skill file paths. Load ONLY the relevant ski
 - `standard-playbook-generator` (`/playbook`) — Generates anonymized Engineering Playbooks and Developer Workflow Guides by cross-referencing actual skill files. Apply whenever the user wants to document engi
   Path: $HOME/.claude/skills/standard-playbook-generator/SKILL.md
 
-- `electron-ipc-protocol` (`/electron-ipc`) — The single IPC contract for Electron applications — context isolation, the preload bridge, channel naming, and validating everything that crosses the process 
+- `electron-ipc-protocol` (`/electron-ipc`) — The single IPC contract for Electron applications — context isolation, the preload bridge, channel naming, and validating everything that crosses the process bo
   Path: $HOME/.claude/skills/electron-ipc-protocol/SKILL.md
 
-- `universal-ui` (`/ui`) — Visual aesthetics standard to prevent "Developer UI" anti-patterns in frontend work. Apply whenever the user is building or reviewing any UI — forms, layouts,
+- `universal-ui` (`/ui`) — Visual aesthetics standard to prevent "Developer UI" anti-patterns in frontend work. Apply whenever the user is building or reviewing any UI — forms, layouts, c
   Path: $HOME/.claude/skills/universal-ui/SKILL.md
 
-- `universal-ux` (`/ux`) — Frontend architecture standard — State/View separation, resilience against user behavior, and complete UX lifecycle. Apply whenever the user is building front
+- `universal-ux` (`/ux`) — Frontend architecture standard — State/View separation, resilience against user behavior, and complete UX lifecycle. Apply whenever the user is building fronten
   Path: $HOME/.claude/skills/universal-ux/SKILL.md
 
 - `cloud-native` (`/infra`) — Cloud-native infrastructure standard for resilience, scalability, and automation. Apply whenever the user is writing Dockerfiles, Kubernetes manifests, CI/CD pi
@@ -44,16 +44,16 @@ Map task keywords to their absolute skill file paths. Load ONLY the relevant ski
 - `local-progress-reporter` (`/report`) — Aggregates Jira ticket data into a structured project status report. Apply whenever the user asks about progress, wants a status update, asks what's done or in-
   Path: $HOME/.claude/skills/local-progress-reporter/SKILL.md
 
-- `spec-to-backlog` (`/init-project`) — Analyzes project spec files on Day 0 and generates a comprehensive, labelled Jira backlog of atomic tickets via drunken-jira-mcp. Apply whenever starting a new 
+- `spec-to-backlog` (`/init-project`) — Analyzes project spec files on Day 0 and generates a comprehensive, labelled Jira backlog of atomic tickets via drunken-jira-mcp. Apply whenever starting a new
   Path: $HOME/.claude/skills/spec-to-backlog/SKILL.md
 
-- `task-estimation` (`/estimate`) — Estimates complexity, AI execution cycles, and human review effort for the TODO tickets on the Jira board. Apply whenever the user asks how long something will 
+- `task-estimation` (`/estimate`) — Estimates complexity, AI execution cycles, and human review effort for the TODO tickets on the Jira board. Apply whenever the user asks how long something will
   Path: $HOME/.claude/skills/task-estimation/SKILL.md
 
 - `incident-response` (`/incident`) — Crisis leadership standard for outage mitigation, stakeholder communication, and blameless RCA. Apply whenever there's a production incident, system outage, cri
   Path: $HOME/.claude/skills/incident-response/SKILL.md
 
-- `management-talk` — Rewrite engineer-to-engineer content for engineering-org leadership (VPs, directors, PMs, release managers, execs in an engineering-savvy company) and shape it 
+- `management-talk` — Rewrite engineer-to-engineer content for engineering-org leadership (VPs, directors, PMs, release managers, execs in an engineering-savvy company) and shape it
   Path: $HOME/.claude/skills/management-talk/SKILL.md
 
 - `servant-leadership` (`/lead`) — Standard for empathetic communication, constructive code reviews, and blameless engineering culture. Apply whenever the user is writing feedback for a teammate,
@@ -74,7 +74,7 @@ Map task keywords to their absolute skill file paths. Load ONLY the relevant ski
 - `test-strategy` (`/test-types`) — Comprehensive reference for all test types across 4 testing levels. Apply whenever the user needs to choose the right kind of test for a scenario, understand te
   Path: $HOME/.claude/skills/test-strategy/SKILL.md
 
-- `ai-output` (`/discipline`) — Ironclad discipline rules for AI output quality — no fluff, complete code, safe execution. Apply whenever the user wants tighter AI responses, fewer filler wo
+- `ai-output` (`/discipline`) — Ironclad discipline rules for AI output quality — no fluff, complete code, safe execution. Apply whenever the user wants tighter AI responses, fewer filler word
   Path: $HOME/.claude/skills/ai-output/SKILL.md
 
 - `anti-regression` (`/surgical`) — Surgical modification standard to prevent regressions during refactoring or bug-fixing. Apply whenever the user is modifying existing code, especially shared fi
@@ -86,33 +86,32 @@ Map task keywords to their absolute skill file paths. Load ONLY the relevant ski
 - `core-engineering` (`/tdd`) — Engineering discipline for TDD, systematic debugging, and safe refactoring. Apply this skill whenever the user is fixing a bug, writing or updating tests, debug
   Path: $HOME/.claude/skills/core-engineering/SKILL.md
 
-- `debug-mantra` (`/debug-mantra`) — Four-mantra debugging discipline — reproduce, trace the fail path, falsify the hypothesis, cross-reference every breadcrumb. Recite the mantra block verbatim 
+- `debug-mantra` (`/debug-mantra`) — Four-mantra debugging discipline — reproduce, trace the fail path, falsify the hypothesis, cross-reference every breadcrumb. Recite the mantra block verbatim at
   Path: $HOME/.claude/skills/debug-mantra/SKILL.md
 
-- `git-workflow` (`/git-workflow`) — Best-practice Git discipline — branch naming, commit conventions, PR lifecycle, which merge strategy belongs to which target, and release hygiene. Apply whene
+- `git-workflow` (`/git-workflow`) — Best-practice Git discipline — branch naming, commit conventions, PR lifecycle, which merge strategy belongs to which target, and release hygiene. Apply wheneve
   Path: $HOME/.claude/skills/git-workflow/SKILL.md
 
-- `post-mortem` (`/post-mortem`) — Write the canonical engineering record of a fixed bug — root cause, mechanism, fix, validation, and how it slipped through. Engineer-audience, code identifier
+- `post-mortem` (`/post-mortem`) — Write the canonical engineering record of a fixed bug — root cause, mechanism, fix, validation, and how it slipped through. Engineer-audience, code identifiers
   Path: $HOME/.claude/skills/post-mortem/SKILL.md
 
-- `project-audit-reviewer` (`/audit-project`) — Comprehensive codebase health audit — architecture compliance, security, code quality, dependencies, and docs — with a scored report and dry-run backlog pro
+- `project-audit-reviewer` (`/audit-project`) — Comprehensive codebase health audit — architecture compliance, security, code quality, dependencies, and docs — with a scored report and dry-run backlog proposa
   Path: $HOME/.claude/skills/project-audit-reviewer/SKILL.md
 
-- `project-hygiene` (`/git`) — Repository maintenance standard — commit hygiene, README, and Architecture Decision Records. Defers every branch and merge rule to `git-workflow`. Apply whene
+- `project-hygiene` (`/git`) — Repository maintenance standard — commit hygiene, README, and Architecture Decision Records. Defers every branch and merge rule to `git-workflow`. Apply wheneve
   Path: $HOME/.claude/skills/project-hygiene/SKILL.md
 
 - `release-notes-writer` — Standardizes the generation of professional, readable Release Notes and Tag Version descriptions using markdown tables and clear categorizations.
   Path: $HOME/.claude/skills/release-notes-writer/SKILL.md
 
-- `scrutinize` (`/scrutinize`) — Outsider-perspective end-to-end review of a plan, PR, or code change. First questions intent and whether a simpler/more elegant approach would achieve the same 
+- `scrutinize` (`/scrutinize`) — Outsider-perspective end-to-end review of a plan, PR, or code change. First questions intent and whether a simpler/more elegant approach would achieve the same
   Path: $HOME/.claude/skills/scrutinize/SKILL.md
 
 - `test-report-generator` (`/test-report`) — Runs the full test suite live, audits Jira ticket state, checks architecture compliance, and writes a dated Markdown test report as the pre-merge quality gate r
   Path: $HOME/.claude/skills/test-report-generator/SKILL.md
 
-- `think-analyze-isolate` (`/isolate`) — Discipline against blind execution during end-to-end runs, server startup, deployment, and integration work — check the prerequisites, verify the thing is act
+- `think-analyze-isolate` (`/isolate`) — Discipline against blind execution during end-to-end runs, server startup, deployment, and integration work — check the prerequisites, verify the thing is actua
   Path: $HOME/.claude/skills/think-analyze-isolate/SKILL.md
 
-- `zero-defect-mindset` (`/zero-defect`) — The shift-left quality standard — get it right at design time rather than catching it at commit time. Apply at the START of any implementation task, before co
+- `zero-defect-mindset` (`/zero-defect`) — The shift-left quality standard — get it right at design time rather than catching it at commit time. Apply at the START of any implementation task, before code
   Path: $HOME/.claude/skills/zero-defect-mindset/SKILL.md
-

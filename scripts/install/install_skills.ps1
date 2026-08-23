@@ -104,7 +104,7 @@ foreach ($SkillFile in $SkillFiles) {
     }
     $Desc = ""
     if ($Content -match "\*\*Description:\*\*\s*(.+)") {
-        $Desc = $Matches[1].Substring(0, [Math]::Min(80, $Matches[1].Length))
+        $Desc = $Matches[1].Substring(0, [Math]::Min(160, $Matches[1].Length))
     }
 
     $HomeSkillPath = "`$HOME/.claude/skills/$SkillName/SKILL.md"
