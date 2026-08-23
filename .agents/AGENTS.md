@@ -123,8 +123,11 @@ whose the work is and the status says where it is.
 
 ### PHASE 4: TRACEABILITY & COMMIT BINDING
 Once tasks are pushed to Jira, Jira becomes the Absolute Source of Truth for project history.
-- Every git branch created MUST include the Jira Ticket ID (e.g., feature/PROJ-123).
-- Every git commit message MUST start with the Jira Ticket ID (e.g., 'fix(PROJ-123): update logic in auth.js').
+- Every git branch created MUST include the Jira Ticket ID (e.g., feature/DG-123-slug).
+- Every git commit message MUST follow Conventional Commits — `<type>(<scope>): <description>` —
+  with the Jira Ticket ID appended as a suffix, not a prefix: `fix(auth): update token refresh logic (DG-123)`.
+  Scope is the skill, agent or script affected, not the ticket ID; see the `git-workflow` skill for
+  the full convention.
 - Every commit you make passes `--author="Antigravity <antigravity@drunken.local>"` — a local-only
   address that resolves to no real account, so `git log` tells your commit from the operator's on
   sight (DG-293). Claude's equivalent is `Claude Code <claude@drunken.local>`.
