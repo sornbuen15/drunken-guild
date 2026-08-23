@@ -60,6 +60,12 @@ RECORDS = frozenset(
         "SESSION_CHECKPOINT.md",
         ".local_backlog.md",
         "CHANGELOG.md",
+        # The retirement index. It exists to say what was withdrawn and what
+        # replaced it, so it has to be able to name the withdrawn thing. It took
+        # over that job from the per-directory notes when `_not_used/` stopped
+        # being committed (DG-291) -- see RECORD_DIRS below, which is now about
+        # a working directory rather than a tracked one.
+        "RETIRED.md",
     }
 )
 
@@ -69,6 +75,10 @@ RECORDS = frozenset(
 #: retired thing cannot do its job. Listing each RETIRED.md by name in RECORDS
 #: would mean this check needs editing every time something is retired -- which
 #: is the moment it would instead be switched off.
+#:
+#: It is no longer tracked (DG-291), so on a fresh clone this matches nothing.
+#: That is not a reason to remove it: the directory still exists in a working
+#: checkout, and a note read from disk must not be reported as drift.
 RECORD_DIRS = ("_not_used",)
 
 #: Put this on a line that must keep a retired name for a stated reason.
