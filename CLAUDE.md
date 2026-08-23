@@ -112,7 +112,8 @@ was never merged and the trunk stayed vulnerable; every surface said it was done
 `origin/develop` before believing any claim that something is fixed.
 
 **There is no local board.** The `board_*` tools are retired and `drunken-board-mcp` is no longer
-packaged at all (DG-265) — its code is kept at `_not_used/board-mcp/` and nothing installs it. Do not create `.claude/board/` or `.agents/board/`, and do not author a skill
+packaged at all (DG-265) — its code is kept at `_not_used/board-mcp/`, untracked, and nothing
+installs it; `RETIRED.md` names the commit it is recoverable from. Do not create `.claude/board/` or `.agents/board/`, and do not author a skill
 that reads or writes one. A board beside Jira is a second surface that can disagree with the first.
 What is genuinely lost is claim expiry — a Jira assignee never expires, so a ticket left assigned to
 an agent that died stays that way until a human looks. That is a ten-second fix, weighed against a
@@ -308,7 +309,11 @@ Three things worth knowing before you turn it on:
   `core/errors.py` — every error carries a remediation, because "unknown project 'twa'" only tells
   an agent to give up.
 - **An agent does not delete.** Retired things move to `_not_used/` with a note saying why and what
-  replaced them, and *marking a thing unused beats removing it*. Anything that would need a
+  replaced them, and *marking a thing unused beats removing it*. **`_not_used/` is not committed**
+  (DG-291): it is a working directory, and the tracked record is `RETIRED.md` at the root. Add the
+  row there in the same change — that row is the only part a fresh clone gets. Publishing the
+  directory shipped a 73-line `git-workflow` beside the live 196-line one, and drew Dependabot
+  alerts and a merged pull request against withdrawn code. Anything that would need a
   recursive force-delete becomes a **list handed to the Boss to run**. A recorded authorisation from
   an earlier session is not permission to delete today.
 - **`drunken-doctor` checks that a credential works, not that a project exists.** It printed
