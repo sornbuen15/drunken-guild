@@ -698,18 +698,26 @@ def _check_secret(report: Report, project_id: str, context: ProjectContext) -> N
 
 
 def _check_jira_live(report: Report, project_id: str, context: ProjectContext) -> None:
+    """Confirm the credential works *and* that the project key exists.
+
+    Two facts, two calls. DG-260: this printed `OK ... (project ALPHA)` off the
+    identity call alone, while Jira answered "No project could be found with
+    key 'ALPHA'". The key was echoed straight back from the registry, so the line
+    proved only that the registry could be read.
+    """
     name = f"project.{project_id}.jira"
     try:
         jira = context.require_jira()
         identity = context.verify_jira_identity()
+        project = context.verify_jira_project()
     except DrunkenError as exc:
         report.add_error(name, exc)
         return
+    named = f"{project.key} — {project.name}" if project.name else project.key
     report.add(
         name,
         "ok",
-        f"{jira.url} as {identity.display_name or identity.email} "
-        f"(project {jira.project_key})",
+        f"{jira.url} as {identity.display_name or identity.email} (project {named})",
     )
 
 
