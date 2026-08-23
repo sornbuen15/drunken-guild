@@ -202,3 +202,10 @@ requirements.lock.txt
 # alerts and a merged pull request against withdrawn code, and stood as a second
 # archive beside git history. The index that stays committed is RETIRED.md.
 _not_used/
+
+# Session scratchpad for cross-agent coordination -- not project record.
+# The Boss confirmed this is working state, not history: it belongs to
+# whoever's session wrote it, not to git. Anchored to root so it does not
+# swallow .guild_templates/SESSION_CHECKPOINT.md, the tracked template this
+# file is generated from.
+/SESSION_CHECKPOINT.md

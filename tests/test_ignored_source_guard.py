@@ -90,6 +90,13 @@ class TestTheRepositoryRoot:
         assert not guard.is_source(Path(".coverage"))
         assert not guard.is_source(Path("drunken_discord_raw.log"))
 
+    def test_the_session_checkpoint_scratchpad_does_not(self) -> None:
+        """SESSION_CHECKPOINT.md is a session scratchpad, not project record --
+        the Boss confirmed it belongs to whoever's session wrote it, not to git
+        (DG-293). Flagging it here would make the guard noise on every session,
+        same failure as an unrecognized scratch file."""
+        assert not guard.is_source(Path("SESSION_CHECKPOINT.md"))
+
 
 class TestTheGuardItself:
     def test_it_reports_an_ignored_source_file(self) -> None:
