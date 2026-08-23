@@ -15,19 +15,19 @@ frontmatter instead.
 - `cross-platform-mobile` (`claude-sonnet-5`) — Use when a task requires building, reviewing, or advising on a cross-platform mobile application targeting both iOS and Android from a shared codebase. This agent specializes in Flutter (primary), Rea
   Path: $HOME/.claude/agents/cross-platform-mobile.md
 
-- `desktop-frontend-dev` (`claude-sonnet-5`) — Use when a task requires building, reviewing, or advising on a cross-platform desktop application built with web technologies — Electron, React, and Tailwind CSS. Handles the main/renderer process s
+- `desktop-frontend-dev` (`claude-sonnet-5`) — Use when a task requires building, reviewing, or advising on a cross-platform desktop application built with web technologies — Electron, React, and Tailwind CSS. Handles the main/renderer process spl
   Path: $HOME/.claude/agents/desktop-frontend-dev.md
 
 - `devops-engineer` (`claude-sonnet-5`) — Use when a task involves infrastructure, CI/CD pipelines, containerization, container orchestration, networking, cloud resources, observability setup, deployment strategy, or environment configuration
   Path: $HOME/.claude/agents/devops-engineer.md
 
-- `fintech-specialist` (`claude-sonnet-5`) — Use when a task involves financial technology systems — payments, banking, lending, wallets, KYC/AML compliance, fraud detection, or financial data architecture. Invoked for any work where domain ac
+- `fintech-specialist` (`claude-sonnet-5`) — Use when a task involves financial technology systems — payments, banking, lending, wallets, KYC/AML compliance, fraud detection, or financial data architecture. Invoked for any work where domain accu
   Path: $HOME/.claude/agents/fintech-specialist.md
 
-- `fullstack-engineer` (`claude-sonnet-5`) — Use when a task requires writing, editing, or reviewing application code — frontend or backend — in any language or framework. Handles feature implementation, bug fixes, API development, database 
+- `fullstack-engineer` (`claude-sonnet-5`) — Use when a task requires writing, editing, or reviewing application code — frontend or backend — in any language or framework. Handles feature implementation, bug fixes, API development, database desi
   Path: $HOME/.claude/agents/fullstack-engineer.md
 
-- `insurance-specialist` (`claude-sonnet-5`) — Use when a task involves insurance technology systems — policy administration, claims processing, underwriting, actuarial data models, or insurance compliance. Invoked for any work where domain accu
+- `insurance-specialist` (`claude-sonnet-5`) — Use when a task involves insurance technology systems — policy administration, claims processing, underwriting, actuarial data models, or insurance compliance. Invoked for any work where domain accura
   Path: $HOME/.claude/agents/insurance-specialist.md
 
 - `laravel-developer` (`claude-sonnet-5`) — A specialized developer agent fluent in PHP 8.2+ and Laravel 11, focusing on building clean, testable, and type-safe backend services, repositories, and FilamentPHP v3 resources. Follows strict separa
@@ -39,10 +39,10 @@ frontmatter instead.
 - `native-ios` (`claude-sonnet-5`) — Use when a task requires building, reviewing, or advising on a native iOS application. This agent specializes in Swift, SwiftUI, UIKit, Apple platform APIs, Xcode tooling, and App Store delivery. Hand
   Path: $HOME/.claude/agents/native-ios.md
 
-- `principal-engineer` (`claude-opus-5`) — Use when you need big-picture direction rather than execution. This agent acts as a Technical Director and Product Manager combined — it defines what to build and why, sets technical direction, eval
+- `principal-engineer` (`claude-opus-5`) — Use when you need big-picture direction rather than execution. This agent acts as a Technical Director and Product Manager combined — it defines what to build and why, sets technical direction, evalua
   Path: $HOME/.claude/agents/principal-engineer.md
 
-- `qa-engineer` (`claude-sonnet-5`) — Use when a task requires defining a test strategy, writing unit/integration/E2E tests, analyzing test coverage, setting up test infrastructure, or generating a pre-merge quality gate report. Also use 
+- `qa-engineer` (`claude-sonnet-5`) — Use when a task requires defining a test strategy, writing unit/integration/E2E tests, analyzing test coverage, setting up test infrastructure, or generating a pre-merge quality gate report. Also use
   Path: $HOME/.claude/agents/qa-engineer.md
 
 - `security-engineer` (`claude-sonnet-5`) — Use when a task requires a security review, threat modeling, identifying vulnerabilities, reviewing authentication or authorization design, auditing dependency risks, or ensuring compliance with secur
@@ -50,4 +50,3 @@ frontmatter instead.
 
 - `voice-ai-specialist` (`claude-opus-5`) — Invoke for any decision involving voice pipelines, TTS/STT selection, real-time audio streaming, latency budgets, or the human-to-AI interaction layer of a conversational AI system.
   Path: $HOME/.claude/agents/voice-ai-specialist.md
-
