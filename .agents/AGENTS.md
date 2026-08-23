@@ -29,6 +29,7 @@ agent; where this file and that one disagree, that is a bug — report it rather
 
 ## Core Directives & Policies
 1. **JIRA SSOT**: Jira Cloud is the absolute Single Source of Truth. The word "Board" strictly means Jira Cloud. Read and write task states with the `drunken-jira-mcp` tools (`jira_search_issues`, `jira_start_task`, `jira_transition_issue`, `jira_submit_for_review`, `jira_add_comment`). `scripts/jira_bridge.py` still works for shell use, but the MCP tools are the supported path. **How to write and run a ticket — the FINDING/SCOPE/ACCEPTANCE shape, the fields this Jira can actually set, and what must be verified before Done — is in the `jira-tickets` skill. Read it before opening or closing one.**
+   - **Attribution**: Assignee needs a real email, so it cannot say which agent is on a ticket. A ticket you are actively working carries the label `agent:antigravity` (Claude's is `agent:claude`); Assignee still names the accountable human (DG-293).
 2. **Destructive Commands (`rm`, `rm -rf`, `drop`)**: You MUST NOT delete files/directories immediately.
    - **Notice/List**: Present a Markdown **Table** (Columns: Path/Target, Reason).
    - **Async Workflow**: If there are other tasks you can do without deleting those files, **SKIP** the deletion for now.
@@ -124,6 +125,9 @@ whose the work is and the status says where it is.
 Once tasks are pushed to Jira, Jira becomes the Absolute Source of Truth for project history.
 - Every git branch created MUST include the Jira Ticket ID (e.g., feature/PROJ-123).
 - Every git commit message MUST start with the Jira Ticket ID (e.g., 'fix(PROJ-123): update logic in auth.js').
+- Every commit you make passes `--author="Antigravity <antigravity@drunken.local>"` — a local-only
+  address that resolves to no real account, so `git log` tells your commit from the operator's on
+  sight (DG-293). Claude's equivalent is `Claude Code <claude@drunken.local>`.
 
 ### PHASE 5: AUDIT TRAIL & COMPLETION
 - When you finish a task and use the lightweight script to transition it to [DONE], you MUST automatically send a brief comment to the Jira ticket. The comment must include:
