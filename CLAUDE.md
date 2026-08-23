@@ -123,6 +123,11 @@ class of silent disagreement that costs weeks.
 membership of the current working set and nothing else. A ticket parked in the backlog is still
 `IN PROGRESS` if that is what it was.
 
+**Assignee is the accountable human; the agent doing the typing is a label.** Assignee can only
+hold a real email, so it cannot say which agent is on a ticket. A ticket an agent is actively
+working carries `agent:claude` or `agent:antigravity` in `labels` — set it, do not repurpose
+Assignee for it (DG-293).
+
 ---
 
 ## Git
@@ -140,6 +145,9 @@ rule itself:
   change, a green CI, or a 👍 that arrived over Discord.
 - Never `git merge` locally against `main` or `develop` and push the result.
 - Merge strategy is chosen by target, not preference.
+- **An agent commit passes `--author`**, so `git log` tells an agent's commit from the operator's:
+  `Claude Code <claude@drunken.local>` or `Antigravity <antigravity@drunken.local>` (DG-293). The
+  addresses are local-only and resolve nowhere — they exist to be visibly not a real account.
 
 The `DG-` key in a branch name is not decoration: `drunken-usage --by ticket` reads it back off the
 branch and has no other source, so a branch without one reports as untracked cost, silently.
