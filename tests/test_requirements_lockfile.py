@@ -159,3 +159,33 @@ def test_the_retired_copy_says_why_it_was_retired() -> None:
     assert "uv.lock" in body, (
         "the index has to name what replaced it, not only that it is gone"
     )
+
+
+WORKFLOW = REPO_ROOT / ".github" / "workflows" / "test.yml"
+
+
+def test_ci_audits_what_actually_ships() -> None:
+    """DG-289. The audited file and the installed file were different files.
+
+    `pip-audit --strict` read `requirements-dev.txt` and reported clean, while
+    the Dockerfile installed from `uv.lock` — which pinned `cryptography 49.0.0`,
+    inside a high-severity advisory. `requirements-dev.txt` held 50.0.0. A green
+    audit was answering about an environment nobody ships, and the comment above
+    the step claimed the opposite in as many words.
+
+    Asserted against the workflow rather than by running an audit here: this has
+    to hold with no network and on a machine that has never resolved the lock.
+    """
+    workflow = WORKFLOW.read_text(encoding="utf-8")
+
+    assert "uv export" in workflow, (
+        "CI does not export uv.lock, so nothing audits the versions a user "
+        "actually installs"
+    )
+
+    exported = workflow.split("uv export", 1)[1]
+    assert "pip-audit" in exported, (
+        "uv.lock is exported but never handed to pip-audit — exporting it and "
+        "not auditing it is worse than not exporting it, because the step name "
+        "says the audit happened"
+    )
