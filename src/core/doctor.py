@@ -352,6 +352,87 @@ def compare_deployment(env_root: Path, modules: Sequence[str]) -> dict[str, list
     return {"present": present, "missing": missing}
 
 
+#: The trees ``pyproject``'s ``packages`` ships, and where each lives in the
+#: checkout. ``scripts`` sits at the root; the rest are under ``src/``.
+#:
+#: Content is compared over all of these rather than over
+#: :data:`DEPLOYED_MODULES`. That list is a curated handful kept deliberately
+#: short, chosen as *evidence* that a merge was not deployed — and a file it
+#: does not name is exactly how DG-275's fix sat undeployed while this check
+#: read green.
+PACKAGED_TREES: Final = (
+    "core",
+    "route",
+    "service",
+    "jira_mcp",
+    "discord_mcp",
+    "scripts",
+)
+
+#: How many stale files to name before summarising. Long enough to act on,
+#: short enough that the report stays a report.
+_STALE_NAMES_SHOWN: Final = 5
+
+
+def _source_package_dir(source_root: Path, package: str) -> Optional[Path]:
+    """Where *package* lives in the checkout, or ``None`` if it does not."""
+    for candidate in (source_root / "src" / package, source_root / package):
+        if candidate.is_dir():
+            return candidate
+    return None
+
+
+def compare_deployed_content(
+    env_root: Path, source_root: Path, packages: Sequence[str]
+) -> dict[str, list[str]]:
+    """Which deployed files differ from the checkout they were installed from.
+
+    Presence is not currency. :func:`compare_deployment` answers "is this module
+    there", which a three-month-old copy passes exactly as well as one installed
+    a minute ago. On 2026-08-23 that reported all seven modules present while
+    the deployment was 22 files behind, including the bridge DG-275 had just
+    stopped from reading a ``.env`` found by climbing.
+
+    Compared as bytes rather than by mtime: ``uv tool install`` copies, so a
+    timestamp says when the file was written, not which revision it holds.
+
+    ``stale`` is deployed-but-different, ``absent`` is in the checkout and not
+    deployed at all. Files only in the deployment are ignored — a stale build
+    artefact left behind is not evidence about what merged.
+    """
+    site_dirs = sorted(env_root.glob("lib/*/site-packages"))
+    stale: list[str] = []
+    absent: list[str] = []
+
+    for package in packages:
+        source_dir = _source_package_dir(source_root, package)
+        if source_dir is None:
+            continue
+        for source_file in sorted(source_dir.rglob("*.py")):
+            if "__pycache__" in source_file.parts:
+                continue
+            relative = Path(package) / source_file.relative_to(source_dir)
+            deployed = next(
+                (site / relative for site in site_dirs if (site / relative).is_file()),
+                None,
+            )
+            if deployed is None:
+                absent.append(str(relative))
+            elif deployed.read_bytes() != source_file.read_bytes():
+                stale.append(str(relative))
+
+    return {"stale": stale, "absent": absent}
+
+
+def describe_drift(result: dict[str, list[str]]) -> str:
+    """One line naming the drifted files, truncated once it stops being useful."""
+    names = result["stale"] + result["absent"]
+    shown = ", ".join(names[:_STALE_NAMES_SHOWN])
+    if len(names) > _STALE_NAMES_SHOWN:
+        shown += f", and {len(names) - _STALE_NAMES_SHOWN} more"
+    return shown
+
+
 def deployed_version(env_root: Path, package: str) -> Optional[str]:
     """The version of *package* inside *env_root*, read from its dist-info.
 
@@ -511,6 +592,7 @@ def _check_deployment(
     env_root: Optional[Path] = None,
     modules: Optional[Sequence[str]] = None,
     legacy_roots: Optional[Sequence[str]] = None,
+    source_root: Optional[Path] = None,
 ) -> None:
     """Report the gap between this checkout and the environment the host runs.
 
@@ -522,6 +604,19 @@ def _check_deployment(
     A missing environment is a **skip**, not a failure: a container, CI or a
     fresh clone legitimately has none, and a check that cries wolf there is a
     check everyone learns to ignore.
+
+    *source_root* is the checkout to compare deployed content against, and
+    ``None`` means there is none to compare with — which is the ordinary case
+    when the installed ``drunken-doctor`` runs itself. Unlike the other three
+    parameters, ``None`` here is an answer rather than "use the default", so
+    :func:`run_doctor` resolves it rather than this function: a check that
+    quietly located its own source tree would report on a checkout the caller
+    never named.
+
+    Drift is a **warn**, matching `ai_layer.source` and the missing-module case
+    directly above. The failure this fixes was a green line, not an ignored
+    yellow one, and the remedy is an install — the operator's to run, never
+    this tool's.
     """
     env_root = env_root if env_root is not None else tool_env_root()
     modules = modules if modules is not None else DEPLOYED_MODULES
@@ -569,12 +664,30 @@ def _check_deployment(
                 "not deploy it to the environment the host actually launches."
             ),
         )
-    else:
+    elif (
+        source_root is not None
+        and (drift := compare_deployed_content(env_root, source_root, PACKAGED_TREES))
+        and (drift["stale"] or drift["absent"])
+    ):
+        count = len(drift["stale"]) + len(drift["absent"])
         report.add(
             "deployment.tool_env",
-            "ok",
-            f"{env_root} carries all {len(result['present'])} checked modules",
+            "warn",
+            f"{env_root} carries all {len(result['present'])} checked modules, "
+            f"but {count} file(s) differ from {source_root}: " + describe_drift(drift),
+            remediation=(
+                "Reinstall so the deployment matches the checkout: "
+                "uv tool install . --reinstall — every module being present "
+                "says nothing about which revision of it is there."
+            ),
         )
+    else:
+        detail = f"{env_root} carries all {len(result['present'])} checked modules"
+        if source_root is None:
+            detail += ", and there is no checkout here to compare their content against"
+        else:
+            detail += f", matching {source_root}"
+        report.add("deployment.tool_env", "ok", detail)
 
     status, detail = compare_pin(deployed_version(env_root, "mcp"), _locked_version())
     report.add("deployment.mcp_pin", status, detail)
@@ -847,7 +960,7 @@ def run_doctor(
         _check_project(report, project_id, registry, offline)
 
     _check_daemon(report)
-    _check_deployment(report)
+    _check_deployment(report, source_root=source_tree_root())
     _check_ai_layer(report)
 
     if secrets.cached_refs():
