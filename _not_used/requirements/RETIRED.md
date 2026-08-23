@@ -35,6 +35,25 @@ Nothing, because nothing depended on it.
   `requirements-dev.txt` is compiled from `pyproject.toml` and exists for
   `pip-audit` alone.
 
+## Why the extension
+
+The file is `requirements.txt.retired`, not `requirements.txt`, and the suffix is
+load-bearing — do not "tidy" it back.
+
+Dependabot alerts come from GitHub's dependency graph, which parses manifests by
+filename anywhere in the repository. Retiring the file into `_not_used/` did not
+take it out of that range: three alerts followed it here, all for `aiohttp
+3.14.1`, a version nothing in this project installs — `uv.lock` resolves 3.14.3.
+
+`.github/dependabot.yml` cannot fix that. Its `exclude-paths` option suppresses
+automatic *pull requests*, not alerts, and the dependency graph offers no path
+exclusion at all. A name the graph does not recognise as a manifest is the only
+lever available (DG-290).
+
+The cost of leaving it was not noise for its own sake: a genuine alert —
+`cryptography` in `uv.lock`, DG-289 — was sitting in a list of four where three
+were about software the project does not run.
+
 ## If you need it back
 
 `scripts/lock_deps.sh` no longer writes it. Regenerate with the same tool that
@@ -45,4 +64,5 @@ uv pip compile pyproject.toml -o requirements.txt
 ```
 
 Restoring the file is not enough on its own. Give it a reader first, or it will
-drift again exactly as it did.
+drift again exactly as it did — and it will start raising alerts again the moment
+it carries a manifest's name.
