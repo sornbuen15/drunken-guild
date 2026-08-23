@@ -126,6 +126,10 @@ OLD_PRODUCT = re.compile(r"Drunken[- ]Team|drunken-ai-team|Drunken-Agy|drunken_a
 #:   * `uv/tools/drunken-team` — the legacy tool root doctor looks for.
 #:   * the accounts of DG-266 and DG-268, which cannot describe the bug without
 #:     naming what the code used to say.
+#:   * the registry's own project list. `drunken-team` is a live key in
+#:     `~/.drunken/projects.json`, pointing at the fallback checkout this repo is
+#:     under standing instruction to keep. Reporting what the registry holds has
+#:     to report that key.
 LOWERCASE_ALLOWED = (
     "~/Projects/drunken-team",
     "uv tool uninstall drunken-team",
@@ -139,6 +143,7 @@ LOWERCASE_ALLOWED = (
     "naming ``drunken-team``",
     "`drunken-team`, the fallback",
     "drunken-team/src",
+    "`drunken-guild`, `drunken-team`, `beta`, `alpha`",
 )
 
 #: Records exist to name what was retired, so they are exempt wholesale.
