@@ -188,7 +188,7 @@ while IFS= read -r agent_file; do
   # exactly the failure that left 29 of 30 skills stale for two months. Hence
   # `|| true` on each, deliberately.
   DESC=$(grep -m1 "^description: " "$agent_file" 2>/dev/null \
-    | sed 's/^description: //' | cut -c1-200 || true)
+    | sed 's/^description: //' | python3 "$SCRIPT_DIR/_truncate.py" 200 || true)
   MODEL=$(grep -m1 "^model: " "$agent_file" 2>/dev/null | sed 's/^model: //' || true)
 
   echo "- \`${agent_name}\` (\`${MODEL}\`) — ${DESC}" >> "$TEMP_INDEX"
@@ -198,6 +198,14 @@ while IFS= read -r agent_file; do
 done < "$_agent_list"
 rm -f "$_agent_list"
 
+
+# The index is generated *and* committed, so what this writes has to be exactly
+# what survives a commit. Every entry appends a blank line, which leaves the
+# file ending in one -- and `end-of-file-fixer` strips it, so the generator and
+# the commit hook disagreed about the same file forever. DG-280.
+_trimmed=$(mktemp)
+printf '%s\n' "$(cat "$TEMP_INDEX")" > "$_trimmed"
+mv "$_trimmed" "$TEMP_INDEX"
 if [ "$INDEX_ONLY" = true ]; then
   mv "$TEMP_INDEX" "$LOCAL_AGENTS_DIR/INDEX.md"
   echo ""
