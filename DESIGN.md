@@ -2,135 +2,115 @@
 
 Why this repository is shaped the way it is.
 
-The other documents answer different questions, and this one does not repeat them:
-[`README.md`](./README.md) says what it is, [`Drunken-Guild-Guide.md`](./Drunken-Guild-Guide.md)
-lists the components, [`GETTING_STARTED.md`](./GETTING_STARTED.md) walks a first ticket, and
-[`CLAUDE.md`](./CLAUDE.md) states how to work in it. This one records the **decisions**, and for
-each one the failure that produced it.
+**The rules themselves live elsewhere. This file holds the reasons.**
+[`CLAUDE.md`](./CLAUDE.md) states how to work here, the skills state how to run a ticket and a
+branch, `pyproject.toml` states what is pinned. Section 5 is the map. If you find a rule *stated in
+full* in this file, that is a defect in this file — a second copy of a rule is the failure this
+repository exists to cure, and a design document is not exempt.
 
-That distinction is the point. A rule whose reason is lost is a rule the next change deletes. Every
-invariant below cost an incident, and each names the ticket where the evidence lives.
+What is recorded here instead: the decision, the failure that forced it, and the alternative
+rejected. A rule whose reason is lost is a rule the next change deletes. Every claim below names the
+ticket holding its evidence, because a reason without evidence is an opinion.
 
 ---
 
 ## 1. The problem
 
-Two repositories held the same AI layer and drifted. Twenty-six skills were duplicated by name;
-`git-workflow` had silently diverged to 73 lines in one copy against 196 in the other, while a
-just-merged PR told one repository to defer to the other's copy. Nobody was wrong at any single
-step, and the result was still two agents reading two different halves of one rulebook.
+Two repositories held the same AI layer and drifted — 26 skills duplicated by name, `git-workflow`
+at 73 lines against 196, while a merged PR told one copy to defer to the other. Nobody was wrong at
+any single step, and two agents still ended up reading two different halves of one rulebook.
 
-**One surface is the answer, and everything below follows from it.** Where a second surface cannot
-be avoided, the two are generated from the first rather than maintained beside it.
+**One surface is the answer.** Where a second surface is unavoidable — Antigravity's tree, the
+installed tool environment, `INDEX.md` — it is *generated from* the first, never maintained beside
+it. Most of what follows is that sentence applied to a specific place.
 
 ---
 
 ## 2. Invariants
 
-These are not preferences. Each is load-bearing, and the failure that produced it is named so the
-cost of reverting it is visible.
-
 ### 2.1 Nothing discovers a file by climbing the tree
 
-`os.getcwd()` plus a loop over `os.path.dirname` is banned outright. Grep for the signature; do not
-reason about whether a particular instance is safe.
+`os.getcwd()` plus a loop over `os.path.dirname` is banned outright. Grep for the signature rather
+than judging instances — it has been found three times in three shapes, and the third is why
+case-by-case judgement is not good enough:
 
-Config precedence is fixed and explicit — an **environment variable** wins, then the **registry**,
-then the project's own `.agents/*.json`. A `.env` found by walking up the tree is neither explicit
-nor named, and because it was loaded into `os.environ` first, it arrived disguised as rule one and
-outranked the registry.
-
-It has been found three times, in three shapes:
-
-| where | what it decided | ticket |
+| where | what the climb actually decided | ticket |
 |---|---|---|
 | config loading | which credential was used | DG-254 |
 | both Jira bridges | same, on the daemon's own path | DG-275 |
 | `sync_customizations.py` | **where an install was written** | DG-276 |
 
-The third is the one that shows why a blanket ban beats case-by-case judgement. It was recorded as
-harmless — "it resolves a directory, not a secret" — and the directory was a *write target*. Where
-skills and agents landed was decided by whichever directory the shell happened to be in.
+The third was written off in the checkpoint as harmless — "it resolves a directory, not a secret".
+The directory was a *write target*. Where skills and agents landed was decided by whichever
+directory the shell happened to be in.
 
-A destination now comes from an argument or it does not come at all. There is deliberately no
-default: a sync that guesses is the failure being prevented; one that refuses costs a flag.
+Two consequences. A destination comes from an argument or it does not come at all: there is no
+default, because a sync that guesses is the failure and one that refuses costs a flag. And a guard
+that greps for this signature must parse the **AST**, not the text — the guard and the guarded both
+have to name the pattern in prose to explain the ban, and a substring search cannot tell an
+explanation from a call. The first draft of the DG-276 guard failed on its own docstring.
 
-### 2.2 A health check must use an endpoint that fails
+> Precedence — env var, then registry, then the project's own `.agents/*.json` — and why a `.env`
+> arrived disguised as rule one: `CLAUDE.md`, *Things that will bite you*.
+
+### 2.2 A check whose failure is indistinguishable from its success is not a check
 
 Jira answers a search made with a bad credential with `HTTP 200` and `{"issues": []}`. No exception,
 no 4xx. A board holding 39 issues read as empty and every layer above believed it.
 
-So liveness is asked of `/rest/api/3/myself`, which 401s. And a project key is asked of
+So liveness asks `/rest/api/3/myself`, which 401s. And a project key asks
 `/rest/api/3/project/{key}`, which 404s — because a search scoped to a project that does not exist
 *also* returns 200 and an empty page, byte-identical to a real but empty project (DG-260).
 
-The general form: **a check whose failure mode is indistinguishable from its success is not a
-check.** `drunken-doctor` printed `OK … (project TWA)` while Jira was answering "No project could be
+The generalisation is the point, and it has caught three different bugs: **ask an endpoint that
+fails.** `drunken-doctor` printed `OK … (project TWA)` while Jira answered "No project could be
 found with key 'TWA'", because the key was echoed back from the registry and never asked about.
 
 ### 2.3 Merge is not deploy, and deploy is not running
 
-Three separate facts, and every surface has at some point conflated two of them.
+Three facts, and every surface has conflated two of them at some point. A merged PR does not update
+`~/.local/share/uv/tools/drunken-guild/`, which is what the host launches. A reinstall does not
+restart a running daemon. A ticket marked IN REVIEW is not merged code (DG-225).
 
-- A merged PR does not update `~/.local/share/uv/tools/drunken-guild/`, which is what the host
-  actually launches.
-- A reinstall does not restart a running daemon, which holds its old code until it does.
-- A ticket marked IN REVIEW is not merged code. DG-225 sat in review for weeks while its branch was
-  never merged and the trunk stayed vulnerable.
+The evidence, because this one keeps being treated as pedantry: `deployment.tool_env` checked that
+seven modules were *present* — which a copy installed three months ago passes exactly as well as one
+installed a minute ago. It reported green while the deployment was 22 files behind, and in that gap
+sat DG-275's security fix, so the bridge the daemon runs was still reading a `.env` found by
+climbing. Nothing on any surface said so. It now compares content (DG-278).
 
-`deployment.tool_env` used to check that seven modules were *present*, which a copy installed three
-months ago passes exactly as well as one installed a minute ago. It reported green while the
-deployment was 22 files behind — and in that gap sat DG-275's security fix, so the bridge the daemon
-runs was still reading a `.env` found by climbing. It now compares file content as bytes (DG-278).
-
-Bytes, not timestamps: `uv tool install` copies, so an mtime records when a file was written, not
-which revision it holds.
+**Bytes, not timestamps.** `uv tool install` copies, so an mtime records when a file was written,
+never which revision it holds.
 
 ### 2.4 A generated file that is also committed must be byte-identical everywhere
 
-`skills/INDEX.md` and `agents/INDEX.md` are generated by the installers and committed. Whoever
-regenerates therefore decides what lands in git, and two things made that unstable (DG-280):
+Whoever regenerates such a file decides what lands in git. Two independent things made that unstable
+in the same week (DG-280, DG-271):
 
-- The installers truncated with `cut -c1-N`, which counts **bytes** under `LC_ALL=C` and
-  **characters** under a UTF-8 locale. Every description here carries em-dashes at three bytes each,
-  so one operator's install rewrote 13 lines and the next regeneration reverted all 13. Both are
-  "what the generator produces". Neither side is wrong, which is the worst shape a tracked artefact
-  can have.
-- `pre-commit` then rewrote the freshly generated file — trailing whitespace, and a blank last line.
-  **A generator whose output the commit hook edits can never produce the file that is in git.**
+- **The environment leaked in.** The installers truncated with `cut -c1-N`, which counts *bytes*
+  under `LC_ALL=C` and *characters* under a UTF-8 locale. Descriptions here are full of em-dashes at
+  three bytes each, so one operator's install rewrote 13 lines of `INDEX.md` and the next
+  regeneration reverted all 13. Both are "what the generator produces"; neither side is wrong, which
+  is the worst shape a tracked artefact can have.
+- **The commit hook disagreed with the generator.** `pre-commit` rewrote the freshly generated file
+  — trailing whitespace, a blank last line. A generator whose output the commit hook edits *can
+  never* produce the file that is in git.
 
-The same disease appeared the same week in `requirements-dev.txt`, whose header recorded
-`uv pip compile` while `scripts/lock_deps.sh` regenerated it with `pip-compile` (DG-271).
+The same disease, elsewhere: `requirements-dev.txt` recorded `uv pip compile` in its header while
+`scripts/lock_deps.sh` regenerated it with `pip-compile`.
 
-The rule: one generator per artefact, deterministic across machines, emitting the exact form that
-survives a commit.
+The rule: **one generator per artefact, deterministic across machines, emitting the exact form that
+survives a commit.**
 
-### 2.5 Import-time failure is never a failure mode
+### 2.5 The rest, in one line each
 
-Anything that can fail must fail inside a tool call, so the caller reads a message instead of
-watching an MCP server vanish. Every error carries a remediation (`core/errors.py`), because
-"unknown project 'twa'" tells an agent only to give up.
+These are stated in full where they are enforced. Here is only why they exist.
 
-### 2.6 An agent proposes; a human disposes
-
-An agent opens pull requests and never merges one — no exception for its own PR, a one-line change,
-green CI, or a 👍 over Discord. An agent does not install: writing into `~/.claude/`, `~/.gemini/`
-or the tool environment is the operator's. An agent does not delete: retired things move to
-`_not_used/` with a note, and anything needing a recursive force-delete becomes a list handed over.
-
-*Marking a thing unused beats removing it.* `requirements.txt` had drifted 113 lines from
-`pyproject.toml` with no reader at all, and it was retired under `_not_used/` with a note saying
-what replaced it, rather than deleted (DG-281).
-
-### 2.7 A test for a bug is seen failing first
-
-A test written after the fix proves only that it compiles. Every bug and security ticket in this
-repository records the failing output before the fix existed, and PRs quote it.
-
-One consequence worth stating: a guard that greps its own source must parse the AST rather than the
-text. Both the guard and the thing it guards have to *name* the banned pattern in prose to explain
-why it is banned, and a substring search cannot tell an explanation from a call — the first draft of
-the DG-276 guard failed on its own docstring.
+| invariant | why | stated in |
+|---|---|---|
+| Import-time failure is never a failure mode | a caller reads a message instead of watching an MCP server vanish; every error carries a remediation because "unknown project 'twa'" only tells an agent to give up | `CLAUDE.md`, `src/core/errors.py` |
+| An agent opens PRs, never merges; does not install; does not delete | the irreversible half of the work stays with a human. *Marking a thing unused beats removing it* — `requirements.txt` had drifted 113 lines with no reader and was retired with a note rather than deleted (DG-281) | `CLAUDE.md`, `skills/workflow/git-workflow/SKILL.md` |
+| A bug's test is seen failing first | a test written after the fix proves only that it compiles | `CLAUDE.md` |
+| The formatter is pinned exactly; `mypy` and `pytest` keep floors | a formatter has no right answer independent of its version, so a range gives one tree two answers (DG-265, DG-270); a new `mypy` finding something new is a result worth having | `pyproject.toml`, at the pin |
 
 ---
 
@@ -138,119 +118,84 @@ the DG-276 guard failed on its own docstring.
 
 ### 3.1 One repository, two deliverables
 
-The runtime (`src/`, `tests/`, `scripts/`) and the AI layer (`skills/`, `agents/`, `templates/`,
-`examples/`) ship from one repository.
+The runtime and the AI layer ship together. **Rejected:** keeping them separate, which produced §1.
 
-**Rejected:** keeping them separate, which is what produced the drift in §1.
+**Cost accepted:** the Python gates cover `src/`, `tests/` and `scripts/` only — the AI layer is
+markdown with no type checker, guarded by `scripts/check_doc_drift.py` and review. CI reads a "did
+any non-markdown file change" job to tell the halves apart; the secret scan and doc-drift check are
+ungated, because a secret pasted into a README is still a secret.
 
-**Consequence accepted:** the Python gates — `ruff`, `mypy`, `pytest`, `bandit`, `pip-audit` — cover
-`src/`, `tests/` and `scripts/` only. The AI layer is markdown with no type checker, so what guards
-it is `scripts/check_doc_drift.py` and review. CI knows the difference and reads a "did any
-non-markdown file change" job. The secret scan and doc-drift check are ungated and run on every
-push, because a secret pasted into a README is still a secret.
+**One exception, deliberate:** DG-250 keeps a project's AI layer out of git. It does not apply here,
+because here the AI layer *is* the product. `~/Projects/tff-web-app` is the reference
+implementation; this repository is the documented exception, not a defect to fix.
 
-### 3.2 The AI layer stays in git here, and nowhere else
+### 3.2 Jira is the only coordination surface
 
-DG-250 says a project's wrapper directory is not a git repository and its AI layer stays out of git.
-**That rule does not apply to this repository**, because here the AI layer *is* the product;
-applying it literally would move the deliverable out of version control.
-`~/Projects/tff-web-app` is the reference implementation of DG-250; this repository is the
-documented exception. It is not a defect to fix.
+**Rejected:** a local board beside it, now retired to `_not_used/board-mcp/` (DG-250, DG-265).
 
-### 3.3 Jira is the only coordination surface
+**Cost accepted, stated rather than sold:** claim expiry is genuinely lost. A Jira assignee never
+expires, so a ticket left assigned to an agent that died stays that way until a human looks. That is
+a ten-second fix, weighed against a class of silent disagreement between two boards that costs
+weeks.
 
-`TODO → IN PROGRESS → IN REVIEW → DONE`, never skipping IN REVIEW. The assignee says whose the work
-is; the status says where it is; nothing else tracks either.
+> The lifecycle, and why the backlog is not a status: `skills/kanban/jira-tickets/SKILL.md`.
 
-**Rejected:** a local board beside it. The `board_*` tools are retired and `drunken-board-mcp` is no
-longer packaged; its code sits in `_not_used/board-mcp/` (DG-250, DG-265).
+### 3.3 A ticket is scanned, not read — and leaves nothing to decide twice
 
-**Cost accepted, stated plainly:** claim expiry is genuinely lost. A Jira assignee never expires, so
-a ticket left assigned to an agent that died stays that way until a human looks. That is a
-ten-second fix, weighed against a class of silent disagreement between two boards that costs weeks.
+The three-heading shape and the 120-word budget are in the skill. Two things learned since are not:
 
-**Also decided:** the backlog is not a status. `jira_move_to_backlog` and `jira_move_to_board`
-change membership of the working set and nothing else — a ticket parked in the backlog is still
-`IN PROGRESS` if that is what it was. Reading backlog as a status recreates the two-surfaces problem
-inside the one surface.
+- **A ticket must not leave a choice open.** A SCOPE reading "an explicit argument *or* the script's
+  own root" hands the decision to whoever picks it up, which is the deciding done twice. Decide
+  before writing.
+- **Record a change of mind on the ticket, not only in the PR.** DG-278 shipped as a `warn` where
+  its SCOPE said `fail`; the reasoning belongs where the next reader of the ticket will look.
 
-### 3.4 A ticket is scanned, not read
-
-Three headings — FINDING, SCOPE, ACCEPTANCE — and a budget of 120 words for a task, bug or chore.
-The story of how something was found belongs in the commit and the PR, where someone reading the
-diff needs it.
-
-The rule exists because of a measurement: this project's older tickets average about 49 words, and
-five written in one session averaged 600.
-
-A related decision, learned the same way: **a ticket must not leave a choice open.** A SCOPE reading
-"an explicit argument *or* the script's own root" hands the decision to whoever picks the ticket up,
-which is the deciding done twice. Decide before writing; record a change of mind on the ticket
-rather than only in the PR.
-
-### 3.5 Ticket bodies carry structure, and the converter is symmetric
+### 3.4 Ticket bodies carry structure, and the converter is symmetric
 
 `to_adf()` turned every line into a paragraph, so tickets rendered as an undifferentiated wall —
-including the three mandated headings, which arrived as ordinary sentences. It now emits headings,
-bullet lists and code blocks (DG-279).
+including the three mandated headings, which arrived as ordinary sentences (DG-279).
 
-`from_adf()` had to change with it. It rendered a heading as a bare line, so a ticket written with
+`from_adf()` had to change with it: it rendered a heading as a bare line, so a ticket written with
 structure was read back without it — the same wall by a longer route — and it walked a code block
-rather than rendering it, which turned a `# comment` inside a fence into a heading on the way back.
+rather than rendering it, turning a `# comment` inside a fence into a heading on the way back.
 
 **Rejected:** a full Markdown parser. Four block shapes, no inline marks, no nesting — enough that a
 ticket reads as a document, little enough that it cannot mangle a body nobody meant as Markdown.
 
-### 3.6 The formatter is pinned exactly; other tools keep floors
+### 3.5 Where a tool refuses rather than guesses
 
-A formatter has no right answer independent of its version. `ruff format --check` asks "does this
-match what *this* ruff would write", so a range means CI resolves the newest while a checkout keeps
-whatever it locked, and one tree gets two answers. 0.15.22 and 0.16.4 disagree about blank lines
-before a class; DG-265 passed `--check` locally and turned `develop` red, and two later PRs
-inherited a failure in a file neither had touched (DG-270).
+Three places make the same trade, and it is the house style rather than three coincidences:
 
-`mypy` and `pytest` keep floors deliberately — a new version of either finding something new is a
-result worth having, and neither rewrites the tree.
+- `drunken-usage` **does not know prices.** Rates are an operator input, and an unpriced model
+  reports *no* cost rather than a smaller one. It also counts Claude only, and says so in every
+  report rather than presenting a partial total as a whole one.
+- The away-mode hook's allow list produces **no decision**, not `allow`. The hook never *widens*
+  permission — and the deny list is checked first, so a 👍 cannot authorise `rm -rf`.
+- A sync with no named destination **exits** (§2.1).
 
-### 3.7 Costs are read from transcripts, never instrumented
+The shared shape: when a tool cannot know something, it says so. An under-reported cost and a
+silently widened permission are both worse than a refusal.
 
-`drunken-usage` reads the host's own transcripts. Nothing is instrumented, nothing is sent anywhere,
-and it works retroactively. `--by ticket` works because a branch named `feature/DG-251-slug` carries
-its key — which is why the key in a branch name is not decoration: it is the only source, and a
-branch without one reports as untracked cost, silently.
-
-Two refusals are deliberate. **It does not know prices** — rates are an operator input, and an
-unpriced model reports no cost rather than a smaller one. **It counts Claude only**; Antigravity's
-usage lives under `~/.gemini/`, which is out of bounds, so every report states what it did not see.
-
-### 3.8 Two layers ask for permission, and only one of them is the model
-
-The agent deciding it needs approval (`ask-boss`, `request_boss_approval_async`) is one layer. The
-**harness** asking before the model runs at all is the other, and the model never sees it — which is
-why saying "I'm going out, send it to Discord" in chat never worked and never could. `drunken-away`
-exists for that second layer.
-
-The hook's resolution order is the design: deny-list first, so a 👍 can never authorise `rm -rf`;
-then approval tools, because asking for permission must not itself need permission; then the
-allow list, which produces *no decision* rather than `allow` — the hook never widens permission.
+> The full hook resolution order, and the two-layer split the model cannot see: `CLAUDE.md`,
+> *Away mode*.
 
 ---
 
 ## 4. Deliberately absent
 
-- **A second Jira surface.** Anything that reaches Jira goes through `drunken-jira-mcp`.
-- **A local board.** See §3.3.
+- **A second Jira surface.** Everything reaching Jira goes through `drunken-jira-mcp`.
+- **A local board.** §3.2.
 - **A second config emitter.** `install_mcp.sh` is a thin wrapper over `drunken-config`, which reads
   the registry, knows a repository's config from a host application's, and merges rather than
-  overwrites. A second emitter beside it would be two things answering one question.
+  overwrites. A second emitter would be two things answering one question.
 - **Story points and priority.** A team-managed Jira project cannot set `priority` at all — every
-  issue reads `Medium` because that is the only value available — and no story points exist. Urgency
-  is expressed with labels. This is a constraint of the instance, not a gap to fill.
-- **A `.env` anywhere in the loading path.** See §2.1.
+  issue reads `Medium` because that is the only available value — and no story points exist. Urgency
+  is expressed with labels. A constraint of the instance, not a gap to fill.
+- **A `.env` anywhere in the loading path.** §2.1.
 
 ---
 
-## 5. Where the rest lives
+## 5. Where the rules live
 
 | question | file |
 |---|---|
@@ -261,6 +206,4 @@ allow list, which produces *no decision* rather than `allow` — the hook never 
 | what each component does | [`Drunken-Guild-Guide.md`](./Drunken-Guild-Guide.md) |
 | wiring the MCP servers into a project | [`Integration-Guide.md`](./Integration-Guide.md) |
 | agent-facing rules for this repository | [`.agents/AGENTS.md`](./.agents/AGENTS.md) |
-
-Rules are linked rather than restated. A second copy of a rule is the failure this repository was
-built to cure.
+| what is pinned, and why | `pyproject.toml`, at each pin |
