@@ -160,7 +160,7 @@ rpds-py==2026.6.3
     # via
     #   jsonschema
     #   referencing
-ruff==0.15.20
+ruff==0.16.4
     # via drunken-guild (pyproject.toml)
 sse-starlette==3.4.8
     # via mcp
