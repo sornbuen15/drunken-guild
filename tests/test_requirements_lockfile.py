@@ -20,6 +20,7 @@ audit is answering about versions nobody installs.
 from __future__ import annotations
 
 import re
+import subprocess
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -111,37 +112,52 @@ def test_no_retired_file_still_looks_like_a_manifest() -> None:
     `uv.lock` (DG-289), sat in a list of four where three were about software
     the project does not run.
     """
-    retired = REPO_ROOT / "_not_used"
-    manifests = [
-        path.relative_to(REPO_ROOT)
-        for path in retired.rglob("*")
-        if path.is_file()
-        and (
-            path.name in {"requirements.txt", "pyproject.toml", "uv.lock", "Pipfile"}
-            or (path.name.startswith("requirements") and path.suffix == ".txt")
-        )
-    ]
+    tracked = subprocess.run(
+        ["git", "ls-files"],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.split()
 
-    assert not manifests, (
-        "these retired files still carry a live manifest's name, so the "
-        f"dependency graph will keep raising alerts from them: {manifests}"
+    # Matched the way the dependency graph matches, not the way a tidy naming
+    # convention would: it picks up `dev-requirements.txt` and
+    # `archive-requirements.txt` as readily as `requirements.txt`. A guard
+    # narrower than the scanner it guards against is a guard that passes while
+    # the alerts arrive.
+    manifests = [
+        path
+        for path in tracked
+        if Path(path).name in {"pyproject.toml", "uv.lock", "Pipfile", "Pipfile.lock"}
+        or ("requirements" in Path(path).name and Path(path).suffix == ".txt")
+    ]
+    live = {"pyproject.toml", "uv.lock", "requirements-dev.txt"}
+    strays = [path for path in manifests if path not in live]
+
+    assert not strays, (
+        "these tracked files carry a live manifest's name but are not one of "
+        f"the project's real manifests, so the dependency graph will raise "
+        f"alerts from them: {strays}"
     )
 
 
 def test_the_retired_copy_says_why_it_was_retired() -> None:
     """`CLAUDE.md`: retired things move to `_not_used/` *with a note saying why
-    and what replaced them*. A file parked without one is indistinguishable
-    from one somebody forgot."""
-    note = REPO_ROOT / "_not_used" / "requirements" / "RETIRED.md"
+    and what replaced them*. A thing parked without one is indistinguishable
+    from one somebody forgot.
 
-    assert note.is_file(), "the retired lockfile has no RETIRED.md beside it"
-    body = note.read_text(encoding="utf-8")
+    Since DG-291 the directory is no longer tracked, so the committed record is
+    the root `RETIRED.md` index. This asserts against that: the per-directory
+    notes still exist in a working checkout, but a fresh clone does not have
+    them and the record has to survive a fresh clone.
+    """
+    index = REPO_ROOT / "RETIRED.md"
+
+    assert index.is_file(), "there is no retirement index at the repository root"
+    body = index.read_text(encoding="utf-8")
+    assert "requirements" in body, "the index does not mention the retired lockfile"
     assert "uv.lock" in body, (
-        "the note has to name what replaced it, not only that it is gone"
-    )
-    assert "requirements.txt.retired" in body, (
-        "the note must explain the extension, or someone will tidy it back to "
-        "a manifest name and the alerts will return (DG-290)"
+        "the index has to name what replaced it, not only that it is gone"
     )
 
 
