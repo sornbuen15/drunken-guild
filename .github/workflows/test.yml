@@ -131,20 +131,35 @@ jobs:
           python-version: "3.13"
           cache: pip
 
-      # The project itself is not installed here. bandit reads source, and
-      # pip-audit reads the lockfile — installing would only add drunken-guild
-      # itself, which is not on PyPI, so --strict would then fail on its own
-      # unauditable package rather than on anything real.
+      # uv is here to export uv.lock for the audit below, not to install the
+      # project. bandit reads source, and pip-audit reads a requirements file --
+      # installing drunken-guild itself would only add a package that is not on
+      # PyPI, so --strict would fail on its own unauditable package.
       - name: Install
         run: |
           python -m pip install --upgrade pip
-          pip install bandit pip-audit
+          pip install bandit pip-audit uv
 
-      # Known CVEs in everything we lock. Fails the build rather than warning:
-      # this is a tool other people install and point at their credentials.
-      # requirements-dev.txt is generated from pyproject (scripts/lock_deps.sh),
-      # so auditing it audits what actually gets installed.
-      - name: Dependency audit
+      # Known CVEs, failing the build rather than warning: this is a tool other
+      # people install and point at their credentials.
+      #
+      # Two audits, because there are two environments and they do not hold the
+      # same versions. The comment here used to claim that auditing
+      # requirements-dev.txt "audits what actually gets installed", which was
+      # simply untrue: the Dockerfile installs from uv.lock, and on 2026-08-23
+      # uv.lock pinned cryptography 49.0.0 -- inside a high-severity advisory --
+      # while requirements-dev.txt held 50.0.0 and reported clean. The audit was
+      # answering about an environment nobody ships (DG-289).
+      #
+      # The shipped one comes first: if only one of these can be believed, it is
+      # the one describing what a user installs.
+      - name: Dependency audit — what ships (uv.lock)
+        run: |
+          uv export --format requirements-txt --no-emit-project --no-dev \
+            > /tmp/shipped-requirements.txt
+          pip-audit --strict --progress-spinner off -r /tmp/shipped-requirements.txt
+
+      - name: Dependency audit — the dev environment
         run: pip-audit --strict --progress-spinner off -r requirements-dev.txt
 
       # Static analysis, gated at MEDIUM and above — a real bar rather than a
