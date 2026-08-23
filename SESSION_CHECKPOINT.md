@@ -1,182 +1,154 @@
-# Session Checkpoint — drunken-guild
+# Session Checkpoint
 
-**Read this first, then `CLAUDE.md`.** This file says where things stand and what to do next.
-`CLAUDE.md` says how to work.
+**Read this, then `CLAUDE.md`.** This says where things stand and what is next.
+`CLAUDE.md` says how to work. `DESIGN.md` says why the repo is shaped this way.
 
-Rule for this file: **finished work does not live here.** It goes to the commit, the ticket, or
-`CLAUDE.md`, and this file links to it. Everything Phases 1–3 covered has been cut for that reason
-— the history is in DG-261 through DG-272 and in the git log.
+**Finished work does not live here.** It is in the ticket, the commit, or `RETIRED.md`.
 
-Last updated: 2026-08-22 · `develop` at `c02fcbb`, CI green · **no release yet, no tags on purpose**
+Last updated 2026-08-23 · `develop` at `c0943a8` · CI green · **no tags yet, deliberately**
 
 ---
 
-## 1. Live coordinates — verified, not assumed
+## 1. Do these first
 
-| | value |
+Numbered because the order matters. Everything else waits on 1 and 2.
+
+### 1. Boss — reinstall the runtime
+
+**Why:** the trunk is 4 files ahead of what is installed. Until this runs, `drunken-jira-mcp`
+still flattens every ticket body to paragraphs (DG-279 is merged but not live), and
+`sync_customizations.py` still climbs.
+
+```bash
+cd ~/Projects/drunken-guild && uv tool install . --reinstall
+```
+
+**Done when:** `uv run drunken-doctor --project drunken-guild` shows `deployment.tool_env` green.
+One warning survives on purpose — `deployment.mcp_pin`, because `uv tool install` ignores
+`uv.lock`.
+
+### 2. Boss — fix Antigravity's MCP config · **DG-277**
+
+**Why:** it declares five servers. Three cannot start — `drunken-board-mcp`'s executable is gone
+(DG-265), `kanban-server.js` is not on disk, and `npx @modelcontextprotocol/server-jira` is a 404
+on npm. The two that work point at project `drunken-team`, the fallback repo.
+
+**Where:** `~/.gemini/antigravity-cli/mcp_config.json`. Editing under `~/.gemini` is an install,
+so an agent may not do it.
+
+```bash
+cp ~/.gemini/antigravity-cli/mcp_config.json ~/.gemini/antigravity-cli/mcp_config.json.pre-DG-277.bak && cat > ~/.gemini/antigravity-cli/mcp_config.json <<'JSON'
+{
+  "mcpServers": {
+    "drunken-jira-mcp": {
+      "command": "/Users/r.jakkawan/.local/bin/drunken-jira-mcp",
+      "args": ["--project", "drunken-guild"]
+    },
+    "drunken-discord-mcp": {
+      "command": "/Users/r.jakkawan/.local/bin/drunken-discord-mcp",
+      "args": ["--project", "drunken-guild"]
+    }
+  }
+}
+JSON
+```
+
+**Do not** run `install_mcp.sh` instead. It merges by design, so it fixes the two live entries and
+leaves all three dead ones in place.
+
+**Done when:** `agy` starts with two MCP servers and no startup error.
+
+### 3. Antigravity — start the epic · **DG-283**
+
+Blocked until 2 is done. Five stories under it, each saying what must be true and where Claude's
+method is documented — **not** the steps. Antigravity plans its own approach and breaks its own
+tasks.
+
+| ticket | what |
 |---|---|
-| GitHub | `https://github.com/sornbuen15/drunken-guild` · public · default branch `develop` |
-| Tags | **none, deliberately.** First release is `v1.0.0`; `pyproject` already declares it |
-| Jira | key **`DG`**, team-managed (`next-gen`) — no `priority`, no story points, backlog ≠ status |
-| Registry | `~/.drunken/projects.json` |
-| Repo contents | 38 skills · 15 agents · MCP servers and CLI in `src/` |
-| Claude Code | `2.1.206` at `~/.local/bin/claude` |
-| Antigravity | `agy 1.1.1` at `/opt/homebrew/bin/agy` |
+| DG-284 | consume the shared skills without holding a second copy |
+| DG-285 | consume the shared agents; say which per-agent differences are legitimate |
+| DG-286 | keep MCP config generated from the registry, not hand-written |
+| DG-287 | prove both directions with a read-only call before either agent writes |
+| DG-288 | agree who owns the working tree, and write that rule in one place |
 
-**Both halves are installed and current.** `~/.claude/skills`, `~/.claude/agents` and
-`~/.gemini/config/skills` (86 entries: ours plus ~30 Apache-2.0 skills shipped by Google, which are
-not ours to touch) all match the source — `drunken-doctor` checks this now and reports `ai_layer.*`.
+**Suggested order:** 284 → 285 → 286 → 287 → 288. The first three make the layers shared; 287
+proves the channel; 288 is the rule that makes concurrent work safe.
+
+**The constraint on all five, from the epic:** skills, agents and MCP servers are never rewritten
+for Antigravity. One source, `drunken-guild`. A change is made once and reaches both agents. Copy
+and rewrite only where Antigravity genuinely cannot consume the shared form — say so on the ticket,
+and keep the copy generated.
+
+### 4. Boss — decide the release
+
+Nothing blocks `v1.0.0` but the decision. The flow is in
+`skills/workflow/git-workflow/SKILL.md`; the three things that go wrong are:
+
+1. PR `develop` → `main`, titled `chore(release): v1.0.0`
+2. Merged **with a merge commit**, no squash — strategy is chosen by target
+3. Tag **only after the merge lands**. Tagging first tags a commit not on `main`, which looks
+   right and is not
+
+`drunken-doctor`'s `version.declared` check goes from skipping to asserting the moment the first
+tag exists.
 
 ---
 
-## 2. Security posture, checked rather than assumed
-
-Audited 2026-08-22, and re-run after the fixes:
+## 2. Live coordinates — verified 2026-08-23
 
 | | |
 |---|---|
-| `gitleaks`, 397 commits, **allowlist disabled** | no findings |
-| the live Jira token, working tree and every commit (`git log -S`) | absent |
-| `.env`, `secrets.json`, `*.pem`, `id_rsa` ever added | never |
-| workspace host / personal address inline | removed (DG-275) |
-
-**No credential has ever been committed.** What was there was worse-shaped than
-it looked but not a leak: two bridge scripts still read a `.env` found by
-climbing, which is DG-254's vulnerability alive on the daemon's own path. Fixed
-in DG-275, with an inverted test that fails if it returns.
-
-**One thing is left, and it is the owner's call:** `SECURITY.md` publishes a
-personal address as the vulnerability-reporting contact. GitHub's private
-vulnerability reporting is the usual alternative for a public repository.
-Changing where a project receives security reports is not an agent's decision.
-
-**One is named rather than fixed:** `scripts/sync_customizations.py` climbs for
-`.agents/`. Same banned pattern, no credential surface — it resolves a directory,
-not a secret.
+| GitHub | `sornbuen15/drunken-guild` · public · default branch `develop` · 0 forks |
+| Jira | key `DG`, team-managed — no `priority`, no story points, backlog ≠ status |
+| Registry | `~/.drunken/projects.json` — `drunken-guild`, `drunken-team`, `isac`, `twa` |
+| Repo | 38 skills · 15 agents · 389 commits · suite 724 passed |
+| Dependabot | **0 open alerts** (was 4) |
+| Tooling | Claude Code 2.1.206 · `agy` 1.1.1 · `drunken-guild` 1.0.0 installed |
 
 ---
 
-## 3. Two things are true right now and will bite you
+## 3. Two things that will bite you
 
-- **Four skills are not ours and their licence is unknown.** `debug-mantra`, `post-mortem`,
-  `scrutinize`, `management-talk` are byte-identical to the `9arm-skills` plugin, whose pack carries
-  no licence file. This repo is public and MIT. The finding and three options are written into
-  `skills/.external` (DG-263). **This is a decision for the Boss, not an agent.**
+**The AI layer is installed and current; the runtime is not.** `drunken-doctor` reports both
+separately. `ai_layer.*` is green, `deployment.tool_env` is not — see item 1.
 
-- **Two stale editable installs live in pyenv 3.14.3's site-packages** — `drunken_agy 1.1.0` and
-  `drunken_team 1.6.0` — pointing at `~/Projects/drunken-team`. They made every local `pytest` run
-  the fallback repo's code for two rounds of review. `tests/conftest.py` now refuses to start in
-  that state (DG-268), so nothing depends on removing them, but they should go.
+**`_not_used/` is no longer committed** (DG-291). It still exists on disk and an agent still moves
+retired things there, but the tracked record is `RETIRED.md` at the root. **Add the row there in
+the same change** — that row is the only part a fresh clone gets.
 
 ---
 
-## 4. Next session — make Claude and Antigravity work together
+## 4. Decisions taken, so they are not reopened
 
-**This is the goal: two agents running work in parallel off one board.** Both CLIs already take a
-non-interactive prompt, both read the same skills and agents, and both can reach the same Jira.
-What is missing is the wiring and the rules that stop them colliding.
-
-### 4.1 Fix Antigravity's MCP config first — nothing works before this
-
-`~/.gemini/antigravity-cli/mcp_config.json` is stale in four ways. Read it, then correct it:
-
-| entry | state | action |
+| decision | why | ticket |
 |---|---|---|
-| `drunken-jira-mcp` | `--project drunken-guild` | point at `drunken-guild` |
-| `drunken-discord-mcp` | `--project drunken-guild` | point at `drunken-guild` |
-| `drunken-board-mcp` | retired (DG-250/265) | remove |
-| `kanban-board` | `ai-team-toolkit/scripts/mcp/kanban-server.js`, retired | remove |
-| `jira-board` | `npx @modelcontextprotocol/server-jira` — a **fourth** Jira surface | remove |
-
-Generate rather than hand-write: `./scripts/install/install_mcp.sh drunken-guild --out <path>`
-emits absolute paths and **merges**, so entries that are not ours survive.
-
-Do this *after* `uv tool install .`, or the absolute paths point into the old environment.
-
-**Editing a file under `~/.gemini/` is an install. Hand the Boss the command; do not run it.**
-
-### 4.2 Prove each direction with one read-only call
-
-```bash
-# Claude → Antigravity
-agy -p "List the DG tickets in To Do and say which you would pick first, and why." \
-    --project drunken-guild --mode plan
-
-# Antigravity → Claude
-claude -p "Read CLAUDE.md and summarise the git rules in five lines."
-```
-
-`--mode plan` and a read-only prompt are the point: prove the channel before either can write.
-
-For the second direction, Antigravity's `settings.json` `allowed_commands` currently permits only
-four `ask_boss.py` spellings, so `command(claude)` has to be added there. That is the Boss's file.
-
-### 4.3 Decide the coordination rule *before* running anything in parallel
-
-Two agents in one checkout will collide in git, not in Jira. Settle these:
-
-1. **Who owns a ticket** — `jira_assign` already answers this and nothing else tracks it. One
-   agent, one ticket, assignee set before work starts.
-2. **Who owns the working tree** — the real risk. Options, cheapest first:
-   - separate `git worktree` per agent, one branch each
-   - Antigravity read-only: it reviews, runs acceptance tests, files tickets; Claude writes
-   - alternate turns, never concurrent
-   The middle option matches what `CLAUDE.md` already says Antigravity does, and needs no new
-   machinery. Start there and widen only if it proves limiting.
-3. **Who merges** — unchanged. An agent opens PRs; a human merges them.
-
-### 4.4 What "done" looks like for this
-
-- Antigravity answers a read-only prompt from Claude, against `drunken-guild`, with correct Jira.
-- Claude answers a read-only prompt from Antigravity.
-- One ticket is carried end to end by each, on its own branch, without touching the other's.
-- The rule from 3.3 is written into `CLAUDE.md` and `.agents/AGENTS.md` — **the same rule in both**,
-  because a per-agent copy is the failure this repo was built to cure.
-
-### 4.5 Known unknowns — check, do not assume
-
-- Antigravity has not run since **2026-07-10**. Assume nothing about its session state.
-- `agy --print-timeout` defaults to 5 minutes. A real task will exceed it.
-- Whether `agy` inherits this repo's `.mcp.json` or only its own global config is **unverified**.
-- Nothing has tested two agents writing to the same Jira ticket at once.
+| Git history is **not** being purged of `_not_used/` | it would kill the recovery commits `RETIRED.md` points at, for 323 KB of a 4.3 MB repo. The accidental-copy risk was removed by untracking | DG-291 |
+| `requirements.txt` retired, not regenerated | nothing read it; reproducible installs come from `uv.lock`, exported on demand | DG-281 |
+| Drift in the deployment **warns**, does not fail | matches `ai_layer.source` and the missing-module branch beside it; the failure being fixed was a green line, not an ignored yellow one | DG-278 |
+| No `.github/dependabot.yml` | `exclude-paths` suppresses pull requests, not alerts. Adding a file that cannot solve the problem is worse than adding none | DG-290 |
 
 ---
 
-## 5. Open tickets
+## 5. Still open, and owned by nobody yet
 
-| key | what |
-|---|---|
-| **DG-275** | `sync_customizations.py` still climbs for `.agents/`. No credential surface, same banned pattern |
-| **DG-260** | `drunken-doctor` reports a project OK when its Jira project key does not exist |
-| **DG-271** | `requirements-dev.txt` pins a different ruff than `pyproject` and still names `drunken-guild`. Regenerating moves ~35 packages and `pip-audit --strict` reads it — read that result before merging |
-| — | Follow-up noted on DG-262: `deployment.tool_env` should warn when a legacy tool root exists *alongside* a current one, not only when the current one is absent |
-| — | DG-263's licence decision, once the Boss makes it → new ticket referencing it |
-
----
-
-## 6. Phase 4 — release `v1.0.0`
-
-Not started, and nothing blocks it but the decision to do it.
-
-1. PR `develop` → `main`, titled `chore(release): v1.0.0`
-2. Merged **with a merge commit** — no squash. Merge strategy is chosen by target
-   (`skills/workflow/git-workflow/SKILL.md`)
-3. Tag **only after the merge lands**. Tagging first tags a commit that is not on `main`, which is
-   worse than not tagging because it looks right
-4. `drunken-doctor`'s `version.declared` check compares `pyproject` against the newest tag, so it
-   goes from skipping to asserting the moment the first tag exists
-
-Optional and last: publish as `pip install drunken-guild`, collapsing the `drunken-*` console
-scripts into `drunken <subcommand>` with the old names kept as aliases.
+- **DG-263** — four skills (`debug-mantra`, `post-mortem`, `scrutinize`, `management-talk`) are
+  byte-identical to the `9arm-skills` plugin, whose pack carries no licence file. This repo is
+  public and MIT. The finding and three options are written into `skills/.external`.
+  **This is the Boss's call, not an agent's.**
+- **Two stale editable installs** in pyenv 3.14.3's site-packages — `drunken_agy 1.1.0` and
+  `drunken_team 1.6.0`, pointing at `~/Projects/drunken-team`. `tests/conftest.py` refuses to run
+  in that state since DG-268, so nothing depends on removing them. They should still go.
+- **Follow-up on DG-262** — `deployment.tool_env` should warn when a legacy tool root exists
+  *alongside* a current one, not only when the current one is absent.
 
 ---
 
-## 7. Standing constraints
+## 6. Standing constraints
 
 - **Do not touch `~/Projects/drunken-team` or `~/Projects/ai-team-toolkit`.** They are the fallback
-  until this repo is released and verified. `ai-team-toolkit` is terminated *after* that.
+  until this repo is released and verified.
 - **Do not touch `~/.gemini/antigravity-cli/brain/*/worktrees/`.** That belongs to Antigravity.
-- **An agent does not install and does not delete.** Retired things move to `_not_used/` with a
-  note; anything needing a recursive force-delete becomes a list handed to the Boss.
+- **An agent does not install and does not delete.** Hand the command to the Boss.
 - **Directory renames come last**, by the Boss's instruction.
 - **A ticket marked IN REVIEW is not merged code.** Verify against `origin/develop`.
