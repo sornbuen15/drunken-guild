@@ -50,7 +50,12 @@ ROOT_SOURCE_NAMES = frozenset({"Dockerfile", "Makefile"})
 #: Root files that are ignored on purpose. Without these the guard would flag
 #: scratch on its first run, and a guard that cries wolf gets switched off --
 #: which is the failure it exists to prevent, one level up.
-ROOT_ALLOWED = ("scratch_", "requirements.lock")
+#:
+#: SESSION_CHECKPOINT.md is here because it is a session scratchpad, not a
+#: deliverable -- the Boss confirmed it belongs to whoever's session wrote it,
+#: not to git (DG-293). Its tracked template, .guild_templates/SESSION_CHECKPOINT.md,
+#: is nested and never reaches this root-only check.
+ROOT_ALLOWED = ("scratch_", "requirements.lock", "SESSION_CHECKPOINT.md")
 
 #: What a human writes, as opposed to what a build leaves behind.
 SOURCE_SUFFIXES = frozenset({".py", ".sh", ".toml", ".md", ".json", ".yaml", ".yml"})
