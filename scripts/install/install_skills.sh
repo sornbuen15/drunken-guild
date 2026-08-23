@@ -191,11 +191,11 @@ while IFS= read -r skill_file; do
       printf "%s", $0
       exit
     }
-  ' "$skill_file" | cut -c1-160 || true)
+  ' "$skill_file" | python3 "$SCRIPT_DIR/_truncate.py" 160 || true)
   if [ -z "$DESC" ]; then
     DESC=$(grep -m1 "\*\*Description:\*\*" "$skill_file" 2>/dev/null \
       | sed 's/.*\*\*Description:\*\* //' \
-      | cut -c1-160 || true)
+      | python3 "$SCRIPT_DIR/_truncate.py" 160 || true)
   fi
   if [ -z "$DESC" ]; then
     echo -e "${YELLOW}  [!] $skill_name has no description — it will be invisible in the index.${NC}"
@@ -212,6 +212,14 @@ while IFS= read -r skill_file; do
 done < "$_skill_list"
 rm -f "$_skill_list"
 
+
+# The index is generated *and* committed, so what this writes has to be exactly
+# what survives a commit. Every entry appends a blank line, which leaves the
+# file ending in one -- and `end-of-file-fixer` strips it, so the generator and
+# the commit hook disagreed about the same file forever. DG-280.
+_trimmed=$(mktemp)
+printf '%s\n' "$(cat "$TEMP_INDEX")" > "$_trimmed"
+mv "$_trimmed" "$TEMP_INDEX"
 if [ "$INDEX_ONLY" = true ]; then
   mv "$TEMP_INDEX" "$LOCAL_SKILLS_DIR/INDEX.md"
   echo ""
