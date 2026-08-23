@@ -24,7 +24,7 @@ from pathlib import Path
 from typing import Any, Final, Optional
 
 from . import secrets
-from .errors import ConfigError, UpstreamError
+from .errors import AuthzError, ConfigError, DrunkenError, UpstreamError
 from .http import open_url
 from .redact import Secret, register_secret
 from .registry import (
@@ -38,6 +38,11 @@ IDENTITY_TIMEOUT_SECONDS: Final = 15
 
 #: The endpoint that actually fails on a bad credential. See the module docstring.
 IDENTITY_ENDPOINT: Final = "/rest/api/3/myself"
+
+#: The endpoint that actually fails on a project key that does not exist.
+#: A working credential says nothing about the key it is pointed at, and a
+#: search cannot tell the difference either — see :meth:`verify_jira_project`.
+PROJECT_ENDPOINT: Final = "/rest/api/3/project/{key}"
 
 
 @dataclass(frozen=True)
@@ -69,6 +74,14 @@ class JiraIdentityResult:
     account_id: str
     display_name: str
     email: str
+
+
+@dataclass(frozen=True)
+class JiraProjectResult:
+    """What Jira says the configured project key actually is."""
+
+    key: str
+    name: str
 
 
 @dataclass(frozen=True)
@@ -216,6 +229,68 @@ class ProjectContext:
             account_id=str(payload.get("accountId", "")),
             display_name=str(payload.get("displayName", "")),
             email=str(payload.get("emailAddress", "")),
+        )
+
+    def verify_jira_project(self) -> JiraProjectResult:
+        """Ask Jira whether the configured project key exists.
+
+        Separate from :meth:`verify_jira_identity` because they answer different
+        questions and one has been mistaken for the other: a valid credential
+        made the diagnostic print ``OK ... (project TWA)`` while Jira answered
+        "No project could be found with key 'TWA'" (DG-260). This endpoint 404s
+        on a key that does not exist, which a search never does — it returns 200
+        and an empty page, the same shape a real but empty project has.
+        """
+        jira = self.require_jira()
+        endpoint = PROJECT_ENDPOINT.format(key=jira.project_key)
+        request = urllib.request.Request(f"{jira.url}{endpoint}", method="GET")
+        request.add_header("Authorization", jira.auth_header())
+        request.add_header("Accept", "application/json")
+
+        try:
+            with open_url(request, timeout=IDENTITY_TIMEOUT_SECONDS) as response:
+                payload: dict[str, Any] = json.loads(response.read().decode("utf-8"))
+        except urllib.error.HTTPError as exc:
+            raise self._project_http_error(exc, jira) from None
+        except urllib.error.URLError as exc:
+            raise UpstreamError(
+                f"Could not reach Jira at {jira.url}: {exc.reason}",
+                remediation="Check the 'url' in the registry, and network access from here.",
+            ) from None
+
+        return JiraProjectResult(
+            key=str(payload.get("key", jira.project_key)),
+            name=str(payload.get("name", "")),
+        )
+
+    @staticmethod
+    def _project_http_error(
+        exc: urllib.error.HTTPError, jira: ResolvedJira
+    ) -> DrunkenError:
+        if exc.code == 404:
+            return ConfigError(
+                f"Jira has no project with key {jira.project_key!r} at {jira.url}.",
+                remediation=(
+                    "Fix 'project_key' in the registry entry, or point 'url' at the "
+                    "site that does have it. The credential itself is fine — that is "
+                    "why this reads green everywhere the key is never used."
+                ),
+                details={"project_key": jira.project_key, "url": jira.url},
+            )
+        if exc.code in (401, 403):
+            return AuthzError(
+                f"{jira.email} cannot see project {jira.project_key!r} ({exc.code}).",
+                remediation=(
+                    "The credential authenticates but lacks Browse Projects on this "
+                    "project. Grant it, or use an account that already has it."
+                ),
+                details={"status": str(exc.code), "project_key": jira.project_key},
+            )
+        return UpstreamError(
+            f"Jira returned HTTP {exc.code} for "
+            f"{PROJECT_ENDPOINT.format(key=jira.project_key)}.",
+            remediation="Check the 'url' in the registry points at the right Jira site.",
+            details={"status": str(exc.code), "url": jira.url},
         )
 
     @staticmethod
