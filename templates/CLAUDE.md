@@ -107,7 +107,9 @@
 
   <core_directives>
     <directive priority="FATAL" name="Mark Unused, Do Not Delete">
-      An agent does not delete. Anything retired moves to `_not_used/` with a note saying why
+      An agent does not delete. Anything retired moves to `_not_used/`, which is a working
+      directory and is not committed. The tracked record is a `RETIRED.md` index at the
+      root, carrying a row per retired thing saying why
       and what replaced it. Anything that would need a recursive force-delete becomes a **list
       handed to a human to run**. A recorded authorisation from an earlier session is not
       permission to delete today.
