@@ -3,11 +3,12 @@
 print a credential."""
 
 import json
+import urllib.error
 from unittest import mock
 
 import pytest
 
-from core import doctor, paths, secrets
+from core import context, doctor, paths, secrets
 from core.errors import UpstreamError
 from core.redact import forget_secrets
 from core.registry import ProjectRegistry
@@ -53,6 +54,15 @@ def _identity_response() -> mock.MagicMock:
     response = mock.MagicMock()
     response.read.return_value = json.dumps(
         {"accountId": "abc", "displayName": "R. Jakkawan"}
+    ).encode()
+    response.__enter__.return_value = response
+    return response
+
+
+def _project_response() -> mock.MagicMock:
+    response = mock.MagicMock()
+    response.read.return_value = json.dumps(
+        {"key": "TWA", "name": "TFF Web App"}
     ).encode()
     response.__enter__.return_value = response
     return response
@@ -287,3 +297,51 @@ class TestOutputShape:
     def test_single_project_mode_checks_only_that_project(self, registry) -> None:
         report = doctor.run_doctor(project="twa", registry=registry, offline=True)
         assert any(check.name.startswith("project.twa") for check in report.checks)
+
+
+class TestALiveProjectKeyIsVerified:
+    """DG-260. The credential working and the project existing are two facts.
+
+    `/myself` answers the first and says nothing about the second, so a report
+    built on it alone printed `OK ... (project TWA)` while Jira answered "No
+    project could be found with key 'TWA'". A green line that means "the token
+    is valid" but reads as "this project is fine" is worse than no line.
+    """
+
+    @staticmethod
+    def _routed(project_status: int | None) -> mock.MagicMock:
+        """Answer /myself, and give *project_status* to the project lookup."""
+
+        def route(request, timeout=None):  # noqa: ANN001
+            if request.full_url.endswith(context.IDENTITY_ENDPOINT):
+                return _identity_response()
+            if project_status is not None:
+                raise urllib.error.HTTPError(
+                    request.full_url, project_status, "Not Found", {}, None
+                )
+            return _project_response()
+
+        return mock.MagicMock(side_effect=route)
+
+    def test_a_missing_project_key_fails_the_check(self, registry) -> None:
+        with mock.patch("urllib.request.urlopen", self._routed(404)):
+            report = doctor.run_doctor(registry=registry)
+
+        check = find(report, "project.twa.jira")
+        assert check.status == "fail", (
+            "a project key Jira cannot find must not report ok — the whole "
+            f"point of DG-260. Got {check.status}: {check.detail}"
+        )
+        assert "TWA" in check.detail, (
+            "the failure has to name the key that was not found, or the "
+            "reader has to guess which of url/email/key is wrong"
+        )
+
+    def test_a_project_that_exists_still_reports_ok(self, registry) -> None:
+        with mock.patch("urllib.request.urlopen", self._routed(None)):
+            report = doctor.run_doctor(registry=registry)
+
+        check = find(report, "project.twa.jira")
+        assert check.status == "ok", (
+            f"the happy path must survive the new call. Got {check.detail}"
+        )
