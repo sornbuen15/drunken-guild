@@ -96,6 +96,38 @@ def test_the_retired_production_lockfile_is_not_regenerated() -> None:
     )
 
 
+def test_no_retired_file_still_looks_like_a_manifest() -> None:
+    """DG-290. GitHub's dependency graph parses manifests by filename, anywhere
+    in the repository, and raises alerts from what it finds.
+
+    Retiring `requirements.txt` into `_not_used/` did not take it out of range:
+    three aiohttp alerts followed the file to its new path, for a version
+    nothing here installs. `.github/dependabot.yml` cannot help — its
+    `exclude-paths` suppresses automatic pull requests, not alerts, and the
+    dependency graph offers no path exclusion. A name it does not recognise is
+    the only lever.
+
+    The cost of the noise was concrete: a real alert, `cryptography` in
+    `uv.lock` (DG-289), sat in a list of four where three were about software
+    the project does not run.
+    """
+    retired = REPO_ROOT / "_not_used"
+    manifests = [
+        path.relative_to(REPO_ROOT)
+        for path in retired.rglob("*")
+        if path.is_file()
+        and (
+            path.name in {"requirements.txt", "pyproject.toml", "uv.lock", "Pipfile"}
+            or (path.name.startswith("requirements") and path.suffix == ".txt")
+        )
+    ]
+
+    assert not manifests, (
+        "these retired files still carry a live manifest's name, so the "
+        f"dependency graph will keep raising alerts from them: {manifests}"
+    )
+
+
 def test_the_retired_copy_says_why_it_was_retired() -> None:
     """`CLAUDE.md`: retired things move to `_not_used/` *with a note saying why
     and what replaced them*. A file parked without one is indistinguishable
@@ -103,6 +135,11 @@ def test_the_retired_copy_says_why_it_was_retired() -> None:
     note = REPO_ROOT / "_not_used" / "requirements" / "RETIRED.md"
 
     assert note.is_file(), "the retired lockfile has no RETIRED.md beside it"
-    assert "uv.lock" in note.read_text(encoding="utf-8"), (
+    body = note.read_text(encoding="utf-8")
+    assert "uv.lock" in body, (
         "the note has to name what replaced it, not only that it is gone"
+    )
+    assert "requirements.txt.retired" in body, (
+        "the note must explain the extension, or someone will tidy it back to "
+        "a manifest name and the alerts will return (DG-290)"
     )
