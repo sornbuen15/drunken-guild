@@ -84,6 +84,17 @@ description: >
       Never commit API keys, tokens, passwords, or credentials.
       If a secret is accidentally staged, remove it before committing — do NOT use --no-verify.
     </rule>
+
+    <rule priority="HIGH" name="Agent Commit Attribution">
+      An agent commit passes `--author`, never the operator's own git identity:
+      `git commit --author="Claude Code <claude@drunken.local>" -m "..."` for Claude,
+      `--author="Antigravity <antigravity@drunken.local>"` for Antigravity (DG-293).
+
+      The addresses are local-only and resolve to no real account — that is the point. `git log`
+      then tells an agent's commit from the operator's on sight, the same way Assignee stays the
+      accountable human while a ticket's `agent:claude` / `agent:antigravity` label says who is
+      typing.
+    </rule>
   </commit_conventions>
 
   <pr_lifecycle>
