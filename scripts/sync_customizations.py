@@ -3,7 +3,7 @@ import argparse
 import os
 import shutil
 import sys
-from typing import Dict, Optional
+from typing import Dict, Optional, Tuple
 
 
 def get_bootstrap_paths() -> Dict[str, str]:
@@ -17,17 +17,41 @@ def get_bootstrap_paths() -> Dict[str, str]:
     }
 
 
-def find_workspace_root() -> Optional[str]:
-    curr_dir = os.getcwd()
-    while True:
-        agents_dir = os.path.join(curr_dir, ".agents")
-        if os.path.exists(agents_dir) and os.path.isdir(agents_dir):
-            return agents_dir
-        parent = os.path.dirname(curr_dir)
-        if parent == curr_dir:
-            break
-        curr_dir = parent
-    return None
+#: Where `--global` writes. Named here rather than inline so the two callers
+#: that need it -- the resolver and its own error message -- cannot drift.
+GLOBAL_TARGET = "~/.gemini/config"
+
+
+def resolve_target(global_target: bool, workspace: Optional[str]) -> Tuple[str, str]:
+    """Where this sync writes, from what the caller named and nothing else.
+
+    DG-276. This used to climb: `find_workspace_root()` walked `os.getcwd()` up
+    through `os.path.dirname` until some `.agents/` existed, and that directory
+    became the **write** target for the synced skills and agents. With none
+    found it fell back to `~/.gemini/config` silently. So where an install
+    landed was decided by whichever directory the shell happened to be in --
+    the discovery-by-climbing pattern DG-254 removed from config loading and
+    DG-275 removed from both Jira bridges, here choosing a destination rather
+    than a credential.
+
+    There is deliberately no default. A sync that guesses is the failure; one
+    that refuses costs a flag.
+    """
+    if global_target:
+        return "global", os.path.expanduser(GLOBAL_TARGET)
+    if workspace:
+        return "workspace", os.path.abspath(os.path.expanduser(workspace))
+
+    print(
+        "Error: no destination named. Pass one:\n"
+        f"  --global             sync to {GLOBAL_TARGET}\n"
+        "  --workspace PATH     sync to PATH\n"
+        "\nThere is no default on purpose: this writes skills and agents into "
+        "the destination, and it used to choose one by walking up from the "
+        "current directory (DG-276).",
+        file=sys.stderr,
+    )
+    raise SystemExit(2)
 
 
 def sync_dir(src: str, dst: str) -> None:  # noqa: C901  # long dispatch chain; splitting it buys nothing here
@@ -104,36 +128,15 @@ def main() -> None:
         help="Sync to global configuration (~/.gemini/config)",
     )
     group.add_argument(
-        "--workspace", action="store_true", help="Sync to local workspace (.agents)"
+        "--workspace",
+        metavar="PATH",
+        help="Sync to PATH. An explicit directory -- this never searches for one.",
     )
 
     args = parser.parse_args()
     bootstrap = get_bootstrap_paths()
 
-    # Resolve target destination
-    target_type = None
-    target_path = None
-
-    if getattr(args, "global"):
-        target_type = "global"
-        target_path = os.path.expanduser("~/.gemini/config")
-    elif args.workspace:
-        target_type = "workspace"
-        target_path = find_workspace_root()
-        if not target_path:
-            print(
-                "Error: Local workspace (.agents) directory not found.", file=sys.stderr
-            )
-            sys.exit(1)
-    else:
-        # Auto-detect: if in a workspace, use workspace, else global
-        workspace = find_workspace_root()
-        if workspace:
-            target_type = "workspace"
-            target_path = workspace
-        else:
-            target_type = "global"
-            target_path = os.path.expanduser("~/.gemini/config")
+    target_type, target_path = resolve_target(getattr(args, "global"), args.workspace)
 
     print(f"[*] Target destination: {target_type.upper()} -> {target_path}")
 
