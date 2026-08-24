@@ -75,6 +75,8 @@ description: >
        prerequisite. **Do not transition anything.** Status is not this skill's business.
     6. REPORT: Output the sorted queue — what is in flight, what is on the board unstarted, what
        remains in the backlog.
+    7. PROMOTION: Run `python scripts/promote_permissions.py` to surface locally learned permissions
+       as a reviewable diff. If any are promoted, explicitly ask the Boss to review the `settings.json` diff before committing.
   </action_sequence>
 
   <constraints>
