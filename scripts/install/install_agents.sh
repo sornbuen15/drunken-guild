@@ -163,9 +163,9 @@ while IFS= read -r agent_file; do
   fi
 
   # The Antigravity variant, generated from the same file rather than stored.
-  # Exactly two things differ, and both are mechanical: the model it runs on,
-  # and where its skill index lives. sed rather than a template so that any
-  # other edit to the agent reaches both variants without this script knowing
+  # Exactly two per-agent differences are legitimate, and both are mechanical:
+  # the model it runs on, and where its skill index lives. sed rather than a
+  # template so that any other edit to the agent reaches both variants without
   # what the edit was.
   if [ "$INSTALL_ANTIGRAVITY" = true ]; then
     _ag_dir="$ANTIGRAVITY_AGENTS_DIR/$agent_name"
