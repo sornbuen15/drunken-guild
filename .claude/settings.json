@@ -20,6 +20,11 @@
       "Bash(pip-audit:*)",
       "Bash(gitleaks detect:*)",
       "Bash(uv run drunken-doctor:*)",
+      "Bash(uv run drunken-usage:*)",
+      "Bash(uv run ruff check:*)",
+      "Bash(uv run mypy:*)",
+      "Bash(uvx bandit:*)",
+      "Bash(git fetch:*)",
       "Bash(./scripts/verify_clean_install.sh)",
       "Bash(ls:*)",
       "Bash(cat:*)",
@@ -39,7 +44,6 @@
       "find_by_name(*)",
       "grep_search(*)",
       "list_dir(*)"
-
     ],
     "deny": [
       "Bash(git push --force:*)",
