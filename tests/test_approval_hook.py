@@ -370,3 +370,146 @@ def test_the_ticket_key_is_read_from_the_branch_name(branch, expected) -> None:
     which one it is standing in. The branch name is the one piece of context
     the convention guarantees."""
     assert hook.ticket_from_branch(branch) == expected
+
+
+def _approved(*args, **kwargs):
+    return {"status": "approved", "req_id": "req_learn"}
+
+
+def _payload_with_cwd(cwd, command=None, tool_name="Bash", mode="default", **extra):
+    tool_input = {"command": command} if tool_name == "Bash" else extra
+    return {
+        "hook_event_name": "PreToolUse",
+        "tool_name": tool_name,
+        "tool_input": tool_input,
+        "permission_mode": mode,
+        "cwd": cwd,
+    }
+
+
+def _local_allow(cwd) -> list:
+    from pathlib import Path
+
+    local = Path(cwd) / ".claude" / "settings.local.json"
+    if not local.exists():
+        return []
+    return json.loads(local.read_text(encoding="utf-8"))["permissions"]["allow"]
+
+
+class TestDG297LocalLearnedPermissions:
+    """DG-297: a Boss-approved call generalizes into a standing rule in the
+    gitignored `settings.local.json` -- so the *next* command of the same
+    shape does not prompt again -- while never-learn actions stay exactly as
+    unlearnable as they were before, no matter how many times they are
+    approved."""
+
+    def test_an_approved_call_is_generalized_and_recorded_locally(
+        self, tmp_path
+    ) -> None:
+        decision = hook.decide(
+            _payload_with_cwd(str(tmp_path), "pytest -k some_test"),
+            pr.Rules(allow=[], deny=[]),
+            away=True,
+            ask_boss=_approved,
+        )
+        assert decision.permission == "allow"
+        assert "Bash(pytest:*)" in _local_allow(tmp_path)
+
+    def test_the_tracked_settings_file_is_never_touched(self, tmp_path) -> None:
+        claude_dir = tmp_path / ".claude"
+        claude_dir.mkdir()
+        tracked = claude_dir / "settings.json"
+        tracked.write_text(
+            '{"permissions": {"allow": [], "deny": []}}', encoding="utf-8"
+        )
+        before = tracked.read_text(encoding="utf-8")
+
+        hook.decide(
+            _payload_with_cwd(str(tmp_path), "pytest -k some_test"),
+            pr.Rules(allow=[], deny=[]),
+            away=True,
+            ask_boss=_approved,
+        )
+        assert tracked.read_text(encoding="utf-8") == before
+
+    def test_the_next_command_of_the_same_shape_needs_no_prompt(self, tmp_path) -> None:
+        hook.decide(
+            _payload_with_cwd(str(tmp_path), "pytest -k first"),
+            pr.Rules(allow=[], deny=[]),
+            away=True,
+            ask_boss=_approved,
+        )
+        rules = pr.load_layered_rules(tmp_path)
+        assert pr.is_allowed("Bash", {"command": "pytest -k second"}, rules.allow)
+
+    def test_a_wrapped_invocation_generalizes_to_wrapper_and_target(
+        self, tmp_path
+    ) -> None:
+        """`uv run pytest` is the shape that was actually approved --
+        generalizing only as far as `uv run` would allow any future `uv
+        run <anything>`, which is arbitrary code execution wearing a scope."""
+        hook.decide(
+            _payload_with_cwd(str(tmp_path), "uv run pytest -x tests/"),
+            pr.Rules(allow=[], deny=[]),
+            away=True,
+            ask_boss=_approved,
+        )
+        assert "Bash(uv run pytest:*)" in _local_allow(tmp_path)
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "rm -rf /tmp/x",
+            "sudo apt install x",
+            "git push --force origin main",
+            "git reset --hard HEAD~5",
+        ],
+    )
+    def test_a_never_learn_command_is_approved_once_but_not_recorded(
+        self, tmp_path, command
+    ) -> None:
+        """The Boss's yes still applies to *this* call -- refusing to record
+        it is not a second no. It just means the next one like it prompts
+        again, same as if this had never happened."""
+        decision = hook.decide(
+            _payload_with_cwd(str(tmp_path), command),
+            pr.Rules(allow=[], deny=[]),
+            away=True,
+            ask_boss=_approved,
+        )
+        assert decision.permission == "allow"
+        assert _local_allow(tmp_path) == []
+
+    def test_a_never_learn_path_is_not_recorded(self, tmp_path) -> None:
+        hook.decide(
+            _payload_with_cwd(
+                str(tmp_path),
+                tool_name="Write",
+                path=str(tmp_path / ".env"),
+            ),
+            pr.Rules(allow=[], deny=[]),
+            away=True,
+            ask_boss=_approved,
+        )
+        assert _local_allow(tmp_path) == []
+
+    def test_a_compound_command_is_not_generalized(self, tmp_path) -> None:
+        """Approval covered the whole chain that was actually run, not the
+        shape of its first segment alone -- recording just `git status`
+        would grant more than the Boss ever saw."""
+        hook.decide(
+            _payload_with_cwd(str(tmp_path), "git status && echo done"),
+            pr.Rules(allow=[], deny=[]),
+            away=True,
+            ask_boss=_approved,
+        )
+        assert _local_allow(tmp_path) == []
+
+    def test_a_bare_interpreter_invocation_is_not_generalized(self, tmp_path) -> None:
+        hook.decide(
+            _payload_with_cwd(str(tmp_path), 'python -c "import os"'),
+            pr.Rules(allow=[], deny=[]),
+            away=True,
+            ask_boss=_approved,
+        )
+        assert _local_allow(tmp_path) == []
