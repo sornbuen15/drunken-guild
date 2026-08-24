@@ -57,7 +57,7 @@ Verify — you should see the skill directories and an index:
 ls ~/.claude/skills/
 ```
 
-### 28 of the 36 skills need nothing else
+### 30 of the 38 skills need nothing else
 
 Architecture, testing, security, UI/UX, Electron, git discipline, debugging, post-mortems — all of
 it installs and works standalone.

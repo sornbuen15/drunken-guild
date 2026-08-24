@@ -13,7 +13,7 @@ halves are meant.
 
 | | what it is | where |
 |---|---|---|
-| **The AI layer** | 36 skills and 15 agents, installed into `~/.claude/` and read by Antigravity | `skills/`, `agents/` |
+| **The AI layer** | 38 skills and 15 agents, installed into `~/.claude/` and read by Antigravity | `skills/`, `agents/` |
 | **The runtime** | Python MCP servers and a CLI — Jira coordination, Discord approvals, cost accounting, health checks | `src/`, `scripts/` |
 
 They are one repository on purpose. They used to be two, and the two drifted: skills were authored
@@ -22,6 +22,13 @@ in four places with 26 duplicated by name, and `git-workflow` silently diverged 
 
 **You can use either half alone.** Most skills need no MCP server. Only the coordination skills do,
 and each one names the server it requires.
+
+> **Antigravity as an active peer is currently supported, not recommended.** The skills, agents and
+> rules below install for it the same as for Claude Code, and nothing here stops it running — but
+> track record on this repo has been repeated violations of rules written specifically for it, plus
+> a permission-prompt noise problem in its own harness this repo has no way to reach or fix. Treat
+> it as a consumer of the AI layer for now, not an unattended second author. Current status and the
+> reasoning live in this repo's own `SESSION_CHECKPOINT.md`.
 
 ---
 
