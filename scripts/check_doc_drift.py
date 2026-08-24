@@ -87,6 +87,13 @@ ESCAPE = "drift-ok"
 #: Not documentation. `.claude/worktrees` and the Antigravity brain hold whole
 #: copies of the repo at older commits — scanning them reports drift that is
 #: simply the past, and they are not ours to edit in any case.
+#:
+#: DG-300: matched against each path *relative to REPO_ROOT*, not the
+#: absolute path. Every linked worktree this harness creates lives at
+#: `<repo>/.claude/worktrees/<name>`, which makes `.claude` an ancestor of
+#: REPO_ROOT itself when running from inside one -- matching on the absolute
+#: path meant `.claude` appeared in every file's parts there, and every
+#: document in the repo was silently skipped.
 SKIPPED_DIRS = frozenset(
     {".venv", ".git", "node_modules", "build", "not_use", ".claude", ".mypy_cache"}
 )
@@ -102,9 +109,9 @@ def documents() -> list[Path]:
     found = [
         path
         for path in REPO_ROOT.rglob("*.md")
-        if not (SKIPPED_DIRS & set(path.parts))
+        if not (SKIPPED_DIRS & set(path.relative_to(REPO_ROOT).parts))
         and path.name not in RECORDS
-        and not (set(RECORD_DIRS) & set(path.parts))
+        and not (set(RECORD_DIRS) & set(path.relative_to(REPO_ROOT).parts))
     ]
     found += [
         path
