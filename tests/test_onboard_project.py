@@ -175,7 +175,8 @@ class TestAHostConfigIsDifferentFromARepoConfig:
         host = tmp_path / "mcp_config.json"
         config_gen.merge_into_host_config(host, "alpha")
 
-        assert config_gen.merge_into_host_config(host, "alpha") == []
+        diff = config_gen.merge_into_host_config(host, "alpha")
+        assert diff.added == [] and diff.removed == []
 
 
 class TestSecretsAreWrittenLockedDown:
