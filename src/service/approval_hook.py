@@ -53,6 +53,31 @@ from core import paths
 from core import permission_rules as pr
 from service.daemon_client import call_daemon
 
+
+def _log_antigravity_shape(raw_name: str, raw_args: dict[str, Any]) -> None:
+    """DG-303: append one line recording a real Antigravity toolCall shape.
+
+    Names and arg *keys* only, never values -- an arg can carry a file path,
+    a command line, or worse, and this file is not accorded the same
+    protection as a secret. Best-effort and silent on failure: a diagnostic
+    that can break the hook it is riding along in would be exactly the
+    failure mode :func:`main`'s docstring warns against.
+    """
+    try:
+        target = paths.antigravity_payload_debug_path().path
+        paths.ensure_home()
+        entry = {
+            "time": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+            "name": raw_name,
+            "arg_keys": sorted(raw_args.keys()) if isinstance(raw_args, dict) else [],
+        }
+        with open(target, "a", encoding="utf-8") as f:
+            f.write(json.dumps(entry) + "\n")
+        paths.secure_file(target)
+    except Exception:  # noqa: BLE001 - diagnostic logging must never break the hook
+        pass
+
+
 #: How long the hook will wait for the Boss before answering on its own.
 WAIT_BUDGET_SECONDS: Final = int(os.environ.get("DRUNKEN_HOOK_WAIT_SECONDS", "1500"))
 
@@ -495,6 +520,7 @@ def main(stdin_text: Optional[str] = None) -> int:
             tool_call = payload["toolCall"]
             raw_name = tool_call.get("name", "")
             raw_args = tool_call.get("args", {})
+            _log_antigravity_shape(raw_name, raw_args)
 
             # Map Antigravity shapes to Claude shapes for unified rules
             if raw_name == "run_command":
