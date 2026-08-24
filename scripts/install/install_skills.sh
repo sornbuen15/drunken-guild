@@ -20,7 +20,7 @@ GLOBAL_SKILLS_DIR="$HOME/.claude/skills"
 
 # Antigravity reads the same skills from its own tree. Unlike the agents, a
 # skill needs no rewriting on the way across -- nothing under skills/ names a
-# per-agent index path -- so this is the same directory, installed twice.
+# per-agent index path -- so we symlink it rather than holding a second copy.
 ANTIGRAVITY_SKILLS_DIR="${ANTIGRAVITY_SKILLS_DIR:-$HOME/.gemini/config/skills}"
 
 # --index-only rebuilds the repository's INDEX.md and writes nothing else --
@@ -129,12 +129,13 @@ while IFS= read -r skill_file; do
   fi
 
   if [ "$INSTALL_ANTIGRAVITY" = true ]; then
-    if [ -d "$ANTIGRAVITY_SKILLS_DIR/$skill_name" ]; then
+    if [ -e "$ANTIGRAVITY_SKILLS_DIR/$skill_name" ] || [ -L "$ANTIGRAVITY_SKILLS_DIR/$skill_name" ]; then
       AG_UPDATED_COUNT=$((AG_UPDATED_COUNT + 1))
     else
       AG_NEW_COUNT=$((AG_NEW_COUNT + 1))
     fi
-    _copy_dir "$skill_dir" "$ANTIGRAVITY_SKILLS_DIR/$skill_name"
+    rm -rf "$ANTIGRAVITY_SKILLS_DIR/$skill_name"
+    ln -s "$GLOBAL_SKILLS_DIR/$skill_name" "$ANTIGRAVITY_SKILLS_DIR/$skill_name"
   fi
 
   if [ "$INDEX_ONLY" = true ]; then
