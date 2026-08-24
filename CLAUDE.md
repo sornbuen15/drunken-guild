@@ -5,6 +5,14 @@ Loaded automatically. Kept short enough that it is actually read.
 `SESSION_CHECKPOINT.md` is the other half: **read it at the start of a session.** This file says
 how to work; that file says where things stand.
 
+**Antigravity as an active peer on this repo is supported, not recommended.** The rules below
+(worktree isolation, the `--author` split, `agent:antigravity` labels) still exist and still hold
+if it runs — this is not a removal. But do not assign it work or expect it to pick any up:
+`SESSION_CHECKPOINT.md` carries the current decision record (DG-301) and is the authoritative
+status. As of that record, the reason is Antigravity's own track record on rules written
+specifically for it, plus a permission-prompt noise problem in its own harness (`~/.gemini/`) that
+this repo has no way to reach or fix.
+
 ---
 
 ## What this repo is
@@ -150,7 +158,8 @@ rule itself:
   addresses are local-only and resolve nowhere — they exist to be visibly not a real account.
 - **Claude and Antigravity never share a checked-out working tree.** Each works from its own
   `git worktree`, on its own branch, so a checkout one switches or edits can never be pulled out
-  from under the other (DG-288).
+  from under the other (DG-288). Still the rule if Antigravity runs here — see the note at the top
+  of this file on why that is currently not recommended.
 
 The `DG-` key in a branch name is not decoration: `drunken-usage --by ticket` reads it back off the
 branch and has no other source, so a branch without one reports as untracked cost, silently.
