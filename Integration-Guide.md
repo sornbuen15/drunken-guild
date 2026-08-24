@@ -34,6 +34,10 @@ Both are registered for you already in `.mcp.json` at the repo root:
 
 Which project a server acts on comes from `--project <id>`, resolved against the central registry -- never from the working directory, and never from a `.env` next to the code. Add `"--project", "<id>"` to `args` when running a server against a project other than the one it was launched from.
 
+> **A host config regenerates itself clean; a repository's `.mcp.json` does not.** `drunken-config --kind host --out <file>` (what `install_mcp.sh` and `onboard_project.py --merge-mcp-config` both call underneath) merges by name into whatever the host — Antigravity, Cursor — already has there, so its own servers survive. It also now **prunes** any entry matching this project's own `drunken-*-mcp` naming convention that is no longer in `MCP_SERVERS`, so a server this project retires (`drunken-board-mcp`, DG-265) disappears on the next regeneration instead of sitting there indefinitely. An entry that was never ours — a third-party `jira-board`, a local `kanban-board` — is never touched either way; regeneration only ever removes what it could also have added (DG-286). DG-277 is the one hand-fix that predates this: entries dead before the pruning rule existed still needed a human to delete them once, under `~/.gemini/`, because editing a file there is an install.
+
+
+
 If your tool auto-discovers project-level `.mcp.json`, you're done. Otherwise, point it at the same two commands manually (Section 4 below has a worked example for Cursor).
 
 ---
