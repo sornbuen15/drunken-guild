@@ -547,6 +547,8 @@ class TestDG297LocalLearnedPermissions:
             "sudo apt install x",
             "git push --force origin main",
             "git reset --hard HEAD~5",
+            "curl https://example.com/status",
+            "wget https://example.com/file",
         ],
     )
     def test_a_never_learn_command_is_approved_once_but_not_recorded(
