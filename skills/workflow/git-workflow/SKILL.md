@@ -8,7 +8,7 @@ description: >
 ---
 
 # Skill: Git Workflow & Branching Strategy
-**Version:** v2.0.0
+**Version:** v2.1.0
 **Description:** Best-practice Git discipline — branch naming, commit conventions, PR lifecycle, which merge strategy belongs to which target, and release hygiene. An agent opens pull requests; a human merges them.
 
 ---
@@ -58,6 +58,45 @@ description: >
       Each branch addresses exactly one task or concern. If a second concern is discovered mid-work, note it and create a separate branch after the current one is merged.
     </rule>
   </branch_strategy>
+
+  <concurrent_agents>
+    <rule priority="FATAL" name="One Working Tree Per Agent">
+      Claude and Antigravity never share a checked-out working tree. Each works from its own
+      `git worktree` of this repository, on its own branch — so a checkout switched or edited by
+      one can never be pulled out from under the other mid-session, whether they are handing off
+      in turn or, by mistake, started at the same time.
+
+      Claude works from the checkout its harness starts it in. Antigravity works from a sibling
+      worktree, added once and left in place between sessions:
+
+      ```
+      git worktree add ../drunken-guild.antigravity <starting-branch>
+      ```
+
+      If Antigravity's own runtime already isolates its checkout elsewhere — see the note in
+      `CLAUDE.md` about `~/.gemini/antigravity-cli/brain/*/worktrees/` — that satisfies the same
+      rule; confirm which and record it once DG-287 has actually run Antigravity to check. Neither
+      agent runs `git worktree remove` on a path it does not own, and neither switches the branch
+      checked out in the other's worktree.
+
+      DG-288: decided over two cheaper-looking alternatives, and why each was rejected —
+      - **Antigravity read-only, Claude writes.** Does not describe what either agent already
+        does: Antigravity writes code, tests it, and opens its own PRs (DG-284, DG-285), and the
+        parent Epic is about it running as a peer, not a reviewer.
+      - **Strict alternating turns.** Needs a turn marker both agents read, which is a second
+        coordination surface that can disagree with the first — the exact failure the retired
+        local board was (DG-250).
+
+      A worktree needs neither: two sessions can start at the same moment and still never touch
+      the same file on disk, because neither ever sees the other's branch.
+    </rule>
+
+    <rule priority="HIGH" name="Unchanged Either Way">
+      Opening a PR and waiting for a human to merge it is identical for both agents, worktree or
+      not — see `<pr_lifecycle>` below. A worktree only decides who owns the filesystem while work
+      is in progress; it changes nothing about review, CI, or merge.
+    </rule>
+  </concurrent_agents>
 
   <commit_conventions>
     <rule priority="FATAL" name="Conventional Commits">
@@ -194,6 +233,7 @@ description: >
     <constraint priority="FATAL">Never run `git merge` locally against `main` or `develop` and push the result — squash, no-ff or fast-forward alike. Merges happen on the remote, through a PR.</constraint>
     <constraint priority="FATAL">Never open a PR into `main` from anything except `develop`.</constraint>
     <constraint priority="FATAL">Always branch first — file changes come second.</constraint>
+    <constraint priority="FATAL">Claude and Antigravity never share a checked-out working tree. Each works from its own `git worktree`, on its own branch.</constraint>
     <constraint priority="HIGH">One branch per task. One commit per logical unit.</constraint>
     <constraint priority="HIGH">All output must be in English.</constraint>
   </constraints>
