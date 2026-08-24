@@ -29,7 +29,16 @@
       "Bash(wc:*)",
       "Bash(head:*)",
       "Bash(tail:*)",
-      "Bash(uv run drunken-away:*)"
+      "Bash(python scripts/*)",
+      "Bash(bash *)",
+      "Bash(./*.sh)",
+      "Bash(uv run drunken-away:*)",
+      "Bash(claude:*)",
+      "Read(*)",
+      "Write(*)",
+      "find_by_name(*)",
+      "grep_search(*)",
+      "list_dir(*)"
 
     ],
     "deny": [
