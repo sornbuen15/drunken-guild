@@ -43,3 +43,9 @@ repos:
         language: system
         pass_filenames: false
         always_run: true
+
+      - id: check-settings-lint
+        name: Reject bare Tool(*) wildcard allow rules in settings
+        entry: python scripts/check_settings_lint.py
+        language: system
+        files: \.claude/settings\.json$
