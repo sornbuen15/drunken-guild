@@ -12,6 +12,8 @@ allow rule. Anything else lets `git status && rm -rf /` through on the
 strength of its first two words.
 """
 
+import json
+
 import pytest
 
 from core import permission_rules as pr
@@ -174,3 +176,47 @@ class TestSettingsLoading:
         assert loaded.allow == []
         assert len(loaded.deny) == 1
         assert pr.is_denied("Bash", {"command": "anything at all"}, loaded.deny)
+
+
+class TestLayeredRules:
+    """DG-297: the tracked file and the gitignored local one stack, the way
+    the harness itself merges them. Without this, a rule the hook just
+    learned into `settings.local.json` would need a second approval anyway
+    -- the very complaint DG-297 exists to fix."""
+
+    def _write(self, path, allow=(), deny=()) -> None:
+        path.write_text(
+            json.dumps({"permissions": {"allow": list(allow), "deny": list(deny)}}),
+            encoding="utf-8",
+        )
+
+    def test_a_locally_learned_allow_rule_is_honoured(self, tmp_path) -> None:
+        claude_dir = tmp_path / ".claude"
+        claude_dir.mkdir()
+        self._write(claude_dir / "settings.json", allow=["Bash(git status:*)"])
+        self._write(claude_dir / "settings.local.json", allow=["Bash(pytest:*)"])
+
+        rules = pr.load_layered_rules(tmp_path)
+        assert pr.is_allowed("Bash", {"command": "git status --short"}, rules.allow)
+        assert pr.is_allowed("Bash", {"command": "pytest -k foo"}, rules.allow)
+
+    def test_a_missing_local_file_is_not_an_error(self, tmp_path) -> None:
+        claude_dir = tmp_path / ".claude"
+        claude_dir.mkdir()
+        self._write(claude_dir / "settings.json", allow=["Bash(git status:*)"])
+
+        rules = pr.load_layered_rules(tmp_path)
+        assert pr.is_allowed("Bash", {"command": "git status"}, rules.allow)
+
+    def test_deny_comes_only_from_the_tracked_file(self, tmp_path) -> None:
+        """A personal override file that could widen or narrow the deny list
+        nobody else can see would be its own kind of surprise -- deny stays
+        whatever the tracked, shared policy says it is."""
+        claude_dir = tmp_path / ".claude"
+        claude_dir.mkdir()
+        self._write(claude_dir / "settings.json", deny=["Bash(rm -rf:*)"])
+        self._write(claude_dir / "settings.local.json", deny=["Bash(git log:*)"])
+
+        rules = pr.load_layered_rules(tmp_path)
+        assert pr.is_denied("Bash", {"command": "rm -rf /"}, rules.deny)
+        assert not pr.is_denied("Bash", {"command": "git log"}, rules.deny)
