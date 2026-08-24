@@ -31,9 +31,18 @@ ANTIGRAVITY_SKILLS_DIR="${ANTIGRAVITY_SKILLS_DIR:-$HOME/.gemini/config/skills}"
 # tracked file correct, and hand-editing it drifts from the generator's output
 # by a byte or two per line, which is worse than stale.
 INDEX_ONLY=false
-if [ "${1:-}" = "--index-only" ]; then
-  INDEX_ONLY=true
-fi
+case "${1:-}" in
+  "") ;;
+  --index-only) INDEX_ONLY=true ;;
+  *)
+    # DG-302: an unrecognized flag used to fall through here and run a real
+    # install -- `--help`, typed to check usage, did exactly that. Anything
+    # this script does not know must refuse, not proceed.
+    echo -e "${RED}Unrecognized argument: ${1}${NC}" >&2
+    echo "Usage: $0 [--index-only]" >&2
+    exit 1
+    ;;
+esac
 INDEX_FILE="$GLOBAL_SKILLS_DIR/INDEX.md"
 
 echo -e "${BLUE}=================================================${NC}"
@@ -134,8 +143,19 @@ while IFS= read -r skill_file; do
     else
       AG_NEW_COUNT=$((AG_NEW_COUNT + 1))
     fi
-    rm -rf "$ANTIGRAVITY_SKILLS_DIR/$skill_name"
-    ln -s "$GLOBAL_SKILLS_DIR/$skill_name" "$ANTIGRAVITY_SKILLS_DIR/$skill_name"
+    # DG-302: refuse rather than rm -rf a path built from variables that
+    # could theoretically be empty or point outside the target directory --
+    # a script under the already-allowlisted `Bash(./scripts/*.sh)` gets none
+    # of the protection .claude/settings.json's deny list gives a direct
+    # `rm -rf` tool call, so this check is the only guard that exists.
+    _ag_target="$ANTIGRAVITY_SKILLS_DIR/$skill_name"
+    if [ -z "$ANTIGRAVITY_SKILLS_DIR" ] || [ -z "$skill_name" ] \
+      || [ "${_ag_target#"$ANTIGRAVITY_SKILLS_DIR"/}" = "$_ag_target" ]; then
+      echo -e "${RED}Refusing to touch '$_ag_target' -- not a clean child of \$ANTIGRAVITY_SKILLS_DIR${NC}" >&2
+      exit 1
+    fi
+    rm -rf "$_ag_target"
+    ln -s "$GLOBAL_SKILLS_DIR/$skill_name" "$_ag_target"
   fi
 
   if [ "$INDEX_ONLY" = true ]; then
