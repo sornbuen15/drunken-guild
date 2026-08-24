@@ -4,7 +4,7 @@ description: "Ask the Boss for permission without stopping: submit the question,
 ---
 
 # Skill: Ask the Boss for Permission
-**Version:** 4.0.0
+**Version:** 4.1.0
 
 ## First, can the Boss see this conversation right now?
 
@@ -22,27 +22,30 @@ skill: never sit and wait for an answer.
 
 ## The loop
 
+There is no local board (DG-265) — nothing here reads or writes one, and no `board_*` tool
+exists to call. "Parking" a task means exactly what it sounds like: don't perform the action, say
+in your own output that it's waiting on an answer, and move to whatever else is available. Jira's
+own status/assignee is the only record of what's in flight; there is no second one to keep in sync.
+
 1. **Ask** with `request_boss_approval_async(action, reason, ticket_key)`.
    It returns a `req_id` immediately.
-2. **Park the task** with `board_block_task(project, task_id, req_id, reason)`.
-   Do **not** perform the action you just asked about.
-3. **Pick up the next thing** from `board_available_tasks(project)`. It only
-   offers tasks whose dependencies are all done, so nothing it hands you can
-   run into the same wall.
+2. **Don't perform the action you just asked about.** Note the `req_id` and move on — there is
+   nothing to call to mark the task blocked; you're simply not doing that step yet.
+3. **Pick up the next thing** — the next unblocked ticket, or whatever else the current task
+   doesn't depend on. Nothing here hands you one; choose it the way you normally would.
 4. **Finish what you started.** An answer arriving is never a reason to
    abandon work half-done — see below.
 5. **Collect answers at the boundary** with `check_approvals([req_id, ...])`
    when a task finishes, and at the start of every session.
-   - `approved` → `board_unblock_task`, then do exactly the approved action.
-   - `rejected` → leave it parked and respect the reason. Do not re-ask the
+   - `approved` → do exactly the approved action.
+   - `rejected` → leave it and respect the reason. Do not re-ask the
      same question hoping for a different answer.
-   - `pending` → leave it parked, carry on with something else.
+   - `pending` → leave it, carry on with something else.
    - `stale` → it was approved against different code. Ask again.
    - `unknown` → never submitted, or lost. Re-submit; do not guess.
-6. **Nothing available?** Say what the board is waiting on
-   (`board_list_lane(project, "blocked")` shows each parked card and why),
-   then **end your turn**. Do not poll in a loop. Do not schedule a wake-up
-   just to check. The next session picks it up at step 5.
+6. **Nothing available?** Say which `req_id`s are still outstanding and what
+   they're waiting on, then **end your turn**. Do not poll in a loop. Do not
+   schedule a wake-up just to check. The next session picks it up at step 5.
 
 ## Check at task boundaries — never mid-task
 
@@ -88,5 +91,7 @@ doing and the answer decides whether the session continues at all.
 
 ## Never touch the internals
 
-Do not read or write `.agents/discord_outbox.json`. <!-- drift-ok: the prohibition has to name what it prohibits --> It is daemon state, not
-an API. Go through the tools.
+Do not read or write `$DRUNKEN_HOME/approvals.json` (default `~/.drunken/approvals.json`) directly.
+It is daemon state, not an API — go through the tools. The pre-DG-232/DG-243 equivalent,
+`.agents/discord_outbox.json`, is retired <!-- drift-ok: the prohibition has to name what it prohibits -->; if you find one in an older
+project, it is not read by anything current.

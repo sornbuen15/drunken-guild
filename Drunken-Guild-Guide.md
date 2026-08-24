@@ -148,44 +148,55 @@ uv run python scripts/setup_daemon_service.py uninstall   # remove it
 
 This is local-machine-only -- if the machine is off or asleep, approvals will not reach Discord.
 
+> **On a machine with more than one project registered, the daemon needs `DRUNKEN_PROJECT` set --
+> it is not optional past the first project.** Unset, it falls back to whichever project was
+> registered first, silently, for the whole daemon's lifetime: every approval request from every
+> other project resolves to the first one's Discord channel instead, and the failure looks exactly
+> like a working bot that nobody happens to see. `setup_daemon_service.py install` resolves this
+> automatically -- it matches the checkout it's run from against the registry's own `path` field
+> and writes `DRUNKEN_PROJECT` into the launchd plist -- so re-running `install` from the checkout
+> you actually want served is the fix, not a manual edit. See Section 7.
+
 ---
 
 ## 4. Jira Workflow
 
 Jira is the only place task state lives. The board has four lanes: **Backlog -> To Do -> In Progress -> In Review -> Done** (Backlog is derived, not a native Jira status -- see below).
 
-### 4.1 Query the board from the CLI
+### 4.1 The `drunken-jira-mcp` tools (supported path)
+
+An AI agent with the MCP server registered (Section 3.4) uses these directly -- no shell-out, no
+separate credential handling:
+
+| for | use |
+|---|---|
+| search / status | `jira_search_issues` |
+| claim and start | `jira_start_task` |
+| move status | `jira_transition_issue` |
+| hand off for review | `jira_submit_for_review` |
+| leave a note | `jira_add_comment` |
+| claim / release | `jira_assign` -- an email, a display name, `"me"`, or `"none"` |
+| board membership | `jira_board_info`, `jira_move_to_backlog`, `jira_move_to_board` |
+
+### 4.2 `scripts/jira_bridge.py` (shell fallback only)
+
+Still works for a terminal with no MCP-capable agent attached, but it is not the supported path --
+prefer the tools above whenever an agent is doing the work:
 
 ```bash
 uv run python scripts/jira_bridge.py get-todo          # priority DESC, created ASC
-uv run python scripts/jira_bridge.py get-in-progress
-uv run python scripts/jira_bridge.py get-in-review
-uv run python scripts/jira_bridge.py get-backlog        # status != Done AND no round label
-uv run python scripts/jira_bridge.py get-by-label round-1
-```
-
-Each prints a JSON list of `{key, summary, status, priority, description, assignee}`.
-
-### 4.2 Change ticket state
-
-```bash
 uv run python scripts/jira_bridge.py transition DG-42 "In Progress"
 uv run python scripts/jira_bridge.py comment DG-42 "Investigated -- root cause was X."
-uv run python scripts/jira_bridge.py label DG-42 round-2
-uv run python scripts/jira_bridge.py create "Fix flaky test" "Steps to reproduce..."
 ```
 
 ### 4.3 The full lifecycle for one ticket
 
 ```
-1. uv run python scripts/jira_bridge.py get-todo
-   -> pick the first result (already priority-sorted)
-2. uv run python scripts/jira_bridge.py transition DG-42 "In Progress"
+1. jira_search_issues("status = 'To Do' ORDER BY ...") -> pick one
+2. jira_assign(key, "me"), then jira_start_task(key) -> In Progress, branch name returned
 3. git checkout -b feature/DG-42-short-description
    ... write code, tests, commit ...
-4. Open a PR, then:
-   uv run python scripts/jira_bridge.py transition DG-42 "In Review"
-   uv run python scripts/jira_bridge.py comment DG-42 "PR: https://github.com/.../pull/60"
+4. Open a PR, then jira_submit_for_review(key, pr_link, files_changed) -> In Review
 5. Round-integration gate passes (scripts/qa_automation.py) -> ticket auto-transitions to Done.
 ```
 
@@ -263,7 +274,9 @@ Some agent actions require your explicit sign-off (e.g. a destructive command, o
 Unattended, asking must never stop the rest of the work:
 
 1. The agent calls `request_boss_approval_async(action, reason, ticket_key)`, which returns a `req_id` immediately, and the bot posts the question to Discord with 👍/👎 reactions attached.
-2. The agent parks that task with `board_block_task`, carrying the `req_id` that would free it, and takes the next task `board_available_tasks` offers.
+2. The agent doesn't perform that action yet and picks up whatever else is unblocked. There is no
+   local board (DG-265) -- "parking" a task means exactly that and nothing more; no tool call marks
+   it blocked.
 3. **React 👍** to approve, **👎** to reject.
 4. The agent collects answers with `check_approvals` **when it finishes a task or starts a session -- never mid-task.** Acting on an approval the moment it lands is how a repo ends up half-changed.
 5. **There is no timeout and nothing is auto-killed.** Reminders back off 15 min → 1 h → daily and survive a daemon restart. A question you have not reached yet is not an error.
@@ -314,6 +327,24 @@ Nothing in it is secret -- credentials appear only as references -- so it can be
 Add an entry with `drunken-init --project <id> ...` (Section 3.3) rather than by hand. A v1 registry -- the bare `{"name": {...}}` map written by earlier releases -- is upgraded in memory on read and never rewritten behind your back, so downgrading is just running the old code again.
 
 Once registered, `/project <name>` in Discord switches which project the Jira-lane commands and `/next`/`/refine` operate against -- each project can have its own Jira project key, so `/project beta` then `/tasks` lists BETA's own To Do lane, not drunken-guild's.
+
+### 7.1 One Discord identity, not one per project
+
+`/project` switches Jira-lane routing for commands already reaching the bot. It does not decide
+*which* Discord channel and bot token the daemon itself uses -- the multi-tenant daemon was cut, so
+there is exactly one Discord identity per running daemon, chosen once at startup:
+
+1. **`DRUNKEN_PROJECT`**, if set, names it explicitly.
+2. Otherwise, **the first project in the registry that declares a `discord` block wins** --
+   registration order, not anything about which project you actually meant.
+
+Rule 2 is a real trap on a multi-project machine, not a hypothetical: an unset `DRUNKEN_PROJECT`
+means every approval request from every other registered project silently posts to the first
+project's channel, and both the requester and the daemon report success -- `request_boss_approval_async`
+still returns a `req_id`, nothing errors, the message just never reaches the channel anyone is
+watching. `scripts/setup_daemon_service.py install` sets rule 1 for you automatically, matched
+against the registry rather than guessed from the directory name -- run it from the checkout of the
+project you want the daemon serving, and re-run it again whenever that should change.
 
 ---
 
