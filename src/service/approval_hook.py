@@ -152,6 +152,7 @@ def decide(
     rules: pr.Rules,
     away: bool,
     ask_boss: Callable[..., dict[str, Any]],
+    is_antigravity: bool = False,
 ) -> Decision:
     """Resolve one tool call. Pure apart from *ask_boss*, which is injected.
 
@@ -175,9 +176,11 @@ def decide(
     if tool_name.startswith(NEVER_ROUTED_PREFIXES):
         return Decision(None)
 
-    # 4. Already allowed by the harness's own list. Silence, not `allow`.
+    # 4. Already allowed by the harness's own list.
+    # For Claude: Silence, not `allow`, because Claude's harness evaluates the same list.
+    # For Antigravity: The hook IS the allowlist enforcer, so return `allow`.
     if pr.is_allowed(tool_name, tool_input, rules.allow):
-        return Decision(None)
+        return Decision("allow") if is_antigravity else Decision(None)
 
     # 5. The Boss is here. The terminal prompt is the better interface.
     if not away:
@@ -208,21 +211,34 @@ def decide(
     )
 
 
-def render(decision: Decision) -> str:
+def render(decision: Decision, is_antigravity: bool = False) -> str:
     """Serialise to the documented PreToolUse output shape.
 
     A ``permissionDecision`` of ``null`` is not silence -- it is an opinion
     the harness has to interpret. When there is no decision the key is absent
     entirely, and only the reason rides along as a system message.
     """
+    if is_antigravity:
+        out: dict[str, Any] = {}
+        if decision.permission == "allow":
+            out["decision"] = "allow"
+        elif decision.permission == "deny":
+            out["decision"] = "deny"
+        else:
+            out["decision"] = "ask"
+
+        if decision.reason:
+            out["reason"] = decision.reason
+        return json.dumps(out)
+
     specific: dict[str, Any] = {"hookEventName": "PreToolUse"}
     if decision.permission is not None:
         specific["permissionDecision"] = decision.permission
         specific["permissionDecisionReason"] = decision.reason
-    out: dict[str, Any] = {"hookSpecificOutput": specific}
+    claude_out: dict[str, Any] = {"hookSpecificOutput": specific}
     if decision.permission is None and decision.reason:
-        out["systemMessage"] = decision.reason
-    return json.dumps(out)
+        claude_out["systemMessage"] = decision.reason
+    return json.dumps(claude_out)
 
 
 async def _ask_over_socket(action: str, reason: str, ticket_key: str) -> dict[str, Any]:
@@ -276,19 +292,50 @@ def main(stdin_text: Optional[str] = None) -> int:
     failing loudly would be worst. Anything this function cannot understand
     becomes silence, and the harness prompts exactly as it did before.
     """
+    is_antigravity = False
     try:
         raw = sys.stdin.read() if stdin_text is None else stdin_text
         payload = json.loads(raw)
         if not isinstance(payload, dict):
             raise ValueError("hook payload was not a JSON object")
 
-        settings = Path(payload.get("cwd") or os.getcwd()) / ".claude" / "settings.json"
+        # Detect Antigravity payload vs Claude payload
+        if "toolCall" in payload and isinstance(payload["toolCall"], dict):
+            is_antigravity = True
+            tool_call = payload["toolCall"]
+            raw_name = tool_call.get("name", "")
+            raw_args = tool_call.get("args", {})
+
+            # Map Antigravity shapes to Claude shapes for unified rules
+            if raw_name == "run_command":
+                payload["tool_name"] = "Bash"
+                payload["tool_input"] = {"command": raw_args.get("CommandLine", "")}
+            elif raw_name == "view_file":
+                payload["tool_name"] = "Read"
+                payload["tool_input"] = {"path": raw_args.get("AbsolutePath", "")}
+            else:
+                payload["tool_name"] = raw_name
+                payload["tool_input"] = raw_args
+
+            # Use workspacePaths if available, fallback to cwd
+            workspace_paths = payload.get("workspacePaths", [])
+            cwd = workspace_paths[0] if workspace_paths else os.getcwd()
+        else:
+            cwd = payload.get("cwd") or os.getcwd()
+
+        settings = Path(cwd) / ".claude" / "settings.json"
         rules = pr.load_rules(settings)
-        decision = decide(payload, rules, away_mod.is_away(), ask_boss_over_socket)
+        decision = decide(
+            payload,
+            rules,
+            away_mod.is_away(),
+            ask_boss_over_socket,
+            is_antigravity=is_antigravity,
+        )
     except Exception as exc:  # noqa: BLE001 - see docstring
         decision = Decision(None, f"approval hook stood aside: {exc}")
 
-    print(render(decision))
+    print(render(decision, is_antigravity=is_antigravity))
     return 0
 
 
