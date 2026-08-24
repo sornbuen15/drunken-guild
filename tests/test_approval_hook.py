@@ -372,6 +372,64 @@ def test_the_ticket_key_is_read_from_the_branch_name(branch, expected) -> None:
     assert hook.ticket_from_branch(branch) == expected
 
 
+def _approved(*args, **kwargs):
+    return {"status": "approved", "req_id": "req_learn"}
+
+
+class TestDG296CuratedStaticAllowlist:
+    """DG-296: the shapes `fewer-permission-prompts` found repeated across
+    real transcripts -- previously unlisted, read-only or build/test, and
+    never prompted for again once here. Each command below is the actual
+    shape observed, not a hand-picked simplification, so a rule that looks
+    right but is scoped wrong (a missing subcommand, a stray flag) fails
+    exactly like it would in the terminal."""
+
+    def _allow_rules(self):
+        from pathlib import Path
+
+        settings = json.loads(
+            (
+                Path(__file__).resolve().parents[1] / ".claude" / "settings.json"
+            ).read_text(encoding="utf-8")
+        )
+        return [pr.Rule.parse(entry) for entry in settings["permissions"]["allow"]]
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "uv run ruff check src/ tests/ scripts/",
+            "uv run ruff check .",
+            "uv run mypy src",
+            "uvx bandit -ll -q -r src/ 2>/dev/null",
+            "git fetch --quiet origin",
+            "uv run drunken-usage --project drunken-guild --by ticket",
+        ],
+    )
+    def test_a_previously_prompted_shape_now_needs_no_prompt(self, command) -> None:
+        rules = self._allow_rules()
+        assert pr.is_allowed("Bash", {"command": command}, rules), (
+            f"{command!r} was one of the repeated, read-only shapes DG-296 "
+            "curated -- it must match Layer 1 without a prompt."
+        )
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "uv run ruff format src/ tests/",  # rewrites files -- not read-only
+            "uv run python -c \"import os; os.system('rm -rf /')\"",  # interpreter
+            "git checkout -b feature/DG-1-x",  # mutates the working tree
+        ],
+    )
+    def test_a_mutating_or_arbitrary_exec_shape_was_not_curated_in(
+        self, command
+    ) -> None:
+        """The scan surfaced these same verbs, but the mutating or
+        code-execution variant must not have ridden along with the
+        read-only one it was curated from."""
+        rules = self._allow_rules()
+        assert not pr.is_allowed("Bash", {"command": command}, rules)
+
+
 def test_decide_does_not_mutate_tracked_settings_file(monkeypatch, tmp_path):
     """decide() has a passing test proving it never mutates the tracked settings file."""
     # Create a mock settings.json
@@ -400,3 +458,142 @@ def test_decide_does_not_mutate_tracked_settings_file(monkeypatch, tmp_path):
     # Even if it did write, it shouldn't have changed settings_file.
     # But let's check if the file changed.
     assert settings_file.read_text() == initial_content
+
+
+def _payload_with_cwd(cwd, command=None, tool_name="Bash", mode="default", **extra):
+    tool_input = {"command": command} if tool_name == "Bash" else extra
+    return {
+        "hook_event_name": "PreToolUse",
+        "tool_name": tool_name,
+        "tool_input": tool_input,
+        "permission_mode": mode,
+        "cwd": cwd,
+    }
+
+
+def _local_allow(cwd) -> list:
+    from pathlib import Path
+
+    local = Path(cwd) / ".claude" / "settings.local.json"
+    if not local.exists():
+        return []
+    return json.loads(local.read_text(encoding="utf-8"))["permissions"]["allow"]
+
+
+class TestDG297LocalLearnedPermissions:
+    """DG-297: a Boss-approved call generalizes into a standing rule in the
+    gitignored `settings.local.json` -- so the *next* command of the same
+    shape does not prompt again -- while never-learn actions stay exactly as
+    unlearnable as they were before, no matter how many times they are
+    approved."""
+
+    def test_an_approved_call_is_generalized_and_recorded_locally(
+        self, tmp_path
+    ) -> None:
+        decision = hook.decide(
+            _payload_with_cwd(str(tmp_path), "pytest -k some_test"),
+            pr.Rules(allow=[], deny=[]),
+            away=True,
+            ask_boss=_approved,
+        )
+        assert decision.permission == "allow"
+        assert "Bash(pytest:*)" in _local_allow(tmp_path)
+
+    def test_the_tracked_settings_file_is_never_touched(self, tmp_path) -> None:
+        claude_dir = tmp_path / ".claude"
+        claude_dir.mkdir()
+        tracked = claude_dir / "settings.json"
+        tracked.write_text(
+            '{"permissions": {"allow": [], "deny": []}}', encoding="utf-8"
+        )
+        before = tracked.read_text(encoding="utf-8")
+
+        hook.decide(
+            _payload_with_cwd(str(tmp_path), "pytest -k some_test"),
+            pr.Rules(allow=[], deny=[]),
+            away=True,
+            ask_boss=_approved,
+        )
+        assert tracked.read_text(encoding="utf-8") == before
+
+    def test_the_next_command_of_the_same_shape_needs_no_prompt(self, tmp_path) -> None:
+        hook.decide(
+            _payload_with_cwd(str(tmp_path), "pytest -k first"),
+            pr.Rules(allow=[], deny=[]),
+            away=True,
+            ask_boss=_approved,
+        )
+        rules = pr.load_layered_rules(tmp_path)
+        assert pr.is_allowed("Bash", {"command": "pytest -k second"}, rules.allow)
+
+    def test_a_wrapped_invocation_generalizes_to_wrapper_and_target(
+        self, tmp_path
+    ) -> None:
+        """`uv run pytest` is the shape that was actually approved --
+        generalizing only as far as `uv run` would allow any future `uv
+        run <anything>`, which is arbitrary code execution wearing a scope."""
+        hook.decide(
+            _payload_with_cwd(str(tmp_path), "uv run pytest -x tests/"),
+            pr.Rules(allow=[], deny=[]),
+            away=True,
+            ask_boss=_approved,
+        )
+        assert "Bash(uv run pytest:*)" in _local_allow(tmp_path)
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "rm -rf /tmp/x",
+            "sudo apt install x",
+            "git push --force origin main",
+            "git reset --hard HEAD~5",
+        ],
+    )
+    def test_a_never_learn_command_is_approved_once_but_not_recorded(
+        self, tmp_path, command
+    ) -> None:
+        """The Boss's yes still applies to *this* call -- refusing to record
+        it is not a second no. It just means the next one like it prompts
+        again, same as if this had never happened."""
+        decision = hook.decide(
+            _payload_with_cwd(str(tmp_path), command),
+            pr.Rules(allow=[], deny=[]),
+            away=True,
+            ask_boss=_approved,
+        )
+        assert decision.permission == "allow"
+        assert _local_allow(tmp_path) == []
+
+    def test_a_never_learn_path_is_not_recorded(self, tmp_path) -> None:
+        hook.decide(
+            _payload_with_cwd(
+                str(tmp_path),
+                tool_name="Write",
+                path=str(tmp_path / ".env"),
+            ),
+            pr.Rules(allow=[], deny=[]),
+            away=True,
+            ask_boss=_approved,
+        )
+        assert _local_allow(tmp_path) == []
+
+    def test_a_compound_command_is_not_generalized(self, tmp_path) -> None:
+        """Approval covered the whole chain that was actually run, not the
+        shape of its first segment alone -- recording just `git status`
+        would grant more than the Boss ever saw."""
+        hook.decide(
+            _payload_with_cwd(str(tmp_path), "git status && echo done"),
+            pr.Rules(allow=[], deny=[]),
+            away=True,
+            ask_boss=_approved,
+        )
+        assert _local_allow(tmp_path) == []
+
+    def test_a_bare_interpreter_invocation_is_not_generalized(self, tmp_path) -> None:
+        hook.decide(
+            _payload_with_cwd(str(tmp_path), 'python -c "import os"'),
+            pr.Rules(allow=[], deny=[]),
+            away=True,
+            ask_boss=_approved,
+        )
+        assert _local_allow(tmp_path) == []
