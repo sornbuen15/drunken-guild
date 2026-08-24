@@ -30,16 +30,13 @@
       "Bash(head:*)",
       "Bash(tail:*)",
       "Bash(python scripts/*)",
-      "Bash(bash *)",
-      "Bash(./*.sh)",
+      "Bash(./scripts/*.sh)",
       "Bash(uv run drunken-away:*)",
-      "Bash(claude:*)",
-      "Read(*)",
-      "Write(*)",
-      "find_by_name(*)",
-      "grep_search(*)",
-      "list_dir(*)"
-
+      "Read(./**/*)",
+      "Write(./**/*)",
+      "find_by_name(./**/*)",
+      "grep_search(./**/*)",
+      "list_dir(./**/*)"
     ],
     "deny": [
       "Bash(git push --force:*)",
@@ -61,7 +58,7 @@
             "type": "command",
             "command": "uv run --directory \"${CLAUDE_PROJECT_DIR:-.}\" drunken-approval-hook",
             "timeout": 1800,
-            "statusMessage": "Checking with the Boss…"
+            "statusMessage": "Checking with the Boss\u2026"
           }
         ]
       }
