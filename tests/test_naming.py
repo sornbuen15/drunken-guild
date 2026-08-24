@@ -130,6 +130,9 @@ OLD_PRODUCT = re.compile(r"Drunken[- ]Team|drunken-ai-team|Drunken-Agy|drunken_a
 #:     `~/.drunken/projects.json`, pointing at the fallback checkout this repo is
 #:     under standing instruction to keep. Reporting what the registry holds has
 #:     to report that key.
+#:   * DG-306's fixture and finding, which needs a second live registry key
+#:     distinct from `drunken-guild` to demonstrate the multi-project bug --
+#:     `drunken-team` is the real one that actually exposed it.
 LOWERCASE_ALLOWED = (
     "~/Projects/drunken-team",
     "uv tool uninstall drunken-team",
@@ -144,6 +147,9 @@ LOWERCASE_ALLOWED = (
     "`drunken-team`, the fallback",
     "drunken-team/src",
     "`drunken-guild`, `drunken-team`, `beta`, `alpha`",
+    "drunken-team registered before drunken-guild",
+    "resolved to drunken-team's channel",
+    '"drunken-team": {',
 )
 
 #: Records exist to name what was retired, so they are exempt wholesale.
