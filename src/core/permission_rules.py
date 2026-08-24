@@ -1,6 +1,6 @@
 """Matching a tool call against Claude Code permission rules.
 
-DT-236 needs this because the PreToolUse hook has to answer one question
+DG-236 needs this because the PreToolUse hook has to answer one question
 before it does anything else: *is this call already forbidden?* The harness
 keeps its own copy of that judgement, but a hook that hands remote approval
 authority over tool calls cannot depend on being asked in the right order --
@@ -270,6 +270,30 @@ def load_rules(settings_path: Path | str, base_dir: Optional[str] = None) -> Rul
             deny.append(_AlwaysMatches(tool="", specifier=None, base_dir=base_dir))
 
     return Rules(allow=allow, deny=deny)
+
+
+#: The gitignored, per-worktree file the approval hook learns into (DG-297).
+#: `settings.json` is the shared, committed policy; this sits beside it and
+#: is never tracked -- see the `.claude/*` / `!.claude/settings.json` pair in
+#: `.gitignore`.
+LOCAL_SETTINGS_FILENAME: Final = "settings.local.json"
+
+
+def load_layered_rules(project_dir: Path | str) -> Rules:
+    """The tracked policy plus this worktree's locally learned overrides.
+
+    Mirrors what the harness itself merges for a Claude Code project:
+    `.claude/settings.json` (shared, committed) and `.claude/settings.local.json`
+    (personal, gitignored) stack, with the local file adding to -- never
+    replacing -- the tracked one. Only `allow` is layered in from the local
+    file: a personal override that could add a `deny` nobody else can see
+    would be its own kind of surprise, and the tracked deny list already
+    covers what needs to hold for everyone.
+    """
+    base = Path(project_dir) / ".claude"
+    tracked = load_rules(base / "settings.json")
+    local = load_rules(base / LOCAL_SETTINGS_FILENAME)
+    return Rules(allow=[*tracked.allow, *local.allow], deny=tracked.deny)
 
 
 def _segments(tool_name: str, tool_input: dict[str, Any]) -> list[dict[str, Any]]:

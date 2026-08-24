@@ -38,7 +38,7 @@ async def test_jira_submit_for_review(mock_get_client: AsyncMock) -> None:
     assert result["status"] == "In Review"
 
 
-# --- DT-235: the server must not die before it can explain itself ----------
+# --- DG-235: the server must not die before it can explain itself ----------
 
 
 def test_startup_without_project_does_not_kill_the_server() -> None:
@@ -52,7 +52,7 @@ def test_startup_without_project_does_not_kill_the_server() -> None:
     from jira_mcp.server import parse_project_arg
 
     assert parse_project_arg([]) is None
-    assert parse_project_arg(["--project", "dt"]) == "dt"
+    assert parse_project_arg(["--project", "dg"]) == "dg"
 
 
 def test_tool_without_a_context_explains_the_fix() -> None:
@@ -74,12 +74,12 @@ def test_tool_without_a_context_explains_the_fix() -> None:
     assert "--project" in err.remediation
 
 
-# --- DT-234: a ticket with nowhere to appear ------------------------------
+# --- DG-234: a ticket with nowhere to appear ------------------------------
 #
 # ALPHA (39 issues) and BETA (131) are business-type Jira projects. They cannot
 # have an agile board at all, so work filed there succeeds, returns a key,
 # and is then invisible. Nothing errors -- which is exactly the silent
-# failure mode that produced §1.1 and DT-235.
+# failure mode that produced §1.1 and DG-235.
 
 
 class _FakeClient(JiraClient):
@@ -95,7 +95,7 @@ class _FakeClient(JiraClient):
         self.email = "e@x"
         self.token = "t"  # noqa: S105
         self.project_key = "ALPHA"
-        # DT-251 replaced the two warning-specific caches with one board
+        # DG-251 replaced the two warning-specific caches with one board
         # profile; the warning is now derived from it. What this class stubs,
         # and what the tests below assert, are unchanged.
         self._profile = None
@@ -128,7 +128,7 @@ async def test_warns_when_the_project_has_no_board() -> None:
 @pytest.mark.asyncio
 async def test_silent_when_a_board_exists() -> None:
     """Zero added tokens on the healthy path."""
-    client = _FakeClient(boards=[{"id": 72, "name": "DT board"}])
+    client = _FakeClient(boards=[{"id": 72, "name": "Drunken-Guild (DG)"}])
     assert await client.board_warning() is None
 
 
@@ -176,10 +176,10 @@ async def test_create_issue_is_unchanged_when_healthy(
     from jira_mcp.server import jira_create_issue
 
     mock_client = AsyncMock()
-    mock_client.create_issue.return_value = {"ok": True, "key": "DT-40"}
+    mock_client.create_issue.return_value = {"ok": True, "key": "DG-40"}
     mock_client.board_warning.return_value = None
     mock_get_client.return_value = mock_client
 
     result = await jira_create_issue("summary", "description")
 
-    assert json.loads(result) == {"ok": True, "key": "DT-40"}
+    assert json.loads(result) == {"ok": True, "key": "DG-40"}

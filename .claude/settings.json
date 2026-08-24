@@ -20,6 +20,11 @@
       "Bash(pip-audit:*)",
       "Bash(gitleaks detect:*)",
       "Bash(uv run drunken-doctor:*)",
+      "Bash(uv run drunken-usage:*)",
+      "Bash(uv run ruff check:*)",
+      "Bash(uv run mypy:*)",
+      "Bash(uvx bandit:*)",
+      "Bash(git fetch:*)",
       "Bash(./scripts/verify_clean_install.sh)",
       "Bash(ls:*)",
       "Bash(cat:*)",
@@ -29,8 +34,14 @@
       "Bash(wc:*)",
       "Bash(head:*)",
       "Bash(tail:*)",
-      "Bash(uv run drunken-away:*)"
-
+      "Bash(python scripts/*)",
+      "Bash(./scripts/*.sh)",
+      "Bash(uv run drunken-away:*)",
+      "Read(./**/*)",
+      "Edit(./**/*)",
+      "find_by_name(./**/*)",
+      "grep_search(./**/*)",
+      "list_dir(./**/*)"
     ],
     "deny": [
       "Bash(git push --force:*)",
@@ -52,7 +63,7 @@
             "type": "command",
             "command": "uv run --directory \"${CLAUDE_PROJECT_DIR:-.}\" drunken-approval-hook",
             "timeout": 1800,
-            "statusMessage": "Checking with the Boss…"
+            "statusMessage": "Checking with the Boss\u2026"
           }
         ]
       }

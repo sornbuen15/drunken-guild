@@ -1,5 +1,5 @@
 # mypy: ignore-errors
-"""DT-259. A source file excluded by .gitignore must stop the commit.
+"""DG-259. A source file excluded by .gitignore must stop the commit.
 
 `.gitignore` carries `*token*` as a credential-hygiene rule. It matched
 tests/test_jira_token_economy.py, `git add -A` skipped it without a word, and
@@ -36,13 +36,17 @@ class TestWhatCountsAsASourceFile:
         )
 
     def test_a_shared_skill_counts(self) -> None:
-        """The third time this bit, in one session. `.agents/` is ignored as
-        Antigravity's state, but `.agents/skills/` is the cross-agent
-        instruction layer and is deliberately tracked -- so a NEW skill was
-        invisible to `git add` while the existing ones kept working, because
-        gitignore does not affect files already in the index. The docs pointing
-        at it would have shipped referencing a file that was not in the repo."""
-        assert guard.is_source(Path(".agents/skills/jira-tickets/SKILL.md"))
+        """A skill is source, and nothing else in the tool chain would say so.
+
+        ruff, mypy and pytest all stop at `src`, `tests` and `scripts`, so an
+        ignore rule that swallowed a skill would be caught here or nowhere. The
+        original form of this bit three times in one session, back when the
+        tracked copy lived under an ignored `.agents/` -- existing skills kept
+        working because gitignore does not affect files already in the index,
+        so only a NEW one was invisible, and the docs pointing at it would have
+        shipped referencing a file that was not in the repository."""
+        assert guard.is_source(Path("skills/kanban/jira-tickets/SKILL.md"))
+        assert guard.is_source(Path("agents/principal-engineer.md"))
 
     def test_antigravity_state_does_not(self) -> None:
         """`.agents/` proper is not ours and is ignored on purpose."""
@@ -63,7 +67,7 @@ class TestTheRepositoryRoot:
     """The fourth occurrence, and the first one CI caught rather than a person.
 
     `.gitignore` listed `Dockerfile` under "Docker simulation config (local
-    test only, do not commit)". DT-228 turned it into a deliverable -- it is how
+    test only, do not commit)". DG-228 turned it into a deliverable -- it is how
     the pinned install is verified -- and the stale rule kept it out of #114
     while that PR described it at length. `.dockerignore` went in; the
     Dockerfile did not.
@@ -85,6 +89,13 @@ class TestTheRepositoryRoot:
     def test_ordinary_ignored_root_files_do_not(self) -> None:
         assert not guard.is_source(Path(".coverage"))
         assert not guard.is_source(Path("drunken_discord_raw.log"))
+
+    def test_the_session_checkpoint_scratchpad_does_not(self) -> None:
+        """SESSION_CHECKPOINT.md is a session scratchpad, not project record --
+        the Boss confirmed it belongs to whoever's session wrote it, not to git
+        (DG-293). Flagging it here would make the guard noise on every session,
+        same failure as an unrecognized scratch file."""
+        assert not guard.is_source(Path("SESSION_CHECKPOINT.md"))
 
 
 class TestTheGuardItself:
@@ -114,7 +125,7 @@ class TestTheGuardItself:
 
 class TestItIsWiredIntoPreCommit:
     def test_the_hook_is_declared(self) -> None:
-        """A guard nobody runs is a comment. DT-258's whole lesson is that the
+        """A guard nobody runs is a comment. DG-258's whole lesson is that the
         pipeline reported success throughout."""
         config = Path(__file__).resolve().parent.parent / ".pre-commit-config.yaml"
 

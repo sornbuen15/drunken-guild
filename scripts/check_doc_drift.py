@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Fail the build when documentation names something that no longer exists.
 
-DT-238 was a manual sweep of 34 stale references. The reason it was needed at
+DG-238 was a manual sweep of 34 stale references. The reason it was needed at
 all is that ``--workspace`` stayed advertised in ``README.md`` for two releases
 after it was deleted, and it took four passes over this repo to notice. A sweep
 has a shelf life; this does not.
@@ -34,14 +34,23 @@ class Retired(NamedTuple):
 
 #: Every name that has been removed. Add to this in the PR that removes one.
 RETIRED = (
-    Retired("--workspace", "DT-224", "--project <id>"),
+    Retired("--workspace", "DG-224", "--project <id>"),
     Retired("drunken-register", "S11 / 2.2.0", "drunken-init"),
-    Retired("jira_mcp/config.py", "DT-224 (S3)", "core.registry + core.secrets"),
-    Retired("AGY_DAEMON_SOCKET", "DT-244", "DRUNKEN_DAEMON_SOCKET"),
-    Retired("agy_pids.json", "DT-244", "pids.json"),
-    Retired("com.drunkenteam.agy-daemon", "DT-244", "com.drunkenteam.daemon"),
-    Retired("discord_outbox.json", "DT-232 / DT-243", "$DRUNKEN_HOME/approvals.json"),
-    Retired("Silent Wait Protocol", "DT-232", "request_boss_approval_async"),
+    Retired("jira_mcp/config.py", "DG-224 (S3)", "core.registry + core.secrets"),
+    Retired("AGY_DAEMON_SOCKET", "DG-244", "DRUNKEN_DAEMON_SOCKET"),
+    Retired("agy_pids.json", "DG-244", "pids.json"),
+    Retired("com.drunkenteam.agy-daemon", "DG-244", "com.drunkenteam.daemon"),
+    Retired("discord_outbox.json", "DG-232 / DG-243", "$DRUNKEN_HOME/approvals.json"),
+    Retired("Silent Wait Protocol", "DG-232", "request_boss_approval_async"),
+    Retired("sync_skills.sh", "DG-269", "install_skills.sh"),
+    Retired("sync_agents.sh", "DG-269", "install_agents.sh"),
+    Retired("sync_skills.ps1", "DG-269", "install_skills.ps1"),
+    Retired("sync_agents.ps1", "DG-269", "install_agents.ps1"),
+    Retired(".agents/skills/", "DG-267", "skills/ and agents/, installed by script"),
+    Retired("Drunken-Team", "DG-274", "Drunken Guild"),
+    Retired("Drunken Team", "DG-274", "Drunken Guild"),
+    Retired("drunken-ai-team", "DG-274", "drunken-guild"),
+    Retired("Drunken-Team-Guide.md", "DG-274", "Drunken-Guild-Guide.md"),
 )
 
 #: Documents whose job is to record what changed. They have to be able to name
@@ -51,8 +60,26 @@ RECORDS = frozenset(
         "SESSION_CHECKPOINT.md",
         ".local_backlog.md",
         "CHANGELOG.md",
+        # The retirement index. It exists to say what was withdrawn and what
+        # replaced it, so it has to be able to name the withdrawn thing. It took
+        # over that job from the per-directory notes when `_not_used/` stopped
+        # being committed (DG-291) -- see RECORD_DIRS below, which is now about
+        # a working directory rather than a tracked one.
+        "RETIRED.md",
     }
 )
+
+#: Directories where *every* document is a record. `_not_used/` is one by
+#: definition: the standing rule is that a retired thing moves there with a note
+#: saying what it was and what replaced it, so a note that may not name the
+#: retired thing cannot do its job. Listing each RETIRED.md by name in RECORDS
+#: would mean this check needs editing every time something is retired -- which
+#: is the moment it would instead be switched off.
+#:
+#: It is no longer tracked (DG-291), so on a fresh clone this matches nothing.
+#: That is not a reason to remove it: the directory still exists in a working
+#: checkout, and a note read from disk must not be reported as drift.
+RECORD_DIRS = ("_not_used",)
 
 #: Put this on a line that must keep a retired name for a stated reason.
 ESCAPE = "drift-ok"
@@ -60,6 +87,13 @@ ESCAPE = "drift-ok"
 #: Not documentation. `.claude/worktrees` and the Antigravity brain hold whole
 #: copies of the repo at older commits — scanning them reports drift that is
 #: simply the past, and they are not ours to edit in any case.
+#:
+#: DG-300: matched against each path *relative to REPO_ROOT*, not the
+#: absolute path. Every linked worktree this harness creates lives at
+#: `<repo>/.claude/worktrees/<name>`, which makes `.claude` an ancestor of
+#: REPO_ROOT itself when running from inside one -- matching on the absolute
+#: path meant `.claude` appeared in every file's parts there, and every
+#: document in the repo was silently skipped.
 SKIPPED_DIRS = frozenset(
     {".venv", ".git", "node_modules", "build", "not_use", ".claude", ".mypy_cache"}
 )
@@ -75,7 +109,9 @@ def documents() -> list[Path]:
     found = [
         path
         for path in REPO_ROOT.rglob("*.md")
-        if not (SKIPPED_DIRS & set(path.parts)) and path.name not in RECORDS
+        if not (SKIPPED_DIRS & set(path.relative_to(REPO_ROOT).parts))
+        and path.name not in RECORDS
+        and not (set(RECORD_DIRS) & set(path.relative_to(REPO_ROOT).parts))
     ]
     found += [
         path

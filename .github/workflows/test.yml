@@ -2,7 +2,7 @@ name: CI
 
 # Previously this ran only on main. Nearly all work lands via PRs into develop,
 # so for months the workflow simply never ran for any of it — which is how CI
-# stayed red from 2026-06-25 onward without anyone noticing (DT-179). Watching
+# stayed red from 2026-06-25 onward without anyone noticing (DG-179). Watching
 # develop is the part that makes the rest of this file worth having.
 on:
   push:
@@ -25,9 +25,60 @@ env:
   DISCORD_CHANNEL_ID: "123456789"
 
 jobs:
+  # GitHub filters paths per *workflow*, not per job, so the obvious
+  # `paths-ignore: ["**.md"]` would also switch off the secret scan and the
+  # documentation-drift check -- the two checks that most need to run when the
+  # change is markdown. This job answers the narrower question instead, and the
+  # jobs that only care about Python read the answer.
+  changes:
+    name: what changed
+    runs-on: ubuntu-latest
+    outputs:
+      code: ${{ steps.probe.outputs.code }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The diff needs both ends of the range present.
+          fetch-depth: 0
+
+      - id: probe
+        env:
+          BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          # Fails open, deliberately. A new branch reports an all-zero `before`
+          # and a force-push can name a commit that is no longer reachable; in
+          # either case the honest answer is "unknown", and a silent skip is the
+          # failure mode this repo has been bitten by before. Unknown runs
+          # everything.
+          if [ -z "$BASE" ] \
+             || [ "$BASE" = "0000000000000000000000000000000000000000" ] \
+             || ! git cat-file -e "$BASE^{commit}" 2>/dev/null; then
+            echo "code=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Anything that is not markdown counts as code, including this
+          # workflow, pyproject.toml and the lockfile.
+          #
+          # Counted rather than tested with `grep -qv`. That spelling reads
+          # correctly and is wrong: BSD grep returns 1 when a non-matching line
+          # exists and 0 on empty input -- exactly inverted -- so the same file
+          # would have been gated one way on a maintainer's Mac and the other
+          # way on the GNU grep in CI. `-cv` means the same thing on both.
+          # The trailing `|| true` is load-bearing: grep exits 1 when the count
+          # is zero, which under `set -e` would kill the step.
+          non_md=$(git diff --name-only "$BASE" "$GITHUB_SHA" | grep -cv '\.md$' || true)
+          if [ "$non_md" -gt 0 ]; then
+            echo "code=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "code=false" >> "$GITHUB_OUTPUT"
+          fi
+
   test:
     name: test (py${{ matrix.python-version }})
     runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -63,6 +114,9 @@ jobs:
       - name: Tests
         run: pytest
 
+  # No `needs: changes` gate here on purpose. gitleaks scans markdown as
+  # readily as Python, and check_doc_drift.py exists precisely for documentation
+  # changes. This job runs on every push and every pull request.
   security:
     name: security
     runs-on: ubuntu-latest
@@ -77,20 +131,35 @@ jobs:
           python-version: "3.13"
           cache: pip
 
-      # The project itself is not installed here. bandit reads source, and
-      # pip-audit reads the lockfile — installing would only add drunken-team
-      # itself, which is not on PyPI, so --strict would then fail on its own
-      # unauditable package rather than on anything real.
+      # uv is here to export uv.lock for the audit below, not to install the
+      # project. bandit reads source, and pip-audit reads a requirements file --
+      # installing drunken-guild itself would only add a package that is not on
+      # PyPI, so --strict would fail on its own unauditable package.
       - name: Install
         run: |
           python -m pip install --upgrade pip
-          pip install bandit pip-audit
+          pip install bandit pip-audit uv
 
-      # Known CVEs in everything we lock. Fails the build rather than warning:
-      # this is a tool other people install and point at their credentials.
-      # requirements-dev.txt is generated from pyproject (scripts/lock_deps.sh),
-      # so auditing it audits what actually gets installed.
-      - name: Dependency audit
+      # Known CVEs, failing the build rather than warning: this is a tool other
+      # people install and point at their credentials.
+      #
+      # Two audits, because there are two environments and they do not hold the
+      # same versions. The comment here used to claim that auditing
+      # requirements-dev.txt "audits what actually gets installed", which was
+      # simply untrue: the Dockerfile installs from uv.lock, and on 2026-08-23
+      # uv.lock pinned cryptography 49.0.0 -- inside a high-severity advisory --
+      # while requirements-dev.txt held 50.0.0 and reported clean. The audit was
+      # answering about an environment nobody ships (DG-289).
+      #
+      # The shipped one comes first: if only one of these can be believed, it is
+      # the one describing what a user installs.
+      - name: Dependency audit — what ships (uv.lock)
+        run: |
+          uv export --format requirements-txt --no-emit-project --no-dev \
+            > /tmp/shipped-requirements.txt
+          pip-audit --strict --progress-spinner off -r /tmp/shipped-requirements.txt
+
+      - name: Dependency audit — the dev environment
         run: pip-audit --strict --progress-spinner off -r requirements-dev.txt
 
       # Static analysis, gated at MEDIUM and above — a real bar rather than a
@@ -111,7 +180,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITLEAKS_CONFIG: .gitleaks.toml
 
-      # DT-238 was a manual sweep of 34 stale references, needed because
+      # DG-238 was a manual sweep of 34 stale references, needed because
       # --workspace stayed advertised in the README for two releases after it
       # was deleted. A sweep has a shelf life; this does not. Deliberately a
       # grep list rather than a real doc-vs-code checker — the discipline it
@@ -122,6 +191,8 @@ jobs:
   clean-install:
     name: clean install
     runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     steps:
       - uses: actions/checkout@v4
 

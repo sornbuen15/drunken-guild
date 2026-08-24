@@ -96,7 +96,7 @@ class Report:
 def package_version() -> str:
     """The installed version. Single-sourced from package metadata."""
     try:
-        return version("drunken-team")
+        return version("drunken-guild")
     except PackageNotFoundError:
         return "unknown (not installed as a package)"
 
@@ -105,7 +105,7 @@ def declared_version() -> Optional[str]:
     """What the *source tree* declares, read from ``pyproject.toml``.
 
     Not ``importlib.metadata``. That reports whatever happens to be installed in
-    the environment asking, which during DT-256 meant three different answers on
+    the environment asking, which during DG-256 meant three different answers on
     one machine: ``pyproject`` said 2.1.0, the tag said 2.3.0, and the test
     environment's installed copy said 1.6.0. A check about the declaration has
     to read the declaration.
@@ -217,7 +217,7 @@ def newest_tag() -> Optional[str]:
 
 
 def _check_environment(report: Report) -> None:
-    report.add("version.drunken-team", "ok", package_version())
+    report.add("version.drunken-guild", "ok", package_version())
     status, detail = version_verdict(declared_version(), newest_tag())
     report.add(
         "version.declared",
@@ -297,7 +297,16 @@ def _check_paths(report: Report) -> None:
 #: container or another machine puts it elsewhere, and a test must be able to
 #: point it at a fixture.
 ENV_TOOL_ROOT: Final = "DRUNKEN_TOOL_ENV"
-DEFAULT_TOOL_ROOT: Final = "~/.local/share/uv/tools/drunken-team"
+DEFAULT_TOOL_ROOT: Final = "~/.local/share/uv/tools/drunken-guild"
+
+#: Where the *previous* package name installed to. `uv tool` names the
+#: directory after the distribution, so DG-264's rename moved it — and a
+#: constant pointing at the old path made this check answer about a deployment
+#: that is not the one a host launches. Reported by name rather than followed:
+#: an installation under the old name is a real thing to know about, and the
+#: honest report is "you are running a pre-rename install", not silence and not
+#: a green line about the wrong directory.
+LEGACY_TOOL_ROOTS: Final = ("~/.local/share/uv/tools/drunken-team",)
 
 #: Modules whose absence from the deployment has actually mattered. Not every
 #: module — a list that tries to be exhaustive goes stale silently, and the
@@ -343,6 +352,87 @@ def compare_deployment(env_root: Path, modules: Sequence[str]) -> dict[str, list
     return {"present": present, "missing": missing}
 
 
+#: The trees ``pyproject``'s ``packages`` ships, and where each lives in the
+#: checkout. ``scripts`` sits at the root; the rest are under ``src/``.
+#:
+#: Content is compared over all of these rather than over
+#: :data:`DEPLOYED_MODULES`. That list is a curated handful kept deliberately
+#: short, chosen as *evidence* that a merge was not deployed — and a file it
+#: does not name is exactly how DG-275's fix sat undeployed while this check
+#: read green.
+PACKAGED_TREES: Final = (
+    "core",
+    "route",
+    "service",
+    "jira_mcp",
+    "discord_mcp",
+    "scripts",
+)
+
+#: How many stale files to name before summarising. Long enough to act on,
+#: short enough that the report stays a report.
+_STALE_NAMES_SHOWN: Final = 5
+
+
+def _source_package_dir(source_root: Path, package: str) -> Optional[Path]:
+    """Where *package* lives in the checkout, or ``None`` if it does not."""
+    for candidate in (source_root / "src" / package, source_root / package):
+        if candidate.is_dir():
+            return candidate
+    return None
+
+
+def compare_deployed_content(
+    env_root: Path, source_root: Path, packages: Sequence[str]
+) -> dict[str, list[str]]:
+    """Which deployed files differ from the checkout they were installed from.
+
+    Presence is not currency. :func:`compare_deployment` answers "is this module
+    there", which a three-month-old copy passes exactly as well as one installed
+    a minute ago. On 2026-08-23 that reported all seven modules present while
+    the deployment was 22 files behind, including the bridge DG-275 had just
+    stopped from reading a ``.env`` found by climbing.
+
+    Compared as bytes rather than by mtime: ``uv tool install`` copies, so a
+    timestamp says when the file was written, not which revision it holds.
+
+    ``stale`` is deployed-but-different, ``absent`` is in the checkout and not
+    deployed at all. Files only in the deployment are ignored — a stale build
+    artefact left behind is not evidence about what merged.
+    """
+    site_dirs = sorted(env_root.glob("lib/*/site-packages"))
+    stale: list[str] = []
+    absent: list[str] = []
+
+    for package in packages:
+        source_dir = _source_package_dir(source_root, package)
+        if source_dir is None:
+            continue
+        for source_file in sorted(source_dir.rglob("*.py")):
+            if "__pycache__" in source_file.parts:
+                continue
+            relative = Path(package) / source_file.relative_to(source_dir)
+            deployed = next(
+                (site / relative for site in site_dirs if (site / relative).is_file()),
+                None,
+            )
+            if deployed is None:
+                absent.append(str(relative))
+            elif deployed.read_bytes() != source_file.read_bytes():
+                stale.append(str(relative))
+
+    return {"stale": stale, "absent": absent}
+
+
+def describe_drift(result: dict[str, list[str]]) -> str:
+    """One line naming the drifted files, truncated once it stops being useful."""
+    names = result["stale"] + result["absent"]
+    shown = ", ".join(names[:_STALE_NAMES_SHOWN])
+    if len(names) > _STALE_NAMES_SHOWN:
+        shown += f", and {len(names) - _STALE_NAMES_SHOWN} more"
+    return shown
+
+
 def deployed_version(env_root: Path, package: str) -> Optional[str]:
     """The version of *package* inside *env_root*, read from its dist-info.
 
@@ -374,10 +464,135 @@ def compare_pin(deployed: Optional[str], locked: Optional[str]) -> tuple[Status,
     )
 
 
+#: Where the AI layer is installed to, and what shape it takes there.
+#:
+#: Only skills are compared, and only the ones this repository produces. The
+#: Antigravity *agents* are generated with a transformation — the model is
+#: rewritten to its tier equivalent and the skill-index path is repointed — so
+#: they are correctly not byte-identical to their source and comparing them
+#: would report drift on every healthy install.
+AI_LAYER_ROOTS: Final = (
+    ("claude.skills", "~/.claude/skills"),
+    ("antigravity.skills", "~/.gemini/config/skills"),
+)
+
+
+def source_tree_root() -> Optional[Path]:
+    """The checkout this code was loaded from, or ``None`` once installed.
+
+    Located relative to ``__file__``, which :mod:`core.paths` bans for *state*
+    and rightly. This is not state: the question is literally "where is the
+    source I came from", and installed under `uv tool` it resolves inside the
+    virtualenv, finds no ``skills/`` and returns ``None`` — which is the honest
+    answer, because a deployment has no source tree to compare against.
+    """
+    root = Path(__file__).resolve().parent.parent.parent
+    return root if (root / "skills").is_dir() else None
+
+
+def repo_skills(root: Path) -> dict[str, Path]:
+    """Every skill this repository produces, by name."""
+    return {
+        skill.parent.name: skill.parent
+        for skill in sorted((root / "skills").glob("*/*/SKILL.md"))
+    }
+
+
+def compare_ai_layer(root: Path, install_root: Path) -> dict[str, list[str]]:
+    """Which of the repository's skills are absent or different at *install_root*.
+
+    Compared by reading ``SKILL.md`` rather than by mtime or by counting
+    directories. A count matched while `git-workflow` was installed at 120 lines
+    against 196 in the source, and both surfaces reported themselves healthy.
+    """
+    missing: list[str] = []
+    drifted: list[str] = []
+
+    for name, source in repo_skills(root).items():
+        installed = install_root / name / "SKILL.md"
+        if not installed.is_file():
+            missing.append(name)
+            continue
+        try:
+            if installed.read_bytes() != (source / "SKILL.md").read_bytes():
+                drifted.append(name)
+        except OSError:
+            drifted.append(name)
+
+    return {"missing": missing, "drifted": drifted}
+
+
+def _check_ai_layer(report: Report, root: Optional[Path] = None) -> None:
+    """Whether what is installed is what this repository says.
+
+    Nothing checked this before, and the gap was not theoretical. The
+    session-checkpoint stated that ``~/.claude/`` follows this repository; when
+    somebody finally looked, `git-workflow` was installed at 120 lines against
+    196, `project-hygiene` at 68 against 88, three skills were not installed at
+    all, and Antigravity's copy was two months old with 21 of 28 shared skills
+    drifted. Two agents were reading two different halves of the git rules and
+    neither matched the source.
+
+    An absent install root is a **skip**: a container, CI or a fresh clone
+    legitimately has none, and a check that cries wolf there is one everybody
+    learns to ignore. Drift is a **warn** rather than a failure because the
+    remedy is an install, which is the operator's to run, not this tool's.
+    """
+    root = root if root is not None else source_tree_root()
+    if root is None:
+        report.add(
+            "ai_layer.source",
+            "skip",
+            "Running from an installed package, so there is no source tree to "
+            "compare the installed skills against.",
+        )
+        return
+
+    total = len(repo_skills(root))
+    for name, raw in AI_LAYER_ROOTS:
+        install_root = Path(raw).expanduser()
+        if not install_root.is_dir():
+            report.add(f"ai_layer.{name}", "skip", f"Nothing installed at {raw}.")
+            continue
+
+        result = compare_ai_layer(root, install_root)
+        missing, drifted = result["missing"], result["drifted"]
+        if not missing and not drifted:
+            report.add(
+                f"ai_layer.{name}",
+                "ok",
+                f"all {total} skills match the source",
+            )
+            continue
+
+        parts = []
+        if drifted:
+            parts.append(
+                f"{len(drifted)} differ ({', '.join(sorted(drifted)[:4])}"
+                + (", …" if len(drifted) > 4 else "")
+                + ")"
+            )
+        if missing:
+            parts.append(
+                f"{len(missing)} not installed ({', '.join(sorted(missing)[:4])}"
+                + (", …" if len(missing) > 4 else "")
+                + ")"
+            )
+        report.add(
+            f"ai_layer.{name}",
+            "warn",
+            "; ".join(parts)
+            + ". Run scripts/install/install_skills.sh — an install is the "
+            "operator's to run.",
+        )
+
+
 def _check_deployment(
     report: Report,
     env_root: Optional[Path] = None,
     modules: Optional[Sequence[str]] = None,
+    legacy_roots: Optional[Sequence[str]] = None,
+    source_root: Optional[Path] = None,
 ) -> None:
     """Report the gap between this checkout and the environment the host runs.
 
@@ -389,11 +604,43 @@ def _check_deployment(
     A missing environment is a **skip**, not a failure: a container, CI or a
     fresh clone legitimately has none, and a check that cries wolf there is a
     check everyone learns to ignore.
+
+    *source_root* is the checkout to compare deployed content against, and
+    ``None`` means there is none to compare with — which is the ordinary case
+    when the installed ``drunken-doctor`` runs itself. Unlike the other three
+    parameters, ``None`` here is an answer rather than "use the default", so
+    :func:`run_doctor` resolves it rather than this function: a check that
+    quietly located its own source tree would report on a checkout the caller
+    never named.
+
+    Drift is a **warn**, matching `ai_layer.source` and the missing-module case
+    directly above. The failure this fixes was a green line, not an ignored
+    yellow one, and the remedy is an install — the operator's to run, never
+    this tool's.
     """
     env_root = env_root if env_root is not None else tool_env_root()
     modules = modules if modules is not None else DEPLOYED_MODULES
+    # Injectable for the same reason as `env_root`: otherwise this check reads
+    # the developer's own machine, and a test asserting "no install is a skip"
+    # passes or fails depending on whose laptop runs it.
+    legacy_roots = legacy_roots if legacy_roots is not None else LEGACY_TOOL_ROOTS
 
     if not env_root.is_dir():
+        stale = [
+            path
+            for path in (Path(raw).expanduser() for raw in legacy_roots)
+            if path.is_dir()
+        ]
+        if stale:
+            report.add(
+                "deployment.tool_env",
+                "warn",
+                f"Nothing installed at {env_root}, but {stale[0]} exists. That "
+                "is an install under the previous package name, so every "
+                "`drunken-*` command on PATH predates the rename. Reinstall "
+                "with `uv tool install .`.",
+            )
+            return
         report.add(
             "deployment.tool_env",
             "skip",
@@ -417,12 +664,30 @@ def _check_deployment(
                 "not deploy it to the environment the host actually launches."
             ),
         )
-    else:
+    elif (
+        source_root is not None
+        and (drift := compare_deployed_content(env_root, source_root, PACKAGED_TREES))
+        and (drift["stale"] or drift["absent"])
+    ):
+        count = len(drift["stale"]) + len(drift["absent"])
         report.add(
             "deployment.tool_env",
-            "ok",
-            f"{env_root} carries all {len(result['present'])} checked modules",
+            "warn",
+            f"{env_root} carries all {len(result['present'])} checked modules, "
+            f"but {count} file(s) differ from {source_root}: " + describe_drift(drift),
+            remediation=(
+                "Reinstall so the deployment matches the checkout: "
+                "uv tool install . --reinstall — every module being present "
+                "says nothing about which revision of it is there."
+            ),
         )
+    else:
+        detail = f"{env_root} carries all {len(result['present'])} checked modules"
+        if source_root is None:
+            detail += ", and there is no checkout here to compare their content against"
+        else:
+            detail += f", matching {source_root}"
+        report.add("deployment.tool_env", "ok", detail)
 
     status, detail = compare_pin(deployed_version(env_root, "mcp"), _locked_version())
     report.add("deployment.mcp_pin", status, detail)
@@ -546,18 +811,26 @@ def _check_secret(report: Report, project_id: str, context: ProjectContext) -> N
 
 
 def _check_jira_live(report: Report, project_id: str, context: ProjectContext) -> None:
+    """Confirm the credential works *and* that the project key exists.
+
+    Two facts, two calls. DG-260: this printed `OK ... (project ALPHA)` off the
+    identity call alone, while Jira answered "No project could be found with
+    key 'ALPHA'". The key was echoed straight back from the registry, so the line
+    proved only that the registry could be read.
+    """
     name = f"project.{project_id}.jira"
     try:
         jira = context.require_jira()
         identity = context.verify_jira_identity()
+        project = context.verify_jira_project()
     except DrunkenError as exc:
         report.add_error(name, exc)
         return
+    named = f"{project.key} — {project.name}" if project.name else project.key
     report.add(
         name,
         "ok",
-        f"{jira.url} as {identity.display_name or identity.email} "
-        f"(project {jira.project_key})",
+        f"{jira.url} as {identity.display_name or identity.email} (project {named})",
     )
 
 
@@ -687,7 +960,8 @@ def run_doctor(
         _check_project(report, project_id, registry, offline)
 
     _check_daemon(report)
-    _check_deployment(report)
+    _check_deployment(report, source_root=source_tree_root())
+    _check_ai_layer(report)
 
     if secrets.cached_refs():
         report.add(
@@ -726,7 +1000,7 @@ def main() -> int:
 
     parser = argparse.ArgumentParser(
         prog="drunken-doctor",
-        description="Diagnose drunken-team configuration, credentials and connectivity.",
+        description="Diagnose drunken-guild configuration, credentials and connectivity.",
     )
     parser.add_argument("--project", help="Check only this project id.")
     parser.add_argument(

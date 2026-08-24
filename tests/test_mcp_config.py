@@ -3,7 +3,7 @@
 that ships without an entry there is code nobody can call.
 
 That is not hypothetical: `board_available_tasks` and the `blocked` lane merged
-in DT-233 and stayed unreachable from inside this project, because `.mcp.json`
+in DG-233 and stayed unreachable from inside this project, because `.mcp.json`
 declared two of the three servers. Nothing failed -- the tools simply were not
 there. This test is the thing that would have said so.
 """
@@ -52,29 +52,57 @@ def test_pyproject_still_declares_mcp_servers() -> None:
     )
 
 
-#: Servers that ship as entry points and are deliberately not wired anywhere.
-#: Listed by name so an *accidentally* unwired server still fails this test —
-#: which is the whole point of it, and how DT-233's board tools were found to
-#: have shipped unreachable.
+#: Servers that must not come back — not as an entry point, and not in
+#: `.mcp.json`.
+#:
+#: This set used to mean something weaker: *ships, but is deliberately not
+#: wired anywhere*. That was the state DG-265 ended. A package that has never
+#: been released has no compatibility to protect, so shipping a dead server
+#: from day one was a choice rather than an inheritance, and the choice was to
+#: stop.
+#:
+#: Both directions are guarded below, because the two failures look nothing
+#: alike. Re-declaring the entry point puts a runnable command on the PATH of
+#: everyone who installs this. Re-adding it to `.mcp.json` hands its tools back
+#: to every agent in this repo.
 RETIRED_SERVERS = {
-    # DT-250. Jira is the only coordination surface: the assignee says whose
+    # DG-250. Jira is the only coordination surface: the assignee says whose
     # work a ticket is, the status says where it is. A local board beside Jira
-    # is a second surface that can disagree with the first. Kept on disk and
-    # marked unused rather than deleted, so a project that wants one can still
-    # run it — but no project here does.
+    # is a second surface that can disagree with the first. The code is kept at
+    # _not_used/board-mcp/ rather than deleted — an agent does not delete — but
+    # it is no longer packaged, so nothing installs or runs it.
     "drunken-board-mcp",
 }
 
 
 def test_every_mcp_server_is_reachable_from_this_project(mcp_config: dict) -> None:
     """A server that exists but is not declared here cannot be called at all."""
-    declared = set(_declared_servers()) - RETIRED_SERVERS
+    declared = set(_declared_servers())
     configured = set(mcp_config["mcpServers"])
 
     assert declared <= configured, (
         f"{sorted(declared - configured)} ship as entry points but are missing "
         "from .mcp.json, so their tools cannot be called from inside this "
-        "project. This is how DT-233's board tools shipped unreachable."
+        "project. This is how DG-233's board tools shipped unreachable."
+    )
+
+
+def test_a_retired_server_is_not_packaged_again() -> None:
+    """The invariant DG-265 created, and the one nothing else would catch.
+
+    While `drunken-board-mcp` was still an entry point, `pip install` put a
+    runnable command on the PATH of everyone who installed this, for a server
+    whose every tool had been retired. `verify_clean_install.sh` even started it
+    by name to prove it answered a handshake. Re-adding the line would restore
+    all of that silently — the suite would stay green, because a shipped server
+    breaks nothing until somebody runs it.
+    """
+    declared_again = RETIRED_SERVERS & set(_declared_servers())
+    assert not declared_again, (
+        f"{sorted(declared_again)} is retired (DG-250) and has been declared "
+        "again in [project.scripts], so `pip install` will put it on PATH. "
+        "The code lives at _not_used/board-mcp/ and is not packaged. If this "
+        "is deliberate, change RETIRED_SERVERS and say why."
     )
 
 
@@ -88,7 +116,7 @@ def test_a_retired_server_is_not_quietly_wired_back_in(mcp_config: dict) -> None
     """
     wired_again = RETIRED_SERVERS & set(mcp_config["mcpServers"])
     assert not wired_again, (
-        f"{sorted(wired_again)} is retired (DT-250) and has been wired back "
+        f"{sorted(wired_again)} is retired (DG-250) and has been wired back "
         "into .mcp.json. Jira is the only coordination surface — if this is "
         "deliberate, change RETIRED_SERVERS and say why."
     )

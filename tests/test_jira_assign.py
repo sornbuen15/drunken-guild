@@ -31,7 +31,7 @@ class TestResolution:
 
     def test_a_real_name_is_not_a_self_reference(self) -> None:
         assert assign.is_self_reference("Jakkawan") is False
-        assert assign.is_self_reference("sornbuen15@gmail.com") is False
+        assert assign.is_self_reference("owner@example.com") is False
 
     def test_unassign_is_expressed_as_none_not_as_a_name(self) -> None:
         """Jira unassigns on an explicit null accountId. Spelling it as the
@@ -47,7 +47,7 @@ class TestPickingTheRightUser:
         {
             "accountId": "a1",
             "displayName": "Jakkawan R",
-            "emailAddress": "sornbuen15@gmail.com",
+            "emailAddress": "owner@example.com",
         },
         {
             "accountId": "a2",
@@ -59,8 +59,7 @@ class TestPickingTheRightUser:
     def test_an_exact_email_match_wins(self) -> None:
         """Email is the only unambiguous identifier a human is likely to type."""
         assert (
-            assign.pick_user(self.CANDIDATES, "sornbuen15@gmail.com")["accountId"]
-            == "a1"
+            assign.pick_user(self.CANDIDATES, "owner@example.com")["accountId"] == "a1"
         )
 
     def test_an_exact_display_name_match_wins(self) -> None:

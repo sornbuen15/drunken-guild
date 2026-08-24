@@ -1,5 +1,5 @@
 # mypy: ignore-errors
-"""The guard that stops DT-238 from being needed a second time.
+"""The guard that stops DG-238 from being needed a second time.
 
 Testing a checker is worth the effort in one specific way: a check that cannot
 fail is worse than no check, because it reports success. Most of what follows
@@ -38,7 +38,7 @@ def test_it_actually_reads_documents(drift) -> None:
 
     assert len(documents) > 20
     names = {path.name for path in documents}
-    assert {"README.md", "Integration-Guide.md", "Drunken-Team-Guide.md"} <= names
+    assert {"README.md", "Integration-Guide.md", "Drunken-Guild-Guide.md"} <= names
 
 
 def test_it_catches_a_retired_name(drift, tmp_path, monkeypatch) -> None:
@@ -83,8 +83,18 @@ def test_records_of_what_changed_are_not_scanned(drift) -> None:
 
 def test_worktrees_and_vendored_copies_are_not_scanned(drift) -> None:
     """`.claude/worktrees` holds whole copies of this repo at older commits.
-    Reporting drift there is reporting the past, and they are not ours to edit."""
-    assert not [p for p in drift.documents() if ".claude" in p.parts]
+    Reporting drift there is reporting the past, and they are not ours to edit.
+
+    DG-300: checked relative to REPO_ROOT, not the absolute path -- this
+    suite can itself run from inside a linked worktree under
+    `.claude/worktrees/<name>`, which puts `.claude` in every path's
+    *absolute* parts regardless of whether documents() filtered correctly.
+    """
+    assert not [
+        p
+        for p in drift.documents()
+        if ".claude" in p.relative_to(drift.REPO_ROOT).parts
+    ]
 
 
 def test_the_templates_we_hand_out_are_scanned(drift) -> None:

@@ -1,6 +1,6 @@
 """Generate the configuration that hosts, installers and deployments read.
 
-DT-228. Every one of these files was hand-written at least once, and every
+DG-228. Every one of these files was hand-written at least once, and every
 hand-written one drifted: ALPHA's ``.mcp.json`` was still passing ``--workspace``
 two releases after the flag was deleted, and the installed tool environment
 carries ``mcp`` 1.29.0 while ``uv.lock`` pins 1.28.1 because ``uv tool install``
@@ -30,17 +30,36 @@ import shutil
 import subprocess  # nosec B404 - uv, invoked with a fixed argument list
 import sys
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, NamedTuple, Optional
 
 #: The servers a project gets wired to.
 #:
-#: ``drunken-board-mcp`` is deliberately absent. DT-250 retired the local board
-#: and DT-251 wrote down why: a board sitting next to Jira is a second surface
+#: ``drunken-board-mcp`` is deliberately absent. DG-250 retired the local board
+#: and DG-251 wrote down why: a board sitting next to Jira is a second surface
 #: that can disagree with the first, which is the failure this project spent a
-#: session curing. It still exists, marked unused rather than deleted, and it
-#: costs 2,162 tokens per request for a server nothing should call. Onboarding
-#: declared it into every project until DT-228; do not add it back.
+#: session curing. It cost 2,162 tokens per request for a server nothing should
+#: call, and onboarding declared it into every project until DG-228.
+#:
+#: DG-265 finished the job: it is no longer packaged at all, so there is no
+#: command to declare even by accident. The code is kept at
+#: ``_not_used/board-mcp/`` because an agent does not delete. Do not add it back.
 MCP_SERVERS = ("drunken-jira-mcp", "drunken-discord-mcp")
+
+
+def is_drunken_managed(name: str) -> bool:
+    """True for any server this project has ever shipped, current or retired.
+
+    DG-286: a host config that merges but never prunes is why DG-277 found
+    ``drunken-board-mcp`` still declared in Antigravity's config three
+    releases after DG-265 retired it, and had to delete it by hand. This
+    decides ownership by naming convention rather than a list that would
+    need to be remembered and kept current -- every server ``MCP_SERVERS``
+    has ever named follows ``drunken-<name>-mcp``, and nothing outside this
+    project would collide with that prefix by accident. Antigravity's own
+    extras (``kanban-board``, a third-party ``jira-board``) do not match it,
+    which is what keeps them out of reach of the pruning below.
+    """
+    return name.startswith("drunken-") and name.endswith("-mcp")
 
 
 def mcp_config(project_id: str) -> Dict[str, Any]:
@@ -102,13 +121,34 @@ def host_config(project_id: str) -> Dict[str, Any]:
     }
 
 
-def merge_into_host_config(path: Path, project_id: str) -> List[str]:
+class HostConfigDiff(NamedTuple):
+    """What a merge changed, added and removed kept apart on purpose.
+
+    A single flat list would leave a caller guessing which names in it were
+    new and which had just vanished -- printing it as "added/updated" would
+    misreport a deletion as work done, which is exactly the kind of quiet
+    misstatement this project keeps writing post-mortems about.
+    """
+
+    added: List[str]
+    removed: List[str]
+
+    def __bool__(self) -> bool:
+        return bool(self.added or self.removed)
+
+
+def merge_into_host_config(path: Path, project_id: str) -> HostConfigDiff:
     """Add our servers to an existing host config, leaving its own alone.
 
     Antigravity's ``mcp_config.json`` declares servers of its own. Overwriting
-    the file to add ours would take those with it, so entries are merged by name
-    and anything unrecognised is left untouched. Returns the names that changed,
-    so running it twice reports nothing the second time.
+    the file to add ours would take those with it, so entries are merged by
+    name and anything this generator did not author is left untouched.
+
+    "Did not author" is ``is_drunken_managed`` -- a naming convention, not a
+    list. That is what lets a server this project retires (``drunken-board-mcp``,
+    DG-265) disappear on the next regeneration instead of needing another
+    round of DG-277's hand deletion, while a foreign entry that happens to
+    share no prefix with us, like ``kanban-board``, is never touched.
     """
     document: Dict[str, Any] = {}
     if path.is_file():
@@ -122,15 +162,25 @@ def merge_into_host_config(path: Path, project_id: str) -> List[str]:
             ) from None
 
     servers = document.setdefault("mcpServers", {})
-    changed = []
-    for name, entry in host_config(project_id)["mcpServers"].items():
+    current = host_config(project_id)["mcpServers"]
+
+    removed = [
+        name
+        for name in list(servers)
+        if is_drunken_managed(name) and name not in current
+    ]
+    for name in removed:
+        del servers[name]
+
+    added = []
+    for name, entry in current.items():
         if servers.get(name) != entry:
             servers[name] = entry
-            changed.append(name)
+            added.append(name)
 
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(document, indent=2) + "\n", encoding="utf-8")
-    return changed
+    return HostConfigDiff(added=added, removed=removed)
 
 
 def export_requirements(project_root: Path) -> Optional[str]:
@@ -140,7 +190,7 @@ def export_requirements(project_root: Path) -> Optional[str]:
     ignores ``uv.lock`` entirely and resolves afresh inside the declared
     ranges, which is how the installed environment came to hold ``mcp`` 1.29.0
     against a lock pinning 1.28.1 -- both satisfy ``<2`` and nothing reported
-    the difference until ``drunken-doctor`` grew a check for it (DT-252).
+    the difference until ``drunken-doctor`` grew a check for it (DG-252).
 
     Returns ``None`` rather than raising: an environment without ``uv`` can
     still generate its MCP configs, and the caller says what was skipped.
@@ -232,12 +282,14 @@ def main() -> int:
         if not args.out:
             print(json.dumps(host_config(args.project), indent=2))
             return 0
-        changed = merge_into_host_config(Path(args.out).expanduser(), args.project)
-        print(
-            f"{args.out}: {', '.join(changed)} written"
-            if changed
-            else f"{args.out}: already correct, nothing changed"
-        )
+        diff = merge_into_host_config(Path(args.out).expanduser(), args.project)
+        if not diff:
+            print(f"{args.out}: already correct, nothing changed")
+            return 0
+        if diff.added:
+            print(f"{args.out}: added/updated: {', '.join(diff.added)}")
+        if diff.removed:
+            print(f"{args.out}: removed (retired): {', '.join(diff.removed)}")
         return 0
 
     document = json.dumps(mcp_config(args.project), indent=2)

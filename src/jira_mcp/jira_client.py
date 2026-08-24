@@ -1,6 +1,7 @@
 import asyncio
 import base64
 import json
+import re
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -49,7 +50,19 @@ class BoardProfile:
     """
 
     id: Optional[int] = None
-    name: Optional[str] = None
+    #: What the board is attached to, from the Agile API's ``location``.
+    #:
+    #: The board's own ``name`` is deliberately not carried. It is frozen at
+    #: creation and there is no way to change it — a team-managed project offers
+    #: no board-rename UI, and the Agile API creates and deletes boards rather
+    #: than renaming them. Rename the project afterwards and the label is wrong
+    #: forever: this board still answered ``DT board`` months after the project
+    #: became ``Drunken-Guild``. Reporting an unchangeable field beside
+    #: changeable ones is what sends a reader looking for a setting that does
+    #: not exist, so it is not reported at all (DG-274).
+    project_key: Optional[str] = None
+    project_name: Optional[str] = None
+    display_name: Optional[str] = None
     type: Optional[str] = None
     backlog: Optional[bool] = None
     known: bool = True
@@ -131,22 +144,118 @@ async def make_request(
     )
 
 
+#: A heading marker, one to three hashes *followed by a space*. The space is
+#: required on purpose: `#DG-279` is a reference, and ticket bodies are full of
+#: them.
+_MD_HEADING = re.compile(r"^(#{1,3}) +(.*)$")
+
+#: A bullet. Both markers, because both are already in use across this repo's
+#: own ticket bodies and correcting authors is not what this is for.
+_MD_BULLET = re.compile(r"^[-*] +(.*)$")
+
+_MD_FENCE = "```"
+
+
+def _adf_text(text: str) -> List[Dict[str, Any]]:
+    """A text child, or nothing at all — ADF rejects an empty text node."""
+    return [{"type": "text", "text": text}] if text else []
+
+
+def _consume_fence(lines: List[str], index: int) -> tuple[Dict[str, Any], int]:
+    """The code block opening at *index*, and the line after its close.
+
+    An unterminated fence runs to the end rather than raising: this is a ticket
+    body, and losing the rest of it to one missing pair of backticks is a worse
+    outcome than a long code block.
+    """
+    language = lines[index].strip()[len(_MD_FENCE) :].strip()
+    body: List[str] = []
+    index += 1
+    while index < len(lines) and not lines[index].strip().startswith(_MD_FENCE):
+        body.append(lines[index])
+        index += 1
+
+    node: Dict[str, Any] = {
+        "type": "codeBlock",
+        "content": _adf_text("\n".join(body)),
+    }
+    if language:
+        node["attrs"] = {"language": language}
+    return node, index + 1
+
+
 def to_adf(text: str) -> Dict[str, Any]:
-    """Convert plain text into an Atlassian Document Format doc node.
+    """Convert Markdown-ish plain text into an Atlassian Document Format doc.
 
     One paragraph per line; blank lines are separators rather than content,
     because an ADF paragraph carrying an empty text child is rejected by the
     API. A document with no paragraphs at all is not valid either, so wholly
     blank input becomes a single contentless paragraph.
+
+    Headings, bullets and fenced code are recognised (DG-279). Before that
+    every line became a paragraph, so a ticket filed by this project rendered
+    as an undifferentiated wall — including the FINDING / SCOPE / ACCEPTANCE
+    headings the `jira-tickets` skill requires, which arrived as ordinary
+    sentences. :data:`_ADF_BLOCKS` had listed `heading`, `codeBlock` and
+    `listItem` the whole time: the reader half of this pair understood shapes
+    the writer half could not produce.
+
+    Deliberately not a Markdown parser. Four block shapes, no inline marks, no
+    nesting — enough that a ticket reads as a document, and little enough that
+    it cannot mangle a body that was never meant as Markdown.
     """
-    paragraphs: List[Dict[str, Any]] = [
-        {"type": "paragraph", "content": [{"type": "text", "text": stripped}]}
-        for line in text.replace("\r\n", "\n").split("\n")
-        if (stripped := line.strip())
-    ]
-    if not paragraphs:
-        paragraphs.append({"type": "paragraph"})
-    return {"version": 1, "type": "doc", "content": paragraphs}
+    lines = text.replace("\r\n", "\n").split("\n")
+    content: List[Dict[str, Any]] = []
+    items: List[Dict[str, Any]] = []
+
+    def close_list() -> None:
+        if items:
+            content.append({"type": "bulletList", "content": list(items)})
+            items.clear()
+
+    index = 0
+    while index < len(lines):
+        stripped = lines[index].strip()
+
+        if stripped.startswith(_MD_FENCE):
+            close_list()
+            node, index = _consume_fence(lines, index)
+            content.append(node)
+            continue
+
+        if heading := _MD_HEADING.match(stripped):
+            close_list()
+            content.append(
+                {
+                    "type": "heading",
+                    "attrs": {"level": len(heading.group(1))},
+                    "content": _adf_text(heading.group(2).strip()),
+                }
+            )
+        elif bullet := _MD_BULLET.match(stripped):
+            items.append(
+                {
+                    "type": "listItem",
+                    "content": [
+                        {
+                            "type": "paragraph",
+                            "content": _adf_text(bullet.group(1).strip()),
+                        }
+                    ],
+                }
+            )
+        elif stripped:
+            close_list()
+            content.append({"type": "paragraph", "content": _adf_text(stripped)})
+        else:
+            close_list()
+
+        index += 1
+
+    close_list()
+    if not content:
+        content.append({"type": "paragraph"})
+    return {"version": 1, "type": "doc", "content": content}
 
 
 #: Block-level ADF nodes, each of which starts a new line in the flattened text.
@@ -186,6 +295,20 @@ def _adf_leaf(node: Dict[str, Any]) -> Optional[str]:
     return None
 
 
+def _adf_fence(node: Dict[str, Any]) -> str:
+    """A code block rendered whole, marker and all.
+
+    Rendered rather than walked so its body survives verbatim: a `# comment` or
+    a `- flag` inside a fence is shell, not Markdown, and :func:`to_adf` has to
+    be able to read back what it wrote (DG-279).
+    """
+    language = str((node.get("attrs") or {}).get("language") or "")
+    body: List[str] = []
+    for child in node.get("content") or []:
+        _adf_walk(child, body)
+    return f"{_MD_FENCE}{language}\n{''.join(body)}\n{_MD_FENCE}\n"
+
+
 def _adf_walk(node: Any, out: List[str]) -> None:
     """Append *node*'s text to *out*, descending into anything not a leaf."""
     if not isinstance(node, dict):
@@ -197,6 +320,16 @@ def _adf_walk(node: Any, out: List[str]) -> None:
         return
 
     kind = node.get("type")
+
+    # Rendered whole rather than walked, so its body survives verbatim: a
+    # `# comment` or a `- flag` inside a fence is shell, not Markdown, and
+    # `to_adf` has to be able to read back what it wrote (DG-279).
+    if kind == "codeBlock":
+        if out and not out[-1].endswith("\n"):
+            out.append("\n")
+        out.append(_adf_fence(node))
+        return
+
     is_block = kind in _ADF_BLOCKS
     # A block starts a new line, unless one is already open or a bullet marker
     # is waiting for its text -- "- \none" is not a list item.
@@ -204,6 +337,12 @@ def _adf_walk(node: Any, out: List[str]) -> None:
         out.append("\n")
     if kind == "listItem":
         out.append("- ")
+    if kind == "heading":
+        # Written back with its marker so a round trip is lossless. The reader
+        # rendered a heading as a bare line, which meant a ticket written with
+        # structure was read without it -- the same wall by a longer route.
+        level = int((node.get("attrs") or {}).get("level", 1))
+        out.append("#" * level + " ")
 
     for child in node.get("content") or []:
         _adf_walk(child, out)
@@ -215,7 +354,7 @@ def _adf_walk(node: Any, out: List[str]) -> None:
 def from_adf(node: Any) -> str:
     """Flatten an Atlassian Document Format document into plain text.
 
-    The other half of :func:`to_adf`, and the reason DT-255 exists: ADF wraps
+    The other half of :func:`to_adf`, and the reason DG-255 exists: ADF wraps
     one sentence in roughly four times its length, and ``minify_issues`` was
     returning it verbatim. A six-issue search spent 95% of its tokens on markup
     no reader wanted.
@@ -257,7 +396,7 @@ def minify_issues(
     What brief keeps, and why each earns its place:
 
     * ``key``, ``summary``, ``status`` — the question almost every search asks.
-    * ``assignee`` — since DT-250 this is *whose* the work is; there is no other
+    * ``assignee`` — since DG-250 this is *whose* the work is; there is no other
       surface that says so.
     * ``parent`` and ``parent_summary`` — hierarchy for free. Without them an
       agent that needs the Epic makes a second call per issue, so omitting them
@@ -267,8 +406,8 @@ def minify_issues(
 
     * ``description`` — the 95%.
     * ``priority`` — it cannot be set on a team-managed project at all, so every
-      DT issue reads ``Medium``. A field with one possible value is not
-      information; use ``labels`` (DT-255 B3).
+      DG issue reads ``Medium``. A field with one possible value is not
+      information; use ``labels`` (DG-255 B3).
 
     ``brief=False`` keeps both, with the description flattened out of ADF —
     still three to four times smaller than what this function used to return.
@@ -388,9 +527,15 @@ class JiraClient:
                 # disease again.
                 has_backlog = None
 
+        # Only `location` is read. See BoardProfile for why `board["name"]` is
+        # not carried at all.
+        location = board.get("location") or {}
+
         return BoardProfile(
             id=board_id,
-            name=board.get("name"),
+            project_key=location.get("projectKey"),
+            project_name=location.get("projectName"),
+            display_name=location.get("displayName"),
             type=board.get("type"),
             backlog=has_backlog,
             known=True,
@@ -600,12 +745,12 @@ class JiraClient:
     ) -> Dict[str, Any]:
         """Create an issue, with the fields that make it visible once created.
 
-        Everything past ``issue_type`` is optional and was absent until DT-255,
+        Everything past ``issue_type`` is optional and was absent until DG-255,
         which is why this project's Timeline was empty: an Epic with no children
         has nothing to draw. ``parent`` is what makes an issue a child.
 
         ``labels`` stands in for priority. Priority cannot be set on a
-        team-managed project at all -- every DT issue reads ``Medium`` because
+        team-managed project at all -- every DG issue reads ``Medium`` because
         that is the only value it can have -- so a label is the only way to mark
         one ticket as more urgent than another.
 
@@ -641,7 +786,7 @@ class JiraClient:
             token=self.token,
         )
         # The key, not the `self` URL. The URL is derivable from the key and
-        # nobody ever followed it; it was pure cost on every create (DT-255 A4).
+        # nobody ever followed it; it was pure cost on every create (DG-255 A4).
         return {"ok": True, "key": res.get("key")}
 
     async def assignable_users(self, query: str) -> List[Dict[str, Any]]:

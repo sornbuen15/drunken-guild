@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Bring another project under drunken-team in one command.
+"""Bring another project under drunken-guild in one command.
 
 Onboarding used to be four manual steps — write a secret, register the project,
 write an ``.mcp.json``, then find out whether any of it worked. Every one of
@@ -15,7 +15,7 @@ is how ALPHA's copy quietly drifted to a value that no longer authenticates — 
 because a Jira search answers a dead token with ``200`` and an empty list, its
 board simply looked empty for months.
 
-**No paths in the generated config.** Since DT-241 the servers install as
+**No paths in the generated config.** Since DG-241 the servers install as
 commands, so another repository's ``.mcp.json`` names the command and nothing
 else. An absolute path there is one machine's layout committed into everyone
 else's history.
@@ -100,7 +100,7 @@ def build_parser() -> argparse.ArgumentParser:
         description="Register a project and give it a working .mcp.json.",
         epilog=(
             "The MCP config it writes assumes the servers are installed as "
-            "commands: run `uv tool install .` from drunken-team first."
+            "commands: run `uv tool install .` from drunken-guild first."
         ),
     )
     parser.add_argument("project", help="Project id, e.g. alpha")
@@ -180,6 +180,21 @@ def _report_plan(
     print("\nDry run: nothing written.")
 
 
+def _report_host_merge(host: Path, project: str) -> None:
+    """Merge our servers into an existing host config and say what changed.
+
+    Split out of ``main`` to keep it a single conditional rather than a
+    branch that also has to spell out which of added/removed happened.
+    """
+    diff = merge_into_host_config(host, project)
+    print(f"host config     : {host}")
+    print(
+        f"  added/updated : {', '.join(diff.added) if diff.added else '(already current)'}"
+    )
+    if diff.removed:
+        print(f"  removed (retired): {', '.join(diff.removed)}")
+
+
 def main() -> int:
     args = build_parser().parse_args()
     validate_project_id(args.project)
@@ -244,10 +259,7 @@ def main() -> int:
         print(f"mcp config      : {target}")
 
     if args.merge_mcp_config:
-        host = Path(args.merge_mcp_config).expanduser()
-        added = merge_into_host_config(host, args.project)
-        print(f"host config     : {host}")
-        print(f"  added/updated : {', '.join(added) if added else '(already current)'}")
+        _report_host_merge(Path(args.merge_mcp_config).expanduser(), args.project)
 
     print("\nNow prove it actually resolves — a separate step on purpose,")
     print("because a Jira search answers a dead token with 200 and an empty list:")

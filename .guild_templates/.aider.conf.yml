@@ -1,7 +1,7 @@
-# Drunken-Team Aider Configuration
+# Drunken-Guild Aider Configuration
 # Copy this to the root of your project as `.aider.conf.yml`
 
-# Load Drunken-Team conventions
+# Load Drunken-Guild conventions
 conventions:
   - .guild_templates/CONVENTIONS.md
 

@@ -2,7 +2,7 @@
 
 > **This is a template.** Copy it to your project root as `CLAUDE.md`, then replace every
 > `<angle-bracket>` placeholder and delete the sections that do not apply. It is authored in
-> `~/Projects/ai-team-toolkit/templates/CLAUDE.md`; a project's own copy is its own to change.
+> `drunken-guild`'s `templates/CLAUDE.md`; a project's own copy is its own to change.
 >
 > It carries the **coordination and delivery rules** a project needs in order to work with the
 > skills and agents this toolkit installs. It deliberately does not carry the skill-authoring
@@ -25,12 +25,13 @@
     Four layers reach this project, from three different places. Knowing which is which is what
     stops a skill being installed into a project that cannot run it.
 
-    1. **Skills** — installed to `~/.claude/skills/` by the toolkit's `sync_skills.sh`.
+    1. **Skills** — installed to `~/.claude/skills/` by the toolkit's `install_skills.sh`.
        Most need no MCP server at all.
-    2. **Agents** — installed to `~/.claude/agents/` by `sync_agents.sh`.
+    2. **Agents** — installed to `~/.claude/agents/` by `install_agents.sh`.
     3. **MCP servers** — NOT installed by either script. They are declared in **this project's
-       own `.mcp.json`**, and the servers themselves live in `~/Projects/drunken-team`
-       (`drunken-jira-mcp`, `drunken-discord-mcp`).
+       own `.mcp.json`** and ship with the toolkit as commands (`drunken-jira-mcp`,
+       `drunken-discord-mcp`), put on PATH by `uv tool install`. Generate the config with
+       `install_mcp.sh` rather than writing it by hand.
     4. **Project instructions** — this file.
 
     A skill that calls an MCP tool names the server it requires in its own `<constraints>` block.
@@ -64,8 +65,8 @@
     </directive>
 
     <directive priority="FATAL" name="Point At The Ticket Rules, Do Not Restate Them">
-      **How to write and run a ticket is
-      `~/Projects/drunken-team/.agents/skills/jira-tickets/SKILL.md`.**
+      **How to write and run a ticket is the `jira-tickets` skill**, installed alongside the
+      rest of this toolkit.
 
       The FINDING / SCOPE / ACCEPTANCE shape, the length budget, the fields this Jira can
       actually set, and what must be verified before anything is Done all live there.
@@ -96,8 +97,8 @@
     </mcp_tools>
 
     <approvals>
-      When something needs the Boss to approve it, the protocol is
-      `~/Projects/drunken-team/.agents/skills/ask-boss/SKILL.md`. The short version: if the Boss
+      When something needs the Boss to approve it, the protocol is the `ask-boss` skill.
+      The short version: if the Boss
       is reading the conversation, just ask them there. Otherwise submit async, park the task,
       take the next unblocked one, and collect **when you finish a task or start a session —
       never mid-task.**
@@ -106,7 +107,9 @@
 
   <core_directives>
     <directive priority="FATAL" name="Mark Unused, Do Not Delete">
-      An agent does not delete. Anything retired moves to `_not_used/` with a note saying why
+      An agent does not delete. Anything retired moves to `_not_used/`, which is a working
+      directory and is not committed. The tracked record is a `RETIRED.md` index at the
+      root, carrying a row per retired thing saying why
       and what replaced it. Anything that would need a recursive force-delete becomes a **list
       handed to a human to run**. A recorded authorisation from an earlier session is not
       permission to delete today.

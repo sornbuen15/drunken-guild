@@ -11,6 +11,38 @@ if TYPE_CHECKING:
     from core.registry import ProjectConfig
 
 
+def default_project_id() -> str | None:
+    """Which project this daemon is for, or ``None`` when nothing says.
+
+    Every MCP server in this repository takes ``--project`` and refuses to guess.
+    The Discord daemon was the exception, and it guessed twice: this module's
+    caller took ``list(registry.get_projects())[0]`` — the first key in a JSON
+    file, so which project the daemon served depended on insertion order — and
+    the router carried a hard-coded default that still named ``drunken-guild``,
+    the fallback checkout that must not be touched.
+
+    The precedence here is the project's own, unchanged: an **environment
+    variable** wins, because it is explicit and named and is how a container
+    passes a different project in. Then the **registry**, but only when it holds
+    exactly one project, where "the only one" is a fact rather than a guess.
+
+    Anything else returns ``None``. A machine with four registered projects has
+    no default, and saying so is the whole point — the caller reports it and the
+    operator names one, instead of work landing in whichever project happened to
+    be written first.
+    """
+    explicit = os.environ.get("DRUNKEN_PROJECT", "").strip()
+    if explicit:
+        return explicit
+
+    from core.registry import ProjectRegistry
+
+    projects = ProjectRegistry().get_projects()
+    if len(projects) == 1:
+        return next(iter(projects))
+    return None
+
+
 def packaged_script(name: str) -> str:
     """Absolute path to a helper that ships inside the ``scripts`` package.
 
@@ -142,7 +174,18 @@ def _discord_project() -> "ProjectConfig | None":
     notices until the logs are needed.
 
     There is one Discord identity, not one per project (the multi-tenant daemon
-    was cut), so the first registered project declaring a channel wins.
+    was cut). DG-306: ``DRUNKEN_PROJECT`` is checked first, exactly the way
+    :func:`default_project_id` already does three functions above this one in
+    the same module -- that fix never reached this function, so a machine
+    with several registered projects kept answering with whichever was
+    registered first, regardless of which project's daemon was actually
+    running. Only when the variable is unset does "first registered project
+    declaring a channel" apply, as a fallback rather than the whole rule.
+
+    An explicit ``DRUNKEN_PROJECT`` naming a project with no usable discord
+    config returns ``None`` rather than falling through to a different
+    project — answering with a neighbor's channel would be a wrong answer
+    that looks like a right one.
 
     Never raises: an absent registry is a first run before ``drunken-init``, and
     the daemon must not die on the way up (principle 8).
@@ -150,7 +193,18 @@ def _discord_project() -> "ProjectConfig | None":
     try:
         from core.registry import ProjectRegistry, parse_project
 
-        for project_id, entry in ProjectRegistry().get_projects().items():
+        projects = ProjectRegistry().get_projects()
+        explicit = os.environ.get("DRUNKEN_PROJECT", "").strip()
+
+        if explicit:
+            entry = projects.get(explicit)
+            if isinstance(entry, dict) and "discord" in entry:
+                config = parse_project(explicit, entry)
+                if config.discord and config.discord.channel_id:
+                    return config
+            return None
+
+        for project_id, entry in projects.items():
             if not isinstance(entry, dict) or "discord" not in entry:
                 continue
             config = parse_project(project_id, entry)
@@ -168,7 +222,7 @@ def project_root() -> str:
     """The directory whose ``.agents/`` this daemon reads and writes.
 
     The registry answers this, or the working directory does. What it must
-    never do is *climb*: DT-254. The previous version walked up from
+    never do is *climb*: DG-254. The previous version walked up from
     ``DRUNKEN_WORKSPACE`` or the cwd until something matched, which meant that
     running the daemon from anywhere under ``$HOME`` could adopt an unrelated
     project's ``.agents/`` — or, for ``.env``, an unrelated project's
@@ -224,7 +278,7 @@ def save_config(config: dict[str, Any]) -> None:
 def load_config() -> dict[str, Any]:
     """The daemon's Discord identity, and the order that decides it.
 
-    Precedence, per field, highest first — DT-254 made this a decision rather
+    Precedence, per field, highest first — DG-254 made this a decision rather
     than an accident:
 
     1. **An environment variable**, read directly from the process environment.
@@ -232,7 +286,7 @@ def load_config() -> dict[str, Any]:
        without rewriting the registry, and the operator setting it can see that
        they did.
     2. **The registry**, resolved through :mod:`core.secrets`. The supported
-       path since DT-247, and the only one ``drunken-doctor`` can verify.
+       path since DG-247, and the only one ``drunken-doctor`` can verify.
     3. **This project's own** ``.agents/discord_config.json``.
 
     Per field, not both-or-neither: a file holding a stale ``bot_token`` must
@@ -278,7 +332,7 @@ def load_config() -> dict[str, Any]:
 def _discord_from_registry() -> dict[str, Any]:
     """Discord credentials from the registry, or nothing.
 
-    Jira moved to the registry in DT-246; Discord staying behind meant
+    Jira moved to the registry in DG-246; Discord staying behind meant
     ``drunken-init`` wrote a ``discord.channel_id`` that nothing ever read, and
     ``drunken-doctor`` reported two projects as having no channel while a single
     channel was in fact serving all three.

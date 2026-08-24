@@ -1,10 +1,10 @@
 # mypy: ignore-errors
-"""Counting what a run actually cost — DT-95.
+"""Counting what a run actually cost — DG-95.
 
 The ticket's own words: there is no way to measure or verify token efficiency,
 and it is *"needed before any claim of 'this saves tokens' can be substantiated
 with data rather than assumption."* This repo has made that claim more than
-once — `minify_issues` exists for it, DT-227 was cut for it — and nothing has
+once — `minify_issues` exists for it, DG-227 was cut for it — and nothing has
 ever checked one.
 
 Nothing new is instrumented, because nothing needs to be. The host already
@@ -34,20 +34,20 @@ from core import usage
 
 class TestFindingThisProjectsRecords:
     def test_the_directory_name_is_derived_the_way_the_host_writes_it(self) -> None:
-        """`/Users/operator/Projects/drunken-team` is stored as
-        `-Users-r-jakkawan-Projects-drunken-team`: every character that is not
+        """`/Users/you/Projects/drunken-guild` is stored as
+        `-Users-you-Projects-drunken-guild`: every character that is not
         alphanumeric becomes a dash, the leading slash included."""
         assert (
-            usage.slug_for("/Users/operator/Projects/drunken-team")
-            == "-Users-r-jakkawan-Projects-drunken-team"
+            usage.slug_for("/Users/you/Projects/drunken-guild")
+            == "-Users-you-Projects-drunken-guild"
         )
 
     def test_a_worktree_of_the_same_project_is_a_different_directory(self) -> None:
         """Worktrees get their own transcript directory, and work done in one
         is still this project's cost. The slug is a prefix, not an equality."""
         assert usage.slug_for(
-            "/Users/operator/Projects/drunken-team/.claude/worktrees/x"
-        ).startswith(usage.slug_for("/Users/operator/Projects/drunken-team"))
+            "/Users/you/Projects/drunken-guild/.claude/worktrees/x"
+        ).startswith(usage.slug_for("/Users/you/Projects/drunken-guild"))
 
     def test_records_from_another_project_are_not_counted_as_this_one(
         self, tmp_path
@@ -146,10 +146,10 @@ class TestReadingATranscript:
 
 class TestAttributingWorkToATicket:
     def test_a_feature_branch_names_its_ticket(self) -> None:
-        assert usage.ticket_of("feature/DT-251-board-backlog") == "DT-251"
+        assert usage.ticket_of("feature/DG-251-board-backlog") == "DG-251"
 
     def test_every_branch_prefix_this_project_uses_works(self) -> None:
-        for branch in ("bugfix/DT-9-x", "chore/DT-238-y", "docs/DT-249-z"):
+        for branch in ("bugfix/DG-9-x", "chore/DG-238-y", "docs/DG-249-z"):
             assert usage.ticket_of(branch) is not None
 
     def test_a_trunk_branch_has_no_ticket_rather_than_a_wrong_one(self) -> None:
@@ -160,10 +160,10 @@ class TestAttributingWorkToATicket:
         assert usage.ticket_of(None) is None
 
     def test_a_branch_named_only_for_the_ticket_still_resolves(self) -> None:
-        assert usage.ticket_of("feature/DT-90") == "DT-90"
+        assert usage.ticket_of("feature/DG-90") == "DG-90"
 
     def test_the_key_is_normalised_to_the_way_jira_writes_it(self) -> None:
-        assert usage.ticket_of("feature/dt-251-x") == "DT-251"
+        assert usage.ticket_of("feature/dg-251-x") == "DG-251"
 
 
 class TestRollingUp:
@@ -171,14 +171,14 @@ class TestRollingUp:
         usage.Record(
             "s1",
             "2026-08-16T01:00:00Z",
-            "feature/DT-251-x",
+            "feature/DG-251-x",
             "opus",
             usage.Usage(1, 2, 3, 4),
         ),
         usage.Record(
             "s1",
             "2026-08-16T02:00:00Z",
-            "feature/DT-251-x",
+            "feature/DG-251-x",
             "opus",
             usage.Usage(1, 2, 3, 4),
         ),
@@ -189,22 +189,22 @@ class TestRollingUp:
 
     def test_it_sums_by_the_key_asked_for(self) -> None:
         rolled = usage.roll_up(self.RECORDS, key="ticket")
-        assert rolled["DT-251"].usage.total == 20
+        assert rolled["DG-251"].usage.total == 20
         assert rolled["(none)"].usage.total == 10
 
     def test_sessions_are_counted_distinctly_not_per_message(self) -> None:
         """Two messages in one session is one run. Counting messages instead
         would make a chatty session look like many."""
         rolled = usage.roll_up(self.RECORDS, key="ticket")
-        assert (rolled["DT-251"].sessions, rolled["DT-251"].messages) == (1, 2)
+        assert (rolled["DG-251"].sessions, rolled["DG-251"].messages) == (1, 2)
 
     def test_every_model_that_contributed_is_named(self) -> None:
         """A cheap model and an expensive one are not interchangeable, so a
         total with the mix hidden cannot be compared against another total."""
-        assert usage.roll_up(self.RECORDS, key="ticket")["DT-251"].models == {"opus"}
+        assert usage.roll_up(self.RECORDS, key="ticket")["DG-251"].models == {"opus"}
 
     def test_the_span_of_a_rollup_is_kept(self) -> None:
-        rolled = usage.roll_up(self.RECORDS, key="ticket")["DT-251"]
+        rolled = usage.roll_up(self.RECORDS, key="ticket")["DG-251"]
         assert rolled.first.endswith("01:00:00Z") and rolled.last.endswith("02:00:00Z")
 
     def test_it_rolls_up_by_branch_session_and_model_too(self) -> None:

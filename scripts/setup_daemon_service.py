@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Setup utility for the drunken-team approval daemon (`discord_listener.py`)
+Setup utility for the drunken-guild approval daemon (`discord_listener.py`)
 as a macOS launchd LaunchAgent: starts at login, restarts on crash, keeps
 running independent of any particular terminal/CLI session.
 
@@ -20,12 +20,53 @@ import subprocess
 import sys
 
 LABEL = "com.drunkenteam.daemon"
-#: What the label was before DT-244 retired the old product name. Kept only so
+#: What the label was before DG-244 retired the old product name. Kept only so
 #: install() can unload and delete it: launchd keys on the label, so writing
 #: the new plist without removing the old one leaves two definitions
 #: registered, and the old one keeps restarting a stale daemon under KeepAlive.
 LEGACY_LABEL = "com.drunkenteam.agy-daemon"
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+
+
+def _resolve_project_id() -> str:
+    """DG-306: which registry key this checkout is registered under.
+
+    Without ``DRUNKEN_PROJECT`` set, ``service/discord_utils._discord_project()``
+    falls back to "whichever project was registered first" for both the Jira
+    client and which Discord channel/bot_token get used -- on a machine with
+    more than one project registered, that is a guess, and it does not have
+    to agree with which repo's checkout this plist's ``WorkingDirectory``
+    points at.
+
+    Looked up by matching each registry entry's own ``path`` against
+    REPO_ROOT, not guessed from the directory name -- a checkout is not
+    required to be named after its registry key. Falls back to the directory
+    basename, with a loud warning, only if the registry can't be read or has
+    no matching entry; `install()` must not hard-fail on a machine that
+    hasn't run `drunken-init` yet (principle 8).
+    """
+    try:
+        sys.path.insert(0, os.path.join(REPO_ROOT, "src"))
+        from core.registry import ProjectRegistry
+
+        here = os.path.realpath(REPO_ROOT)
+        for project_id, entry in ProjectRegistry().get_projects().items():
+            path = entry.get("path") if isinstance(entry, dict) else None
+            if path and os.path.realpath(path) == here:
+                return project_id
+    except Exception as exc:
+        print(f"[!] Could not read the registry to resolve a project id: {exc}")
+
+    guess = os.path.basename(REPO_ROOT)
+    print(
+        f"[!] No registry entry's path matches {REPO_ROOT} -- guessing "
+        f"DRUNKEN_PROJECT={guess} from the directory name. Run drunken-init "
+        "here, or re-run install after it's registered, for a real answer."
+    )
+    return guess
+
+
+PROJECT_ID = _resolve_project_id()
 LOG_PATH = os.path.join(REPO_ROOT, ".agents", "discord_listener.log")
 PLIST_PATH = os.path.expanduser(f"~/Library/LaunchAgents/{LABEL}.plist")
 LEGACY_PLIST_PATH = os.path.expanduser(f"~/Library/LaunchAgents/{LEGACY_LABEL}.plist")
@@ -78,6 +119,8 @@ PLIST_TEMPLATE = """<?xml version="1.0" encoding="UTF-8"?>
     <dict>
         <key>PATH</key>
         <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+        <key>DRUNKEN_PROJECT</key>
+        <string>{project_id}</string>
     </dict>
     <key>RunAtLoad</key>
     <true/>
@@ -94,12 +137,16 @@ PLIST_TEMPLATE = """<?xml version="1.0" encoding="UTF-8"?>
 
 def _plist_content() -> str:
     return PLIST_TEMPLATE.format(
-        label=LABEL, uv_path=UV_PATH, repo_root=REPO_ROOT, log_path=LOG_PATH
+        label=LABEL,
+        uv_path=UV_PATH,
+        repo_root=REPO_ROOT,
+        log_path=LOG_PATH,
+        project_id=PROJECT_ID,
     )
 
 
 def _remove_legacy_agent() -> None:
-    """Unload and delete the pre-DT-244 agent, if one is still installed.
+    """Unload and delete the pre-DG-244 agent, if one is still installed.
 
     Without this, upgrading leaves two launch agents pointing at the same
     daemon. Both have KeepAlive, so the old one keeps resurrecting a second
@@ -129,6 +176,7 @@ def install() -> None:
     with open(PLIST_PATH, "w", encoding="utf-8") as f:
         f.write(_plist_content())
     print(f"[+] Wrote {PLIST_PATH}")
+    print(f"[+] DRUNKEN_PROJECT={PROJECT_ID}")
 
     subprocess.run(["launchctl", "unload", PLIST_PATH], capture_output=True)
     result = subprocess.run(

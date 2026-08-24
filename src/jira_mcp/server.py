@@ -16,7 +16,7 @@ from .jql import scope_to_project
 #: assume. Backlog membership and status are independent: a ticket parked in
 #: the backlog keeps the status it had. Reading "moved to backlog" as "no
 #: longer In Progress" would make board-versus-backlog a second coordination
-#: surface that can disagree with status — the failure DT-250 cured.
+#: surface that can disagree with status — the failure DG-250 cured.
 _NOT_A_STATUS = (
     "Backlog membership is not status. These issues keep the status they had; "
     "only where they appear changed. Use jira_transition_issue to change status."
@@ -63,7 +63,7 @@ async def jira_search_issues(jql: str, detail: str = "brief") -> str:
     project is kept and simply matches nothing.
     """
     client = get_client()
-    # S8 (DT-225). --project named the project and did not confine anything to
+    # S8 (DG-225). --project named the project and did not confine anything to
     # it. Scoping happens here, at the boundary, rather than inside JiraClient:
     # the client is also used by jira_create_issue and the transition tools,
     # which take a key rather than a query and are already project-bound.
@@ -129,7 +129,7 @@ async def jira_create_issue(
     project at all. `duedate` and `start_date` are ISO YYYY-MM-DD.
 
     Full rules, including the status lifecycle and what to verify before Done:
-    `.agents/skills/jira-tickets/SKILL.md`.
+    the `jira-tickets` skill (`skills/kanban/jira-tickets/SKILL.md`).
 
     Warns, never refuses.
     """
@@ -163,7 +163,7 @@ ORPHAN_WORD_LIMIT = 250
 def _orphan_warning(description: str, parent: str) -> Optional[str]:
     """Long *and* parentless, or nothing at all.
 
-    DT-234's mechanism, reused because it is already proven: say something and
+    DG-234's mechanism, reused because it is already proven: say something and
     create the issue anyway. Rejecting is wrong here in both directions -- a
     post-mortem or a security finding *must* stay long, and a long ticket with
     an Epic to hang context on is exactly the right shape. It is the
@@ -203,13 +203,13 @@ def _require_backlog_board(profile: BoardProfile, project_key: str) -> int:
             remediation=(
                 "The work has to live in a software-type project to have a "
                 "board. Nothing else is affected: search, transition, assign "
-                "and comment all work on a business-type project. See DT-237."
+                "and comment all work on a business-type project. See DG-237."
             ),
         )
 
     if profile.backlog is False:
         raise ConfigError(
-            f"{project_key}'s board ({profile.name!r}, type {profile.type!r}) "
+            f"{project_key}'s board ({profile.display_name!r}, type {profile.type!r}) "
             "has no backlog, so there is nowhere to move issues to or from.",
             remediation=(
                 "Enable the backlog for this board in Jira's board settings, or "
@@ -228,7 +228,10 @@ async def jira_board_info() -> str:
     """
     What this project's Jira board is, and what it can actually do.
 
-    Reports the board's id, name and type, and whether it has a backlog — the
+    Reports the board's id and type, what it is attached to, and whether it has
+    a backlog. The attachment is `project_key`, `project_name` and
+    `display_name`; the board's own `name` is deliberately absent because it is
+    frozen at creation and nothing can change it — see BoardProfile. The
     latter probed rather than inferred, because type does not predict it. A
     kanban board may have no backlog while a team-managed 'simple' board has
     one. `backlog: null` means the question could not be answered, which is not
@@ -246,7 +249,13 @@ async def jira_board_info() -> str:
     return json.dumps(
         {
             "project": client.project_key,
-            "board": {"id": profile.id, "name": profile.name, "type": profile.type},
+            "board": {
+                "id": profile.id,
+                "project_key": profile.project_key,
+                "project_name": profile.project_name,
+                "display_name": profile.display_name,
+                "type": profile.type,
+            },
             "backlog": profile.backlog,
             "sprints": False,
             "known": profile.known,
@@ -270,7 +279,7 @@ async def jira_move_to_backlog(issue_keys: str) -> str:
     Move active issues off this project's board and into its backlog.
 
     `issue_keys` is one key or several, separated by commas or spaces, e.g.
-    "DT-251" or "DT-251, DT-250". At most 50 per call, which is Jira's limit.
+    "DG-251" or "DG-251, DG-250". At most 50 per call, which is Jira's limit.
 
     Only issues from the project this server was launched for can be moved; a
     key from another project is refused before the request is sent, because the

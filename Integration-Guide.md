@@ -1,12 +1,12 @@
-# Drunken-Team: AI Integration Guide
+# Drunken-Guild: AI Integration Guide
 
-This guide is for connecting a local AI coding tool (Claude Code, Cursor, Aider) to Drunken-Team, so it can read and update Jira directly and hand off to the Discord daemon instead of you doing it by hand.
+This guide is for connecting a local AI coding tool (Claude Code, Cursor, Aider) to Drunken-Guild, so it can read and update Jira directly and hand off to the Discord daemon instead of you doing it by hand.
 
 ---
 
 ## 1. The MCP Servers
 
-Drunken-Team exposes three separate MCP servers -- there is no single combined server or `drunken-mcp` binary.
+Drunken-Guild exposes three separate MCP servers -- there is no single combined server or `drunken-mcp` binary.
 
 ### `drunken-jira-mcp` -- Jira operations
 - **Tools:** `jira_search_issues(jql)`, `jira_create_issue(summary, description)`, `jira_transition_issue(issue_key, target_status)`, `jira_add_comment(issue_key, comment)`, `jira_start_task(issue_key)` (transition to In Progress + the git branch command to run), `jira_submit_for_review(issue_key, pr_link, files_changed)` (transition to In Review + comment the PR link).
@@ -19,7 +19,7 @@ Drunken-Team exposes three separate MCP servers -- there is no single combined s
 - `request_boss_approval(action, reason, ticket_key)` is the older blocking form. It still works and is kept until 3.0.0, but prefer the async pair; reach for it only when nothing else could possibly be done meanwhile.
 - There is no timeout and nothing is killed for going unanswered: reminders back off 15 min → 1 h → daily and survive a daemon restart. An approval is bound to the commit it was granted against, so from a different HEAD it reads `stale` and must be asked again.
 
-> **`drunken-board-mcp` is retired and is not wired into any project.** DT-250 removed the local board: a board sitting next to Jira is a second surface that can disagree with the first, which is the failure DT-248 and DT-249 each cost a session to. The code is kept, marked unused rather than deleted, and it costs 2,162 tokens per request. Do not declare it, and do not create `.claude/board/` or `.agents/board/`. Jira is the only coordination surface -- the **assignee** says whose the work is, the **status** says where it is.
+> **`drunken-board-mcp` is retired and is not packaged.** DG-250 removed the local board: a board sitting next to Jira is a second surface that can disagree with the first, which is the failure DG-248 and DG-249 each cost a session to. It also cost 2,162 tokens per request for a server nothing should call. DG-265 removed it from `[project.scripts]` and from the package, so there is no command to declare — the code is kept at `_not_used/board-mcp/` because an agent does not delete. Do not create `.claude/board/` or `.agents/board/`. Jira is the only coordination surface -- the **assignee** says whose the work is, the **status** says where it is.
 
 Both are registered for you already in `.mcp.json` at the repo root:
 
@@ -33,6 +33,10 @@ Both are registered for you already in `.mcp.json` at the repo root:
 ```
 
 Which project a server acts on comes from `--project <id>`, resolved against the central registry -- never from the working directory, and never from a `.env` next to the code. Add `"--project", "<id>"` to `args` when running a server against a project other than the one it was launched from.
+
+> **A host config regenerates itself clean; a repository's `.mcp.json` does not.** `drunken-config --kind host --out <file>` (what `install_mcp.sh` and `onboard_project.py --merge-mcp-config` both call underneath) merges by name into whatever the host — Antigravity, Cursor — already has there, so its own servers survive. It also now **prunes** any entry matching this project's own `drunken-*-mcp` naming convention that is no longer in `MCP_SERVERS`, so a server this project retires (`drunken-board-mcp`, DG-265) disappears on the next regeneration instead of sitting there indefinitely. An entry that was never ours — a third-party `jira-board`, a local `kanban-board` — is never touched either way; regeneration only ever removes what it could also have added (DG-286). DG-277 is the one hand-fix that predates this: entries dead before the pruning rule existed still needed a human to delete them once, under `~/.gemini/`, because editing a file there is an install.
+
+
 
 If your tool auto-discovers project-level `.mcp.json`, you're done. Otherwise, point it at the same two commands manually (Section 4 below has a worked example for Cursor).
 
@@ -49,7 +53,7 @@ If your tool auto-discovers project-level `.mcp.json`, you're done. Otherwise, p
 | `CONVENTIONS.md` | Aider | Same rules, plus commit-message and mocking (`autospec=True`) conventions Aider should follow. |
 | `SESSION_CHECKPOINT.md` | All | A blank template for cross-session context handoff -- read at the start of a session, updated before ending one. |
 
-None of these describe Drunken-Team's own internals in depth; they just tell the local AI which Jira/MCP calls to make and when to ask for approval instead of acting.
+None of these describe Drunken-Guild's own internals in depth; they just tell the local AI which Jira/MCP calls to make and when to ask for approval instead of acting.
 
 ---
 
@@ -58,21 +62,21 @@ None of these describe Drunken-Team's own internals in depth; they just tell the
 The collaboration between your local AI tool and the Guild's Discord daemon follows the same lifecycle either from the CLI or via MCP:
 
 1. **Intake:** Call `jira_start_task(issue_key)` to claim a ticket and get the branch name to check out. (`scripts/jira_bridge.py transition <key> "In Progress"` still works for shell use, but the MCP tools are the supported path.)
-2. **Execution:** Write code and tests against that ticket's acceptance criteria. Before any destructive or merge-worthy action: if the Boss is reading the conversation, just ask them there. Otherwise call `request_boss_approval_async`, park the task with `board_block_task`, and move on to whatever `board_available_tasks` offers. Collect answers with `check_approvals` **when a task finishes or a session starts -- never mid-task**, because acting on an approval the moment it lands is how a repo ends up half-changed.
+2. **Execution:** Write code and tests against that ticket's acceptance criteria. Before any destructive or merge-worthy action: if the Boss is reading the conversation, just ask them there. Otherwise call `request_boss_approval_async`, don't perform the action yet, and move on to whatever else is unblocked -- there is no local board, so "parking" a task is just not doing that step, not a tool call. Collect answers with `check_approvals` **when a task finishes or a session starts -- never mid-task**, because acting on an approval the moment it lands is how a repo ends up half-changed.
 3. **Handoff:** Push the branch, open a PR, then call `jira_submit_for_review(issue_key, pr_link, files_changed)` to move the ticket to In Review with the PR linked.
 4. **Validation:** The round-integration QA gate (`scripts/qa_automation.py`, triggerable from Discord with `/qa`) picks up every In Review ticket, reruns the full suite with all of them merged together, and transitions to Done (or back to In Progress with a failure report) accordingly.
 
 ---
 
-## 4. Integrating an Existing (Non-Drunken-Team) Project
+## 4. Integrating an Existing (Non-Drunken-Guild) Project
 
 To bring an existing project under this same workflow:
 
-### Step 1: Install Drunken-Team's CLI tools
+### Step 1: Install Drunken-Guild's CLI tools
 
 ```bash
-git clone https://github.com/sornbuen15/drunken-team.git
-cd drunken-team
+git clone https://github.com/sornbuen15/drunken-guild.git
+cd drunken-guild
 uv tool install .
 ```
 
@@ -91,7 +95,7 @@ This installs the commands globally: `drunken-init` (create the state directory 
 One command registers it and writes its MCP config:
 
 ```bash
-python /path/to/drunken-team/scripts/onboard_project.py existing-project \
+python /path/to/drunken-guild/scripts/onboard_project.py existing-project \
   --jira-project-key XYZ \
   --path /path/to/existing-project \
   --description "..." \
@@ -136,10 +140,10 @@ You want `project.existing-project.jira` to come back naming *you*.
 ### Step 3: Copy the AI templates
 
 ```bash
-cp /path/to/drunken-team/.guild_templates/CLAUDE.md .
-cp /path/to/drunken-team/.guild_templates/.cursorrules .
-cp /path/to/drunken-team/.guild_templates/CONVENTIONS.md .
-cp /path/to/drunken-team/.guild_templates/SESSION_CHECKPOINT.md .
+cp /path/to/drunken-guild/.guild_templates/CLAUDE.md .
+cp /path/to/drunken-guild/.guild_templates/.cursorrules .
+cp /path/to/drunken-guild/.guild_templates/CONVENTIONS.md .
+cp /path/to/drunken-guild/.guild_templates/SESSION_CHECKPOINT.md .
 ```
 
 ### Step 4: The MCP config
@@ -155,11 +159,11 @@ cp /path/to/drunken-team/.guild_templates/SESSION_CHECKPOINT.md .
 }
 ```
 
-This depends on step 1 — the commands have to be on `PATH`. Without `uv tool install`, fall back to `uv run --directory /path/to/drunken-team drunken-jira-mcp --project existing-project`, and keep that file out of git.
+This depends on step 1 — the commands have to be on `PATH`. Without `uv tool install`, fall back to `uv run --directory /path/to/drunken-guild drunken-jira-mcp --project existing-project`, and keep that file out of git.
 
 For Cursor: **Settings > Features > MCP > Add New Server**, type `command`, `drunken-jira-mcp` with args `--project existing-project`, then the same for the other one.
 
 From here, your local AI reads `CLAUDE.md`/`.cursorrules`, checks Jira via the MCP tools, writes code, and hands off through the same lifecycle described in Section 3.
 
 ---
-*This document covers integration and handoff only. For Drunken-Team's own architecture and day-to-day Discord commands, see [Drunken-Team-Guide.md](./Drunken-Team-Guide.md).*
+*This document covers integration and handoff only. For Drunken-Guild's own architecture and day-to-day Discord commands, see [Drunken-Guild-Guide.md](./Drunken-Guild-Guide.md).*

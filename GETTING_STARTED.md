@@ -1,501 +1,321 @@
-# Getting Started with Drunken AI Team
-*Brought to you by Drunken Programmer*
+# Getting Started with Drunken Guild
 
-A complete walkthrough — from installation through your first completed task. Each step links to a matching example in [`examples/`](./examples/) so you can see expected output before you run anything.
+From nothing installed to your first completed ticket.
+
+This repo has two halves and you do **not** need both. Start with the AI layer — it needs no
+Python, no credentials and no server. Add the runtime only when you want work coordinated on Jira.
 
 ---
 
-## Table of Contents
+## Table of contents
 
-- [Prerequisites](#prerequisites)
-- [Installation](#installation)
-  - [macOS / Linux](#macos--linux)
-  - [Windows](#windows)
-  - [Manual Installation (no scripts)](#manual-installation-no-scripts)
-- [Step-by-Step Guide](#step-by-step-guide)
-  - [Step 1 — Describe Your Project](#step-1--describe-your-project)
-  - [Step 2 — Generate Your Backlog](#step-2--generate-your-backlog)
-  - [Step 3 — Load the Sprint Queue](#step-3--load-the-sprint-queue)
-  - [Step 4 — Size the Work](#step-4--size-the-work)
-  - [Step 5 — Start the First Task](#step-5--start-the-first-task)
-  - [Step 6 — Review and Close the Task](#step-6--review-and-close-the-task)
-- [Mid-Sprint Scenarios](#mid-sprint-scenarios)
-  - [Handling a Bug Mid-Sprint](#handling-a-bug-mid-sprint)
-  - [End-of-Sprint Snapshot](#end-of-sprint-snapshot)
-- [Using the Multi-Agent Squad](#using-the-multi-agent-squad)
-- [Full Skill Reference](#full-skill-reference)
+1. [Prerequisites](#prerequisites)
+2. [Install the AI layer](#install-the-ai-layer)
+3. [Add the runtime (optional)](#add-the-runtime-optional)
+4. [Step-by-step: your first ticket](#step-by-step-your-first-ticket)
+5. [Mid-sprint scenarios](#mid-sprint-scenarios)
+6. [Using the multi-agent squad](#using-the-multi-agent-squad)
+7. [Where to go next](#where-to-go-next)
 
 ---
 
 ## Prerequisites
 
-- [Claude Code CLI](https://claude.ai/code) installed and authenticated
+**For the AI layer** — this is all of it:
+
+- [Claude Code CLI](https://claude.ai/code), installed and authenticated
 - Git
-- **macOS / Linux:** Bash 3.2+, `rsync`
-- **Windows:** PowerShell 5.1+ or [PowerShell Core 7+](https://github.com/PowerShell/PowerShell/releases)
+- macOS / Linux: Bash 3.2+ and `rsync` · Windows: PowerShell 5.1+ or [PowerShell 7+](https://github.com/PowerShell/PowerShell/releases)
 
-### Optional — the companion repo, for coordination only
+**For the runtime**, additionally:
 
-**21 of the 29 skills need nothing but this repo.** Architecture, testing, security, UI/UX,
-Electron, git discipline — all of it installs and works on its own.
-
-The remaining 8 plus the `principal-engineer` agent coordinate work on Jira, and they need a
-companion repo: **[`sornbuen15/drunken-team`](https://github.com/sornbuen15/drunken-team)**
-(MIT). It provides two things:
-
-| what | why it is needed |
-|---|---|
-| `drunken-jira-mcp` — the MCP server | the `jira_*` tools every coordination skill calls |
-| `.agents/skills/jira-tickets/SKILL.md` | the ticket-writing rules those skills treat as authoritative |
-| `.agents/skills/ask-boss/SKILL.md` | the approval protocol |
-
-```bash
-git clone https://github.com/sornbuen15/drunken-team.git ~/Projects/drunken-team
-```
-
-> **Clone it to `~/Projects/drunken-team` specifically.** The coordination skills reference
-> `~/Projects/drunken-team/.agents/skills/jira-tickets/SKILL.md` by absolute path. Cloning it
-> elsewhere leaves that reference dangling — see *What happens without it* below.
->
-> It also needs **[Node.js](https://nodejs.org/) v18 or v24** and [`uv`](https://docs.astral.sh/uv/).
-> The install scripts in *this* repo need neither — only bash or PowerShell.
-
-Then declare the server in **your own project's** `.mcp.json` (not in this repo — it has no Jira
-and needs none):
-
-```json
-{
-  "mcpServers": {
-    "drunken-jira-mcp": {
-      "command": "uv",
-      "args": ["--directory", "/absolute/path/to/drunken-team", "run",
-               "python", "-m", "jira_mcp.server", "--project", "<YOUR-JIRA-KEY>"],
-      "env": { "PYTHONPATH": "src" }
-    }
-  }
-}
-```
-
-`--directory` with an **absolute path** is what makes this work from your project's directory
-rather than only from inside `drunken-team`.
-
-### What happens without it
-
-Nothing breaks silently, but the two failure modes are not equally graceful:
-
-- **Server not declared** — handled cleanly. Every coordination skill carries a FATAL constraint
-  naming the server it requires, so it says *"requires `drunken-jira-mcp`, declared in the
-  project's `.mcp.json`"* and stops, rather than falling back to a file or a shell script.
-- **Repo not cloned to that path** — handled less well. The skills point at `jira-tickets` as
-  authoritative for ticket format and have no fallback text if it is absent. They carry the
-  essentials inline (three headings — FINDING / SCOPE / ACCEPTANCE; ≤ 120 words; urgency as a
-  label because `priority` is unsettable), so an agent can still proceed — but it will not know
-  it is working from a summary rather than the source.
-
-If you have no Jira at all, skip this section entirely and ignore the five coordination skills.
-The other 21 are unaffected.
+- Python 3.10+ and [`uv`](https://docs.astral.sh/uv/)
+- A Jira account, and a Discord bot if you want approvals
 
 ---
 
-## Installation
-
-### macOS / Linux
+## Install the AI layer
 
 ```bash
-# 1. Clone the repo
-git clone <repo-url> drunken-ai-team
-cd drunken-ai-team
-
-# 2. Deploy skills to ~/.claude/skills/
-bash scripts/install/sync_skills.sh
-
-# 3. Deploy agents to ~/.claude/agents/
-bash scripts/install/sync_agents.sh
+git clone https://github.com/sornbuen15/drunken-guild.git
+cd drunken-guild
+./scripts/install/install_skills.sh    # → ~/.claude/skills/
+./scripts/install/install_agents.sh    # → ~/.claude/agents/
 ```
 
-Both scripts are safe to re-run — they only update files that have changed.
-
-**Verify the install by the number, not by the absence of an error.** Each script prints
-`N new | M updated` at the end; the totals must match what the repo actually holds:
-
-```bash
-find skills -name SKILL.md | wc -l          # skills the repo produces
-ls ~/.claude/skills/*/SKILL.md | wc -l      # skills now installed
-ls agents/*.md | grep -v INDEX | wc -l      # agents the repo produces
-```
-
-The first two numbers will differ if you have skills from elsewhere installed — see
-*Skills not authored here* below, which is the normal case and not a problem.
-
-### Windows
-
-Open PowerShell (5.1+ or Core 7+):
+Windows:
 
 ```powershell
-# 1. Clone the repo
-git clone <repo-url> drunken-ai-team
-cd drunken-ai-team
-
-# 2. Allow script execution (one-time, current user only)
-Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
-
-# 3. Deploy skills to %USERPROFILE%\.claude\skills\
-.\scripts\install\sync_skills.ps1
-
-# 4. Deploy agents to %USERPROFILE%\.claude\agents\
-.\scripts\install\sync_agents.ps1
+Set-ExecutionPolicy -Scope CurrentUser RemoteSigned   # one-time, only if blocked
+.\scripts\install\install_skills.ps1
+.\scripts\install\install_agents.ps1
 ```
 
-Both scripts are safe to re-run after any update.
+Verify — you should see the skill directories and an index:
+
+```bash
+ls ~/.claude/skills/
+```
+
+### 30 of the 38 skills need nothing else
+
+Architecture, testing, security, UI/UX, Electron, git discipline, debugging, post-mortems — all of
+it installs and works standalone.
+
+The remaining 8 plus the `principal-engineer` agent coordinate work on Jira. They call `jira_*`
+tools, and without the runtime declared they will **say so and stop** rather than silently falling
+back to a file or a shell script. Every one of them names the server it requires in its own
+constraints.
+
+If you have no Jira, skip the next section and ignore those 8. Nothing else is affected.
 
 ### Skills not authored here
 
-`sync_skills.sh` ends by listing anything installed in `~/.claude/skills/` that this repo does
-not produce, under **"Installed but not produced here"**. It never deletes them — removing an
-installed skill is your call, not the script's.
-
-Two kinds of thing show up in that list:
-
-- **Third-party skills you installed from elsewhere.** Record them in
-  [`skills/.external`](./skills/.external), one name per line, and the script stops naming them
-  every run. It currently lists `debug-mantra`, `management-talk`, `post-mortem` and
-  `scrutinize`.
-- **Skills this repo retired.** They stay installed until you remove them, and they will be
-  named every run until you do. That is deliberate: a retired skill still being offered to every
-  session is worth knowing about. See [`_not_used/`](./_not_used/) for what was retired and why.
-
-`sync_agents.sh` reports the same way for `~/.claude/agents/`.
+`skills/.external` lists skills that are installed but deliberately not authored in this repo. An
+empty file is a claim that there are none — not a default. Do not overwrite anything listed there.
 
 ---
 
-> **Note:** Coordination needs one MCP server, and it is not authored in this repo.
-> `drunken-jira-mcp` lives in `~/Projects/drunken-team` and is declared per project in that
-> project's own `.mcp.json`. Most skills here need no MCP server at all — only the Jira ones do,
-> and each names its requirement in its own `<constraints>` block, so a project without Jira can
-> still install and use everything else.
+## Add the runtime (optional)
+
+This gives you the `jira_*` and approval tools.
+
+```bash
+uv sync --extra dev
+```
+
+The `--extra dev` is not optional if you intend to run the tests. Without pytest in `.venv`,
+`uv run pytest` falls through to whatever `pytest` is on PATH — which may import a different
+checkout entirely and pass. The suite refuses to start in that state and tells you so.
+
+Put your credentials in a file **outside any repository**, readable only by you:
+
+```bash
+mkdir -p ~/.drunken && chmod 700 ~/.drunken
+cat > ~/.drunken/secrets.json <<'JSON'
+{ "jira": { "my-project": "your-jira-api-token" } }
+JSON
+chmod 600 ~/.drunken/secrets.json
+```
+
+Register your project. The registry stores a **reference**, never the token — `--jira-credential`
+also takes `env://VAR`, `op://vault/item/field` and `keyring://service/user`, and there is
+deliberately no flag that accepts a token:
+
+```bash
+uv run drunken-init \
+  --project my-project \
+  --path ~/Projects/my-project \
+  --jira-url https://your-domain.atlassian.net \
+  --jira-email you@example.com \
+  --jira-project-key ABC \
+  --jira-credential 'file://~/.drunken/secrets.json#jira.my-project'
+```
+
+Check it:
+
+```bash
+uv run drunken-doctor --project my-project
+```
+
+You want the Jira line to come back naming *you*. Two traps worth knowing:
+
+> **A green line is not proof the project exists.** `drunken-doctor` verifies that the credential
+> authenticates, not that the project key is real. It has printed `OK … (project ALPHA)` while Jira
+> answered *"No project could be found"*. Confirm the key yourself the first time.
+
+> **Jira answers a bad credential with `200` and an empty list.** That is why checking is a separate
+> step and not something a search result would have told you.
+
+Install it as a command so other projects need no paths:
+
+```bash
+uv tool uninstall drunken-team   # only if `uv tool list` shows the old name
+uv tool install .
+```
+
+If a previous version is installed under the old package name, `uv tool install .` fails with
+*"Executables already exist"*. `--force` is not the fix — it repoints the symlinks and leaves the
+old environment installed, still shipping a `drunken-board-mcp` this package no longer contains.
+
+Then generate the config for **your project** rather than writing it by hand:
+
+```bash
+./scripts/install/install_mcp.sh my-project --out ~/Projects/my-project/.mcp.json
+```
+
+It prints by default and only writes when you pass `--out`. `--host` (the default) emits absolute
+paths and merges, so any other MCP servers that config already declares survive; `--repo` emits the
+names-only form, which is what a repository's own `.mcp.json` should carry so one machine's
+directory layout never reaches another repo's git history.
 
 ---
 
-### Manual Installation (no scripts)
+## Step-by-step: your first ticket
 
-Use this path if you cannot run shell or PowerShell scripts (e.g., restricted environments, corporate policies, or you just prefer to do it by hand).
+### Step 1 — Describe your project
 
-**1. Create the target directories**
-
-```bash
-mkdir -p ~/.claude/skills
-mkdir -p ~/.claude/agents
-```
-
-Windows (PowerShell):
-```powershell
-New-Item -ItemType Directory -Force -Path "$HOME\.claude\skills"
-New-Item -ItemType Directory -Force -Path "$HOME\.claude\agents"
-```
-
-**2. Copy each skill folder — flattened**
-
-Skills are grouped into categories in this repo (`skills/kanban/`, `skills/workflow/`, …) but
-they install **flat**: the category directory is not copied, only the skill directory inside it.
-`skills/kanban/issue-intake/` becomes `~/.claude/skills/issue-intake/`, not
-`~/.claude/skills/kanban/issue-intake/`. Copying the category directories instead is the one
-mistake that quietly breaks discovery — Claude reads `~/.claude/skills/<name>/SKILL.md` and
-nothing else.
-
-For every folder under `skills/` that contains a `SKILL.md`, copy that folder — not its parent —
-to `~/.claude/skills/`:
+Copy the context templates into **your project root** and fill them in.
 
 ```bash
-# macOS / Linux — repeat for each skill
-cp -r skills/kanban/spec-to-backlog       ~/.claude/skills/
-cp -r skills/kanban/issue-intake          ~/.claude/skills/
-cp -r skills/kanban/audit-to-backlog      ~/.claude/skills/
-cp -r skills/workflow/git-workflow        ~/.claude/skills/
-cp -r skills/workflow/project-audit-reviewer ~/.claude/skills/
-# ... repeat for all remaining skill folders
+cp templates/PROJECT_BRIEF.md  ~/Projects/my-project/
+cp templates/REQUIREMENTS.md   ~/Projects/my-project/
+cp templates/CLAUDE.md         ~/Projects/my-project/CLAUDE.md
 ```
 
-Windows (PowerShell):
-```powershell
-Copy-Item -Recurse skills\kanban\spec-to-backlog       "$HOME\.claude\skills\"
-Copy-Item -Recurse skills\kanban\issue-intake          "$HOME\.claude\skills\"
-# ... repeat for all remaining skill folders
-```
+`CLAUDE.md` is the one that carries the **rules**: which Jira project this is, that Jira is the only
+coordination surface, the `TODO → IN PROGRESS → IN REVIEW → DONE` ladder that must never skip
+review, the MCP tools available, and your build and test commands.
 
-To see every skill that needs copying, and to copy them all in one go:
+Fill in every `<angle-bracket>` placeholder and delete what does not apply. Skills and agents read
+this file every session — **a placeholder left in reads as an instruction.**
 
-```bash
-# List them
-find skills -name "SKILL.md" | sort
+- `PROJECT_BRIEF.md` — what you're building, who for, the stack, constraints, what's out of scope
+- `REQUIREMENTS.md` — Must/Should/Could/Won't, performance targets, security requirements, and your
+  Definition of Done
 
-# Or copy every one of them, flattened, in a single command
-find skills -name SKILL.md -exec dirname {} \; | xargs -I{} cp -r {} ~/.claude/skills/
-```
+> [`examples/00-setup/`](./examples/00-setup/) has both filled in for a fictional task manager.
 
-**3. Copy each agent file**
+### Step 2 — Generate your backlog
 
-```bash
-# macOS / Linux
-cp agents/*.md ~/.claude/agents/
-```
-
-Windows (PowerShell):
-```powershell
-Copy-Item agents\*.md "$HOME\.claude\agents\"
-```
-
-**4. Copy both indexes**
-
-```bash
-cp skills/INDEX.md ~/.claude/skills/INDEX.md
-cp agents/INDEX.md ~/.claude/agents/INDEX.md
-```
-
-Windows (PowerShell):
-```powershell
-Copy-Item skills\INDEX.md "$HOME\.claude\skills\INDEX.md"
-Copy-Item agents\INDEX.md "$HOME\.claude\agents\INDEX.md"
-```
-
-Both indexes are **generated** by the sync scripts from the frontmatter of the files they
-install. Copying them by hand means they are only as current as the last script run — if you
-have added or changed a skill, edit the frontmatter and regenerate rather than editing an index
-directly.
-
-**5. Verify**
-
-```bash
-ls ~/.claude/skills/*/SKILL.md | wc -l    # should be at least the count in this repo
-ls ~/.claude/agents/*.md | wc -l          # includes INDEX.md, so one more than the agent count
-```
-
-A copy that silently did nothing looks exactly like a copy that worked. Count.
-
----
-
-## Step-by-Step Guide
-
-### Step 1 — Describe Your Project
-
-Copy the two context templates into **your project root** and fill them in.
-
-```bash
-# macOS / Linux
-cp path/to/drunken-ai-team/templates/PROJECT_BRIEF.md  your-project/
-cp path/to/drunken-ai-team/templates/REQUIREMENTS.md   your-project/
-cp path/to/drunken-ai-team/templates/CLAUDE.md         your-project/CLAUDE.md
-```
-
-```powershell
-# Windows
-Copy-Item path\to\drunken-ai-team\templates\PROJECT_BRIEF.md  your-project\
-Copy-Item path\to\drunken-ai-team\templates\REQUIREMENTS.md   your-project\
-Copy-Item path\to\drunken-ai-team\templates\CLAUDE.md         your-project\CLAUDE.md
-```
-
-`CLAUDE.md` is the one that carries the **rules**: which Jira project this is, that Jira is the
-only coordination surface, the `TODO → IN PROGRESS → IN REVIEW → DONE` ladder that must never
-skip review, the MCP tools available, and your build and test commands. Fill in every
-`<angle-bracket>` placeholder and delete what does not apply. Skills and agents read it every
-session; a placeholder left in reads as an instruction.
-
-Open each file and fill in every section. The more complete they are, the better every skill and agent performs — these files are the single source of truth for your squad.
-
-**What to fill in:**
-- `PROJECT_BRIEF.md` — what you're building, who it's for, the tech stack, constraints, and what's out of scope
-- `REQUIREMENTS.md` — Must/Should/Could/Won't features, performance targets, security requirements, and your Definition of Done
-
-> See [`examples/00-setup/`](./examples/00-setup/) for a fully filled example using a fictional task manager app.
-
----
-
-### Step 2 — Generate Your Backlog
-
-Open Claude Code inside **your project directory**, then run:
+Open Claude Code inside **your project directory**:
 
 ```
 /init-project
 ```
 
-The skill reads your `PROJECT_BRIEF.md` and `REQUIREMENTS.md` and creates one Jira ticket per
-feature in the project's backlog, via `jira_create_issue`. It prints a summary table when
-finished, then **halts and asks for your approval** before moving anything onto the board.
+It reads `PROJECT_BRIEF.md` and `REQUIREMENTS.md` and creates one Jira ticket per feature in the
+backlog. It prints a summary table, then **halts and asks** before moving anything onto the board.
 
-Urgency lands as a **label** — `CRITICAL`, `HIGH`, `MEDIUM`, `LOW` — not as Jira's `priority`
-field, which cannot be set on a team-managed project and reads `Medium` on every issue.
+Urgency lands as a **label** — `CRITICAL`, `HIGH`, `MEDIUM`, `LOW` — not as Jira's `priority` field,
+which cannot be set on a team-managed project and reads `Medium` on every issue.
 
-**Review the generated tickets in Jira.** Check that the labels look right and that nothing
-important is missing. Edit them in Jira directly.
+Review the tickets in Jira and edit them there directly.
 
-> See [`examples/01-spec-to-backlog/`](./examples/01-spec-to-backlog/) for the six tickets this
-> produces and the summary table it prints.
+> [`examples/01-spec-to-backlog/`](./examples/01-spec-to-backlog/)
 
----
-
-### Step 3 — Load the Sprint Queue
+### Step 3 — Load the sprint queue
 
 ```
 /refine
 ```
 
-The skill probes with `jira_board_info` first — **not every board has a backlog** — then moves
-tickets onto the board with `jira_move_to_board`, by urgency label:
-- `CRITICAL` tickets are moved immediately, no confirmation needed
-- `HIGH`, `MEDIUM`, and `LOW` are offered by tier — you choose which to pull in
+It probes with `jira_board_info` first — **not every board has a backlog** — then moves tickets on
+by urgency label. `CRITICAL` moves immediately; the rest are offered by tier for you to choose.
 
-**It does not transition anything.** Backlog membership and status are two separate axes in
-Jira: a ticket moved onto the board is still `TODO` if that is what it was. On the old local
-board, moving a lane *was* the transition — that is the one translation that does not survive.
+**It does not transition anything.** Backlog membership and status are separate axes: a ticket moved
+onto the board is still `TODO` if that is what it was. On the retired local board, moving a lane
+*was* the transition — that is the one translation that does not survive.
 
-> See [`examples/02-backlog-refinement/`](./examples/02-backlog-refinement/) for the queue report output.
+> [`examples/02-backlog-refinement/`](./examples/02-backlog-refinement/)
 
----
-
-### Step 4 — Size the Work
+### Step 4 — Size the work
 
 ```
 /estimate
 ```
 
-The skill reads the `TODO` tickets on the board and prints an estimation table: T-shirt size
-(S/M/L/XL), estimated AI turns, and human review effort per ticket.
+Prints a table: T-shirt size, estimated AI turns, human review effort per ticket.
 
-The table is printed, **not written back**. This Jira has no story points, so the skill has
-nowhere on a ticket to put an estimate and is forbidden to invent one.
+The table is printed, **not written back**. This Jira has no story points, so the skill has nowhere
+to put an estimate and is forbidden to invent one.
 
-If any ticket is rated **XL**, the skill flags it and recommends splitting — XL tickets are too
-large for a single agent context window and produce unreliable output.
+Anything rated **XL** gets flagged for splitting — XL tickets outgrow a single agent context window
+and produce unreliable output.
 
-> See [`examples/03-task-estimation/`](./examples/03-task-estimation/) for a sample estimation table.
+> [`examples/03-task-estimation/`](./examples/03-task-estimation/)
 
----
+### Step 5 — Start the first task
 
-### Step 5 — Start the First Task
-
-There is no `/next` command. Picking up work is two Jira calls and a habit, not a skill —
-`next-task` was retired with the local board (see
-[`_not_used/skills/next-task/RETIRED.md`](./_not_used/skills/next-task/RETIRED.md)).
+There is no `/next` command. Picking up work is two Jira calls and a habit, not a skill.
 
 Ask the agent to start the next ticket. It should:
 
-1. Call `jira_daily_standup` for the current working set
-2. Pick the highest tier — urgency is a **label** (`CRITICAL` / `HIGH` / `MEDIUM` / `LOW`),
-   because `priority` cannot be set on a team-managed Jira project
-3. Call `jira_assign`, then `jira_start_task` — assignee says whose it is, status says where
+1. Read the current working set
+2. Pick the highest urgency **label**
+3. Call `jira_assign`, then `jira_start_task` — assignee says whose it is, status says where it is
 4. Read the relevant project files
-5. Propose a full **Execution Plan** — target files, implementation steps, and risk notes
+5. Propose a full **execution plan** — target files, steps, risk notes
 
-Then it should **halt completely** and ask:
+Then it should **halt** and ask whether you approve. This is your last checkpoint before code is
+written. Approve, adjust, or send the ticket back to `TODO` and pick another.
 
-> "Tech Lead, do you approve this plan, or would you like to make adjustments before I write the code?"
+> Nothing expires a Jira assignee. If an agent stops mid-ticket, reassign it yourself — that is the
+> one thing the retired board did that Jira does not.
 
-Read the plan carefully. This is your last checkpoint before code is written. Options:
-- **Approve** — agent proceeds with the plan as written
-- **Adjust** — tell the agent what to change; it revises and halts again
-- **Reject** — transition the ticket back to `TODO` and pick a different one
+### Step 6 — Review and close
 
-> Nothing expires a Jira assignee. If an agent stops mid-ticket, reassign it yourself — that
-> is the one thing the retired board did that Jira does not.
+The agent calls `jira_submit_for_review` — the ticket goes to `IN REVIEW`, never straight to `DONE`.
+**Never skip `IN REVIEW`, including for your own work.**
 
----
-
-### Step 6 — Review and Close the Task
-
-Once the agent finishes implementation, it calls `jira_submit_for_review` — the ticket goes to
-`IN REVIEW`, never straight to `DONE`. **Never skip `IN REVIEW`, including for your own work.**
-
-A ticket in `IN REVIEW` is not merged code. Run the test suite and review the diff against the
-target branch before you believe any claim that it is fixed. When satisfied, transition it with
-`jira_transition_issue`, and commit with a conventional commit message:
+A ticket in `IN REVIEW` is not merged code. Run the suite and read the diff against the target
+branch before believing any claim that it is fixed. Then transition it, and commit:
 
 ```bash
 git commit -m "feat: add user authentication (register/login/JWT)"
 ```
 
-Then start the next ticket as in Step 5.
-
 ---
 
-## Mid-Sprint Scenarios
+## Mid-sprint scenarios
 
-### Handling a Bug Mid-Sprint
+### A bug arrives while a ticket is in flight
 
-If a bug is reported while a ticket is already in progress, do **not** interrupt the current
-ticket. Instead:
+Do **not** interrupt the current ticket.
 
 ```
 /issue
 ```
 
-Describe the bug. The skill will:
-1. Run read-only commands to diagnose the root cause
-2. Create a Jira ticket with the root cause documented and the urgency label set
-3. Leave your current in-flight ticket untouched
+Describe the bug. The skill runs read-only diagnosis, creates a ticket with the root cause and an
+urgency label, and leaves your in-flight work untouched. Pick it up when the current ticket reaches
+`IN REVIEW` — or sooner if it outranks what you are holding.
 
-Pick the bug ticket up when the current one reaches `IN REVIEW` — or sooner if it outranks what
-you are holding.
-
-> `/task` (`agentic-kanban`) is retired. Its triage half is what `/issue` does; its orchestration
-> half is not replaced. See
-> [`_not_used/skills/agentic-kanban/RETIRED.md`](./_not_used/skills/agentic-kanban/RETIRED.md).
-
-### End-of-Sprint Snapshot
+### End-of-sprint snapshot
 
 ```
 /report
 ```
 
-Prints a status snapshot of the board: what's done, what's in progress, what's queued, and any blockers. Useful for async standups or personal review.
+What's done, what's in progress, what's queued, what's blocked. Useful for async standups.
 
 ---
 
-## Using the Multi-Agent Squad
+## Using the multi-agent squad
 
-The kanban workflow above uses skills (slash commands) running in your own session. For larger, more autonomous work, delegate to the full agent squad:
+The workflow above runs skills in your own session. For larger autonomous work, delegate to the
+squad:
 
 ```bash
-# Start with the orchestrator — it reads your context files and assigns work
 claude --agent principal-engineer
 ```
 
-> "Read `PROJECT_BRIEF.md` and `REQUIREMENTS.md`. Analyze the project and give me a platform strategy, initial ADR, and squad plan."
+> "Read `PROJECT_BRIEF.md` and `REQUIREMENTS.md`. Analyse the project and give me a platform
+> strategy, an initial ADR, and a squad plan."
 
-The orchestrator assembles the squad and delegates work with precise, context-rich prompts. See the [Leader's Guidebook](./README.md#leaders-guidebook) in the main README for the full squad workflow.
+The orchestrator assembles the squad and delegates with context-rich prompts. The three tiers are
+described in the [README](./README.md#the-three-tier-system).
 
 ---
 
-## Full Skill Reference
+## Where to go next
 
-Once comfortable with the basics, see the [Skill Catalog](./README.md#skill-catalog) in the main README for every available slash command and when to use each one.
+| | |
+|---|---|
+| [`skills/INDEX.md`](./skills/INDEX.md) | every skill, its trigger and its path |
+| [`agents/INDEX.md`](./agents/INDEX.md) | every agent and when to invoke it |
+| [`Drunken-Guild-Guide.md`](./Drunken-Guild-Guide.md) | the Discord command reference and approval flow |
+| [`Integration-Guide.md`](./Integration-Guide.md) | bringing another project under this workflow |
+| [`CLAUDE.md`](./CLAUDE.md) | the rules, if you are going to contribute here |
 
-| Command | Skill | When to use |
-|---|---|---|
-| `/system-design` | system-design-rules | Before writing any new system or API |
-| `/clean-arch` | clean-architecture | Designing or reviewing layer structure |
-| `/ui` | universal-ui | Any frontend layout / visual work |
-| `/ux` | universal-ux | Any frontend state / flow / error handling |
-| `/infra` | cloud-native | Docker, K8s, CI/CD, IaC |
-| `/secure` | secure-by-design | Any auth, data handling, or new endpoint |
-| `/test-types` | test-strategy | Choosing the right test for the situation |
-| `/test-arch` | test-architecture | Designing a test suite or CI/CD pipeline |
-| `/test-report` | test-report-generator | Pre-merge quality gate |
-| `/tdd` | core-engineering | Writing new code or fixing a bug |
-| `/surgical` | anti-regression | Modifying existing files |
-| `/discipline` | ai-output | Enforcing output formatting standards |
-| `/git-workflow` | git-workflow | Branches, commits, PR lifecycle |
-| `/git` | project-hygiene | Commits, branches, README, ADR |
-| `/zero-defect` | zero-defect-mindset | Starting an implementation — design and threat model first |
-| `/isolate` | think-analyze-isolate | Running, starting, deploying or integrating anything |
-| `/electron-ipc` | electron-ipc-protocol | Any Electron main/renderer communication |
-| `/init-project` | spec-to-backlog | Day 0 — spec → backlog |
-| `/issue` | issue-intake | Report a bug or problem — captured to backlog automatically |
-| `/refine` | backlog-refinement | Sprint planning — move backlog tickets onto the board |
-| `/estimate` | task-estimation | Size tickets before sprint |
-| `/report` | local-progress-reporter | Sprint / project status snapshot |
-| `/audit` | audit-to-backlog | Post-mortem or code audit |
-| `/audit-project` | project-audit-reviewer | Full codebase health check |
-| `/incident` | incident-response | Active production outage |
-| `/lead` | servant-leadership | Code review, mentorship, team comms |
-| `/product` | product-midset | Feature ROI, FinOps, build-vs-buy |
-| `/telemetry` | business-telemetry | Adding event tracking |
-| `/playbook` | standard-playbook-generator | Generate engineering documentation |
+A few commands worth knowing early:
+
+| Command | When |
+|---|---|
+| `/system-design` | before writing any new system or API |
+| `/clean-arch` | designing or reviewing layer structure |
+| `/secure` | any auth, data handling, or new endpoint |
+| `/tdd` | fixing a bug, or writing tests |
+| `/isolate` | a command has failed the same way twice |
+| `/scrutinize` | a second opinion on a plan or a diff |
+| `/post-mortem` | a bug is fixed and validated — write the record |

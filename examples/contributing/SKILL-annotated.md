@@ -12,7 +12,7 @@
 
 <!-- FRONTMATTER — required, and it comes FIRST.
 
-     A skill without frontmatter is invisible: `sync_skills.sh` reads `description:` to build
+     A skill without frontmatter is invisible: `install_skills.sh` reads `description:` to build
      INDEX.md, and Claude reads it to decide whether the skill is relevant at all.
 
      Two fields:
@@ -78,7 +78,7 @@ description: >
 
   <ticket_rules>
     The ticket shape, the field limits, and the lifecycle are NOT restated here. They live in
-    `~/Projects/drunken-team/.agents/skills/jira-tickets/SKILL.md` and that file is authoritative.
+    the `jira-tickets` skill, and that skill is authoritative.
     Read it before writing a ticket.
   </ticket_rules>
 
@@ -192,5 +192,5 @@ never optional.
 - [ ] If the skill calls an MCP tool, a `<constraint>` names the server it requires
 - [ ] Rules that live elsewhere are LINKED, not copied
 - [ ] All content is in English
-- [ ] You ran `./scripts/install/sync_skills.sh` and confirmed the skill appears in `INDEX.md`
+- [ ] You ran `./scripts/install/install_skills.sh` and confirmed the skill appears in `INDEX.md`
       with the trigger you expected

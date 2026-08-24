@@ -1,7 +1,7 @@
 # mypy: ignore-errors
 """A stray ``.env`` above the working directory must not outrank the registry.
 
-DT-254. S3's parent-walk was recorded as closed by DT-224, and it was — for
+DG-254. S3's parent-walk was recorded as closed by DG-224, and it was — for
 ``jira_mcp``. The same pattern in ``service/discord_utils.py`` was never in
 scope, so ``load_dotenv()`` kept climbing to the filesystem root, loading the
 first ``.env`` it met into ``os.environ``. Since the environment outranks the
@@ -38,7 +38,7 @@ def registry_and_decoy(tmp_path, monkeypatch):
             {
                 "version": 2,
                 "projects": {
-                    "drunken-team": {
+                    "drunken-guild": {
                         "path": str(project_dir),
                         "discord": {
                             "channel_id": "registry-channel",
@@ -66,7 +66,7 @@ class TestAStrayDotenvDoesNotOutrankTheRegistry:
     def test_the_token_comes_from_the_registry_not_the_parent_dotenv(
         self, registry_and_decoy
     ) -> None:
-        """The finding itself. Before DT-254 this returned the decoy, because
+        """The finding itself. Before DG-254 this returned the decoy, because
         load_dotenv() climbed out of the project and injected it into the
         environment, which load_config() then preferred over the registry."""
         assert discord_utils.load_config()["bot_token"] == "registry-wins"
@@ -98,13 +98,75 @@ class TestAnExplicitEnvironmentVariableStillWins:
     def test_a_real_env_var_outranks_the_registry(
         self, registry_and_decoy, monkeypatch
     ) -> None:
-        """The override that survives DT-254, and the distinction the ticket
+        """The override that survives DG-254, and the distinction the ticket
         turns on. A variable set in the process environment is explicit and
         named — that is how a container passes a different bot in. A file
         discovered by climbing the tree is neither."""
         monkeypatch.setenv("DISCORD_BOT_TOKEN", "explicitly-set")
 
         assert discord_utils.load_config()["bot_token"] == "explicitly-set"
+
+
+class TestMultipleProjectsRegistered:
+    """DG-306. ``_discord_project()`` looped the registry and returned the
+    first entry carrying a ``discord`` key, full stop -- the exact guess
+    ``default_project_id()`` was already fixed for, three functions above
+    this one in the same module, and that fix never reached this function.
+
+    Live impact: with drunken-team registered before drunken-guild, every
+    approval request from drunken-guild resolved to drunken-team's channel,
+    and nothing reached the Boss on Discord."""
+
+    @pytest.fixture()  # type: ignore[misc]
+    def two_projects_registered(self, tmp_path, monkeypatch):
+        registry_file = tmp_path / "projects.json"
+        registry_file.write_text(
+            json.dumps(
+                {
+                    "version": 2,
+                    "projects": {
+                        "drunken-team": {
+                            "path": str(tmp_path / "drunken-team"),
+                            "discord": {"channel_id": "team-channel"},
+                        },
+                        "drunken-guild": {
+                            "path": str(tmp_path / "drunken-guild"),
+                            "discord": {"channel_id": "guild-channel"},
+                        },
+                    },
+                }
+            )
+        )
+        monkeypatch.setenv("DRUNKEN_REGISTRY_PATH", str(registry_file))
+        for var in ("DISCORD_BOT_TOKEN", "DISCORD_CHANNEL_ID", "DRUNKEN_PROJECT"):
+            monkeypatch.delenv(var, raising=False)
+
+    def test_without_drunken_project_the_first_registered_one_is_the_fallback(
+        self, two_projects_registered
+    ) -> None:
+        """Unchanged by the fix: this is the documented fallback, not the
+        rule, and only applies when nothing named a project explicitly."""
+        assert discord_utils.load_config()["channel_id"] == "team-channel"
+
+    def test_drunken_project_selects_the_named_project_instead(
+        self, two_projects_registered, monkeypatch
+    ) -> None:
+        """The finding itself, seen failing first: before the fix this
+        still returned team-channel regardless of DRUNKEN_PROJECT, because
+        nothing on this path ever read the variable."""
+        monkeypatch.setenv("DRUNKEN_PROJECT", "drunken-guild")
+
+        assert discord_utils.load_config()["channel_id"] == "guild-channel"
+
+    def test_an_explicit_miss_is_not_answered_by_a_neighbors_channel(
+        self, two_projects_registered, monkeypatch
+    ) -> None:
+        """DRUNKEN_PROJECT naming a project with no discord config (or no
+        registry entry at all) must not fall through to a different
+        project's channel -- that would be a wrong answer that looks right."""
+        monkeypatch.setenv("DRUNKEN_PROJECT", "beta")
+
+        assert discord_utils.load_config()["channel_id"] is None
 
 
 class TestConfigIsNotLocatedByClimbing:

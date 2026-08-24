@@ -24,7 +24,6 @@ from core import paths
 #: Modules that must never derive user state from their own location, nor from
 #: wherever they happened to be launched.
 STATE_OWNERS = (
-    "src/board_mcp/server.py",
     "src/discord_mcp/server.py",
     "src/service/approval_manager.py",
     "src/service/discord_listener.py",
@@ -66,7 +65,7 @@ def test_no_module_derives_state_from_its_own_location(relative: str) -> None:
 
 @pytest.mark.parametrize("relative", STATE_OWNERS)  # type: ignore[misc]
 def test_no_module_derives_state_from_the_working_directory(relative: str) -> None:
-    """The same bug in its other dialect, which the DT-241 sweep missed.
+    """The same bug in its other dialect, which the DG-241 sweep missed.
 
     ``os.getcwd()`` is arguably worse than ``__file__``: it does not even
     survive being launched from a different directory, and it is why the

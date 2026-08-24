@@ -1,9 +1,9 @@
 # mypy: ignore-errors
-"""Moving work between the board and the backlog — DT-251.
+"""Moving work between the board and the backlog — DG-251.
 
 Until now `jira_mcp` touched `/rest/agile/1.0` in exactly one place: a lookup
 asking whether a board exists at all, so `jira_create_issue` could warn on a
-business-type project (DT-234). It never read what the board *is* and never
+business-type project (DG-234). It never read what the board *is* and never
 asked what it can *do*.
 
 Two things make that worth fixing rather than guessing at. First, `type` does
@@ -12,7 +12,7 @@ backlog, while the three `simple` boards do — and a team-managed project can
 switch sprints on without its type changing. Second, and this is what these
 tests are mostly about, **the agile endpoints accept any issue key from any
 project with no scoping whatsoever.** `POST /rest/agile/1.0/backlog/{id}/issue`
-does not care that the server was launched for DT. That is S8 in a new place,
+does not care that the server was launched for DG. That is S8 in a new place,
 and it gets the same answer: make the scope structural instead of trusting the
 caller.
 """
@@ -32,13 +32,13 @@ class TestKeysAreConfinedToTheProject:
     """The guard that stops one project's server moving another's tickets."""
 
     def test_a_key_from_this_project_is_accepted(self) -> None:
-        assert backlog.scope_keys("DT-251", "DT") == ["DT-251"]
+        assert backlog.scope_keys("DG-251", "DG") == ["DG-251"]
 
     def test_a_key_from_another_project_is_refused(self) -> None:
         """The whole point. Nothing upstream would have stopped this: Jira
         accepts the key, moves the issue, and reports success."""
         with pytest.raises(ValidationError) as caught:
-            backlog.scope_keys("BETA-5", "DT")
+            backlog.scope_keys("BETA-5", "DG")
         assert "BETA-5" in str(caught.value)
         assert caught.value.remediation, "an error with no next step is a dead end"
 
@@ -46,44 +46,44 @@ class TestKeysAreConfinedToTheProject:
         """Not "move the valid ones and mention the rest". A partial move is
         the hardest kind to undo, because nothing records which half went."""
         with pytest.raises(ValidationError) as caught:
-            backlog.scope_keys("DT-251, BETA-5, DT-250", "DT")
+            backlog.scope_keys("DG-251, BETA-5, DG-250", "DG")
         assert "BETA-5" in str(caught.value)
 
     def test_a_project_key_that_merely_starts_the_same_is_refused(self) -> None:
-        """`DTX-1` starts with `DT`. A prefix comparison would let it through,
+        """`DGX-1` starts with `DG`. A prefix comparison would let it through,
         and it belongs to a different project entirely."""
         with pytest.raises(ValidationError):
-            backlog.scope_keys("DTX-1", "DT")
+            backlog.scope_keys("DGX-1", "DG")
 
     def test_case_is_normalised_rather_than_refused(self) -> None:
-        """Jira keys are uppercase; a human typing `dt-251` means DT-251."""
-        assert backlog.scope_keys("dt-251", "DT") == ["DT-251"]
+        """Jira keys are uppercase; a human typing `dg-251` means DG-251."""
+        assert backlog.scope_keys("dg-251", "DG") == ["DG-251"]
 
     def test_keys_may_be_separated_by_commas_or_whitespace(self) -> None:
-        assert backlog.scope_keys("DT-1, DT-2  DT-3", "DT") == ["DT-1", "DT-2", "DT-3"]
+        assert backlog.scope_keys("DG-1, DG-2  DG-3", "DG") == ["DG-1", "DG-2", "DG-3"]
 
     def test_something_that_is_not_a_key_at_all_is_refused(self) -> None:
-        """Guarding on shape as well as on project: `DT` alone, or a summary
+        """Guarding on shape as well as on project: `DG` alone, or a summary
         pasted in by mistake, must not reach the API as if it were a key."""
-        for junk in ("DT", "DT-", "-251", "251", "DT-251-x"):
+        for junk in ("DG", "DG-", "-251", "251", "DG-251-x"):
             with pytest.raises(ValidationError):
-                backlog.scope_keys(junk, "DT")
+                backlog.scope_keys(junk, "DG")
 
     def test_no_keys_at_all_is_refused(self) -> None:
         with pytest.raises(ValidationError):
-            backlog.scope_keys("   ", "DT")
+            backlog.scope_keys("   ", "DG")
 
     def test_more_than_fifty_is_refused_before_the_call(self) -> None:
         """Jira's own limit. Sending 51 returns a partial result that has to be
         reconciled afterwards; refusing costs nothing and stays reconcilable."""
-        keys = ", ".join(f"DT-{n}" for n in range(1, 52))
+        keys = ", ".join(f"DG-{n}" for n in range(1, 52))
         with pytest.raises(ValidationError) as caught:
-            backlog.scope_keys(keys, "DT")
+            backlog.scope_keys(keys, "DG")
         assert "50" in str(caught.value)
 
     def test_exactly_fifty_is_accepted(self) -> None:
-        keys = ", ".join(f"DT-{n}" for n in range(1, 51))
-        assert len(backlog.scope_keys(keys, "DT")) == 50
+        keys = ", ".join(f"DG-{n}" for n in range(1, 51))
+        assert len(backlog.scope_keys(keys, "DG")) == 50
 
 
 class _FakeClient(JiraClient):
@@ -98,7 +98,7 @@ class _FakeClient(JiraClient):
         self.base_url = "https://x.atlassian.net"
         self.email = "e@x"
         self.token = "t"  # noqa: S105
-        self.project_key = "DT"
+        self.project_key = "DG"
         self._profile = None
         self._boards = boards
         self._backlog_probe = backlog_probe
@@ -118,7 +118,7 @@ class _FakeClient(JiraClient):
         return self._backlog_probe
 
 
-BOARD = [{"id": 72, "name": "DT board", "type": "simple"}]
+BOARD = [{"id": 72, "name": "Drunken-Guild (DG)", "type": "simple"}]
 
 
 class TestTheBoardProfile:
@@ -135,7 +135,7 @@ class TestTheBoardProfile:
     async def test_a_board_without_a_backlog_reports_none(self) -> None:
         """Board 68 on the live site: type `kanban`, and Jira answers
         `Backlogs are not supported on this board`."""
-        kanban = [{"id": 68, "name": "Drunken-Agy", "type": "kanban"}]
+        kanban = [{"id": 68, "name": "Drunken-Guild", "type": "kanban"}]
         profile = await _FakeClient(kanban, backlog_probe=False).board_profile()
         assert profile.type == "kanban"
         assert profile.backlog is False
@@ -178,7 +178,7 @@ class TestTheBoardProfile:
 
     @pytest.mark.asyncio
     async def test_the_no_board_warning_still_comes_from_the_same_lookup(self) -> None:
-        """DT-234's warning is now derived from the profile rather than from a
+        """DG-234's warning is now derived from the profile rather than from a
         second cache. It must not have changed what it says."""
         client = _FakeClient([])
         client.project_key = "ALPHA"
@@ -207,7 +207,7 @@ class TestTheProbeItself:
         client.base_url = "https://x.atlassian.net"
         client.email = "e@x"
         client.token = "t"  # noqa: S105
-        client.project_key = "DT"
+        client.project_key = "DG"
         client._profile = None
         return client
 
@@ -262,12 +262,18 @@ class TestTheMoveTools:
         from jira_mcp.server import jira_move_to_backlog
 
         client = AsyncMock()
-        client.project_key = "DT"
+        client.project_key = "DG"
         client.board_profile.return_value = BoardProfile(
-            id=68, name="Drunken-Agy", type="kanban", backlog=False, known=True
+            id=68,
+            project_key="DG",
+            project_name="Drunken-Guild",
+            display_name="Drunken-Guild (DG)",
+            type="kanban",
+            backlog=False,
+            known=True,
         )
         with patch("jira_mcp.server.get_client", return_value=client):
-            result = await jira_move_to_backlog("DT-251")
+            result = await jira_move_to_backlog("DG-251")
 
         assert '"ok": false' in result.lower()
         assert "backlog" in result.lower()
@@ -278,10 +284,10 @@ class TestTheMoveTools:
         from jira_mcp.server import jira_move_to_backlog
 
         client = AsyncMock()
-        client.project_key = "DT"
+        client.project_key = "DG"
         client.board_profile.return_value = BoardProfile(known=True)
         with patch("jira_mcp.server.get_client", return_value=client):
-            result = await jira_move_to_backlog("DT-251")
+            result = await jira_move_to_backlog("DG-251")
 
         assert '"ok": false' in result.lower()
         client.move_to_backlog.assert_not_called()
@@ -293,9 +299,15 @@ class TestTheMoveTools:
         from jira_mcp.server import jira_move_to_backlog
 
         client = AsyncMock()
-        client.project_key = "DT"
+        client.project_key = "DG"
         client.board_profile.return_value = BoardProfile(
-            id=72, name="DT board", type="simple", backlog=True, known=True
+            id=72,
+            project_key="DG",
+            project_name="Drunken-Guild",
+            display_name="Drunken-Guild (DG)",
+            type="simple",
+            backlog=True,
+            known=True,
         )
         with patch("jira_mcp.server.get_client", return_value=client):
             result = await jira_move_to_backlog("BETA-5")
@@ -308,21 +320,27 @@ class TestTheMoveTools:
         """Backlog membership is not status. An agent reading "moved to
         backlog" must not conclude the ticket is no longer In Progress — that
         would be a second surface disagreeing with the first, which is the
-        failure DT-250 spent a session curing."""
+        failure DG-250 spent a session curing."""
         from jira_mcp.server import jira_move_to_backlog
 
         client = AsyncMock()
-        client.project_key = "DT"
+        client.project_key = "DG"
         client.board_profile.return_value = BoardProfile(
-            id=72, name="DT board", type="simple", backlog=True, known=True
+            id=72,
+            project_key="DG",
+            project_name="Drunken-Guild",
+            display_name="Drunken-Guild (DG)",
+            type="simple",
+            backlog=True,
+            known=True,
         )
-        client.move_to_backlog.return_value = {"ok": True, "moved": ["DT-251"]}
+        client.move_to_backlog.return_value = {"ok": True, "moved": ["DG-251"]}
         with patch("jira_mcp.server.get_client", return_value=client):
-            result = await jira_move_to_backlog("DT-251")
+            result = await jira_move_to_backlog("DG-251")
 
-        assert "DT-251" in result
+        assert "DG-251" in result
         assert "status" in result.lower()
-        client.move_to_backlog.assert_awaited_once_with(72, ["DT-251"])
+        client.move_to_backlog.assert_awaited_once_with(72, ["DG-251"])
 
     @pytest.mark.asyncio
     async def test_the_way_back_exists_and_is_scoped_the_same(self) -> None:
@@ -331,17 +349,23 @@ class TestTheMoveTools:
         from jira_mcp.server import jira_move_to_board
 
         client = AsyncMock()
-        client.project_key = "DT"
+        client.project_key = "DG"
         client.board_profile.return_value = BoardProfile(
-            id=72, name="DT board", type="simple", backlog=True, known=True
+            id=72,
+            project_key="DG",
+            project_name="Drunken-Guild",
+            display_name="Drunken-Guild (DG)",
+            type="simple",
+            backlog=True,
+            known=True,
         )
-        client.move_to_board.return_value = {"ok": True, "moved": ["DT-251"]}
+        client.move_to_board.return_value = {"ok": True, "moved": ["DG-251"]}
         with patch("jira_mcp.server.get_client", return_value=client):
             assert "BETA-5" in await jira_move_to_board("BETA-5")
-            result = await jira_move_to_board("DT-251")
+            result = await jira_move_to_board("DG-251")
 
-        client.move_to_board.assert_awaited_once_with(72, ["DT-251"])
-        assert "DT-251" in result
+        client.move_to_board.assert_awaited_once_with(72, ["DG-251"])
+        assert "DG-251" in result
 
     @pytest.mark.asyncio
     async def test_an_unknown_backlog_is_attempted_rather_than_refused(self) -> None:
@@ -350,15 +374,21 @@ class TestTheMoveTools:
         from jira_mcp.server import jira_move_to_backlog
 
         client = AsyncMock()
-        client.project_key = "DT"
+        client.project_key = "DG"
         client.board_profile.return_value = BoardProfile(
-            id=72, name="DT board", type="simple", backlog=None, known=True
+            id=72,
+            project_key="DG",
+            project_name="Drunken-Guild",
+            display_name="Drunken-Guild (DG)",
+            type="simple",
+            backlog=None,
+            known=True,
         )
-        client.move_to_backlog.return_value = {"ok": True, "moved": ["DT-251"]}
+        client.move_to_backlog.return_value = {"ok": True, "moved": ["DG-251"]}
         with patch("jira_mcp.server.get_client", return_value=client):
-            await jira_move_to_backlog("DT-251")
+            await jira_move_to_backlog("DG-251")
 
-        client.move_to_backlog.assert_awaited_once_with(72, ["DT-251"])
+        client.move_to_backlog.assert_awaited_once_with(72, ["DG-251"])
 
 
 class TestUpstreamErrorsKeepTheirStatus:
@@ -390,8 +420,58 @@ class TestTheErrorsCarryANextStep:
     def test_every_refusal_names_what_to_do_instead(self) -> None:
         for raw in ("BETA-5", "not-a-key", ""):
             try:
-                backlog.scope_keys(raw, "DT")
+                backlog.scope_keys(raw, "DG")
             except DrunkenError as exc:
                 assert exc.remediation, f"{raw!r} refused without a next step"
             else:
                 pytest.fail(f"{raw!r} should have been refused")
+
+
+class TestTheBoardIsIdentifiedByWhatCanChange:
+    """DG-274. The board's own ``name`` is frozen at creation and unreadable as
+    identity.
+
+    A team-managed project offers no board-rename UI — its two menus hold
+    stand-up, swimlanes, columns, workflows and filters, nothing else — and the
+    Agile API creates and deletes boards rather than renaming them. This board
+    answered ``DT board`` months after the project became ``Drunken-Guild``.
+
+    Reporting an unchangeable field beside changeable ones is what sends a
+    reader hunting for a setting that does not exist, so it is not reported.
+    """
+
+    @pytest.mark.asyncio
+    async def test_the_location_is_what_is_carried(self) -> None:
+        client = _FakeClient(
+            boards=[
+                {
+                    "id": 72,
+                    "name": "DT board",
+                    "type": "simple",
+                    "location": {
+                        "projectKey": "DG",
+                        "projectName": "Drunken-Guild",
+                        "displayName": "Drunken-Guild (DG)",
+                    },
+                }
+            ]
+        )
+
+        profile = await client.board_profile()
+
+        assert profile.project_key == "DG"
+        assert profile.project_name == "Drunken-Guild"
+        assert profile.display_name == "Drunken-Guild (DG)"
+        assert profile.id == 72
+
+    @pytest.mark.asyncio
+    async def test_the_frozen_label_is_not_carried_at_all(self) -> None:
+        """Not preferred-but-available: absent. A field nobody can change has no
+        place beside fields they can."""
+        client = _FakeClient(boards=[{"id": 72, "name": "DT board", "type": "simple"}])
+
+        profile = await client.board_profile()
+
+        assert not hasattr(profile, "name")
+        assert profile.project_key is None
+        assert profile.id == 72

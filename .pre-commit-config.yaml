@@ -33,13 +33,30 @@ repos:
         pass_filenames: false
         always_run: true
 
-      # DT-259. .gitignore's `*token*` once swallowed a whole test file: the
+      # DG-259. .gitignore's `*token*` once swallowed a whole test file: the
       # commit succeeded, this hook chain passed, and the suite stayed green
       # because the file was still on disk. Nothing said the commit was
       # incomplete. Now something does.
       - id: check-ignored-sources
         name: Block commits that silently omit a gitignored source file
         entry: python scripts/check_ignored_sources.py
+        language: system
+        pass_filenames: false
+        always_run: true
+
+      - id: check-settings-lint
+        name: Reject bare Tool(*) wildcard allow rules in settings
+        entry: python scripts/check_settings_lint.py
+        language: system
+        files: \.claude/settings\.json$
+
+      # DG-299. DG-288 says Antigravity works from its own `git worktree`,
+      # never the shared primary tree. Nothing enforced that until this:
+      # Antigravity's DG-298 commit landed straight in the primary tree and
+      # left it checked out on a feature branch after the session ended.
+      - id: check-worktree-isolation
+        name: Block an Antigravity commit landing in the primary working tree
+        entry: python scripts/check_worktree_isolation.py
         language: system
         pass_filenames: false
         always_run: true

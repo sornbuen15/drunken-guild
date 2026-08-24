@@ -1,4 +1,4 @@
-"""Where drunken-team keeps its state, and how that location is decided.
+"""Where drunken-guild keeps its state, and how that location is decided.
 
 The bug this replaces (MCP-ARCHITECTURE.md §1.3): two modules derived their
 paths from ``__file__``. Run from a checkout that resolves to the repo and looks
@@ -32,6 +32,7 @@ ENV_AUTH_DB: Final = "DRUNKEN_AUTH_DB"
 ENV_PID_REGISTRY: Final = "DRUNKEN_PID_REGISTRY"
 ENV_APPROVAL_SNAPSHOT: Final = "DRUNKEN_APPROVAL_SNAPSHOT"
 ENV_AWAY_FLAG: Final = "DRUNKEN_AWAY_FLAG"
+ENV_ANTIGRAVITY_PAYLOAD_DEBUG: Final = "DRUNKEN_ANTIGRAVITY_PAYLOAD_DEBUG"
 
 DEFAULT_HOME: Final = "~/.drunken"
 
@@ -86,8 +87,8 @@ def registry_path() -> ResolvedPath:
 
     ``DRUNKEN_REGISTRY_PATH`` is the override, and it is what a container
     pointing at a mounted file uses. This used to claim Antigravity's config
-    already sets it; checked in DT-246, it does not — that config declared no
-    drunken-team server at all until DT-246 added them, and it sets no
+    already sets it; checked in DG-246, it does not — that config declared no
+    drunken-guild server at all until DG-246 added them, and it sets no
     environment for them.
     """
     return _under_home("projects.json", ENV_REGISTRY)
@@ -96,8 +97,8 @@ def registry_path() -> ResolvedPath:
 def daemon_socket_path() -> ResolvedPath:
     """The Discord approval daemon's socket.
 
-    The deprecated ``AGY_DAEMON_SOCKET`` alias is gone as of DT-244: the
-    product is drunken-team, and nothing we own keeps the old name. Removing a
+    The deprecated ``AGY_DAEMON_SOCKET`` alias is gone as of DG-244: the
+    product is drunken-guild, and nothing we own keeps the old name. Removing a
     deprecated alias ahead of 3.0.0 is a deliberate call — nothing in this repo
     set it, and Antigravity's config does not either, so it had no users left
     to break. ``DRUNKEN_DAEMON_SOCKET`` is the override.
@@ -138,6 +139,21 @@ def away_flag_path() -> ResolvedPath:
     model never sees. A file can. ``DRUNKEN_AWAY_FLAG`` is the override.
     """
     return _under_home("away.json", ENV_AWAY_FLAG)
+
+
+def antigravity_payload_debug_path() -> ResolvedPath:
+    """DG-303: where the hook records a real Antigravity toolCall shape.
+
+    ``CommandLine``/``AbsolutePath`` (approval_hook.py's mapping for
+    ``run_command``/``view_file``) were never verified against a real
+    payload -- no test exercises them, and they match nothing in this
+    machine's own Antigravity CLI logs. This is temporary, throwaway
+    diagnostic state to capture one real shape and settle the question,
+    not a permanent record -- hence a plain append-only log file rather
+    than a name in the approvals/registry family above.
+    ``DRUNKEN_ANTIGRAVITY_PAYLOAD_DEBUG`` is the override.
+    """
+    return _under_home("antigravity_payload_debug.log", ENV_ANTIGRAVITY_PAYLOAD_DEBUG)
 
 
 def ensure_home() -> Path:
