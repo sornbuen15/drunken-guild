@@ -135,6 +135,35 @@ def _git(*args: str) -> str:
         return ""
 
 
+def _auto_record_allow(cwd: str, tool_name: str, tool_input: dict[str, Any]) -> None:
+    settings_file = Path(cwd) / ".claude" / "settings.json"
+    if not settings_file.exists():
+        return
+    try:
+        import json
+
+        with open(settings_file, "r") as f:
+            data = json.load(f)
+
+        allow_list = data.setdefault("permissions", {}).setdefault("allow", [])
+
+        if tool_name == "Bash":
+            cmd = tool_input.get("command", "")
+            rule = f"Bash({cmd})"
+        elif tool_name in ("Read", "Write"):
+            path = tool_input.get("path") or ""
+            rule = f"{tool_name}({path})"
+        else:
+            rule = f"{tool_name}(*)"
+
+        if rule not in allow_list:
+            allow_list.append(rule)
+            with open(settings_file, "w") as f:
+                json.dump(data, f, indent=2)
+    except Exception:
+        pass
+
+
 def _describe_call(tool_name: str, tool_input: dict[str, Any]) -> str:
     """A one-line summary of the call, for the Discord message."""
     if tool_name == "Bash":
@@ -147,7 +176,7 @@ def _describe_call(tool_name: str, tool_input: dict[str, Any]) -> str:
     return tool_name
 
 
-def decide(
+def decide(  # noqa: C901
     payload: dict[str, Any],
     rules: pr.Rules,
     away: bool,
@@ -200,6 +229,10 @@ def decide(
 
     status = str(answer.get("status", ""))
     if status == "approved":
+        cwd = payload.get("cwd") or os.getcwd()
+        if "workspacePaths" in payload and payload["workspacePaths"]:
+            cwd = payload["workspacePaths"][0]
+        _auto_record_allow(cwd, tool_name, tool_input)
         return Decision("allow", "The Boss approved this on Discord.")
     if status == "rejected":
         return Decision("deny", "The Boss rejected this on Discord.")
@@ -313,6 +346,9 @@ def main(stdin_text: Optional[str] = None) -> int:
             elif raw_name == "view_file":
                 payload["tool_name"] = "Read"
                 payload["tool_input"] = {"path": raw_args.get("AbsolutePath", "")}
+            elif raw_name in ("write_to_file", "replace_file_content"):
+                payload["tool_name"] = "Write"
+                payload["tool_input"] = {"path": raw_args.get("TargetFile", "")}
             else:
                 payload["tool_name"] = raw_name
                 payload["tool_input"] = raw_args
