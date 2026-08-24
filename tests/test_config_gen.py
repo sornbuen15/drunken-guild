@@ -131,7 +131,83 @@ class TestMergingLeavesTheHostsOwnServersAlone:
         host = tmp_path / "mcp_config.json"
         config_gen.merge_into_host_config(host, "alpha")
 
-        assert config_gen.merge_into_host_config(host, "alpha") == []
+        diff = config_gen.merge_into_host_config(host, "alpha")
+        assert diff.added == [] and diff.removed == []
+        assert not diff
+
+
+class TestOwnershipByNamingConvention:
+    """DG-286. Pruning has to know what it may delete without a list that
+    has to be remembered -- that list is exactly what DG-277 lacked, which
+    is why three dead entries needed a human to delete them by hand."""
+
+    def test_current_and_retired_names_are_ours(self) -> None:
+        assert config_gen.is_drunken_managed("drunken-jira-mcp")
+        assert config_gen.is_drunken_managed("drunken-board-mcp"), (
+            "retired by DG-265, but still ours to prune"
+        )
+
+    def test_a_foreign_name_is_never_ours(self) -> None:
+        assert not config_gen.is_drunken_managed("kanban-board")
+        assert not config_gen.is_drunken_managed("jira-board")
+
+
+class TestARetiredHostServerIsPrunedOnRegeneration:
+    """DG-286. Generating alone used to leave a retired server in place: DG-277
+    found `drunken-board-mcp` still declared in Antigravity's host config and
+    had to delete it by hand because merging preserves what it does not
+    recognise. A name matching our own convention that fell out of
+    MCP_SERVERS must not survive the next regeneration.
+    """
+
+    def test_a_retired_drunken_server_is_removed(self, tmp_path) -> None:
+        host = tmp_path / "mcp_config.json"
+        host.write_text(
+            json.dumps(
+                {"mcpServers": {"drunken-board-mcp": {"command": "drunken-board-mcp"}}}
+            )
+        )
+
+        diff = config_gen.merge_into_host_config(host, "alpha")
+
+        servers = json.loads(host.read_text())["mcpServers"]
+        assert "drunken-board-mcp" not in servers
+        assert diff.removed == ["drunken-board-mcp"]
+
+    def test_a_foreign_server_is_never_pruned(self, tmp_path) -> None:
+        """Only entries matching our own naming convention are ours to
+        remove. Antigravity's own servers don't share the prefix and must
+        survive even though this generator did not write them either."""
+        host = tmp_path / "mcp_config.json"
+        host.write_text(json.dumps({"mcpServers": {"jira-board": {"command": "npx"}}}))
+
+        diff = config_gen.merge_into_host_config(host, "alpha")
+
+        servers = json.loads(host.read_text())["mcpServers"]
+        assert servers["jira-board"] == {"command": "npx"}
+        assert diff.removed == []
+
+    def test_pruning_and_adding_happen_in_one_pass(self, tmp_path) -> None:
+        host = tmp_path / "mcp_config.json"
+        host.write_text(
+            json.dumps(
+                {
+                    "mcpServers": {
+                        "drunken-board-mcp": {"command": "drunken-board-mcp"},
+                        "kanban-board": {"command": "node"},
+                    }
+                }
+            )
+        )
+
+        diff = config_gen.merge_into_host_config(host, "alpha")
+
+        servers = json.loads(host.read_text())["mcpServers"]
+        assert set(config_gen.MCP_SERVERS) <= set(servers)
+        assert "drunken-board-mcp" not in servers
+        assert servers["kanban-board"] == {"command": "node"}
+        assert diff.removed == ["drunken-board-mcp"]
+        assert set(diff.added) == set(config_gen.MCP_SERVERS)
 
 
 class TestTheInstallOutputDoesNotLookLikeAnInstall:
