@@ -234,6 +234,61 @@ class TestTheWireFormat:
         assert "permissionDecision" not in emitted.get("hookSpecificOutput", {})
 
 
+class TestAntigravityPayloadLogging:
+    """DG-303: CommandLine/AbsolutePath were never verified against a real
+    Antigravity payload -- this only proves the capture mechanism itself
+    works and never leaks a value, not that the field names are right."""
+
+    def test_a_real_toolcall_shape_is_logged_without_its_values(
+        self, tmp_path, monkeypatch, capsys
+    ) -> None:
+        from core import paths
+
+        monkeypatch.setenv(paths.ENV_HOME, str(tmp_path))
+        stdin = json.dumps(
+            {
+                "toolCall": {
+                    "name": "run_command",
+                    "args": {
+                        "CommandLine": "cat /etc/shadow",
+                        "secretish": "should-never-appear",
+                    },
+                },
+                "workspacePaths": [str(tmp_path)],
+            }
+        )
+
+        assert hook.main(stdin_text=stdin) == 0
+        capsys.readouterr()  # the decision itself isn't what this test checks
+
+        log_path = paths.antigravity_payload_debug_path().path
+        logged = log_path.read_text(encoding="utf-8")
+        entry = json.loads(logged.strip().splitlines()[-1])
+        assert entry["name"] == "run_command"
+        assert entry["arg_keys"] == ["CommandLine", "secretish"]
+        assert "cat /etc/shadow" not in logged
+        assert "should-never-appear" not in logged
+
+    def test_a_claude_shaped_payload_logs_nothing(self, tmp_path, monkeypatch) -> None:
+        """No `toolCall` key means no Antigravity shape to capture -- logging
+        on every Claude call too would make the file noise, not evidence."""
+        from core import paths
+
+        monkeypatch.setenv(paths.ENV_HOME, str(tmp_path))
+        stdin = json.dumps(
+            {
+                "hook_event_name": "PreToolUse",
+                "tool_name": "Bash",
+                "tool_input": {"command": "git status"},
+                "permission_mode": "default",
+                "cwd": str(tmp_path),
+            }
+        )
+
+        assert hook.main(stdin_text=stdin) == 0
+        assert not paths.antigravity_payload_debug_path().path.exists()
+
+
 class TestTheTimeoutsCannotDrift:
     def test_the_configured_hook_timeout_exceeds_the_hooks_own_budget(self) -> None:
         """Two numbers that have to stay in a relationship, in two files --
