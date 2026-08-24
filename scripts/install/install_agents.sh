@@ -47,9 +47,17 @@ ANTIGRAVITY_MODEL_FAST="${ANTIGRAVITY_MODEL_FAST:-gemini-2.5-flash}"
 # tracked file correct, and hand-editing it drifts from the generator's output
 # by a byte or two per line, which is worse than stale.
 INDEX_ONLY=false
-if [ "${1:-}" = "--index-only" ]; then
-  INDEX_ONLY=true
-fi
+case "${1:-}" in
+  "") ;;
+  --index-only) INDEX_ONLY=true ;;
+  *)
+    # DG-302: an unrecognized flag used to fall through here and run a real
+    # install -- see install_skills.sh for the incident this came from.
+    echo -e "${RED}Unrecognized argument: ${1}${NC}" >&2
+    echo "Usage: $0 [--index-only]" >&2
+    exit 1
+    ;;
+esac
 
 # An unrecognised tier is reported, never silently mapped. A new Claude model
 # id landing here should make somebody read this function, not inherit whatever
