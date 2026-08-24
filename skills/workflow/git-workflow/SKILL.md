@@ -8,7 +8,7 @@ description: >
 ---
 
 # Skill: Git Workflow & Branching Strategy
-**Version:** v2.1.0
+**Version:** v2.2.0
 **Description:** Best-practice Git discipline — branch naming, commit conventions, PR lifecycle, which merge strategy belongs to which target, and release hygiene. An agent opens pull requests; a human merges them.
 
 ---
@@ -89,6 +89,10 @@ description: >
 
       A worktree needs neither: two sessions can start at the same moment and still never touch
       the same file on disk, because neither ever sees the other's branch.
+
+      This rule stands regardless of whether Antigravity is currently active on a given repo —
+      "supported, not recommended" (see that repo's `CLAUDE.md`) changes who gets assigned work,
+      not what the rule requires if both do run.
     </rule>
 
     <rule priority="HIGH" name="Unchanged Either Way">
