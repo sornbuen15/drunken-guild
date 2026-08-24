@@ -229,10 +229,6 @@ def decide(  # noqa: C901
 
     status = str(answer.get("status", ""))
     if status == "approved":
-        cwd = payload.get("cwd") or os.getcwd()
-        if "workspacePaths" in payload and payload["workspacePaths"]:
-            cwd = payload["workspacePaths"][0]
-        _auto_record_allow(cwd, tool_name, tool_input)
         return Decision("allow", "The Boss approved this on Discord.")
     if status == "rejected":
         return Decision("deny", "The Boss rejected this on Discord.")
