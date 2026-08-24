@@ -41,6 +41,7 @@ agent; where this file and that one disagree, that is a bug — report it rather
    - An approval is bound to the commit it was granted against. From a different HEAD it reads `stale` and must be asked again.
    - The blocking `request_boss_approval` still works and is kept until 3.0.0. Prefer the async pair.
 4. **Releases**: Milestone releases only. ALWAYS use the `release-notes-writer` skill format (Emoji table).
+5. **Working Tree**: Never share a checked-out working tree with Claude. Work from your own `git worktree` of this repo, on your own branch, so a checkout either of you switches or edits can never be pulled out from under the other — see `skills/workflow/git-workflow/SKILL.md` (DG-288).
 
 ## Daily Routine
 - **Auto-Start**: On a new session, proactively act as Scrum Master. Call `check_approvals` for anything still outstanding, then `jira_search_issues` for `status = "In Progress"`. If empty, look at `To Do`. Propose the highest priority task to the Boss.

@@ -137,7 +137,7 @@ strategy belongs to which target, and the release flow all live there. **Load it
 reasoning from memory, and do not restate it here** — a second copy of a rule is the failure this
 repo was built to cure.
 
-Four things are unrecoverable if you get them wrong, so they are named here as pointers, not as the
+Five things are unrecoverable if you get them wrong, so they are named here as pointers, not as the
 rule itself:
 
 - Never push to `main`.
@@ -148,6 +148,9 @@ rule itself:
 - **An agent commit passes `--author`**, so `git log` tells an agent's commit from the operator's:
   `Claude Code <claude@drunken.local>` or `Antigravity <antigravity@drunken.local>` (DG-293). The
   addresses are local-only and resolve nowhere — they exist to be visibly not a real account.
+- **Claude and Antigravity never share a checked-out working tree.** Each works from its own
+  `git worktree`, on its own branch, so a checkout one switches or edits can never be pulled out
+  from under the other (DG-288).
 
 The `DG-` key in a branch name is not decoration: `drunken-usage --by ticket` reads it back off the
 branch and has no other source, so a branch without one reports as untracked cost, silently.
