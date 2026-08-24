@@ -135,32 +135,189 @@ def _git(*args: str) -> str:
         return ""
 
 
-def _auto_record_allow(cwd: str, tool_name: str, tool_input: dict[str, Any]) -> None:
-    settings_file = Path(cwd) / ".claude" / "settings.json"
-    if not settings_file.exists():
-        return
-    try:
-        import json
+#: Leading Bash verbs that are never generalised into a standing rule, no
+#: matter how the Boss answered *this* call. Deny-adjacent: `rm -rf` and
+#: `git push --force` are already on the tracked deny list, but "adjacent"
+#: means the same family of danger under a slightly different spelling --
+#: `rm` without `-rf`, `sudo` for anything, a plain `git reset --hard` with
+#: no leading `--`. One approval is for one call; it must not become a
+#: standing exemption for the whole verb (DG-297).
+NEVER_LEARN_BASH_VERBS: Final = frozenset({"rm", "sudo", "eval", "ssh", "dd"})
 
-        with open(settings_file, "r") as f:
-            data = json.load(f)
+#: Substrings anywhere in the command that mark it deny-adjacent regardless
+#: of the leading verb -- `git push --force` and `git reset --hard` are not
+#: `rm`, but they are the same family of "cannot be undone".
+NEVER_LEARN_BASH_SUBSTRINGS: Final = (
+    "--force",
+    "-f ",
+    "reset --hard",
+    "clean -fd",
+    ".env",
+    "settings.json",
+    "settings.local.json",
+)
+
+#: Path-based tools (Read/Write/Edit/...): a call touching any of these is
+#: never learned, whichever tool made it. Secrets and the policy files
+#: themselves -- a learned rule permitting either would let one approval
+#: quietly grant every future read of a secret, or every future rewrite of
+#: the permission policy that decides what needs approval at all.
+NEVER_LEARN_PATH_SUBSTRINGS: Final = (
+    ".env",
+    "settings.json",
+    "settings.local.json",
+)
+
+#: Verbs that name another layer of indirection rather than a concrete
+#: action -- `uv` on its own says nothing about what runs; `uv run pytest`
+#: does. Generalising must keep collecting tokens through this chain until
+#: it reaches something concrete, or refuse to generalise at all rather than
+#: land on a bare `Bash(uv:*)` / `Bash(python:*)`, each of which is
+#: arbitrary code execution wearing a permission rule.
+_DELEGATOR_VERBS: Final = frozenset(
+    {
+        "uv",
+        "uvx",
+        "npx",
+        "npm",
+        "yarn",
+        "pnpm",
+        "bunx",
+        "bun",
+        "cargo",
+        "go",
+        "docker",
+        "git",
+        "run",
+        "exec",
+        "python",
+        "python3",
+        "node",
+        "ruby",
+        "perl",
+        "php",
+        "lua",
+        "bash",
+        "sh",
+        "zsh",
+        "fish",
+        "timeout",
+        "env",
+    }
+)
+
+
+def _is_never_learn(tool_name: str, tool_input: dict[str, Any]) -> bool:
+    """Whether this call must be approved every time and never generalised.
+
+    Checked before generalisation, not instead of it -- the Boss's answer to
+    *this* call still stands (:func:`decide` already returned it); this only
+    decides whether that answer is allowed to become a standing rule.
+    """
+    if tool_name == "Bash":
+        command = str(tool_input.get("command", ""))
+        verb = command.strip().split(" ", 1)[0] if command.strip() else ""
+        if verb in NEVER_LEARN_BASH_VERBS:
+            return True
+        return any(needle in command for needle in NEVER_LEARN_BASH_SUBSTRINGS)
+
+    for key in pr.PATH_KEYS:
+        value = tool_input.get(key)
+        if isinstance(value, str) and any(
+            needle in value for needle in NEVER_LEARN_PATH_SUBSTRINGS
+        ):
+            return True
+    return False
+
+
+def _stable_verb_prefix(command: str) -> Optional[str]:
+    """The narrowest prefix that still names a concrete action.
+
+    Walks tokens left to right, extending the prefix through any run of
+    delegator verbs (`uv run pytest` -> keeps going past `uv` and `run`
+    because neither names what will actually execute) and stopping at the
+    first token that does -- or at the first flag, since a flag can change
+    what a delegator verb means (`uv run --with x` names nothing yet).
+
+    Returns ``None`` when nothing concrete was ever reached: a bare `uv`, a
+    `cargo run --release` with no crate named, a `python -c "..."` where the
+    "target" is inline code rather than a file. Refusing to generalise here
+    is the safe default -- the call this approval was for still ran; only
+    the *next* one like it prompts again, same as if this had never run.
+    """
+    tokens = command.strip().split()
+    prefix: list[str] = []
+    for token in tokens:
+        if token.startswith("-"):
+            break
+        prefix.append(token)
+        if token.lower() not in _DELEGATOR_VERBS:
+            break
+
+    if not prefix or prefix[-1].lower() in _DELEGATOR_VERBS:
+        return None
+    return " ".join(prefix)
+
+
+def _generalize_rule(tool_name: str, tool_input: dict[str, Any]) -> Optional[str]:
+    """A verb-scoped prefix rule covering the *shape* of this call.
+
+    ``None`` means "nothing safe to learn" -- silently skipping the write is
+    correct here (principle 4's other direction): failing to generalise
+    costs one more prompt next time, which is a long way from the failure
+    mode of over-generalising, which is a hole.
+    """
+    if tool_name == "Bash":
+        command = str(tool_input.get("command", ""))
+        if len(pr.split_command(command)) != 1:
+            # A compound command's shape is the whole chain the Boss saw,
+            # not its first segment alone -- learning just that segment
+            # would grant more than was ever approved.
+            return None
+        verb = _stable_verb_prefix(command)
+        return f"Bash({verb}:*)" if verb else None
+
+    for key in pr.PATH_KEYS:
+        value = tool_input.get(key)
+        if isinstance(value, str) and value:
+            directory = os.path.dirname(value) or "."
+            return f"{tool_name}({directory}/*)"
+    return None
+
+
+def _record_learned_rule(cwd: str, tool_name: str, tool_input: dict[str, Any]) -> None:
+    """Generalise one Boss-approved call into a standing local rule.
+
+    Written to the gitignored ``settings.local.json``, never to the tracked
+    file (DG-295 found the previous version of this function doing exactly
+    that, with the exact string rather than a shape -- so the next similar
+    command still prompted, and running the test suite itself mutated the
+    real tracked policy as a side effect). A never-learn call is approved
+    for this one call and left at that.
+    """
+    if _is_never_learn(tool_name, tool_input):
+        return
+    rule = _generalize_rule(tool_name, tool_input)
+    if rule is None:
+        return
+
+    settings_file = Path(cwd) / ".claude" / pr.LOCAL_SETTINGS_FILENAME
+    try:
+        if settings_file.exists():
+            data = json.loads(settings_file.read_text(encoding="utf-8"))
+            if not isinstance(data, dict):
+                data = {}
+        else:
+            data = {}
 
         allow_list = data.setdefault("permissions", {}).setdefault("allow", [])
-
-        if tool_name == "Bash":
-            cmd = tool_input.get("command", "")
-            rule = f"Bash({cmd})"
-        elif tool_name in ("Read", "Write"):
-            path = tool_input.get("path") or ""
-            rule = f"{tool_name}({path})"
-        else:
-            rule = f"{tool_name}(*)"
-
         if rule not in allow_list:
             allow_list.append(rule)
-            with open(settings_file, "w") as f:
-                json.dump(data, f, indent=2)
-    except Exception:
+            settings_file.parent.mkdir(parents=True, exist_ok=True)
+            settings_file.write_text(
+                json.dumps(data, indent=2) + "\n", encoding="utf-8"
+            )
+    except Exception:  # noqa: BLE001 - a failed write must not fail the call
         pass
 
 
@@ -229,6 +386,10 @@ def decide(  # noqa: C901
 
     status = str(answer.get("status", ""))
     if status == "approved":
+        cwd = payload.get("cwd") or os.getcwd()
+        if "workspacePaths" in payload and payload["workspacePaths"]:
+            cwd = payload["workspacePaths"][0]
+        _record_learned_rule(cwd, tool_name, tool_input)
         return Decision("allow", "The Boss approved this on Discord.")
     if status == "rejected":
         return Decision("deny", "The Boss rejected this on Discord.")
@@ -355,8 +516,7 @@ def main(stdin_text: Optional[str] = None) -> int:
         else:
             cwd = payload.get("cwd") or os.getcwd()
 
-        settings = Path(cwd) / ".claude" / "settings.json"
-        rules = pr.load_rules(settings)
+        rules = pr.load_layered_rules(cwd)
         decision = decide(
             payload,
             rules,
