@@ -33,7 +33,7 @@
       "Bash(./scripts/*.sh)",
       "Bash(uv run drunken-away:*)",
       "Read(./**/*)",
-      "Write(./**/*)",
+      "Edit(./**/*)",
       "find_by_name(./**/*)",
       "grep_search(./**/*)",
       "list_dir(./**/*)"
