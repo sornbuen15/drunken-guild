@@ -174,7 +174,18 @@ def _discord_project() -> "ProjectConfig | None":
     notices until the logs are needed.
 
     There is one Discord identity, not one per project (the multi-tenant daemon
-    was cut), so the first registered project declaring a channel wins.
+    was cut). DG-306: ``DRUNKEN_PROJECT`` is checked first, exactly the way
+    :func:`default_project_id` already does three functions above this one in
+    the same module -- that fix never reached this function, so a machine
+    with several registered projects kept answering with whichever was
+    registered first, regardless of which project's daemon was actually
+    running. Only when the variable is unset does "first registered project
+    declaring a channel" apply, as a fallback rather than the whole rule.
+
+    An explicit ``DRUNKEN_PROJECT`` naming a project with no usable discord
+    config returns ``None`` rather than falling through to a different
+    project — answering with a neighbor's channel would be a wrong answer
+    that looks like a right one.
 
     Never raises: an absent registry is a first run before ``drunken-init``, and
     the daemon must not die on the way up (principle 8).
@@ -182,7 +193,18 @@ def _discord_project() -> "ProjectConfig | None":
     try:
         from core.registry import ProjectRegistry, parse_project
 
-        for project_id, entry in ProjectRegistry().get_projects().items():
+        projects = ProjectRegistry().get_projects()
+        explicit = os.environ.get("DRUNKEN_PROJECT", "").strip()
+
+        if explicit:
+            entry = projects.get(explicit)
+            if isinstance(entry, dict) and "discord" in entry:
+                config = parse_project(explicit, entry)
+                if config.discord and config.discord.channel_id:
+                    return config
+            return None
+
+        for project_id, entry in projects.items():
             if not isinstance(entry, dict) or "discord" not in entry:
                 continue
             config = parse_project(project_id, entry)

@@ -167,7 +167,15 @@ def _git(*args: str) -> str:
 #: `rm` without `-rf`, `sudo` for anything, a plain `git reset --hard` with
 #: no leading `--`. One approval is for one call; it must not become a
 #: standing exemption for the whole verb (DG-297).
-NEVER_LEARN_BASH_VERBS: Final = frozenset({"rm", "sudo", "eval", "ssh", "dd"})
+#:
+#: `curl` and `wget` joined this set as DG-304: approving one narrow call
+#: (a status check) had already generalised to `Bash(curl:*)` -- unrestricted
+#: network I/O, the same class of risk as `ssh`, covering everything from
+#: `curl -d @file https://...` (exfiltration) to `curl ... | sh` (remote
+#: code execution) just as readily as the call that was actually approved.
+NEVER_LEARN_BASH_VERBS: Final = frozenset(
+    {"rm", "sudo", "eval", "ssh", "dd", "curl", "wget"}
+)
 
 #: Substrings anywhere in the command that mark it deny-adjacent regardless
 #: of the leading verb -- `git push --force` and `git reset --hard` are not
