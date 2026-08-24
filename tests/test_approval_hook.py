@@ -372,6 +372,60 @@ def test_the_ticket_key_is_read_from_the_branch_name(branch, expected) -> None:
     assert hook.ticket_from_branch(branch) == expected
 
 
+class TestDG296CuratedStaticAllowlist:
+    """DG-296: the shapes `fewer-permission-prompts` found repeated across
+    real transcripts -- previously unlisted, read-only or build/test, and
+    never prompted for again once here. Each command below is the actual
+    shape observed, not a hand-picked simplification, so a rule that looks
+    right but is scoped wrong (a missing subcommand, a stray flag) fails
+    exactly like it would in the terminal."""
+
+    def _allow_rules(self):
+        from pathlib import Path
+
+        settings = json.loads(
+            (
+                Path(__file__).resolve().parents[1] / ".claude" / "settings.json"
+            ).read_text(encoding="utf-8")
+        )
+        return [pr.Rule.parse(entry) for entry in settings["permissions"]["allow"]]
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "uv run ruff check src/ tests/ scripts/",
+            "uv run ruff check .",
+            "uv run mypy src",
+            "uvx bandit -ll -q -r src/ 2>/dev/null",
+            "git fetch --quiet origin",
+            "uv run drunken-usage --project drunken-guild --by ticket",
+        ],
+    )
+    def test_a_previously_prompted_shape_now_needs_no_prompt(self, command) -> None:
+        rules = self._allow_rules()
+        assert pr.is_allowed("Bash", {"command": command}, rules), (
+            f"{command!r} was one of the repeated, read-only shapes DG-296 "
+            "curated -- it must match Layer 1 without a prompt."
+        )
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "uv run ruff format src/ tests/",  # rewrites files -- not read-only
+            "uv run python -c \"import os; os.system('rm -rf /')\"",  # interpreter
+            "git checkout -b feature/DG-1-x",  # mutates the working tree
+        ],
+    )
+    def test_a_mutating_or_arbitrary_exec_shape_was_not_curated_in(
+        self, command
+    ) -> None:
+        """The scan surfaced these same verbs, but the mutating or
+        code-execution variant must not have ridden along with the
+        read-only one it was curated from."""
+        rules = self._allow_rules()
+        assert not pr.is_allowed("Bash", {"command": command}, rules)
+
+
 def test_decide_does_not_mutate_tracked_settings_file(monkeypatch, tmp_path):
     """decide() has a passing test proving it never mutates the tracked settings file."""
     # Create a mock settings.json
