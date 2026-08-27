@@ -15,6 +15,7 @@ Usage:
 """
 
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -28,12 +29,13 @@ import sys
 _LABEL_BASE = "com.drunkenteam.daemon"
 
 
+def _slugify(name: str) -> str:
+    return re.sub(r"[^A-Za-z0-9._-]", "-", name).strip("-.") or "unnamed"
+
+
 def _label(project: str) -> str:
     """LaunchAgent label for one project."""
-    import re as _re
-
-    slug = _re.sub(r"[^A-Za-z0-9._-]", "-", project).strip("-.") or "unnamed"
-    return f"{_LABEL_BASE}.{slug}"
+    return f"{_LABEL_BASE}.{_slugify(project)}"
 
 
 def _plist_path(label: str) -> str:
@@ -77,7 +79,8 @@ def _resolve_project_id() -> str:
         for project_id, entry in ProjectRegistry().get_projects().items():
             path = entry.get("path") if isinstance(entry, dict) else None
             if path and os.path.realpath(path) == here:
-                return project_id
+                # get_projects() is untyped, so the key arrives as Any.
+                return str(project_id)
     except Exception as exc:
         print(f"[!] Could not read the registry to resolve a project id: {exc}")
 
@@ -101,7 +104,23 @@ PLIST_PATH = _plist_path(LABEL)
 # uninstall so it is not orphaned in ~/Library/LaunchAgents.
 UNSUFFIXED_LABEL = _LABEL_BASE
 UNSUFFIXED_PLIST_PATH = _plist_path(_LABEL_BASE)
-LOG_PATH = os.path.join(REPO_ROOT, ".agents", "discord_listener.log")
+
+
+def _log_path(project: str) -> str:
+    """One log per project's daemon.
+
+    DG-313: with a daemon per project they would otherwise interleave into one
+    file, and the first question during an incident is which project a line came
+    from. Every log is suffixed, including this checkout's own -- an
+    un-suffixed exception would be the one path nobody could tell apart from the
+    pre-DG-313 shared log.
+    """
+    return os.path.join(
+        REPO_ROOT, ".agents", f"discord_listener-{_slugify(project)}.log"
+    )
+
+
+LOG_PATH = _log_path(PROJECT_ID)
 LEGACY_PLIST_PATH = os.path.expanduser(f"~/Library/LaunchAgents/{LEGACY_LABEL}.plist")
 
 # launchd resolves ProgramArguments[0] using its own minimal default PATH
@@ -275,12 +294,70 @@ def status() -> None:
         print(f"[-] {LABEL} is not currently loaded.")
 
 
+def _retarget(project: str) -> None:
+    """Point this run at another registered project's agent.
+
+    DG-313 gave every project its own daemon, but the code they all run lives in
+    this checkout -- there is one copy, not one per project. Without a way to
+    say which project an agent serves, only the project this checkout is
+    registered as could ever get a daemon, and every other project's MCP server
+    would dial a socket nobody binds.
+
+    Refuses an unregistered id rather than installing an agent for a project
+    that does not exist: a daemon bound to a socket no client dials is a service
+    that looks healthy and answers nothing.
+    """
+    global PROJECT_ID, LABEL, PLIST_PATH, LOG_PATH
+
+    try:
+        sys.path.insert(0, os.path.join(REPO_ROOT, "src"))
+        from core.registry import ProjectRegistry
+
+        known = set(ProjectRegistry().get_projects())
+    except Exception as exc:  # noqa: BLE001 - reported, not swallowed
+        print(
+            f"[-] Cannot read the registry to check --project: {exc}", file=sys.stderr
+        )
+        sys.exit(1)
+
+    if project not in known:
+        print(
+            f"[-] '{project}' is not registered. Known: {', '.join(sorted(known)) or '(none)'}\n"
+            f"    Run drunken-init for it first.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    PROJECT_ID = project
+    LABEL = _label(PROJECT_ID)
+    PLIST_PATH = _plist_path(LABEL)
+    LOG_PATH = _log_path(PROJECT_ID)
+    print(f"[i] Targeting project '{PROJECT_ID}' -> {LABEL}")
+
+
 def main() -> None:
-    if len(sys.argv) != 2 or sys.argv[1] not in ("install", "uninstall", "status"):
+    argv = sys.argv[1:]
+
+    # DG-313: --project installs the agent for another registered project,
+    # using this checkout's code. Parsed here rather than with argparse to keep
+    # the existing one-word usage message intact.
+    project: str | None = None
+    if "--project" in argv:
+        i = argv.index("--project")
+        if i + 1 >= len(argv):
+            print("[-] --project needs a project id.", file=sys.stderr)
+            sys.exit(1)
+        project = argv[i + 1]
+        del argv[i : i + 2]
+
+    if len(argv) != 1 or argv[0] not in ("install", "uninstall", "status"):
         print(__doc__)
         sys.exit(1)
 
-    action = sys.argv[1]
+    if project:
+        _retarget(project)
+
+    action = argv[0]
     if action == "install":
         install()
     elif action == "uninstall":
