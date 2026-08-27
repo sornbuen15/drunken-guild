@@ -157,3 +157,22 @@ def test_unreadable_registry_never_raises(
     broken.write_text("{not json")
     monkeypatch.setenv("DRUNKEN_REGISTRY_PATH", str(broken))
     assert _name() == "daemon.sock"
+
+
+def test_installer_can_target_another_registered_project() -> None:
+    """One checkout holds the code; every project needs its own agent.
+
+    Without this the only project that could ever get a daemon is the one this
+    checkout is registered as, and every other project's MCP server would dial
+    a socket nobody binds -- a loud failure instead of a silent wrong room, but
+    still no way to fix it.
+    """
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "scripts"))
+    import setup_daemon_service as svc
+
+    assert svc._label("alpha") != svc._label("beta")
+    assert svc._log_path("alpha") != svc._log_path("beta"), (
+        "two daemons interleaving into one log makes the first question during "
+        "an incident -- which project -- unanswerable"
+    )
+    assert svc._slugify("../x") == "x"
