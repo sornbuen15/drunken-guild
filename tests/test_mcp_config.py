@@ -1,27 +1,54 @@
 # mypy: ignore-errors
-"""`.mcp.json` is how this repo's own agents reach the MCP servers, so a server
-that ships without an entry there is code nobody can call.
+"""A server that ships as a console script but is not wired into any project's
+MCP config is code nobody can call.
 
 That is not hypothetical: `board_available_tasks` and the `blocked` lane merged
-in DG-233 and stayed unreachable from inside this project, because `.mcp.json`
+in DG-233 and stayed unreachable from inside this project, because the config
 declared two of the three servers. Nothing failed -- the tools simply were not
-there. This test is the thing that would have said so.
+there. This file is the thing that would have said so.
+
+**What it reads changed in DG-313, and the change is the finding.** These tests
+used to open this repository's own `.mcp.json` from the repo root. That file is
+operating config, not source -- machine paths and which project each server
+serves -- so DG-313 untracked it. The tests then failed on a CI runner that had
+never checked it out, and passed locally only because the file happened to
+still be on disk. They were asserting against one machine's copy of a generated
+artefact.
+
+So they assert against the generator instead: `core.config_gen.mcp_config()` is
+what writes every project's `.mcp.json`, this repo's included. That is both
+honest and stronger -- a server missing from the generator is unreachable from
+*every* project it onboards, not just from whichever one a developer happened
+to run the suite in.
+
+`test_config_gen.py` owns the invariants internal to the generator -- that the
+repo shape names commands and never paths, that both shapes are scoped to a
+project, that the board server is emitted by neither. This file owns the one
+thing that spans two files and neither of them can see alone: **what
+`pyproject.toml` ships and what the generator wires must be the same set.**
 """
 
-import json
 import re
 from pathlib import Path
 
 import pytest
+
+from core import config_gen
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
 #: Console-script lines in pyproject's `[project.scripts]` table.
 SCRIPT_LINE = re.compile(r"^(?P<name>[A-Za-z0-9._-]+)\s*=\s*\"(?P<target>[^\"]+)\"")
 
+#: Any project id will do -- the generator emits the same server set for all of
+#: them, and the id only reaches the `--project` argument. Naming a real one
+#: would suggest this repository is the subject, which is the assumption
+#: DG-313 removed.
+SOME_PROJECT = "any-project"
 
-def _declared_servers() -> dict[str, str]:
-    """The `drunken-*-mcp` entry points, as pyproject declares them.
+
+def _declared_scripts() -> dict[str, str]:
+    """Every console script pyproject declares, as `name -> target`.
 
     Read with a regex rather than `tomllib` on purpose: the declared floor is
     Python 3.10, where `tomllib` does not exist, and a drift guard is not worth
@@ -30,17 +57,27 @@ def _declared_servers() -> dict[str, str]:
     text = (REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8")
     block = text.partition("[project.scripts]")[2].partition("\n[")[0]
 
-    servers = {}
+    scripts = {}
     for line in block.splitlines():
         match = SCRIPT_LINE.match(line.strip())
-        if match and match.group("name").endswith("-mcp"):
-            servers[match.group("name")] = match.group("target")
-    return servers
+        if match:
+            scripts[match.group("name")] = match.group("target")
+    return scripts
+
+
+def _declared_servers() -> dict[str, str]:
+    """The `drunken-*-mcp` entry points, as pyproject declares them."""
+    return {
+        name: target
+        for name, target in _declared_scripts().items()
+        if name.endswith("-mcp")
+    }
 
 
 @pytest.fixture()  # type: ignore[misc]
-def mcp_config() -> dict:
-    return json.loads((REPO_ROOT / ".mcp.json").read_text(encoding="utf-8"))
+def wired_servers() -> dict:
+    """The `mcpServers` block the generator writes into a project."""
+    return config_gen.mcp_config(SOME_PROJECT)["mcpServers"]
 
 
 def test_pyproject_still_declares_mcp_servers() -> None:
@@ -52,8 +89,8 @@ def test_pyproject_still_declares_mcp_servers() -> None:
     )
 
 
-#: Servers that must not come back — not as an entry point, and not in
-#: `.mcp.json`.
+#: Servers that must not come back -- not as an entry point, and not in a
+#: generated config.
 #:
 #: This set used to mean something weaker: *ships, but is deliberately not
 #: wired anywhere*. That was the state DG-265 ended. A package that has never
@@ -63,8 +100,8 @@ def test_pyproject_still_declares_mcp_servers() -> None:
 #:
 #: Both directions are guarded below, because the two failures look nothing
 #: alike. Re-declaring the entry point puts a runnable command on the PATH of
-#: everyone who installs this. Re-adding it to `.mcp.json` hands its tools back
-#: to every agent in this repo.
+#: everyone who installs this. Re-adding it to the generator hands its tools
+#: back to every project this onboards.
 RETIRED_SERVERS = {
     # DG-250. Jira is the only coordination surface: the assignee says whose
     # work a ticket is, the status says where it is. A local board beside Jira
@@ -75,15 +112,30 @@ RETIRED_SERVERS = {
 }
 
 
-def test_every_mcp_server_is_reachable_from_this_project(mcp_config: dict) -> None:
-    """A server that exists but is not declared here cannot be called at all."""
+def test_every_mcp_server_is_reachable_from_a_project(wired_servers: dict) -> None:
+    """A server that ships but is not wired cannot be called at all."""
     declared = set(_declared_servers())
-    configured = set(mcp_config["mcpServers"])
+    wired = set(wired_servers)
 
-    assert declared <= configured, (
-        f"{sorted(declared - configured)} ship as entry points but are missing "
-        "from .mcp.json, so their tools cannot be called from inside this "
-        "project. This is how DG-233's board tools shipped unreachable."
+    assert declared <= wired, (
+        f"{sorted(declared - wired)} ship as entry points but are missing from "
+        "config_gen.MCP_SERVERS, so no project this onboards can call their "
+        "tools. This is how DG-233's board tools shipped unreachable."
+    )
+
+
+def test_nothing_is_wired_that_does_not_ship(wired_servers: dict) -> None:
+    """The mirror, and the failure that only appears at somebody else's install.
+
+    A name in the generator with no console script behind it writes a config
+    whose command does not exist. The host reports a process that would not
+    start, which reads like a broken install rather than a typo here.
+    """
+    unshipped = set(wired_servers) - set(_declared_servers())
+    assert not unshipped, (
+        f"{sorted(unshipped)} is wired by config_gen but is not declared in "
+        "[project.scripts], so the generated config names a command that is "
+        "not installed."
     )
 
 
@@ -106,46 +158,43 @@ def test_a_retired_server_is_not_packaged_again() -> None:
     )
 
 
-def test_a_retired_server_is_not_quietly_wired_back_in(mcp_config: dict) -> None:
-    """The mirror of the test above, and the one that matters now.
+def test_a_retired_server_is_not_quietly_wired_back_in(wired_servers: dict) -> None:
+    """The mirror of the test above, by name rather than by substring.
 
-    Retiring the board was a decision, not an accident, so it needs a guard in
-    the same direction: adding it back to `.mcp.json` should fail here and be
-    argued for, rather than reappearing because a config was copied from an
-    older project.
+    `test_config_gen.py` already asserts that no *emitted* config contains the
+    string "board". This one is crossed with the entry points, so it keeps
+    holding if the board server ever comes back under a name that does not
+    contain the word.
     """
-    wired_again = RETIRED_SERVERS & set(mcp_config["mcpServers"])
+    wired_again = RETIRED_SERVERS & set(wired_servers)
     assert not wired_again, (
         f"{sorted(wired_again)} is retired (DG-250) and has been wired back "
-        "into .mcp.json. Jira is the only coordination surface — if this is "
+        "into config_gen. Jira is the only coordination surface — if this is "
         "deliberate, change RETIRED_SERVERS and say why."
     )
 
 
-def test_no_configured_server_points_at_a_module_that_is_gone(
-    mcp_config: dict,
-) -> None:
-    """The other direction: an entry left behind after a server is removed
-    fails at handshake time, where the host reports a process that vanished."""
-    for name, entry in mcp_config["mcpServers"].items():
-        args = entry.get("args", [])
-        assert "-m" in args, (
-            f"{name} is not launched with 'python -m'; this check does not "
-            "know how to resolve its module and needs updating."
+def test_no_wired_server_points_at_a_module_that_is_gone(wired_servers: dict) -> None:
+    """The other direction: a config entry left behind after a server is removed
+    fails at handshake time, where the host reports a process that vanished.
+
+    The generated config names a command rather than `python -m module`, so the
+    module is reached through pyproject's target for that command. That is one
+    hop longer than the old check and covers the same ground plus the hop
+    itself -- a script whose target package was moved out of `src/` now fails
+    here rather than at somebody's first tool call.
+    """
+    scripts = _declared_scripts()
+
+    for name, entry in wired_servers.items():
+        command = entry["command"]
+        assert command in scripts, (
+            f"{name} is wired with command '{command}', which is not a console "
+            "script in [project.scripts]. Nothing will install it."
         )
-        module = args[args.index("-m") + 1]
+
+        module = scripts[command].partition(":")[0]
         package = module.partition(".")[0]
         assert (REPO_ROOT / "src" / package).is_dir(), (
-            f".mcp.json launches {name} from '{module}', but src/{package} "
-            "does not exist."
+            f"{name} runs '{scripts[command]}', but src/{package} does not exist."
         )
-
-
-def test_no_absolute_paths_leak_into_mcp_config(mcp_config: dict) -> None:
-    """Working agreement: an absolute path in a committed `.mcp.json` is one
-    developer's machine, checked into everyone else's."""
-    raw = (REPO_ROOT / ".mcp.json").read_text(encoding="utf-8")
-    assert "/Users/" not in raw and "/home/" not in raw, (
-        ".mcp.json contains an absolute home path. Paths here must be "
-        "relative to the project, or the file only works on one machine."
-    )
