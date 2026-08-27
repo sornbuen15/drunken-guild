@@ -115,29 +115,61 @@ cp .env.example .env
 
 ### 3.4 Register the MCP servers (for an AI coding agent)
 
-`.mcp.json` at the repo root already registers all three MCP servers for tools like Claude Code:
+**A fresh clone has no `.mcp.json`, and nothing will tell you.** The file is operating config, not
+source — it names which project each server serves — so DG-250 keeps it out of git and DG-313
+untracked it here. Untracked does not mean optional: **every checkout needs its own**, or an agent
+opened there has no `drunken-jira-mcp` tools at all. There is no error. The tools are simply absent,
+and the session falls back to driving Jira by hand.
+
+Generate it, in the checkout, once:
+
+```bash
+uv run drunken-config --project <PROJECT-ID> --kind mcp --out .mcp.json
+```
+
+That writes exactly this — **two** servers, named as commands, with no path anywhere:
 
 ```json
 {
   "mcpServers": {
-    "drunken-discord-mcp": { "command": "uv", "args": ["run", "python", "-m", "discord_mcp.server", "--project", "<PROJECT-ID>"], "env": { "PYTHONPATH": "src" } },
-    "drunken-jira-mcp": { "command": "uv", "args": ["run", "python", "-m", "jira_mcp.server", "--project", "<PROJECT-ID>"], "env": { "PYTHONPATH": "src" } }
+    "drunken-jira-mcp":    { "command": "drunken-jira-mcp",    "args": ["--project", "<PROJECT-ID>"] },
+    "drunken-discord-mcp": { "command": "drunken-discord-mcp", "args": ["--project", "<PROJECT-ID>"] }
   }
 }
 ```
 
+Two servers, not three: `drunken-board-mcp` was retired with the local board (DG-250/DG-265) and is
+no longer packaged. If you find a config naming it, that config predates the retirement.
+
+**Names, never paths.** An absolute path here is one machine's directory layout in everyone else's
+repository. The command form depends on §3.2 having run `uv tool install .`, so the two executables
+are on `PATH`. Without that, and only then, fall back to the checkout-relative form — and note it
+works *only* from inside that checkout, silently doing nothing from anywhere else:
+
+```json
+{ "command": "uv", "args": ["run", "--directory", "/abs/path/to/drunken-guild",
+                            "drunken-jira-mcp", "--project", "<PROJECT-ID>"] }
+```
+
 > **`--project` is required on both servers (DG-313).** It is not decoration on the Discord one:
 > it selects which daemon socket the server dials, and therefore which Discord room approvals
-> reach. Omit it on a machine with more than one project registered and approvals post into
-> whichever project's daemon answers first. Do **not** put a channel id here — the project id is
-> the reference and the registry holds the value.
->
-> `.mcp.json` is operating config, not source. Per DG-250 it lives at the wrapper level, outside
-> the git repo, and `scripts/install/install_mcp.sh` generates it.
+> reach — see §7.1. Omit it on a machine with more than one project registered and approvals post
+> into whichever project's daemon answers first. Do **not** put a channel id here; the project id
+> is the reference and the registry holds the value.
 
-Which project a server acts on comes from `--project <id>`, resolved against the registry -- never from the working directory. Add `"--project", "<id>"` to a server's `args` to point it at a project other than the one it was launched from.
+Which project a server acts on comes from `--project <id>`, resolved against the registry — never
+from the working directory.
 
-If your agent supports project-level `.mcp.json` discovery, this works out of the box. Otherwise see the [Integration Guide](./Integration-Guide.md) for manual configuration.
+**Regenerating is always safe.** The file is derived entirely from the registry, so if you are ever
+unsure whether it is current, write it again. Re-run the command above after anything that changes
+a project's id, or after upgrading to a release that adds or retires a server.
+
+**Your agent reads it at startup.** Writing the file into a session that is already open changes
+nothing until that session is restarted — which is the confusing part of getting this wrong: you
+fix it, and nothing appears to happen.
+
+If your agent supports project-level `.mcp.json` discovery, this works out of the box. For Cursor
+and others that do not, see the [Integration Guide](./Integration-Guide.md).
 
 ### 3.5 Run the Discord bot
 
@@ -157,14 +189,119 @@ uv run python scripts/setup_daemon_service.py uninstall   # remove it
 
 This is local-machine-only -- if the machine is off or asleep, approvals will not reach Discord.
 
-> **On a machine with more than one project registered, the daemon needs `DRUNKEN_PROJECT` set --
-> it is not optional past the first project.** Unset, it falls back to whichever project was
-> registered first, silently, for the whole daemon's lifetime: every approval request from every
-> other project resolves to the first one's Discord channel instead, and the failure looks exactly
-> like a working bot that nobody happens to see. `setup_daemon_service.py install` resolves this
-> automatically -- it matches the checkout it's run from against the registry's own `path` field
-> and writes `DRUNKEN_PROJECT` into the launchd plist -- so re-running `install` from the checkout
-> you actually want served is the fix, not a manual edit. See Section 7.
+> **One daemon per project (DG-313), so install one per project.** The daemon binds
+> `~/.drunken/daemon-<project>.sock`, named after the project it serves, and the MCP server started
+> with `--project <id>` dials that same name. `setup_daemon_service.py install` writes
+> `DRUNKEN_PROJECT` into the launchd plist for you — matched against the registry's own `path`
+> field, not guessed from the directory name — and `--project <id>` installs one for a project
+> other than this checkout's:
+>
+> ```bash
+> uv run python scripts/setup_daemon_service.py install --project twa
+> ```
+>
+> A daemon already running keeps its old socket until restarted. See §7.1 for the full resolution
+> order and for what the pre-DG-313 behaviour looked like, which you will still meet on any machine
+> whose daemon has not been restarted.
+
+### 3.6 Prove it works, before trusting it
+
+Every step below can pass while the next one fails, which is why they are separate. Work down the
+list; each names what its failure actually looks like, because none of them announce themselves.
+
+**1 — The commands exist.**
+
+```bash
+which drunken-jira-mcp drunken-discord-mcp
+```
+
+Both should resolve under `~/.local/bin/`. A path inside a `.venv` works until that venv is rebuilt
+and then fails with no obvious connection to the cause. Nothing at all means §3.2 has not run.
+
+**2 — The registry knows the project, and the credential works.**
+
+```bash
+drunken-doctor --project <PROJECT-ID>
+```
+
+Look for `project.<id>.jira` naming *you*. This asks `/rest/api/3/myself`, which 401s on a bad
+credential — **a Jira search cannot tell you this**, because it answers a dead credential with
+`200` and an empty list. A board with 39 issues on it once read as empty for months that way.
+
+Two warnings here are worth acting on rather than skimming past:
+
+- `deployment.tool_env` — the installed tool is a different revision from this checkout. It lists
+  the files that differ. Fix with `uv tool install . --reinstall`. **Every module being present
+  says nothing about which revision of it is there**, which is why the check compares content.
+- `deployment.mcp_pin` — `uv tool install` ignores `uv.lock`, so the deployment drifts inside the
+  allowed range. `drunken-config --project <id> --kind install` gives you the pinned command.
+
+`drunken-doctor` verifies that a credential *works*. It does **not** verify that the project key
+exists — it once printed `OK … (project TWA)` while Jira answered *"No project could be found"*
+(DG-260). If the key is new, check it directly.
+
+**3 — The MCP config exists and names the right project.**
+
+```bash
+cat .mcp.json
+```
+
+Missing entirely is the common case on a fresh clone — see §3.4. Wrong `--project` is the quieter
+one: the server starts, the tools appear, and every ticket goes to another project's board.
+
+**4 — The server starts.**
+
+```bash
+drunken-jira-mcp --project <PROJECT-ID> --help
+```
+
+Exit 0 means the entry point resolves and its dependencies import. This is worth doing separately
+because a host that cannot start a server usually reports it as *"the process exited"* with nothing
+about why.
+
+**5 — Your agent can see the tools.** Restart the session first — **`.mcp.json` is read at startup,
+so a file written into an open session changes nothing.** That is the confusing part of getting
+this wrong: you fix it, and nothing appears to happen. Then ask the agent to list a few tickets;
+`jira_search_issues` answering is the proof.
+
+If the tools are absent, the agent is not failing — it never had them. It will quietly fall back to
+`scripts/jira_bridge.py`, which works, so the symptom is slowness rather than an error.
+
+**6 — The daemon is up, on the right socket.**
+
+```bash
+uv run python scripts/setup_daemon_service.py status
+ls ~/.drunken/*.sock
+```
+
+You want `daemon-<project>.sock` for each project you installed. A bare `daemon.sock` means a
+pre-DG-313 daemon is still running — it keeps its old socket until restarted, and it has
+`KeepAlive`, so it comes back if you only kill it. Re-run `install`, which unloads the old agent
+as part of its job.
+
+**7 — A real approval reaches the right room.** This is the only step that proves the thing anyone
+actually cares about, and **no tool can do it for you**: `drunken-doctor` checks that a channel id
+is *set*, not that the bot is in that room, and not that a daemon binds that socket.
+
+Ask your agent for something needing permission, or turn away mode on and run any command that is
+not allowlisted:
+
+```bash
+uv run drunken-away on --note "testing the approval path"
+# ... trigger a prompt, answer it in Discord with 👍 ...
+uv run drunken-away off
+```
+
+Then check the room. **Which room it lands in is the test** — on a multi-project machine the
+pre-DG-313 failure was that approvals arrived somewhere real, reported success, and were simply
+never seen by whoever was waiting.
+
+`uv run drunken-away off` is deliberately allowlisted, so you cannot strand yourself with away mode
+on and no way to answer.
+
+**8 — Sending messages from Discord.** Once the daemon is up the bot takes commands in its room —
+`/status`, `/project`, and the read-only Jira and PR queries. The full list is §5; the approval
+protocol is §6.
 
 ---
 
