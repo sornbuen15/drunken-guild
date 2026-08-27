@@ -97,10 +97,23 @@ class TestTheServiceLabelMigrates:
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
 
-        assert module.LABEL == "com.drunkenteam.daemon"
+        # DG-313: the label now carries the project, so one machine can run a
+        # daemon per project. The base is what the two earlier names migrate
+        # from, and install must know both or an already-installed agent is
+        # orphaned rather than replaced -- it has KeepAlive, so an orphan keeps
+        # a stale daemon alive on the shared socket.
+        assert module._LABEL_BASE == "com.drunkenteam.daemon"
+        assert module.LABEL.startswith(module._LABEL_BASE + ".")
+        assert module.LABEL != module._LABEL_BASE
+
         assert "agy" in module.LEGACY_LABEL, (
             "The migration needs to know what it is migrating from, or an "
             "already-installed service is orphaned rather than replaced."
+        )
+        assert module.UNSUFFIXED_LABEL == "com.drunkenteam.daemon"
+        assert callable(module._remove_unsuffixed_agent), (
+            "Changing the label without unloading the un-suffixed agent leaves "
+            "two loaded, and KeepAlive resurrects the old one."
         )
 
 
