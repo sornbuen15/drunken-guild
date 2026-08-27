@@ -21,8 +21,14 @@ mcp = FastMCP("drunken-discord-mcp")
 #
 # Called rather than captured: a container sets DRUNKEN_DAEMON_SOCKET in its
 # entrypoint, which a value frozen at import time would miss.
+# DG-313: which project this server was started for. Set once in main() from
+# --project, and it decides which daemon we dial -- one per project, so an
+# approval raised here cannot surface in another project's Discord room.
+_PROJECT: str | None = None
+
+
 def socket_path() -> str:
-    return str(paths.daemon_socket_path())
+    return str(paths.daemon_socket_path(_PROJECT))
 
 
 # Generous ceiling above the daemon's own 2-attempt approval window (default
@@ -205,11 +211,22 @@ async def check_approvals(req_ids: list[str]) -> str:
 
 def main() -> None:
     """Entry point for the MCP server."""
+    global _PROJECT
+
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "--project", type=str, help="Project ID (ignored by discord, kept for compat)"
+        "--project",
+        type=str,
+        help="Project ID. Selects which daemon socket to dial (DG-313).",
     )
     args, unknown = parser.parse_known_args()
+
+    # DG-313: this used to be parsed and thrown away -- the help text said
+    # "ignored by discord, kept for compat" -- so every project's server dialled
+    # one shared socket and got whichever channel that daemon was pinned to.
+    # Falling back to DRUNKEN_PROJECT keeps a server started without the flag
+    # working, and with neither set the socket name is unchanged.
+    _PROJECT = args.project or os.environ.get("DRUNKEN_PROJECT", "").strip() or None
 
     # Remove from sys.argv to prevent FastMCP from complaining about unknown args
     if "--project" in sys.argv:

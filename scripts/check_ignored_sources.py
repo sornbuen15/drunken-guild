@@ -55,7 +55,16 @@ ROOT_SOURCE_NAMES = frozenset({"Dockerfile", "Makefile"})
 #: deliverable -- the Boss confirmed it belongs to whoever's session wrote it,
 #: not to git (DG-293). Its tracked template, .guild_templates/SESSION_CHECKPOINT.md,
 #: is nested and never reaches this root-only check.
-ROOT_ALLOWED = ("scratch_", "requirements.lock", "SESSION_CHECKPOINT.md")
+#: ``.mcp.json`` is operating config, not source (DG-313): machine paths and
+#: which project each MCP server serves. DG-250 puts it at the wrapper level,
+#: outside git; this repo is its own wrapper, so it sits here and stays
+#: untracked. ``scripts/install/install_mcp.sh`` generates it.
+ROOT_ALLOWED = (
+    "scratch_",
+    "requirements.lock",
+    "SESSION_CHECKPOINT.md",
+    ".mcp.json",
+)
 
 #: What a human writes, as opposed to what a build leaves behind.
 SOURCE_SUFFIXES = frozenset({".py", ".sh", ".toml", ".md", ".json", ".yaml", ".yml"})
