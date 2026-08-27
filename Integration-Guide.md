@@ -26,11 +26,20 @@ Both are registered for you already in `.mcp.json` at the repo root:
 ```json
 {
   "mcpServers": {
-    "drunken-discord-mcp": { "command": "uv", "args": ["run", "python", "-m", "discord_mcp.server"], "env": { "PYTHONPATH": "src" } },
-    "drunken-jira-mcp": { "command": "uv", "args": ["run", "python", "-m", "jira_mcp.server"], "env": { "PYTHONPATH": "src" } }
+    "drunken-discord-mcp": { "command": "uv", "args": ["run", "python", "-m", "discord_mcp.server", "--project", "<PROJECT-ID>"], "env": { "PYTHONPATH": "src" } },
+    "drunken-jira-mcp": { "command": "uv", "args": ["run", "python", "-m", "jira_mcp.server", "--project", "<PROJECT-ID>"], "env": { "PYTHONPATH": "src" } }
   }
 }
 ```
+
+> **`--project` is required on both servers (DG-313).** It is not decoration on the Discord one:
+> it selects which daemon socket the server dials, and therefore which Discord room approvals
+> reach. Omit it on a machine with more than one project registered and approvals post into
+> whichever project's daemon answers first. Do **not** put a channel id here — the project id is
+> the reference and the registry holds the value.
+>
+> `.mcp.json` is operating config, not source. Per DG-250 it lives at the wrapper level, outside
+> the git repo, and `scripts/install/install_mcp.sh` generates it.
 
 Which project a server acts on comes from `--project <id>`, resolved against the central registry -- never from the working directory, and never from a `.env` next to the code. Add `"--project", "<id>"` to `args` when running a server against a project other than the one it was launched from.
 
