@@ -12,9 +12,12 @@ today. `*credential*` has the same property, and a project with a token-economy
 ticket and a credential resolver will keep producing files that match.
 """
 
+import subprocess
 from pathlib import Path
 
 from scripts import check_ignored_sources as guard
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
 
 
 class TestWhatCountsAsASourceFile:
@@ -130,3 +133,53 @@ class TestItIsWiredIntoPreCommit:
         config = Path(__file__).resolve().parent.parent / ".pre-commit-config.yaml"
 
         assert "check_ignored_sources" in config.read_text(encoding="utf-8")
+
+
+class TestScratchIsIgnoredAsADirectoryNotAsAPrefix:
+    """DG-314. `scratch_*.py` matches a filename prefix. It was read as though
+    it covered `scratch/`, and it never did -- `scratch/claude_advice.txt` and
+    `scratch/claude_response.txt`, both zero bytes, reached `develop` in PR #48,
+    the pull request that was meant to carry the session checkpoint and carried
+    only these two.
+
+    Asserted by asking git rather than by matching text in `.gitignore`,
+    because the defect was exactly a pattern that reads correct and does not
+    match. Only git settles that, and a string check here would have agreed
+    with the broken rule.
+    """
+
+    @staticmethod
+    def _ignored(relative: str) -> bool:
+        """What git itself says about *relative*. Exit 0 means ignored."""
+        result = subprocess.run(  # nosec B603 - fixed argv, no shell
+            ["git", "check-ignore", "-q", relative],
+            cwd=REPO_ROOT,
+            capture_output=True,
+            timeout=30,
+            check=False,
+        )
+        return result.returncode == 0
+
+    def test_a_file_in_the_scratch_directory_is_ignored(self) -> None:
+        assert self._ignored("scratch/claude_advice.txt"), (
+            "scratch/ is not ignored, so scratch notes will be committed again. "
+            "`scratch_*.py` is a filename prefix and does not cover it."
+        )
+
+    def test_the_old_prefix_rule_still_holds(self) -> None:
+        """Kept because DG-314 added the directory rule beside it rather than
+        replacing it: a root-level `scratch_probe.py` is still scratch."""
+        assert self._ignored("scratch_probe.py")
+
+    def test_nothing_under_scratch_is_source_to_the_guard(self) -> None:
+        """The interaction that would otherwise turn this fix into noise.
+
+        Once `scratch/` is ignored, every file under it becomes an
+        ignored-but-present path that `check_ignored_sources` will see. It must
+        not flag them -- a guard that fires on scratch is a guard that gets
+        switched off, which is the failure it exists to prevent, one level up.
+        `scratch` is deliberately absent from SOURCE_DIRS, and that is what
+        holds this.
+        """
+        assert not guard.is_source(Path("scratch/notes.py"))
+        assert not guard.is_source(Path("scratch/claude_advice.txt"))
