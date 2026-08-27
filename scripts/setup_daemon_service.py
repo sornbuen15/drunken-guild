@@ -19,7 +19,31 @@ import shutil
 import subprocess
 import sys
 
-LABEL = "com.drunkenteam.daemon"
+# DG-313: the label carries the project, so one machine can run a daemon per
+# project. It used to be a bare constant, which meant installing for a second
+# project overwrote the first project's plist -- and since every daemon also
+# shared one socket, the survivor answered for everyone. `_LABEL_BASE` is kept
+# separate from the resolved label so `uninstall` can still find an agent
+# installed before the project suffix existed.
+_LABEL_BASE = "com.drunkenteam.daemon"
+
+
+def _label(project: str) -> str:
+    """LaunchAgent label for one project."""
+    import re as _re
+
+    slug = _re.sub(r"[^A-Za-z0-9._-]", "-", project).strip("-.") or "unnamed"
+    return f"{_LABEL_BASE}.{slug}"
+
+
+def _plist_path(label: str) -> str:
+    return os.path.expanduser(f"~/Library/LaunchAgents/{label}.plist")
+
+
+# Resolved once from the project this checkout is registered under, so every
+# function below acts on this project's agent and never a neighbour's.
+# LABEL and PLIST_PATH are defined after PROJECT_ID below -- they derive from
+# it, and Python binds module-level names in order.
 #: What the label was before DG-244 retired the old product name. Kept only so
 #: install() can unload and delete it: launchd keys on the label, so writing
 #: the new plist without removing the old one leaves two definitions
@@ -67,8 +91,17 @@ def _resolve_project_id() -> str:
 
 
 PROJECT_ID = _resolve_project_id()
+
+# DG-313: both derive from PROJECT_ID, so install/uninstall/status all act on
+# this project's agent and never a neighbour's.
+LABEL = _label(PROJECT_ID)
+PLIST_PATH = _plist_path(LABEL)
+
+# The un-suffixed agent, from before the label carried a project. Checked on
+# uninstall so it is not orphaned in ~/Library/LaunchAgents.
+UNSUFFIXED_LABEL = _LABEL_BASE
+UNSUFFIXED_PLIST_PATH = _plist_path(_LABEL_BASE)
 LOG_PATH = os.path.join(REPO_ROOT, ".agents", "discord_listener.log")
-PLIST_PATH = os.path.expanduser(f"~/Library/LaunchAgents/{LABEL}.plist")
 LEGACY_PLIST_PATH = os.path.expanduser(f"~/Library/LaunchAgents/{LEGACY_LABEL}.plist")
 
 # launchd resolves ProgramArguments[0] using its own minimal default PATH
@@ -145,6 +178,23 @@ def _plist_content() -> str:
     )
 
 
+def _remove_unsuffixed_agent() -> None:
+    """Unload and delete the pre-DG-313 agent, if one is still installed.
+
+    Same hazard as :func:`_remove_legacy_agent`, one rename later. Before
+    DG-313 the label was ``com.drunkenteam.daemon`` with no project on it, and
+    that agent has KeepAlive: left loaded it keeps a second daemon alive on the
+    shared ``daemon.sock``, which is the cross-project posting this change
+    exists to stop. Installing the per-project agent beside it would leave both
+    running and the old one still answering.
+    """
+    if not os.path.exists(UNSUFFIXED_PLIST_PATH):
+        return
+    subprocess.run(["launchctl", "unload", UNSUFFIXED_PLIST_PATH], capture_output=True)
+    os.remove(UNSUFFIXED_PLIST_PATH)
+    print(f"[+] Removed the pre-DG-313 agent, {UNSUFFIXED_LABEL}")
+
+
 def _remove_legacy_agent() -> None:
     """Unload and delete the pre-DG-244 agent, if one is still installed.
 
@@ -169,6 +219,7 @@ def install() -> None:
         sys.exit(1)
 
     _remove_legacy_agent()
+    _remove_unsuffixed_agent()
 
     os.makedirs(os.path.dirname(LOG_PATH), exist_ok=True)
     os.makedirs(os.path.dirname(PLIST_PATH), exist_ok=True)
@@ -199,6 +250,17 @@ def uninstall() -> None:
     if os.path.exists(PLIST_PATH):
         os.remove(PLIST_PATH)
         print(f"[+] Removed {PLIST_PATH}")
+
+    # DG-313: an agent installed before the label carried a project sits at the
+    # un-suffixed path. It has KeepAlive, so leaving it behind means a second
+    # daemon keeps resurrecting itself on the shared socket -- exactly the
+    # cross-project posting this change removes.
+    if os.path.exists(UNSUFFIXED_PLIST_PATH):
+        subprocess.run(
+            ["launchctl", "unload", UNSUFFIXED_PLIST_PATH], capture_output=True
+        )
+        os.remove(UNSUFFIXED_PLIST_PATH)
+        print(f"[+] Removed the pre-DG-313 agent, {UNSUFFIXED_LABEL}")
     else:
         print("[+] Nothing installed.")
 
