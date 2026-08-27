@@ -522,9 +522,9 @@ cross-posting this removes. A daemon already running keeps its old socket until 
 > about which project you meant. On a multi-project machine every approval from every other project
 > posted to that first channel while both ends reported success:
 > `request_boss_approval_async` returned a `req_id`, nothing errored, and the message simply never
-> reached the room anyone was watching. DT-247 had cut the multi-tenant daemon on the premise that
-> *"nobody drives more than one project"*; three projects now have real rooms, so that premise is
-> gone.
+> reached the room anyone was watching. The multi-tenant daemon had been cut, back when this ran
+> one project, on the premise that nobody drives more than one; that premise is gone, and DG-313
+> reversed it.
 
 **`drunken-doctor` cannot confirm this for you.** It checks that a channel id is *set* — not that
 the bot is in that room, and not that any daemon binds that socket. Confirm it the only way that
