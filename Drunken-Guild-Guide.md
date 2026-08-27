@@ -237,7 +237,7 @@ Two warnings here are worth acting on rather than skimming past:
   allowed range. `drunken-config --project <id> --kind install` gives you the pinned command.
 
 `drunken-doctor` verifies that a credential *works*. It does **not** verify that the project key
-exists — it once printed `OK … (project ALPHA)` while Jira answered *"No project could be found"*
+exists — it once printed `OK … (project XYZ)` while Jira answered *"No project could be found"*
 (DG-260). If the key is new, check it directly.
 
 **3 — The MCP config exists and names the right project.**
@@ -388,7 +388,7 @@ Bot:  **To Do** (3)
 
 | Command | Example | What it does |
 |---|---|---|
-| `/project [name]` | `/project beta` | Show, or switch, which registered project the commands above (and `/next`/`/refine`) target. No argument shows the current one. |
+| `/project [name]` | `/project alpha` | Show, or switch, which registered project the commands above (and `/next`/`/refine`) target. No argument shows the current one. |
 | `/next` | `/next` | If nothing is In Progress, pick the top of To Do and transition it there. Refuses if a ticket is already In Progress. |
 | `/refine` | `/refine` | Auto-promote any Critical-priority backlog ticket straight to To Do; report a priority breakdown of everything else (no auto-promotion for non-Critical). |
 | `/approve <ticket>` | `/approve DG-42` | Clear an escalated (timed-out) approval block on a ticket and re-dispatch the work with the original context, so it isn't stuck forever. |
@@ -455,13 +455,13 @@ Drunken-Guild can operate on more than one codebase. One central registry -- `pr
       },
       "discord": { "channel_id": "123456789012345678" }
     },
-    "beta": {
-      "description": "BETA Project",
+    "alpha": {
+      "description": "Another project on the same Jira site",
       "jira": {
         "url": "https://your-domain.atlassian.net",
         "email": "you@example.com",
-        "project_key": "BETA",
-        "credential": "env://JIRA_TOKEN_BETA"
+        "project_key": "ALPHA",
+        "credential": "env://JIRA_TOKEN_ALPHA"
       }
     }
   }
@@ -472,7 +472,7 @@ Nothing in it is secret -- credentials appear only as references -- so it can be
 
 Add an entry with `drunken-init --project <id> ...` (Section 3.3) rather than by hand. A v1 registry -- the bare `{"name": {...}}` map written by earlier releases -- is upgraded in memory on read and never rewritten behind your back, so downgrading is just running the old code again.
 
-Once registered, `/project <name>` in Discord switches which project the Jira-lane commands and `/next`/`/refine` operate against -- each project can have its own Jira project key, so `/project beta` then `/tasks` lists BETA's own To Do lane, not drunken-guild's.
+Once registered, `/project <name>` in Discord switches which project the Jira-lane commands and `/next`/`/refine` operate against -- each project can have its own Jira project key, so `/project alpha` then `/tasks` lists that project's own To Do lane, not drunken-guild's.
 
 ### 7.1 One daemon per project, and the socket name is what joins them
 
