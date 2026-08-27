@@ -337,23 +337,61 @@ Add an entry with `drunken-init --project <id> ...` (Section 3.3) rather than by
 
 Once registered, `/project <name>` in Discord switches which project the Jira-lane commands and `/next`/`/refine` operate against -- each project can have its own Jira project key, so `/project isac` then `/tasks` lists ISAC's own To Do lane, not drunken-guild's.
 
-### 7.1 One Discord identity, not one per project
+### 7.1 One daemon per project, and the socket name is what joins them
 
-`/project` switches Jira-lane routing for commands already reaching the bot. It does not decide
-*which* Discord channel and bot token the daemon itself uses -- the multi-tenant daemon was cut, so
-there is exactly one Discord identity per running daemon, chosen once at startup:
+`/project` switches Jira-lane routing for commands already reaching the bot. Which Discord room an
+**approval** reaches is a different question, answered before the bot sees anything: the
+`ApprovalManager` is handed its channel **at construction**, read once when the daemon starts. No
+per-request argument can reach it. So the split has to be one daemon per project, and it is
+(DG-313).
 
-1. **`DRUNKEN_PROJECT`**, if set, names it explicitly.
-2. Otherwise, **the first project in the registry that declares a `discord` block wins** --
-   registration order, not anything about which project you actually meant.
+**The socket name carries the project.** That is what makes the two ends meet with no second knob
+to keep in sync:
 
-Rule 2 is a real trap on a multi-project machine, not a hypothetical: an unset `DRUNKEN_PROJECT`
-means every approval request from every other registered project silently posts to the first
-project's channel, and both the requester and the daemon report success -- `request_boss_approval_async`
-still returns a `req_id`, nothing errors, the message just never reaches the channel anyone is
-watching. `scripts/setup_daemon_service.py install` sets rule 1 for you automatically, matched
-against the registry rather than guessed from the directory name -- run it from the checkout of the
-project you want the daemon serving, and re-run it again whenever that should change.
+```
+drunken-discord-mcp --project twa   →  dials   daemon-twa.sock
+DRUNKEN_PROJECT=twa drunken-listen  →  binds   daemon-twa.sock
+```
+
+Neither is told the other's socket. Resolution order, first match wins:
+
+1. **`--project <id>`** on the MCP server, or **`DRUNKEN_PROJECT`** for the daemon.
+2. **`DRUNKEN_PROJECT`** in the environment.
+3. **The registered project whose own `path` contains the working directory.**
+4. Otherwise the unchanged **`daemon.sock`**.
+
+**Step 3 is not decoration.** The pre-commit approval check, the away-mode hook and
+`drunken-doctor` all dial the daemon from a plain shell with no `DRUNKEN_PROJECT` set. Without it
+they would stay on `daemon.sock` while the daemon moved, and the approval gate would go quiet. It
+matches on the registry entry's `path`, never the directory name — a checkout need not be named
+after its key.
+
+Install one per project, from any checkout:
+
+```bash
+python scripts/setup_daemon_service.py install                 # this checkout's project
+python scripts/setup_daemon_service.py install --project twa
+python scripts/setup_daemon_service.py install --project isac
+```
+
+The LaunchAgent label carries the project too, or installing a second one overwrites the first
+one's plist. Both install and uninstall unload the **pre-DG-313 un-suffixed agent**: it has
+`KeepAlive`, so left loaded it resurrects a second daemon on the shared socket — the exact
+cross-posting this removes. A daemon already running keeps its old socket until it is restarted.
+
+> **What this replaced, so the old behaviour is recognisable if you meet it.** There used to be
+> exactly one Discord identity per machine, chosen at startup: `DRUNKEN_PROJECT` if set, otherwise
+> **the first project in the registry declaring a `discord` block** — registration order, nothing
+> about which project you meant. On a multi-project machine every approval from every other project
+> posted to that first channel while both ends reported success:
+> `request_boss_approval_async` returned a `req_id`, nothing errored, and the message simply never
+> reached the room anyone was watching. DT-247 had cut the multi-tenant daemon on the premise that
+> *"nobody drives more than one project"*; three projects now have real rooms, so that premise is
+> gone.
+
+**`drunken-doctor` cannot confirm this for you.** It checks that a channel id is *set* — not that
+the bot is in that room, and not that any daemon binds that socket. Confirm it the only way that
+means anything: raise one real approval and watch which room it lands in.
 
 ---
 
