@@ -109,7 +109,9 @@ class TestCredentialsNeverAppear:
         self, registry
     ) -> None:
         report = doctor.run_doctor(registry=registry, offline=True)
-        assert "env://JIRA_TOKEN_ALPHA" in find(report, "project.alpha.credential").detail
+        assert (
+            "env://JIRA_TOKEN_ALPHA" in find(report, "project.alpha.credential").detail
+        )
 
     def test_an_upstream_error_body_is_redacted(self, registry) -> None:
         secrets.resolve("env://JIRA_TOKEN_ALPHA")
