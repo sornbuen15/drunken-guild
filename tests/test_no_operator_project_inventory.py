@@ -65,11 +65,20 @@ def _tracked_text_files() -> list[str]:
     return [f for f in out.stdout.split("\n") if f]
 
 
+def _pattern(project_id: str) -> "re.Pattern[str]":
+    """Match the id only where it is not part of a longer word.
+
+    Neither preceded nor followed by a letter, so `KEY-40`, `JIRA_TOKEN_KEY`
+    and `project.key.jira` all count, while an ordinary English word that
+    happens to contain the id as a substring does not. Both kinds exist in
+    this repository, which is why the rule is a boundary rather than a plain
+    substring search.
+    """
+    return re.compile(rf"(?<![A-Za-z]){re.escape(project_id)}(?![A-Za-z])", re.I)
+
+
 def _hits(project_id: str, files: list[str]) -> list[str]:
-    # Not preceded or followed by a letter, so `ALPHA-40`, `JIRA_TOKEN_ALPHA` and
-    # `project.alpha.jira` all count while `software` and `outward` do not --
-    # both of those contain a project id as a substring and are innocent.
-    pattern = re.compile(rf"(?<![A-Za-z]){re.escape(project_id)}(?![A-Za-z])", re.I)
+    pattern = _pattern(project_id)
     found = []
     for rel in files:
         path = os.path.join(REPO_ROOT, rel)
@@ -107,17 +116,41 @@ def test_no_registered_project_id_appears_in_tracked_files() -> None:
     )
 
 
-def test_the_guard_would_actually_catch_one(tmp_path: object) -> None:
-    """The assertion above passes trivially if `_hits` never matches anything.
+def test_the_matcher_finds_something_at_all() -> None:
+    """The assertion above passes trivially if `_hits` never matches anything."""
+    assert _hits(OWN_KEY, _tracked_text_files()), "the matcher found nothing at all"
 
-    A guard nobody has seen fire is a guard that may be checking the wrong
-    thing -- so match a known-present string with the same machinery, and
-    confirm the substring exclusions hold.
+
+def test_the_boundary_rule_holds() -> None:
+    """Exercised against synthetic strings, never against this repository.
+
+    The earlier version of this test scanned tracked files for a probe string,
+    which made it self-referential the moment the file was committed: its own
+    source became one of the files it searched, so it found its own probe and
+    failed. This tests the rule instead of the repository, and uses an id that
+    is nobody's, so nothing here can collide with a real one.
     """
-    files = _tracked_text_files()
-    assert _hits("drunken-guild", files), "the matcher found nothing at all"
+    fake = "zeta"
+    pattern = _pattern(fake)
 
-    # `software` contains an id as a substring in the real inventory; the
-    # boundary rule is what stops it firing, and it is the part most likely to
-    # be loosened by accident later.
-    assert not _hits("oftwar", files), "the boundary rule stopped rejecting substrings"
+    for should_match in (
+        f"{fake}",
+        f"{fake.upper()}-40",
+        f"JIRA_TOKEN_{fake.upper()}",
+        f"project.{fake}.jira",
+        f"daemon-{fake}.sock",
+        f"--project {fake}",
+    ):
+        assert pattern.search(should_match), f"boundary rule missed {should_match!r}"
+
+    # A longer word that merely contains the id. This is the half most likely
+    # to be loosened by accident later, and loosening it corrupts real words.
+    for should_not_match in (
+        f"{fake}gonal",
+        f"un{fake}",
+        f"a{fake}b",
+        f"{fake.upper()}LIKE",
+    ):
+        assert not pattern.search(should_not_match), (
+            f"boundary rule fired on {should_not_match!r}, which is an ordinary word"
+        )
