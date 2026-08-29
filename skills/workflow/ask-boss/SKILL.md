@@ -91,7 +91,10 @@ doing and the answer decides whether the session continues at all.
 
 ## Never touch the internals
 
-Do not read or write `$DRUNKEN_HOME/approvals.json` (default `~/.drunken/approvals.json`) directly.
+Do not read or write the daemon's approval state directly. It lives at
+`$DRUNKEN_HOME/approvals-<project>.json` (default `~/.drunken/`), one file per project since
+DG-318 -- the daemons share a state directory, so a machine-wide file let whichever wrote last
+erase the others' answers.
 It is daemon state, not an API — go through the tools. The pre-DG-232/DG-243 equivalent,
 `.agents/discord_outbox.json`, is retired <!-- drift-ok: the prohibition has to name what it prohibits -->; if you find one in an older
 project, it is not read by anything current.
