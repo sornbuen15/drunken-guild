@@ -2,7 +2,7 @@
 
 Before this, every project's MCP server dialled a single ``daemon.sock``, so the
 one daemon behind it answered with whichever channel it had been pinned to.
-twa's and isac's approvals posted into drunken-guild's room and reported
+alpha's and beta's approvals posted into drunken-guild's room and reported
 success. These assert the split at the level that caused it -- the socket name --
 rather than by posting to a real Discord room.
 """
@@ -28,8 +28,8 @@ def test_project_gets_its_own_socket(
     monkeypatch.delenv("DRUNKEN_PROJECT", raising=False)
     monkeypatch.delenv("DRUNKEN_DAEMON_SOCKET", raising=False)
     monkeypatch.chdir(tmp_path)  # an explicit argument must not need a cwd
-    assert _name("twa") == "daemon-twa.sock"
-    assert _name("isac") == "daemon-isac.sock"
+    assert _name("alpha") == "daemon-alpha.sock"
+    assert _name("beta") == "daemon-beta.sock"
     assert _name("drunken-guild") == "daemon-drunken-guild.sock"
 
 
@@ -39,7 +39,7 @@ def test_two_projects_never_share_a_socket(
     monkeypatch.delenv("DRUNKEN_PROJECT", raising=False)
     monkeypatch.delenv("DRUNKEN_DAEMON_SOCKET", raising=False)
     monkeypatch.chdir(tmp_path)
-    names = {_name(p) for p in ("twa", "isac", "drunken-guild")}
+    names = {_name(p) for p in ("alpha", "beta", "drunken-guild")}
     assert len(names) == 3, "distinct projects collided on one socket"
 
 
@@ -53,9 +53,9 @@ def test_falls_back_to_env_so_daemon_and_client_meet(
     resolve to the same name.
     """
     monkeypatch.delenv("DRUNKEN_DAEMON_SOCKET", raising=False)
-    monkeypatch.setenv("DRUNKEN_PROJECT", "twa")
-    assert _name() == "daemon-twa.sock"
-    assert _name() == _name("twa")
+    monkeypatch.setenv("DRUNKEN_PROJECT", "alpha")
+    assert _name() == "daemon-alpha.sock"
+    assert _name() == _name("alpha")
 
 
 def test_nothing_to_resolve_keeps_the_old_name(
@@ -77,10 +77,10 @@ def test_explicit_socket_override_still_wins(
 ) -> None:
     """DRUNKEN_DAEMON_SOCKET names a path, so it cannot be per-project."""
     target = tmp_path / "custom.sock"
-    monkeypatch.setenv("DRUNKEN_PROJECT", "twa")
+    monkeypatch.setenv("DRUNKEN_PROJECT", "alpha")
     monkeypatch.setenv("DRUNKEN_DAEMON_SOCKET", str(target))
     assert str(paths.daemon_socket_path()) == str(target)
-    assert str(paths.daemon_socket_path("isac")) == str(target)
+    assert str(paths.daemon_socket_path("beta")) == str(target)
 
 
 def test_project_id_cannot_escape_the_state_directory(
@@ -100,8 +100,8 @@ def test_launchagent_label_is_per_project() -> None:
     sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "scripts"))
     import setup_daemon_service as svc
 
-    assert svc._label("twa") != svc._label("isac")
-    assert svc._label("twa").endswith(".twa")
+    assert svc._label("alpha") != svc._label("beta")
+    assert svc._label("alpha").endswith(".alpha")
     assert svc._label("../x") == "com.drunkenteam.daemon.x"
 
 
@@ -144,7 +144,7 @@ def test_explicit_argument_beats_cwd(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("DRUNKEN_PROJECT", raising=False)
     monkeypatch.delenv("DRUNKEN_DAEMON_SOCKET", raising=False)
     # cwd is this checkout, a registered project; the argument must still win.
-    assert _name("twa") == "daemon-twa.sock"
+    assert _name("alpha") == "daemon-alpha.sock"
 
 
 def test_unreadable_registry_never_raises(
@@ -170,8 +170,8 @@ def test_installer_can_target_another_registered_project() -> None:
     sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "scripts"))
     import setup_daemon_service as svc
 
-    assert svc._label("twa") != svc._label("isac")
-    assert svc._log_path("twa") != svc._log_path("isac"), (
+    assert svc._label("alpha") != svc._label("beta")
+    assert svc._log_path("alpha") != svc._log_path("beta"), (
         "two daemons interleaving into one log makes the first question during "
         "an incident -- which project -- unanswerable"
     )

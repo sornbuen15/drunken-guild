@@ -17,14 +17,14 @@ from core.registry import ProjectRegistry
 V2_DOCUMENT = {
     "version": 2,
     "projects": {
-        "twa": {
-            "path": "/abs/tff-web-app",
-            "git_root": "twa",
+        "alpha": {
+            "path": "/abs/alpha-workspace",
+            "git_root": "alpha",
             "jira": {
                 "url": "https://example.atlassian.net",
                 "email": "someone@example.com",
-                "project_key": "TWA",
-                "credential": "env://JIRA_TOKEN_TWA",
+                "project_key": "ALPHA",
+                "credential": "env://JIRA_TOKEN_ALPHA",
             },
             "discord": {"channel_id": "123456789012345678"},
         },
@@ -68,7 +68,7 @@ V2_DOCUMENT = {
 def clean_state(monkeypatch):
     secrets.clear_cache()
     forget_secrets()
-    monkeypatch.setenv("JIRA_TOKEN_TWA", "a-valid-looking-token-value")
+    monkeypatch.setenv("JIRA_TOKEN_ALPHA", "a-valid-looking-token-value")
     monkeypatch.setenv("DISCORD_TOKEN_ROOMED", "a-discord-bot-token-value")
     yield
     secrets.clear_cache()
@@ -88,13 +88,13 @@ def _http_error(code: int) -> urllib.error.HTTPError:
 
 class TestBuild:
     def test_resolves_the_credential_reference(self, registry) -> None:
-        context = ProjectContext.build("twa", registry)
+        context = ProjectContext.build("alpha", registry)
         assert context.jira.token.reveal() == "a-valid-looking-token-value"
 
     def test_carries_the_rest_of_the_identity(self, registry) -> None:
-        context = ProjectContext.build("twa", registry)
+        context = ProjectContext.build("alpha", registry)
 
-        assert context.jira.project_key == "TWA"
+        assert context.jira.project_key == "ALPHA"
         assert context.discord.channel_id == "123456789012345678"
 
     def test_a_project_without_jira_builds_fine(self, registry) -> None:
@@ -132,11 +132,11 @@ class TestBuild:
                 {
                     "version": 2,
                     "projects": {
-                        "twa": {
+                        "alpha": {
                             "jira": {
                                 "url": "https://example.atlassian.net",
                                 "email": "someone@example.com",
-                                "project_key": "TWA",
+                                "project_key": "ALPHA",
                                 "credential": "counting://jira",
                             }
                         }
@@ -147,8 +147,8 @@ class TestBuild:
         )
         counting_registry = ProjectRegistry(str(target))
 
-        ProjectContext.build("twa", counting_registry)
-        ProjectContext.build("twa", counting_registry)
+        ProjectContext.build("alpha", counting_registry)
+        ProjectContext.build("alpha", counting_registry)
 
         assert len(calls) == 1
 
@@ -169,10 +169,10 @@ class TestPaths:
     def test_git_root_points_into_the_subdirectory_when_declared(
         self, registry
     ) -> None:
-        """§1.5: TWA's registered path is not the repository — the repo is
+        """§1.5: ALPHA's registered path is not the repository — the repo is
         inside it, so every git command from the root failed."""
-        context = ProjectContext.build("twa", registry)
-        assert str(context.git_root_path()) == "/abs/tff-web-app/twa"
+        context = ProjectContext.build("alpha", registry)
+        assert str(context.git_root_path()) == "/abs/alpha-workspace/alpha"
 
     def test_git_root_defaults_to_the_project_root(self, registry) -> None:
         assert (
@@ -211,7 +211,7 @@ class TestVerifyJiraIdentity:
         return response
 
     def test_returns_who_jira_says_we_are(self, registry) -> None:
-        context = ProjectContext.build("twa", registry)
+        context = ProjectContext.build("alpha", registry)
         response = self._respond(
             {
                 "accountId": "abc123",
@@ -227,7 +227,7 @@ class TestVerifyJiraIdentity:
         assert result.display_name == "R. Jakkawan"
 
     def test_it_asks_the_identity_endpoint_not_search(self, registry) -> None:
-        context = ProjectContext.build("twa", registry)
+        context = ProjectContext.build("alpha", registry)
 
         with mock.patch(
             "urllib.request.urlopen", return_value=self._respond({})
@@ -240,7 +240,7 @@ class TestVerifyJiraIdentity:
     def test_a_rejected_credential_raises_instead_of_looking_empty(
         self, registry, status: int
     ) -> None:
-        context = ProjectContext.build("twa", registry)
+        context = ProjectContext.build("alpha", registry)
 
         with mock.patch("urllib.request.urlopen", side_effect=_http_error(status)):
             with pytest.raises(
@@ -251,14 +251,14 @@ class TestVerifyJiraIdentity:
         assert "empty board" in caught.value.remediation
 
     def test_other_http_errors_point_at_the_configured_url(self, registry) -> None:
-        context = ProjectContext.build("twa", registry)
+        context = ProjectContext.build("alpha", registry)
 
         with mock.patch("urllib.request.urlopen", side_effect=_http_error(500)):
             with pytest.raises(UpstreamError, match="HTTP 500"):
                 context.verify_jira_identity()
 
     def test_an_unreachable_host_is_reported_as_such(self, registry) -> None:
-        context = ProjectContext.build("twa", registry)
+        context = ProjectContext.build("alpha", registry)
 
         with mock.patch(
             "urllib.request.urlopen",
@@ -280,7 +280,7 @@ class TestCredentialContainment:
     ) -> None:
         """An upstream error body can echo the header back; masking only the raw
         token would sail straight past the base64 form."""
-        context = ProjectContext.build("twa", registry)
+        context = ProjectContext.build("alpha", registry)
 
         header = context.jira.auth_header()
         encoded = header.removeprefix("Basic ")
@@ -288,13 +288,13 @@ class TestCredentialContainment:
         assert encoded not in redact(f"upstream said: Authorization {encoded}")
 
     def test_the_token_is_not_printable(self, registry) -> None:
-        context = ProjectContext.build("twa", registry)
+        context = ProjectContext.build("alpha", registry)
         assert "a-valid-looking-token-value" not in repr(context.jira.token)
 
     def test_an_error_from_verification_never_contains_the_token(
         self, registry
     ) -> None:
-        context = ProjectContext.build("twa", registry)
+        context = ProjectContext.build("alpha", registry)
 
         with mock.patch("urllib.request.urlopen", side_effect=_http_error(401)):
             try:
@@ -341,7 +341,7 @@ class TestRequireDiscordResolvesTheCredential:
     def test_no_credential_means_the_daemons_own_token(self, registry) -> None:
         """The ordinary case, and it must not be an error: one bot serves every
         room, and only a project overriding it sets `credential`."""
-        result = ProjectContext.build("twa", registry).require_discord()
+        result = ProjectContext.build("alpha", registry).require_discord()
 
         assert result.channel_id == "123456789012345678"
         assert result.token is None

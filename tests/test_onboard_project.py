@@ -3,7 +3,7 @@
 
 Both exist because of specific damage:
 
-* **One credential, referenced many times.** TWA had its own copy of the Jira
+* **One credential, referenced many times.** ALPHA had its own copy of the Jira
   token. It expired, and because a Jira search answers a dead credential with
   ``200`` and an empty list, its board simply read as empty — for months, with
   nothing anywhere saying why. Copies drift; a reference cannot.
@@ -35,7 +35,7 @@ def onboard():
 
 class TestTheGeneratedConfigCarriesNoPaths:
     def test_servers_are_named_not_located(self) -> None:
-        config = config_gen.mcp_config("twa")
+        config = config_gen.mcp_config("alpha")
 
         serialised = json.dumps(config)
         assert "/Users/" not in serialised and "/home/" not in serialised, (
@@ -46,7 +46,7 @@ class TestTheGeneratedConfigCarriesNoPaths:
         assert "PYTHONPATH" not in serialised
 
     def test_every_server_is_declared_and_scoped_to_the_project(self) -> None:
-        config = config_gen.mcp_config("twa")["mcpServers"]
+        config = config_gen.mcp_config("alpha")["mcpServers"]
 
         assert set(config) == set(config_gen.MCP_SERVERS)
         for name, entry in config.items():
@@ -54,7 +54,7 @@ class TestTheGeneratedConfigCarriesNoPaths:
                 "The command is the entry point name, which is what makes it "
                 "resolvable without a path once installed."
             )
-            assert entry["args"] == ["--project", "twa"], (
+            assert entry["args"] == ["--project", "alpha"], (
                 f"{name} is not scoped to a project, so it would act on "
                 "whichever one it defaulted to."
             )
@@ -69,7 +69,7 @@ class TestTheGeneratedConfigCarriesNoPaths:
         MCP_SERVERS, so it agrees with whatever that constant says; this one
         asserts against the decision instead.
         """
-        serialised = json.dumps(config_gen.mcp_config("twa"))
+        serialised = json.dumps(config_gen.mcp_config("alpha"))
 
         assert "board" not in serialised, (
             "Onboarding declared drunken-board-mcp, a server retired by "
@@ -78,20 +78,20 @@ class TestTheGeneratedConfigCarriesNoPaths:
         )
 
     def test_the_removed_workspace_flag_is_not_reintroduced(self) -> None:
-        """What TWA's previous config passed. It was deleted in DG-224, and
+        """What ALPHA's previous config passed. It was deleted in DG-224, and
         argparse ignores it silently rather than complaining."""
-        assert "--workspace" not in json.dumps(config_gen.mcp_config("twa"))
+        assert "--workspace" not in json.dumps(config_gen.mcp_config("alpha"))
 
 
 class TestTheCredentialIsSharedByReference:
     def test_projects_point_at_one_key_by_default(self, onboard, monkeypatch) -> None:
         monkeypatch.setenv("DRUNKEN_HOME", "/tmp/probe-home")
 
-        for project in ("twa", "isac", "drunken-guild"):
+        for project in ("alpha", "beta", "drunken-guild"):
             reference = onboard.credential_reference(onboard.SHARED_CREDENTIAL_KEY)
             assert reference.endswith("#jira.default"), (
                 f"{project} would get its own copy of the token. That is how "
-                "TWA's drifted to a dead value nobody noticed."
+                "ALPHA's drifted to a dead value nobody noticed."
             )
 
     def test_the_reference_uses_a_tilde_not_a_username(
@@ -132,7 +132,7 @@ class TestAHostConfigIsDifferentFromARepoConfig:
         monkeypatch.setenv("UV_TOOL_BIN_DIR", str(bin_dir))
 
         host = tmp_path / "mcp_config.json"
-        config_gen.merge_into_host_config(host, "twa")
+        config_gen.merge_into_host_config(host, "alpha")
 
         entry = json.loads(host.read_text())["mcpServers"]["drunken-jira-mcp"]
         assert entry["command"] == str(bin_dir / "drunken-jira-mcp")
@@ -165,7 +165,7 @@ class TestAHostConfigIsDifferentFromARepoConfig:
             json.dumps({"mcpServers": {"kanban-board": {"command": "node"}}})
         )
 
-        config_gen.merge_into_host_config(host, "twa")
+        config_gen.merge_into_host_config(host, "alpha")
 
         servers = json.loads(host.read_text())["mcpServers"]
         assert servers["kanban-board"] == {"command": "node"}
@@ -173,9 +173,9 @@ class TestAHostConfigIsDifferentFromARepoConfig:
 
     def test_merging_twice_changes_nothing_the_second_time(self, tmp_path) -> None:
         host = tmp_path / "mcp_config.json"
-        config_gen.merge_into_host_config(host, "twa")
+        config_gen.merge_into_host_config(host, "alpha")
 
-        diff = config_gen.merge_into_host_config(host, "twa")
+        diff = config_gen.merge_into_host_config(host, "alpha")
         assert diff.added == [] and diff.removed == []
 
 

@@ -16,7 +16,7 @@ two files behind again within minutes of a merge. Both times it was found by a
 hand-written `find | grep`, which is not a check.
 
 The other half is §13's lesson: an answer that is true and unusable is barely an
-answer. `X is not a git repository` was literally true of ISAC and cost hours,
+answer. `X is not a git repository` was literally true of BETA and cost hours,
 because the useful facts — that the path did not exist, and that a repository
 sat one directory deeper — were exactly what it did not say.
 """
@@ -120,7 +120,7 @@ class TestSeeingTheDeployment:
 
 
 class TestAGitRootThatSaysWhatItFound:
-    """`{path} is not a git repository` was true about ISAC and useless.
+    """`{path} is not a git repository` was true about BETA and useless.
 
     What the reader needed was that the path did not exist, and that a
     repository sat one level deeper. Both were knowable at the moment the

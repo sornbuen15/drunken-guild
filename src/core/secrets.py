@@ -1,7 +1,7 @@
 """Resolving secret *references* into secret *values*.
 
 The registry is meant to be committed to git. That only works if what it stores
-is a reference — ``env://JIRA_TOKEN_TWA`` — and never the credential itself. The
+is a reference — ``env://JIRA_TOKEN_ALPHA`` — and never the credential itself. The
 value is fetched at startup from whatever backend the operator actually uses,
 and lives only in this process's memory.
 
@@ -67,7 +67,7 @@ def parse_ref(raw: str) -> SecretRef:
             "Secret reference is empty.",
             remediation=(
                 "Set it to a reference such as 'env://JIRA_TOKEN' or "
-                "'file://~/.drunken/secrets.json#jira.twa'."
+                "'file://~/.drunken/secrets.json#jira.alpha'."
             ),
         )
 

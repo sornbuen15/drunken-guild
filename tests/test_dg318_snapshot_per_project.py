@@ -45,8 +45,8 @@ def test_project_gets_its_own_snapshot(
     monkeypatch.delenv("DRUNKEN_PROJECT", raising=False)
     monkeypatch.delenv("DRUNKEN_APPROVAL_SNAPSHOT", raising=False)
     monkeypatch.chdir(tmp_path)  # an explicit argument must not need a cwd
-    assert _name("twa") == "approvals-twa.json"
-    assert _name("isac") == "approvals-isac.json"
+    assert _name("alpha") == "approvals-alpha.json"
+    assert _name("beta") == "approvals-beta.json"
     assert _name("drunken-guild") == "approvals-drunken-guild.json"
 
 
@@ -56,7 +56,7 @@ def test_two_projects_never_share_a_snapshot(
     monkeypatch.delenv("DRUNKEN_PROJECT", raising=False)
     monkeypatch.delenv("DRUNKEN_APPROVAL_SNAPSHOT", raising=False)
     monkeypatch.chdir(tmp_path)
-    names = {_name(p) for p in ("twa", "isac", "drunken-guild")}
+    names = {_name(p) for p in ("alpha", "beta", "drunken-guild")}
     assert len(names) == 3, "distinct projects collided on one snapshot file"
 
 
@@ -70,9 +70,9 @@ def test_falls_back_to_env_so_the_daemon_finds_its_own_file(
     project from one source.
     """
     monkeypatch.delenv("DRUNKEN_APPROVAL_SNAPSHOT", raising=False)
-    monkeypatch.setenv("DRUNKEN_PROJECT", "twa")
-    assert _name() == "approvals-twa.json"
-    assert _name() == _name("twa")
+    monkeypatch.setenv("DRUNKEN_PROJECT", "alpha")
+    assert _name() == "approvals-alpha.json"
+    assert _name() == _name("alpha")
 
 
 def test_the_snapshot_resolves_exactly_like_the_socket(
@@ -80,13 +80,13 @@ def test_the_snapshot_resolves_exactly_like_the_socket(
 ) -> None:
     """One rule, not two.
 
-    A machine where the socket resolves to twa and the snapshot to isac would
+    A machine where the socket resolves to alpha and the snapshot to beta would
     answer in the right room and persist into the wrong file -- harder to see
     than the bug this fixes, because both halves look correct alone.
     """
     monkeypatch.delenv("DRUNKEN_APPROVAL_SNAPSHOT", raising=False)
     monkeypatch.delenv("DRUNKEN_DAEMON_SOCKET", raising=False)
-    for project in ("twa", "isac", "drunken-guild", None):
+    for project in ("alpha", "beta", "drunken-guild", None):
         socket = os.path.basename(str(paths.daemon_socket_path(project)))
         snapshot = _name(project)
         assert socket.removeprefix("daemon").removesuffix(".sock") == (
@@ -109,10 +109,10 @@ def test_explicit_snapshot_override_still_wins(
 ) -> None:
     """DRUNKEN_APPROVAL_SNAPSHOT names a path, so it cannot be per-project."""
     target = tmp_path / "custom.json"
-    monkeypatch.setenv("DRUNKEN_PROJECT", "twa")
+    monkeypatch.setenv("DRUNKEN_PROJECT", "alpha")
     monkeypatch.setenv("DRUNKEN_APPROVAL_SNAPSHOT", str(target))
     assert str(paths.approval_snapshot_path()) == str(target)
-    assert str(paths.approval_snapshot_path("isac")) == str(target)
+    assert str(paths.approval_snapshot_path("beta")) == str(target)
 
 
 def test_project_id_cannot_escape_the_state_directory(

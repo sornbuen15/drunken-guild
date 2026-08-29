@@ -37,8 +37,9 @@ do not soften either half.
 
 DG-250 says a project's wrapper directory is not a git repository and its AI layer stays out of
 git. **That rule does not apply here, and it is not a defect to fix.** Here the AI layer *is* the
-product; applying the rule literally moves the deliverable out of version control. `~/Projects/tff-web-app`
-is the reference implementation of DG-250 — this repo is the documented exception.
+product; applying the rule literally moves the deliverable out of version control. A consuming
+project's own wrapper directory is the reference implementation of DG-250 — this repo is the
+documented exception.
 
 Do not "fix" this repo by moving `skills/` or `agents/` out of git.
 
@@ -326,7 +327,7 @@ Three things worth knowing before you turn it on:
   loop over `os.path.dirname` is the signature — grep for it, do not reason about it.
 - **Never let import-time failure be a failure mode.** Anything that can fail must fail inside a
   tool call, so the caller reads a message instead of watching a server vanish. Use
-  `core/errors.py` — every error carries a remediation, because "unknown project 'twa'" only tells
+  `core/errors.py` — every error carries a remediation, because "unknown project 'alpha'" only tells
   an agent to give up.
 - **An agent does not delete.** Retired things move to `_not_used/` with a note saying why and what
   replaced them, and *marking a thing unused beats removing it*. **`_not_used/` is not committed**
@@ -337,7 +338,7 @@ Three things worth knowing before you turn it on:
   recursive force-delete becomes a **list handed to the Boss to run**. A recorded authorisation from
   an earlier session is not permission to delete today.
 - **`drunken-doctor` checks that a credential works, not that a project exists.** It printed
-  `OK … (project TWA)` while Jira answered *"No project could be found"* (DG-260). Verify a project
+  `OK … (project ALPHA)` while Jira answered *"No project could be found"* (DG-260). Verify a project
   key against the API before trusting a green line.
 - **`require_discord()` and `require_jira()` are not symmetric.** `require_jira()` returns a
   resolved object carrying a ready `auth_header`; `require_discord()` returns the **unresolved

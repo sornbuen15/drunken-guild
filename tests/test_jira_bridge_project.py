@@ -3,8 +3,8 @@
 
 The Discord side picked its project by setting the subprocess working
 directory, and `jira_bridge.py` then walked up from there looking for a
-``.env``. It never consulted the registry, which is why `/project twa` read an
-empty board while the same project answered 39 issues over MCP: TWA's own
+``.env``. It never consulted the registry, which is why `/project alpha` read an
+empty board while the same project answered 39 issues over MCP: ALPHA's own
 ``.env`` still held a token that had expired, and a Jira search with a dead
 token returns ``200`` and an empty list rather than an error.
 
@@ -43,12 +43,12 @@ def registry(tmp_path, monkeypatch):
             {
                 "version": 2,
                 "projects": {
-                    "twa": {
-                        "path": str(tmp_path / "twa"),
+                    "alpha": {
+                        "path": str(tmp_path / "alpha"),
                         "jira": {
                             "url": "https://example.atlassian.net",
                             "email": "you@example.com",
-                            "project_key": "TWA",
+                            "project_key": "ALPHA",
                             "credential": f"file://{secrets}#jira.default",
                         },
                     }
@@ -62,24 +62,24 @@ def registry(tmp_path, monkeypatch):
 
 class TestTheRegistryWinsWhenAProjectIsNamed:
     def test_config_comes_from_the_registry(self, bridge, registry) -> None:
-        config = bridge.config_for_project("twa")
+        config = bridge.config_for_project("alpha")
 
-        assert config["project_key"] == "TWA"
+        assert config["project_key"] == "ALPHA"
         assert config["jira_url"] == "https://example.atlassian.net"
         assert config["jira_token"] == "registry-token"
 
     def test_a_stale_dotenv_beside_the_project_is_ignored(
         self, bridge, registry, monkeypatch
     ) -> None:
-        """The actual bug. TWA's checkout carried an expired token in its own
+        """The actual bug. ALPHA's checkout carried an expired token in its own
         ``.env``; standing in that directory must no longer change the answer."""
         monkeypatch.setenv("JIRA_TOKEN", "stale-token-from-dotenv")
         monkeypatch.setenv("JIRA_PROJECT_KEY", "WRONG")
 
-        config = bridge.config_for_project("twa")
+        config = bridge.config_for_project("alpha")
 
         assert config["jira_token"] == "registry-token"
-        assert config["project_key"] == "TWA"
+        assert config["project_key"] == "ALPHA"
 
     def test_an_unknown_project_says_so_and_says_what_to_do(
         self, bridge, registry
@@ -124,7 +124,7 @@ class TestTheShellPathIsUnchanged:
 
 class TestStandingInAProjectResolvesThatProject:
     """The last hole. Every path we control names the project explicitly, but
-    running this by hand inside TWA's checkout still walked up to its `.env`
+    running this by hand inside ALPHA's checkout still walked up to its `.env`
     and found the expired token — answering with an empty board rather than an
     error, because that is what Jira does with a dead credential.
 
@@ -135,7 +135,7 @@ class TestStandingInAProjectResolvesThatProject:
     def test_the_registry_answers_for_a_registered_directory(
         self, bridge, registry, monkeypatch
     ) -> None:
-        checkout = registry / "twa"
+        checkout = registry / "alpha"
         checkout.mkdir()
         monkeypatch.chdir(checkout)
         monkeypatch.setenv("JIRA_TOKEN", "stale-token-from-dotenv")
@@ -143,7 +143,7 @@ class TestStandingInAProjectResolvesThatProject:
         config = bridge.resolve_config(project_id=None)
 
         assert config["jira_token"] == "registry-token"
-        assert config["project_key"] == "TWA"
+        assert config["project_key"] == "ALPHA"
 
     def test_an_unregistered_directory_still_uses_the_environment(
         self, bridge, registry, monkeypatch, tmp_path

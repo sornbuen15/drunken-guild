@@ -14,22 +14,22 @@ from core.registry import (
 )
 
 V1_DOCUMENT = {
-    "twa": {"path": "/abs/tff-web-app", "description": "TFF Web App"},
-    "isac": {"path": "/abs/isac", "description": "ISAC"},
+    "alpha": {"path": "/abs/alpha-workspace", "description": "Alpha Web App"},
+    "beta": {"path": "/abs/beta", "description": "BETA"},
 }
 
 V2_DOCUMENT = {
     "version": 2,
     "projects": {
-        "twa": {
-            "path": "/abs/tff-web-app",
-            "git_root": "twa",
-            "description": "TFF Web App",
+        "alpha": {
+            "path": "/abs/alpha-workspace",
+            "git_root": "alpha",
+            "description": "Alpha Web App",
             "jira": {
                 "url": "https://example.atlassian.net/",
                 "email": "someone@example.com",
-                "project_key": "TWA",
-                "credential": "env://JIRA_TOKEN_TWA",
+                "project_key": "ALPHA",
+                "credential": "env://JIRA_TOKEN_ALPHA",
             },
             "discord": {"channel_id": "123456789012345678"},
             "board": {"dir": ".claude/board"},
@@ -53,7 +53,9 @@ def write_registry(tmp_path, document) -> str:
 
 
 class TestProjectIdValidation:
-    @pytest.mark.parametrize("project_id", ["twa", "isac", "drunken-guild", "a", "p_1"])
+    @pytest.mark.parametrize(
+        "project_id", ["alpha", "beta", "drunken-guild", "a", "p_1"]
+    )
     def test_accepts_well_formed_ids(self, project_id: str) -> None:
         assert validate_project_id(project_id) == project_id
 
@@ -62,8 +64,8 @@ class TestProjectIdValidation:
         [
             "../etc",
             "../../root",
-            "twa/../isac",
-            "TWA",
+            "alpha/../beta",
+            "ALPHA",
             "-leading-dash",
             "with space",
             "with.dot",
@@ -86,7 +88,7 @@ class TestProjectIdValidation:
 class TestV1Compatibility:
     def test_a_v1_registry_still_loads(self, tmp_path) -> None:
         registry = ProjectRegistry(write_registry(tmp_path, V1_DOCUMENT))
-        assert set(registry.get_projects()) == {"twa", "isac"}
+        assert set(registry.get_projects()) == {"alpha", "beta"}
 
     def test_v1_is_reported_as_version_1(self, tmp_path) -> None:
         registry = ProjectRegistry(write_registry(tmp_path, V1_DOCUMENT))
@@ -95,9 +97,9 @@ class TestV1Compatibility:
     def test_v1_project_parses_into_a_typed_config(self, tmp_path) -> None:
         registry = ProjectRegistry(write_registry(tmp_path, V1_DOCUMENT))
 
-        config = registry.get_project_config("twa")
+        config = registry.get_project_config("alpha")
 
-        assert config.path == "/abs/tff-web-app"
+        assert config.path == "/abs/alpha-workspace"
         assert config.jira is None, "a v1 entry simply has no Jira identity yet"
 
     def test_writing_to_a_v1_file_does_not_silently_upgrade_it(self, tmp_path) -> None:
@@ -120,49 +122,49 @@ class TestV2Schema:
 
     def test_projects_are_read_from_the_projects_key(self, tmp_path) -> None:
         registry = ProjectRegistry(write_registry(tmp_path, V2_DOCUMENT))
-        assert registry.project_ids() == ["api-only", "twa"]
+        assert registry.project_ids() == ["alpha", "api-only"]
 
     def test_jira_identity_is_parsed(self, tmp_path) -> None:
         registry = ProjectRegistry(write_registry(tmp_path, V2_DOCUMENT))
 
-        jira = registry.get_project_config("twa").jira
+        jira = registry.get_project_config("alpha").jira
 
-        assert jira.project_key == "TWA"
+        assert jira.project_key == "ALPHA"
         assert jira.email == "someone@example.com"
-        assert jira.credential == "env://JIRA_TOKEN_TWA"
+        assert jira.credential == "env://JIRA_TOKEN_ALPHA"
 
     def test_trailing_slash_is_stripped_from_the_jira_url(self, tmp_path) -> None:
         """Every call site joins '/rest/api/3/...' onto this."""
         registry = ProjectRegistry(write_registry(tmp_path, V2_DOCUMENT))
         assert (
-            registry.get_project_config("twa").jira.url
+            registry.get_project_config("alpha").jira.url
             == "https://example.atlassian.net"
         )
 
     def test_discord_and_board_identities_are_parsed(self, tmp_path) -> None:
         registry = ProjectRegistry(write_registry(tmp_path, V2_DOCUMENT))
 
-        config = registry.get_project_config("twa")
+        config = registry.get_project_config("alpha")
 
         assert config.discord.channel_id == "123456789012345678"
         assert config.board_dir == ".claude/board"
-        assert config.git_root == "twa"
+        assert config.git_root == "alpha"
 
     def test_the_registry_holds_a_reference_never_a_value(self, tmp_path) -> None:
         """The whole point of the file being committable."""
         registry = ProjectRegistry(write_registry(tmp_path, V2_DOCUMENT))
-        assert registry.get_project_config("twa").jira.credential.startswith("env://")
+        assert registry.get_project_config("alpha").jira.credential.startswith("env://")
 
     def test_unknown_keys_are_preserved_for_forward_compatibility(
         self, tmp_path
     ) -> None:
         document = {
             "version": 99,
-            "projects": {"twa": {"path": "/abs/twa", "future_field": "keep me"}},
+            "projects": {"alpha": {"path": "/abs/alpha", "future_field": "keep me"}},
         }
         registry = ProjectRegistry(write_registry(tmp_path, document))
 
-        assert registry.get_project_config("twa").raw["future_field"] == "keep me"
+        assert registry.get_project_config("alpha").raw["future_field"] == "keep me"
 
     def test_writing_to_a_v2_file_keeps_it_v2(self, tmp_path) -> None:
         path = write_registry(tmp_path, V2_DOCUMENT)
@@ -181,11 +183,11 @@ class TestV2Schema:
         path = write_registry(tmp_path, V2_DOCUMENT)
         registry = ProjectRegistry(path)
 
-        registry.add_project("twa", "/abs/moved", "Moved")
+        registry.add_project("alpha", "/abs/moved", "Moved")
 
-        config = registry.get_project_config("twa")
+        config = registry.get_project_config("alpha")
         assert config.path == "/abs/moved"
-        assert config.jira.project_key == "TWA"
+        assert config.jira.project_key == "ALPHA"
 
 
 class TestOptionalPath:
@@ -211,7 +213,7 @@ class TestUnknownProject:
         with pytest.raises(RegistryError, match="Unknown project") as caught:
             registry.get_project_config("nosuch")
 
-        assert "twa" in caught.value.remediation
+        assert "alpha" in caught.value.remediation
 
     def test_remediation_names_a_command_that_still_exists(self, tmp_path) -> None:
         """A remediation is only worth carrying if it can be followed.
@@ -232,7 +234,7 @@ class TestUnknownProject:
         registry = ProjectRegistry(str(tmp_path / "absent.json"))
 
         with pytest.raises(RegistryError) as caught:
-            registry.get_project_config("twa")
+            registry.get_project_config("alpha")
 
         assert "absent.json" in caught.value.remediation
 
@@ -254,5 +256,5 @@ class TestCorruptRegistry:
         assert ProjectRegistry(str(path)).get_projects() == {}
 
     def test_non_dict_entries_are_ignored(self, tmp_path) -> None:
-        path = write_registry(tmp_path, {"twa": "should be an object"})
+        path = write_registry(tmp_path, {"alpha": "should be an object"})
         assert ProjectRegistry(path).get_projects() == {}

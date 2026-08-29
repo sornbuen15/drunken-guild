@@ -3,8 +3,8 @@
 
 `core/errors.py` states the rule the whole design rests on: anything that can
 fail is deferred to a tool call and converted into a payload the caller can
-read, because "unknown project 'twa'" only tells an agent to give up while
-"register it with drunken-init --project twa" tells it what to do.
+read, because "unknown project 'alpha'" only tells an agent to give up while
+"register it with drunken-init --project alpha" tells it what to do.
 
 `as_tool_result` was written for exactly that in 2.1.0 and then called zero
 times outside its own definition. DG-235 is what that gap costs: the server

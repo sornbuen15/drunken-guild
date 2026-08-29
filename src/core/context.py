@@ -252,7 +252,7 @@ class ProjectContext:
     def git_root_path(self) -> Path:
         """Where ``git`` actually works.
 
-        §1.5: for TWA the registered path is not the repository — the repository
+        §1.5: for ALPHA the registered path is not the repository — the repository
         is a subdirectory of it — so every git command issued from the project
         root failed. ``git_root`` records the offset.
         """
@@ -308,8 +308,8 @@ class ProjectContext:
 
         Separate from :meth:`verify_jira_identity` because they answer different
         questions and one has been mistaken for the other: a valid credential
-        made the diagnostic print ``OK ... (project TWA)`` while Jira answered
-        "No project could be found with key 'TWA'" (DG-260). This endpoint 404s
+        made the diagnostic print ``OK ... (project ALPHA)`` while Jira answered
+        "No project could be found with key 'ALPHA'" (DG-260). This endpoint 404s
         on a key that does not exist, which a search never does — it returns 200
         and an empty page, the same shape a real but empty project has.
         """
