@@ -121,7 +121,7 @@ uv run drunken-doctor --project my-project
 You want the Jira line to come back naming *you*. Two traps worth knowing:
 
 > **A green line is not proof the project exists.** `drunken-doctor` verifies that the credential
-> authenticates, not that the project key is real. It has printed `OK … (project TWA)` while Jira
+> authenticates, not that the project key is real. It has printed `OK … (project ALPHA)` while Jira
 > answered *"No project could be found"*. Confirm the key yourself the first time.
 
 > **Jira answers a bad credential with `200` and an empty list.** That is why checking is a separate

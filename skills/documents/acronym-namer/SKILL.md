@@ -3,7 +3,7 @@ name: acronym-namer
 description: Generates meaningful, thematic acronyms (like S.H.I.E.L.D., I.S.A.C., M.I.N.A.) for projects, bots, architectures, and features.
 ---
 
-# Acronym Namer Skill (The ISAC Protocol)
+# Acronym Namer Skill (The Backronym Protocol)
 
 ## Context
 When "The Boss" needs to name a new AI agent, a software project, a microservice, or an architecture module, they prefer names that are not only cool and thematic (fantasy, sci-fi, tactical) but also act as a **Backronym** (a meaningful acronym where each letter represents the actual technical stack or purpose).

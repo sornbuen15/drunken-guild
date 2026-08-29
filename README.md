@@ -102,7 +102,7 @@ uv run drunken-doctor --project drunken-guild
 You want `project.drunken-guild.jira` to come back naming *you*.
 
 > `drunken-doctor` checks that the credential works — **not that the Jira project exists.** It has
-> printed `OK … (project TWA)` while Jira answered *"No project could be found"*. Verify the key
+> printed `OK … (project ALPHA)` while Jira answered *"No project could be found"*. Verify the key
 > against the API before trusting a green line.
 
 ### Installing it as a command

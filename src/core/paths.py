@@ -101,15 +101,15 @@ def daemon_socket_path(project: str | None = None) -> ResolvedPath:
     DG-313: the socket used to be a single ``daemon.sock`` for the whole
     machine, so every project's MCP server reached the same daemon and that
     daemon answered with whichever channel it had been pinned to. Approvals
-    raised by twa and isac posted into drunken-guild's room and reported
+    raised by alpha and beta posted into drunken-guild's room and reported
     success. The channel is read once at daemon start and handed to
     ``ApprovalManager`` at construction, so no per-request argument could have
     fixed it -- the split has to be one daemon per project.
 
     ``project`` is taken from the caller when given, else ``DRUNKEN_PROJECT``.
     Naming the socket after the project is what makes the two ends meet without
-    a second knob to keep in sync: the MCP server passes ``--project twa`` and
-    dials ``daemon-twa.sock``; the daemon started with ``DRUNKEN_PROJECT=twa``
+    a second knob to keep in sync: the MCP server passes ``--project alpha`` and
+    dials ``daemon-alpha.sock``; the daemon started with ``DRUNKEN_PROJECT=alpha``
     binds the same name. Neither has to be told the other's socket.
 
     With neither set the name stays ``daemon.sock``, so a single-project machine
@@ -130,7 +130,7 @@ def _project_scope(project: str | None) -> str:
     DG-318: this was written out twice — once for the socket, once for the
     approval snapshot — and two copies of one rule is the failure this
     repository exists to cure. It matters more here than most places: a machine
-    where the socket resolved to twa and the snapshot to isac would answer in
+    where the socket resolved to alpha and the snapshot to beta would answer in
     the right room and persist into the wrong file, which is harder to see than
     either half being wrong, because both look correct on their own.
 

@@ -16,13 +16,13 @@ from core.registry import ProjectRegistry
 V2_DOCUMENT = {
     "version": 2,
     "projects": {
-        "twa": {
+        "alpha": {
             "path": None,
             "jira": {
                 "url": "https://example.atlassian.net",
                 "email": "someone@example.com",
-                "project_key": "TWA",
-                "credential": "env://JIRA_TOKEN_TWA",
+                "project_key": "ALPHA",
+                "credential": "env://JIRA_TOKEN_ALPHA",
             },
             "discord": {"channel_id": "123456789012345678"},
         }
@@ -37,7 +37,7 @@ def clean_state(monkeypatch, tmp_path):
     monkeypatch.setenv(paths.ENV_HOME, str(tmp_path / "home"))
     monkeypatch.delenv(paths.ENV_REGISTRY, raising=False)
     monkeypatch.delenv(paths.ENV_SOCKET, raising=False)
-    monkeypatch.setenv("JIRA_TOKEN_TWA", "a-valid-looking-token-value")
+    monkeypatch.setenv("JIRA_TOKEN_ALPHA", "a-valid-looking-token-value")
     yield
     secrets.clear_cache()
     forget_secrets()
@@ -62,7 +62,7 @@ def _identity_response() -> mock.MagicMock:
 def _project_response() -> mock.MagicMock:
     response = mock.MagicMock()
     response.read.return_value = json.dumps(
-        {"key": "TWA", "name": "TFF Web App"}
+        {"key": "ALPHA", "name": "Alpha Web App"}
     ).encode()
     response.__enter__.return_value = response
     return response
@@ -109,10 +109,12 @@ class TestCredentialsNeverAppear:
         self, registry
     ) -> None:
         report = doctor.run_doctor(registry=registry, offline=True)
-        assert "env://JIRA_TOKEN_TWA" in find(report, "project.twa.credential").detail
+        assert (
+            "env://JIRA_TOKEN_ALPHA" in find(report, "project.alpha.credential").detail
+        )
 
     def test_an_upstream_error_body_is_redacted(self, registry) -> None:
-        secrets.resolve("env://JIRA_TOKEN_TWA")
+        secrets.resolve("env://JIRA_TOKEN_ALPHA")
         error = UpstreamError("upstream echoed a-valid-looking-token-value")
 
         with mock.patch.object(
@@ -149,7 +151,7 @@ class TestJiraVerification:
         with mock.patch("urllib.request.urlopen", return_value=_identity_response()):
             report = doctor.run_doctor(registry=registry)
 
-        check = find(report, "project.twa.jira")
+        check = find(report, "project.alpha.jira")
         assert check.status == "ok"
         assert "R. Jakkawan" in check.detail
 
@@ -166,7 +168,7 @@ class TestJiraVerification:
         ):
             report = doctor.run_doctor(registry=registry)
 
-        check = find(report, "project.twa.jira")
+        check = find(report, "project.alpha.jira")
         assert check.status == "fail"
         assert report.failed is True
         assert "empty board" in check.remediation
@@ -176,18 +178,18 @@ class TestJiraVerification:
             report = doctor.run_doctor(registry=registry, offline=True)
 
         urlopen.assert_not_called()
-        assert find(report, "project.twa.jira").status == "skip"
+        assert find(report, "project.alpha.jira").status == "skip"
 
     def test_an_unresolvable_credential_fails_with_its_remediation(
         self, monkeypatch, registry
     ) -> None:
-        monkeypatch.delenv("JIRA_TOKEN_TWA")
+        monkeypatch.delenv("JIRA_TOKEN_ALPHA")
 
         report = doctor.run_doctor(registry=registry, offline=True)
 
-        check = find(report, "project.twa")
+        check = find(report, "project.alpha")
         assert check.status == "fail"
-        assert "JIRA_TOKEN_TWA" in check.detail
+        assert "JIRA_TOKEN_ALPHA" in check.detail
 
 
 class TestRegistryProblems:
@@ -215,7 +217,7 @@ class TestRegistryProblems:
     def test_a_v1_registry_warns_without_failing(self, tmp_path) -> None:
         target = tmp_path / "projects.json"
         target.write_text(
-            json.dumps({"twa": {"path": str(tmp_path)}}), encoding="utf-8"
+            json.dumps({"alpha": {"path": str(tmp_path)}}), encoding="utf-8"
         )
 
         report = doctor.run_doctor(registry=ProjectRegistry(str(target)), offline=True)
@@ -295,16 +297,16 @@ class TestOutputShape:
         assert "-> " in rendered
 
     def test_single_project_mode_checks_only_that_project(self, registry) -> None:
-        report = doctor.run_doctor(project="twa", registry=registry, offline=True)
-        assert any(check.name.startswith("project.twa") for check in report.checks)
+        report = doctor.run_doctor(project="alpha", registry=registry, offline=True)
+        assert any(check.name.startswith("project.alpha") for check in report.checks)
 
 
 class TestALiveProjectKeyIsVerified:
     """DG-260. The credential working and the project existing are two facts.
 
     `/myself` answers the first and says nothing about the second, so a report
-    built on it alone printed `OK ... (project TWA)` while Jira answered "No
-    project could be found with key 'TWA'". A green line that means "the token
+    built on it alone printed `OK ... (project ALPHA)` while Jira answered "No
+    project could be found with key 'ALPHA'". A green line that means "the token
     is valid" but reads as "this project is fine" is worse than no line.
     """
 
@@ -327,12 +329,12 @@ class TestALiveProjectKeyIsVerified:
         with mock.patch("urllib.request.urlopen", self._routed(404)):
             report = doctor.run_doctor(registry=registry)
 
-        check = find(report, "project.twa.jira")
+        check = find(report, "project.alpha.jira")
         assert check.status == "fail", (
             "a project key Jira cannot find must not report ok — the whole "
             f"point of DG-260. Got {check.status}: {check.detail}"
         )
-        assert "TWA" in check.detail, (
+        assert "ALPHA" in check.detail, (
             "the failure has to name the key that was not found, or the "
             "reader has to guess which of url/email/key is wrong"
         )
@@ -341,7 +343,7 @@ class TestALiveProjectKeyIsVerified:
         with mock.patch("urllib.request.urlopen", self._routed(None)):
             report = doctor.run_doctor(registry=registry)
 
-        check = find(report, "project.twa.jira")
+        check = find(report, "project.alpha.jira")
         assert check.status == "ok", (
             f"the happy path must survive the new call. Got {check.detail}"
         )

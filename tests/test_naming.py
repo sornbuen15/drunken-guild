@@ -159,7 +159,7 @@ LOWERCASE_ALLOWED = (
     "naming ``drunken-team``",
     "`drunken-team`, the fallback",
     "drunken-team/src",
-    "`drunken-guild`, `drunken-team`, `isac`, `twa`",
+    "`drunken-guild`, `drunken-team`, `beta`, `alpha`",
     "drunken-team registered before drunken-guild",
     "resolved to drunken-team's channel",
     '"drunken-team": {',

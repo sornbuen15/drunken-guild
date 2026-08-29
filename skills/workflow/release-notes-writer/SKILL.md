@@ -25,7 +25,7 @@ Always structure the release notes using the following format:
 Use a Markdown Table to list all changes. The table must have 3 columns:
 - **Type**: Use an emoji + category (🚀 Feature, 🐞 Bug Fix, 🔄 Update, 🗑️ Deprecate, 🛡️ Security)
 - **Description**: A clear, human-readable explanation of the change.
-- **Reference**: The PR number, Jira Ticket, or commit hash (e.g., `#12`, `TWA-17`).
+- **Reference**: The PR number, Jira Ticket, or commit hash (e.g., `#12`, `ALPHA-17`).
 
 **Example Table:**
 | Type | Description | Reference |

@@ -600,8 +600,8 @@ def test_get_set_target_project_default(target_project_config):
 
 
 def test_set_then_get_target_project_roundtrips(target_project_config):
-    _set_target_project("isac")
-    assert _get_target_project() == "isac"
+    _set_target_project("beta")
+    assert _get_target_project() == "beta"
 
 
 def test_target_project_cwd_default_comes_from_the_registry(target_project_config):
@@ -622,12 +622,12 @@ def test_target_project_cwd_is_none_when_the_default_has_no_path(
 
 
 def test_target_project_cwd_resolves_registered_path(target_project_config):
-    _set_target_project("isac")
+    _set_target_project("beta")
     with mock.patch("service.discord_router.ProjectRegistry") as mock_reg:
         mock_proj = mock.MagicMock()
-        mock_proj.get_project.return_value = {"path": "/fake/isac"}
+        mock_proj.get_project.return_value = {"path": "/fake/beta"}
         mock_reg.return_value = mock_proj
-        assert _target_project_cwd() == "/fake/isac"
+        assert _target_project_cwd() == "/fake/beta"
 
 
 def test_target_project_cwd_unregistered_project_is_none(target_project_config):
@@ -653,11 +653,11 @@ async def test_handle_project_command_switches_to_known_project(
     msg = MockMessage()
     with mock.patch("service.discord_router.ProjectRegistry") as mock_reg:
         mock_proj = mock.MagicMock()
-        mock_proj.get_project.return_value = {"path": "/fake/isac"}
+        mock_proj.get_project.return_value = {"path": "/fake/beta"}
         mock_reg.return_value = mock_proj
-        await _handle_project_command(msg, "/project isac")
-    assert "isac" in msg.channel.send.call_args[0][0]
-    assert _get_target_project() == "isac"
+        await _handle_project_command(msg, "/project beta")
+    assert "beta" in msg.channel.send.call_args[0][0]
+    assert _get_target_project() == "beta"
 
 
 @pytest.mark.anyio
@@ -668,7 +668,7 @@ async def test_handle_project_command_rejects_unknown_project(
     with mock.patch("service.discord_router.ProjectRegistry") as mock_reg:
         mock_proj = mock.MagicMock()
         mock_proj.get_project.return_value = None
-        mock_proj.get_projects.return_value = {"drunken-guild": {}, "isac": {}}
+        mock_proj.get_projects.return_value = {"drunken-guild": {}, "beta": {}}
         mock_reg.return_value = mock_proj
         await _handle_project_command(msg, "/project nope")
     assert "ไม่พบโปรเจกต์" in msg.channel.send.call_args[0][0]
@@ -906,7 +906,7 @@ async def test_try_handle_workflow_command_dispatches_each_command():
         "service.discord_router._handle_project_command", mock.AsyncMock()
     ) as m:
         assert await _try_handle_workflow_command(
-            "/project", "/project isac", runner, approval_manager, msg
+            "/project", "/project beta", runner, approval_manager, msg
         )
         m.assert_called_once()
 

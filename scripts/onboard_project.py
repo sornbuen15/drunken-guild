@@ -3,7 +3,7 @@
 
 Onboarding used to be four manual steps — write a secret, register the project,
 write an ``.mcp.json``, then find out whether any of it worked. Every one of
-them was a place to get it subtly wrong, and TWA is what that looks like: a
+them was a place to get it subtly wrong, and ALPHA is what that looks like: a
 registry entry with no Jira identity and an ``.mcp.json`` still passing
 ``--workspace``, a flag deleted two releases ago.
 
@@ -11,7 +11,7 @@ Three things this deliberately does:
 
 **One credential, referenced many times.** The same Jira account serves every
 project here; only the project *key* differs. Copying the token into each entry
-is how TWA's copy quietly drifted to a value that no longer authenticates — and
+is how ALPHA's copy quietly drifted to a value that no longer authenticates — and
 because a Jira search answers a dead token with ``200`` and an empty list, its
 board simply looked empty for months.
 
@@ -103,9 +103,9 @@ def build_parser() -> argparse.ArgumentParser:
             "commands: run `uv tool install .` from drunken-guild first."
         ),
     )
-    parser.add_argument("project", help="Project id, e.g. twa")
+    parser.add_argument("project", help="Project id, e.g. alpha")
     parser.add_argument(
-        "--jira-project-key", required=True, help="Jira project key, e.g. TWA"
+        "--jira-project-key", required=True, help="Jira project key, e.g. ALPHA"
     )
     parser.add_argument("--path", help="Absolute path to the checkout, if it has one.")
     parser.add_argument("--description", default="", help="Human-readable label.")

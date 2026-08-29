@@ -298,7 +298,7 @@ def load_config() -> dict[str, Any]:
     discovered by walking up the directory tree. It was loaded into
     ``os.environ`` first, so it arrived disguised as rule 1 and outranked the
     registry — from any working directory under ``$HOME``, a stranger's
-    credential could win. That is the mechanism a dead token in TWA's ``.env``
+    credential could win. That is the mechanism a dead token in ALPHA's ``.env``
     used to answer Jira with an empty board for months, and it is invisible
     precisely because it fails as success: HTTP 200 with an empty list (S4).
 

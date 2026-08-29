@@ -5,12 +5,12 @@ issue key that already belongs to a project, or a JQL query that
 :mod:`jira_mcp.jql` wraps into one. The agile move endpoints are different in a
 way that matters:
 
-    POST /rest/agile/1.0/backlog/{boardId}/issue   {"issues": ["ISAC-5"]}
+    POST /rest/agile/1.0/backlog/{boardId}/issue   {"issues": ["BETA-5"]}
 
 **takes any issue key from any project and moves it.** The board id constrains
 nothing — Jira reads the keys, not the board, when deciding what to move. A
-server launched for DG could move ISAC's tickets, succeed, and report success.
-One credential reaches DG, TWA and ISAC, so this is the same hole S8 opened in
+server launched for DG could move BETA's tickets, succeed, and report success.
+One credential reaches DG, ALPHA and BETA, so this is the same hole S8 opened in
 ``jira_search_issues`` and it takes the same answer: make the scope structural
 rather than trusting what the caller passed.
 

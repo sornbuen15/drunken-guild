@@ -221,7 +221,7 @@ def config_for_project(project_id: str) -> Dict[str, Any]:
     This is the route the daemon takes. It exists because selecting a project
     by *working directory* — which is what the caller used to do — meant this
     script walked up from wherever it was standing and read whatever ``.env``
-    it found. TWA's checkout held an expired token, a Jira search answers an
+    it found. ALPHA's checkout held an expired token, a Jira search answers an
     expired token with ``200`` and an empty list, and so its board read as
     empty for months while the same project returned 39 issues over MCP.
 
@@ -263,7 +263,7 @@ def project_for_directory(directory: str) -> Optional[str]:
 
     Standing inside a project's checkout is a perfectly clear statement of
     which project you mean, and until now it was answered by walking up to
-    whatever ``.env`` turned up. In TWA's case that was an expired token, and
+    whatever ``.env`` turned up. In ALPHA's case that was an expired token, and
     a Jira search with an expired token returns ``200`` and an empty list —
     so the board simply read as empty.
 

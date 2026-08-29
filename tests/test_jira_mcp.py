@@ -76,7 +76,7 @@ def test_tool_without_a_context_explains_the_fix() -> None:
 
 # --- DG-234: a ticket with nowhere to appear ------------------------------
 #
-# TWA (39 issues) and ISAC (131) are business-type Jira projects. They cannot
+# ALPHA (39 issues) and BETA (131) are business-type Jira projects. They cannot
 # have an agile board at all, so work filed there succeeds, returns a key,
 # and is then invisible. Nothing errors -- which is exactly the silent
 # failure mode that produced §1.1 and DG-235.
@@ -94,7 +94,7 @@ class _FakeClient(JiraClient):
         self.base_url = "https://x.atlassian.net"
         self.email = "e@x"
         self.token = "t"  # noqa: S105
-        self.project_key = "TWA"
+        self.project_key = "ALPHA"
         # DG-251 replaced the two warning-specific caches with one board
         # profile; the warning is now derived from it. What this class stubs,
         # and what the tests below assert, are unchanged.
@@ -121,7 +121,7 @@ async def test_warns_when_the_project_has_no_board() -> None:
     warning = await client.board_warning()
 
     assert warning is not None
-    assert "TWA" in warning
+    assert "ALPHA" in warning
     assert "board" in warning.lower()
 
 
@@ -158,13 +158,13 @@ async def test_create_issue_carries_the_warning(mock_get_client: AsyncMock) -> N
     from jira_mcp.server import jira_create_issue
 
     mock_client = AsyncMock()
-    mock_client.create_issue.return_value = {"ok": True, "key": "TWA-40"}
-    mock_client.board_warning.return_value = "TWA has no agile board"
+    mock_client.create_issue.return_value = {"ok": True, "key": "ALPHA-40"}
+    mock_client.board_warning.return_value = "ALPHA has no agile board"
     mock_get_client.return_value = mock_client
 
     result = await jira_create_issue("summary", "description")
 
-    assert "TWA-40" in result
+    assert "ALPHA-40" in result
     assert "no agile board" in result
 
 

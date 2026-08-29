@@ -99,7 +99,7 @@ def _head_sha() -> str | None:
     Resolved from this process's working directory, which is the project the
     agent is actually working in — the host launches one stdio server per
     project. Pinning it to drunken-guild's own checkout, as it used to, bound an
-    approval for work in TWA to a commit in a different repository.
+    approval for work in ALPHA to a commit in a different repository.
     """
     try:
         out = subprocess.run(
