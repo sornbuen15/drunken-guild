@@ -27,6 +27,14 @@ def snapshot_file() -> str:
     ``os.getcwd()`` it survived only because launchd pins WorkingDirectory —
     start the daemon from anywhere else and the snapshot silently became a
     different file.
+
+    DG-318: no project is passed, for the reason
+    :func:`service.discord_listener.socket_path` already gives for the socket.
+    This daemon's identity is ``DRUNKEN_PROJECT`` — it is what
+    ``_discord_project()`` uses to pick the channel and what binds the socket.
+    Reading the snapshot name from that same source is what guarantees the file,
+    the socket and the room all name one project. An argument here would be a
+    second source that could disagree with the first.
     """
     return str(paths.approval_snapshot_path())
 
