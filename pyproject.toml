@@ -15,11 +15,16 @@ name = "drunken-guild"
 # — `version.declared` fails when this is behind the newest tag. Bump it in the
 # release commit, or the check will say so.
 #
-# 1.0.0 and not 2.4.0: this repo is the merge of two products that carried two
-# incompatible tag series reading as one line. Every tag was deleted on purpose
-# and the count starts here. Nothing is released yet — there is no tag at all
-# until `develop` reaches `main`.
-version = "1.0.0"
+# The count starts at 1.0.0 and not 2.4.0: this repo is the merge of two
+# products that carried two incompatible tag series reading as one line. Every
+# tag was deleted on purpose and the count restarted here.
+#
+# 1.1.0, not 1.0.1: DG-313 and DG-318 add a capability rather than repair one --
+# a daemon, a socket and an approval snapshot per project, where there was one
+# of each per machine. Backwards compatible on purpose: with nothing to resolve
+# every name is unchanged, so a single-project machine behaves exactly as it did
+# at 1.0.0.
+version = "1.1.0"
 description = "Skills, agents and MCP servers for directing AI coding agents"
 readme = "README.md"
 requires-python = ">=3.10"
