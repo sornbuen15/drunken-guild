@@ -75,6 +75,14 @@ def socket_path() -> str:
 
     Called rather than captured at import so a container's entrypoint can still
     set ``DRUNKEN_DAEMON_SOCKET``.
+
+    DG-313: no project is passed on purpose. ``daemon_socket_path()`` reads
+    ``DRUNKEN_PROJECT`` itself, and this daemon's whole identity comes from that
+    variable already -- it is what ``_discord_project()`` uses to pick the
+    channel. Binding the socket from the same source is what guarantees the
+    socket a client dials and the room this daemon posts into name the same
+    project. Passing an argument here would introduce a second source that could
+    disagree with the first.
     """
     return str(paths.daemon_socket_path())
 

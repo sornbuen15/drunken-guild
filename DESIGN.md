@@ -127,8 +127,8 @@ any non-markdown file change" job to tell the halves apart; the secret scan and 
 ungated, because a secret pasted into a README is still a secret.
 
 **One exception, deliberate:** DG-250 keeps a project's AI layer out of git. It does not apply here,
-because here the AI layer *is* the product. `~/Projects/alpha-workspace` is the reference
-implementation; this repository is the documented exception, not a defect to fix.
+because here the AI layer *is* the product. A consuming project's own wrapper directory is the
+reference implementation; this repository is the documented exception, not a defect to fix.
 
 ### 3.2 Jira is the only coordination surface
 
