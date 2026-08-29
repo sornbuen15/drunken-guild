@@ -37,8 +37,9 @@ do not soften either half.
 
 DG-250 says a project's wrapper directory is not a git repository and its AI layer stays out of
 git. **That rule does not apply here, and it is not a defect to fix.** Here the AI layer *is* the
-product; applying the rule literally moves the deliverable out of version control. `~/Projects/alpha-workspace`
-is the reference implementation of DG-250 — this repo is the documented exception.
+product; applying the rule literally moves the deliverable out of version control. A consuming
+project's own wrapper directory is the reference implementation of DG-250 — this repo is the
+documented exception.
 
 Do not "fix" this repo by moving `skills/` or `agents/` out of git.
 
