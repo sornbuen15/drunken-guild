@@ -274,10 +274,25 @@ uv run python scripts/setup_daemon_service.py status
 ls ~/.drunken/*.sock
 ```
 
-You want `daemon-<project>.sock` for each project you installed. A bare `daemon.sock` means a
-pre-DG-313 daemon is still running — it keeps its old socket until restarted, and it has
-`KeepAlive`, so it comes back if you only kill it. Re-run `install`, which unloads the old agent
-as part of its job.
+You want `daemon-<project>.sock` for each project you installed.
+
+A bare `daemon.sock` is one of two different things, and the file alone does not tell you which:
+
+- **A pre-DG-313 daemon still running.** It keeps its old socket until restarted, and it has
+  `KeepAlive`, so it comes back if you only kill it. Re-run `install`, which unloads the old agent
+  as part of its job.
+- **An orphaned file** the old daemon left behind. Unloading a LaunchAgent kills the process; it
+  does not unlink the socket. Nothing is listening, and `rm ~/.drunken/daemon.sock` is the fix.
+
+**Tell them apart by connecting, not by looking.** A socket file existing proves nothing — and that
+is not a pedantic distinction, because every liveness check in this codebase is `os.path.exists()`.
+From any directory outside a registered project the name falls back to `daemon.sock`, finds the dead
+file, and reports the daemon **up**; the caller then gets a bare `ConnectionRefusedError` instead of
+the message that names the fix.
+
+```bash
+lsof ~/.drunken/daemon.sock    # no rows = orphaned file, nothing bound
+```
 
 **7 — A real approval reaches the right room.** This is the only step that proves the thing anyone
 actually cares about, and **no tool can do it for you**: `drunken-doctor` checks that a channel id
@@ -510,6 +525,14 @@ python scripts/setup_daemon_service.py install                 # this checkout's
 python scripts/setup_daemon_service.py install --project alpha
 python scripts/setup_daemon_service.py install --project beta
 ```
+
+**The state splits with it.** The socket is not the only thing named after the project: since
+DG-318 the approval snapshot is `~/.drunken/approvals-<project>.json` as well. The daemons share one
+state directory, so while that file was machine-wide each daemon rewrote it from its own memory and
+whichever wrote last erased the others' answers — approvals granted and then lost, and, on the next
+restart, a daemon adopting a neighbour's question and posting it into its own room. Both names come
+from the same rule, so the socket a client dials and the file the daemon persists to can never name
+different projects.
 
 The LaunchAgent label carries the project too, or installing a second one overwrites the first
 one's plist. Both install and uninstall unload the **pre-DG-313 un-suffixed agent**: it has
