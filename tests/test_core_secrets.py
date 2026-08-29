@@ -88,8 +88,8 @@ class TestFileResolver:
 
     def test_reads_a_dotted_key_path_from_json(self, tmp_path) -> None:
         target = tmp_path / "secrets.json"
-        target.write_text(json.dumps({"jira": {"twa": "scoped-value"}}))
-        assert secrets.resolve(f"file://{target}#jira.twa").reveal() == "scoped-value"
+        target.write_text(json.dumps({"jira": {"alpha": "scoped-value"}}))
+        assert secrets.resolve(f"file://{target}#jira.alpha").reveal() == "scoped-value"
 
     def test_expands_tilde(self, tmp_path, monkeypatch) -> None:
         monkeypatch.setenv("HOME", str(tmp_path))
@@ -104,19 +104,19 @@ class TestFileResolver:
         target = tmp_path / "secrets.json"
         target.write_text(json.dumps({"jira": {}}))
         with pytest.raises(SecretError, match="not found in"):
-            secrets.resolve(f"file://{target}#jira.twa")
+            secrets.resolve(f"file://{target}#jira.alpha")
 
     def test_non_json_file_with_a_key_path_is_a_clear_error(self, tmp_path) -> None:
         target = tmp_path / "secrets.json"
         target.write_text("just text")
         with pytest.raises(SecretError, match="not valid JSON"):
-            secrets.resolve(f"file://{target}#jira.twa")
+            secrets.resolve(f"file://{target}#jira.alpha")
 
     def test_key_path_pointing_at_a_non_string_is_an_error(self, tmp_path) -> None:
         target = tmp_path / "secrets.json"
-        target.write_text(json.dumps({"jira": {"twa": {"nested": "x"}}}))
+        target.write_text(json.dumps({"jira": {"alpha": {"nested": "x"}}}))
         with pytest.raises(SecretError, match="not a string"):
-            secrets.resolve(f"file://{target}#jira.twa")
+            secrets.resolve(f"file://{target}#jira.alpha")
 
 
 class TestOnePasswordResolver:
@@ -130,17 +130,17 @@ class TestOnePasswordResolver:
             mock.patch("shutil.which", return_value="/usr/bin/op"),
             mock.patch("subprocess.run", return_value=completed) as run,
         ):
-            value = secrets.resolve("op://Private/Jira-TWA/credential")
+            value = secrets.resolve("op://Private/Jira-ALPHA/credential")
 
         assert value.reveal() == "op-value"
         args, kwargs = run.call_args
-        assert args[0] == ["op", "read", "op://Private/Jira-TWA/credential"]
+        assert args[0] == ["op", "read", "op://Private/Jira-ALPHA/credential"]
         assert kwargs.get("shell", False) is False
 
     def test_missing_cli_suggests_another_backend(self) -> None:
         with mock.patch("shutil.which", return_value=None):
             with pytest.raises(SecretError, match="not installed") as caught:
-                secrets.resolve("op://Private/Jira-TWA/credential")
+                secrets.resolve("op://Private/Jira-ALPHA/credential")
         assert "env://" in caught.value.remediation
 
     def test_timeout_is_reported_as_a_locked_vault(self) -> None:
@@ -151,7 +151,7 @@ class TestOnePasswordResolver:
             ),
         ):
             with pytest.raises(SecretError, match="timed out") as caught:
-                secrets.resolve("op://Private/Jira-TWA/credential")
+                secrets.resolve("op://Private/Jira-ALPHA/credential")
         assert "unlock" in caught.value.remediation.lower()
 
     def test_failure_surfaces_stderr_for_diagnosis(self) -> None:
@@ -283,9 +283,9 @@ class TestParsing:
         assert secrets.parse_ref("env://TOKEN").fragment is None
 
     def test_fragment_is_captured_when_present(self) -> None:
-        ref = secrets.parse_ref("file://~/s.json#jira.twa")
+        ref = secrets.parse_ref("file://~/s.json#jira.alpha")
         assert ref.body == "~/s.json"
-        assert ref.fragment == "jira.twa"
+        assert ref.fragment == "jira.alpha"
 
     def test_scheme_is_case_insensitive(self, monkeypatch) -> None:
         monkeypatch.setenv("SOME_TOKEN", "value-from-env")

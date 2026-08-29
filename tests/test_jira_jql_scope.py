@@ -3,7 +3,7 @@
 
 `--project` named which project the server was for, and then did nothing to
 keep a query inside it. `project = OTHER AND ...` reached whatever the
-credential could reach, and the credential reaches DG, TWA and ISAC.
+credential could reach, and the credential reaches DG, ALPHA and BETA.
 
 The fix does not try to *validate* JQL. Parsing a query language to decide
 whether it is safe is the same losing game as matching shell commands by
@@ -32,11 +32,11 @@ class TestScoping:
 
     def test_a_query_naming_another_project_cannot_escape(self) -> None:
         """The finding. The wrapped form is `project = "DG" AND (project =
-        ISAC ...)`, which matches nothing — the caller is constrained by
+        BETA ...)`, which matches nothing — the caller is constrained by
         conjunction rather than by us understanding their query."""
-        scoped = scope_to_project("project = ISAC AND status = Done", "DG")
+        scoped = scope_to_project("project = BETA AND status = Done", "DG")
         assert scoped.startswith('project = "DG" AND (')
-        assert "ISAC" in scoped, "the clause is kept, not silently rewritten"
+        assert "BETA" in scoped, "the clause is kept, not silently rewritten"
 
     def test_an_empty_query_becomes_the_project_alone(self) -> None:
         assert scope_to_project("", "DG") == 'project = "DG"'
@@ -46,8 +46,8 @@ class TestScoping:
         """Without the parentheses, `project = "DG" AND a OR b` binds as
         `(project = DG AND a) OR b` and the OR escapes the scope entirely.
         This is the reason the wrap is parenthesised and not concatenated."""
-        scoped = scope_to_project("status = Done OR project = ISAC", "DG")
-        assert scoped == 'project = "DG" AND (status = Done OR project = ISAC)'
+        scoped = scope_to_project("status = Done OR project = BETA", "DG")
+        assert scoped == 'project = "DG" AND (status = Done OR project = BETA)'
 
 
 class TestOrderBy:
@@ -80,7 +80,7 @@ class TestOrderBy:
 
 
 class TestTheKeyIsQuoted:
-    @pytest.mark.parametrize("key", ["DG", "TWA", "ISAC"])
+    @pytest.mark.parametrize("key", ["DG", "ALPHA", "BETA"])
     def test_every_real_project_key_scopes(self, key: str) -> None:
         assert scope_to_project("status = Done", key).startswith(
             f'project = "{key}" AND'
@@ -92,4 +92,4 @@ class TestTheKeyIsQuoted:
         beats escaping: there is no legal Jira key with a quote in it, so a key
         that has one means the registry is wrong and should say so."""
         with pytest.raises(ValueError):
-            scope_to_project("status = Done", 'DG" OR project = "ISAC')
+            scope_to_project("status = Done", 'DG" OR project = "BETA')

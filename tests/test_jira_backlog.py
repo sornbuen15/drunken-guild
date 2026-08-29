@@ -38,16 +38,16 @@ class TestKeysAreConfinedToTheProject:
         """The whole point. Nothing upstream would have stopped this: Jira
         accepts the key, moves the issue, and reports success."""
         with pytest.raises(ValidationError) as caught:
-            backlog.scope_keys("ISAC-5", "DG")
-        assert "ISAC-5" in str(caught.value)
+            backlog.scope_keys("BETA-5", "DG")
+        assert "BETA-5" in str(caught.value)
         assert caught.value.remediation, "an error with no next step is a dead end"
 
     def test_one_foreign_key_refuses_the_whole_batch(self) -> None:
         """Not "move the valid ones and mention the rest". A partial move is
         the hardest kind to undo, because nothing records which half went."""
         with pytest.raises(ValidationError) as caught:
-            backlog.scope_keys("DG-251, ISAC-5, DG-250", "DG")
-        assert "ISAC-5" in str(caught.value)
+            backlog.scope_keys("DG-251, BETA-5, DG-250", "DG")
+        assert "BETA-5" in str(caught.value)
 
     def test_a_project_key_that_merely_starts_the_same_is_refused(self) -> None:
         """`DGX-1` starts with `DG`. A prefix comparison would let it through,
@@ -142,7 +142,7 @@ class TestTheBoardProfile:
 
     @pytest.mark.asyncio
     async def test_a_project_with_no_board_is_known_rather_than_unknown(self) -> None:
-        """A business-type project (TWA, ISAC) confirmed to have no board is a
+        """A business-type project (ALPHA, BETA) confirmed to have no board is a
         different answer from a lookup that failed, and the two must not
         collapse into each other — one is a fact, the other is ignorance."""
         profile = await _FakeClient([]).board_profile()
@@ -181,10 +181,10 @@ class TestTheBoardProfile:
         """DG-234's warning is now derived from the profile rather than from a
         second cache. It must not have changed what it says."""
         client = _FakeClient([])
-        client.project_key = "TWA"
+        client.project_key = "ALPHA"
         warning = await client.board_warning()
         assert warning is not None
-        assert "TWA" in warning and "board" in warning.lower()
+        assert "ALPHA" in warning and "board" in warning.lower()
 
     @pytest.mark.asyncio
     async def test_a_failed_lookup_still_warns_about_nothing(self) -> None:
@@ -310,9 +310,9 @@ class TestTheMoveTools:
             known=True,
         )
         with patch("jira_mcp.server.get_client", return_value=client):
-            result = await jira_move_to_backlog("ISAC-5")
+            result = await jira_move_to_backlog("BETA-5")
 
-        assert "ISAC-5" in result
+        assert "BETA-5" in result
         client.move_to_backlog.assert_not_called()
 
     @pytest.mark.asyncio
@@ -361,7 +361,7 @@ class TestTheMoveTools:
         )
         client.move_to_board.return_value = {"ok": True, "moved": ["DG-251"]}
         with patch("jira_mcp.server.get_client", return_value=client):
-            assert "ISAC-5" in await jira_move_to_board("ISAC-5")
+            assert "BETA-5" in await jira_move_to_board("BETA-5")
             result = await jira_move_to_board("DG-251")
 
         client.move_to_board.assert_awaited_once_with(72, ["DG-251"])
@@ -414,11 +414,11 @@ class TestUpstreamErrorsKeepTheirStatus:
 
 
 class TestTheErrorsCarryANextStep:
-    """core/errors.py's rule, applied here: "unknown project 'twa'" only tells
+    """core/errors.py's rule, applied here: "unknown project 'alpha'" only tells
     an agent to give up."""
 
     def test_every_refusal_names_what_to_do_instead(self) -> None:
-        for raw in ("ISAC-5", "not-a-key", ""):
+        for raw in ("BETA-5", "not-a-key", ""):
             try:
                 backlog.scope_keys(raw, "DG")
             except DrunkenError as exc:

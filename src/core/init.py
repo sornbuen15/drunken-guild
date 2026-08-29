@@ -160,10 +160,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--description", help="Human-readable description.")
     parser.add_argument("--jira-url", help="e.g. https://your-domain.atlassian.net")
     parser.add_argument("--jira-email", help="Account the credential belongs to.")
-    parser.add_argument("--jira-project-key", help="e.g. TWA")
+    parser.add_argument("--jira-project-key", help="e.g. ALPHA")
     parser.add_argument(
         "--jira-credential",
-        help="Secret REFERENCE, not a token. e.g. env://JIRA_TOKEN_TWA",
+        help="Secret REFERENCE, not a token. e.g. env://JIRA_TOKEN_ALPHA",
     )
     parser.add_argument("--discord-channel", help="Discord channel id for approvals.")
     parser.add_argument(

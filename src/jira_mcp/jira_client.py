@@ -44,7 +44,7 @@ class BoardProfile:
     * ``known=False`` — the lookup failed. We know nothing, and saying "no
       board" would be inventing a fact.
     * ``known=True, id=None`` — confirmed: this project has no board. A
-      business-type Jira project (TWA, ISAC) cannot have one.
+      business-type Jira project (ALPHA, BETA) cannot have one.
     * ``backlog=None`` — there is a board, but the backlog probe could not
       answer. Not the same as ``False``; see :meth:`JiraClient._probe_backlog`.
     """

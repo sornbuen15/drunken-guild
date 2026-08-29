@@ -3,7 +3,7 @@
 S8 (DG-225). ``jira_search_issues`` passed the caller's JQL straight to Jira.
 ``--project`` named which project the server was *for* and then did nothing to
 keep a query inside it, so ``project = OTHER AND ...`` reached whatever the
-credential could reach — and one credential reaches DG, TWA and ISAC.
+credential could reach — and one credential reaches DG, ALPHA and BETA.
 
 The approach is deliberately not "validate the query". Deciding whether a
 query language expression is safe by parsing it is the same losing game as

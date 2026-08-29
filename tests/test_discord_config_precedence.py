@@ -8,7 +8,7 @@ first ``.env`` it met into ``os.environ``. Since the environment outranks the
 registry per field, that made an unrelated project's credential win.
 
 This is the mechanism that already cost the project months once: a dead Jira
-token in TWA's ``.env`` answered every search with HTTP 200 and an empty list,
+token in ALPHA's ``.env`` answered every search with HTTP 200 and an empty list,
 so the board simply read as empty and nothing looked like a failure (S4).
 
 These tests construct the disagreement deliberately. On a machine where the
@@ -164,7 +164,7 @@ class TestMultipleProjectsRegistered:
         """DRUNKEN_PROJECT naming a project with no discord config (or no
         registry entry at all) must not fall through to a different
         project's channel -- that would be a wrong answer that looks right."""
-        monkeypatch.setenv("DRUNKEN_PROJECT", "isac")
+        monkeypatch.setenv("DRUNKEN_PROJECT", "beta")
 
         assert discord_utils.load_config()["channel_id"] is None
 

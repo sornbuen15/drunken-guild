@@ -1,7 +1,7 @@
 """Generate the configuration that hosts, installers and deployments read.
 
 DG-228. Every one of these files was hand-written at least once, and every
-hand-written one drifted: TWA's ``.mcp.json`` was still passing ``--workspace``
+hand-written one drifted: ALPHA's ``.mcp.json`` was still passing ``--workspace``
 two releases after the flag was deleted, and the installed tool environment
 carries ``mcp`` 1.29.0 while ``uv.lock`` pins 1.28.1 because ``uv tool install``
 does not read the lock. A generator does not prevent drift on its own -- it

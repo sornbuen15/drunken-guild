@@ -2,7 +2,7 @@
 """DG-228. The configs are generated, and the generated ones honour the lock.
 
 Every file this module emits was hand-written at least once, and every
-hand-written one drifted. TWA's ``.mcp.json`` was still passing ``--workspace``
+hand-written one drifted. ALPHA's ``.mcp.json`` was still passing ``--workspace``
 two releases after the flag was deleted. The installed tool environment carries
 ``mcp`` 1.29.0 against a lock pinning 1.28.1, because ``uv tool install`` does
 not read ``uv.lock`` -- both satisfy ``<2``, and nothing reported the
@@ -27,15 +27,15 @@ class TestTheRetiredServerStaysRetired:
         """Asserted on the output, not the constant. A test that compares the
         config against MCP_SERVERS agrees with whatever the constant says,
         which is exactly how this survived."""
-        assert "board" not in json.dumps(config_gen.mcp_config("twa"))
-        assert "board" not in json.dumps(config_gen.host_config("twa"))
+        assert "board" not in json.dumps(config_gen.mcp_config("alpha"))
+        assert "board" not in json.dumps(config_gen.host_config("alpha"))
 
 
 class TestARepoConfigAndAHostConfigDifferOnPurpose:
     def test_the_repo_config_names_commands_and_never_paths(self) -> None:
         """It is committed and shared. An absolute path here is one machine's
         layout in everyone else's history."""
-        serialised = json.dumps(config_gen.mcp_config("twa"))
+        serialised = json.dumps(config_gen.mcp_config("alpha"))
 
         assert "/Users/" not in serialised and "/home/" not in serialised
         assert "--directory" not in serialised and "PYTHONPATH" not in serialised
@@ -52,13 +52,13 @@ class TestARepoConfigAndAHostConfigDifferOnPurpose:
             (bin_dir / name).write_text("#!/bin/sh\n")
         monkeypatch.setenv("UV_TOOL_BIN_DIR", str(bin_dir))
 
-        entry = config_gen.host_config("twa")["mcpServers"]["drunken-jira-mcp"]
+        entry = config_gen.host_config("alpha")["mcpServers"]["drunken-jira-mcp"]
 
         assert entry["command"] == str(bin_dir / "drunken-jira-mcp")
 
     def test_every_server_is_scoped_to_the_project(self) -> None:
-        for entry in config_gen.mcp_config("twa")["mcpServers"].values():
-            assert entry["args"] == ["--project", "twa"], (
+        for entry in config_gen.mcp_config("alpha")["mcpServers"].values():
+            assert entry["args"] == ["--project", "alpha"], (
                 "An unscoped server acts on whichever project it defaulted to."
             )
 
@@ -121,7 +121,7 @@ class TestMergingLeavesTheHostsOwnServersAlone:
             json.dumps({"mcpServers": {"kanban-board": {"command": "node"}}})
         )
 
-        config_gen.merge_into_host_config(host, "twa")
+        config_gen.merge_into_host_config(host, "alpha")
 
         servers = json.loads(host.read_text())["mcpServers"]
         assert servers["kanban-board"] == {"command": "node"}
@@ -129,9 +129,9 @@ class TestMergingLeavesTheHostsOwnServersAlone:
 
     def test_merging_twice_reports_no_change(self, tmp_path) -> None:
         host = tmp_path / "mcp_config.json"
-        config_gen.merge_into_host_config(host, "twa")
+        config_gen.merge_into_host_config(host, "alpha")
 
-        diff = config_gen.merge_into_host_config(host, "twa")
+        diff = config_gen.merge_into_host_config(host, "alpha")
         assert diff.added == [] and diff.removed == []
         assert not diff
 
@@ -168,7 +168,7 @@ class TestARetiredHostServerIsPrunedOnRegeneration:
             )
         )
 
-        diff = config_gen.merge_into_host_config(host, "twa")
+        diff = config_gen.merge_into_host_config(host, "alpha")
 
         servers = json.loads(host.read_text())["mcpServers"]
         assert "drunken-board-mcp" not in servers
@@ -181,7 +181,7 @@ class TestARetiredHostServerIsPrunedOnRegeneration:
         host = tmp_path / "mcp_config.json"
         host.write_text(json.dumps({"mcpServers": {"jira-board": {"command": "npx"}}}))
 
-        diff = config_gen.merge_into_host_config(host, "twa")
+        diff = config_gen.merge_into_host_config(host, "alpha")
 
         servers = json.loads(host.read_text())["mcpServers"]
         assert servers["jira-board"] == {"command": "npx"}
@@ -200,7 +200,7 @@ class TestARetiredHostServerIsPrunedOnRegeneration:
             )
         )
 
-        diff = config_gen.merge_into_host_config(host, "twa")
+        diff = config_gen.merge_into_host_config(host, "alpha")
 
         servers = json.loads(host.read_text())["mcpServers"]
         assert set(config_gen.MCP_SERVERS) <= set(servers)

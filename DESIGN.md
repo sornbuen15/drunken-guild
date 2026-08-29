@@ -63,8 +63,8 @@ So liveness asks `/rest/api/3/myself`, which 401s. And a project key asks
 *also* returns 200 and an empty page, byte-identical to a real but empty project (DG-260).
 
 The generalisation is the point, and it has caught three different bugs: **ask an endpoint that
-fails.** `drunken-doctor` printed `OK … (project TWA)` while Jira answered "No project could be
-found with key 'TWA'", because the key was echoed back from the registry and never asked about.
+fails.** `drunken-doctor` printed `OK … (project ALPHA)` while Jira answered "No project could be
+found with key 'ALPHA'", because the key was echoed back from the registry and never asked about.
 
 ### 2.3 Merge is not deploy, and deploy is not running
 
@@ -107,7 +107,7 @@ These are stated in full where they are enforced. Here is only why they exist.
 
 | invariant | why | stated in |
 |---|---|---|
-| Import-time failure is never a failure mode | a caller reads a message instead of watching an MCP server vanish; every error carries a remediation because "unknown project 'twa'" only tells an agent to give up | `CLAUDE.md`, `src/core/errors.py` |
+| Import-time failure is never a failure mode | a caller reads a message instead of watching an MCP server vanish; every error carries a remediation because "unknown project 'alpha'" only tells an agent to give up | `CLAUDE.md`, `src/core/errors.py` |
 | An agent opens PRs, never merges; does not install; does not delete | the irreversible half of the work stays with a human. *Marking a thing unused beats removing it* — `requirements.txt` had drifted 113 lines with no reader and was retired with a note rather than deleted (DG-281) | `CLAUDE.md`, `skills/workflow/git-workflow/SKILL.md` |
 | Retired code is kept, but **not published** | not deleting exists so work is not lost; it is not a rule to publish, and the two were conflated. `_not_used/` was tracked only because nothing excluded it. Publishing it shipped a 73-line `git-workflow` beside the live 196-line one — §1's founding disaster, on sale — and drew Dependabot alerts and a merged pull request against withdrawn code. Git history is the archive; a second one in the tree is §1 again (DG-291) | `RETIRED.md`, `.gitignore` |
 | A bug's test is seen failing first | a test written after the fix proves only that it compiles | `CLAUDE.md` |
@@ -127,8 +127,8 @@ any non-markdown file change" job to tell the halves apart; the secret scan and 
 ungated, because a secret pasted into a README is still a secret.
 
 **One exception, deliberate:** DG-250 keeps a project's AI layer out of git. It does not apply here,
-because here the AI layer *is* the product. `~/Projects/tff-web-app` is the reference
-implementation; this repository is the documented exception, not a defect to fix.
+because here the AI layer *is* the product. A consuming project's own wrapper directory is the
+reference implementation; this repository is the documented exception, not a defect to fix.
 
 ### 3.2 Jira is the only coordination surface
 

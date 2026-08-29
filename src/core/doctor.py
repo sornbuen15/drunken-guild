@@ -8,7 +8,7 @@ see, and finding each one took a debugging session.
 
 So this reports not only whether each piece resolved, but **which rule chose
 it** — the path, the source of the path, the reference a credential came from.
-"It says env://JIRA_TOKEN_TWA and that variable is unset" ends the investigation
+"It says env://JIRA_TOKEN_ALPHA and that variable is unset" ends the investigation
 immediately.
 
 Values never appear in the output, only references and outcomes. The report is
@@ -721,7 +721,7 @@ def describe_missing_git_root(git_root: Path) -> str:
     """Say what was actually found where a repository was expected.
 
     The old message was ``{path} is not a git repository``. That was literally
-    true of ISAC on 2026-08-16 and cost hours, because the two facts the reader
+    true of BETA on 2026-08-16 and cost hours, because the two facts the reader
     needed — that the path did not exist, and that a repository sat one
     directory deeper — were both knowable at the moment it was written and
     neither was said.
@@ -798,7 +798,7 @@ def _check_registry(report: Report, registry: ProjectRegistry) -> list[str]:
 def _check_secret(report: Report, project_id: str, context: ProjectContext) -> None:
     """Confirm the credential resolved, and name the reference it came from.
 
-    Naming the reference is the point: "it says env://JIRA_TOKEN_TWA" is what
+    Naming the reference is the point: "it says env://JIRA_TOKEN_ALPHA" is what
     turns a mystery into a one-line fix. The value itself never appears.
     """
     if context.jira is None or context.config.jira is None:
@@ -813,9 +813,9 @@ def _check_secret(report: Report, project_id: str, context: ProjectContext) -> N
 def _check_jira_live(report: Report, project_id: str, context: ProjectContext) -> None:
     """Confirm the credential works *and* that the project key exists.
 
-    Two facts, two calls. DG-260: this printed `OK ... (project TWA)` off the
+    Two facts, two calls. DG-260: this printed `OK ... (project ALPHA)` off the
     identity call alone, while Jira answered "No project could be found with
-    key 'TWA'". The key was echoed straight back from the registry, so the line
+    key 'ALPHA'". The key was echoed straight back from the registry, so the line
     proved only that the registry could be read.
     """
     name = f"project.{project_id}.jira"
