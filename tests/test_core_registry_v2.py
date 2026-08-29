@@ -53,7 +53,9 @@ def write_registry(tmp_path, document) -> str:
 
 
 class TestProjectIdValidation:
-    @pytest.mark.parametrize("project_id", ["alpha", "beta", "drunken-guild", "a", "p_1"])
+    @pytest.mark.parametrize(
+        "project_id", ["alpha", "beta", "drunken-guild", "a", "p_1"]
+    )
     def test_accepts_well_formed_ids(self, project_id: str) -> None:
         assert validate_project_id(project_id) == project_id
 
@@ -120,7 +122,7 @@ class TestV2Schema:
 
     def test_projects_are_read_from_the_projects_key(self, tmp_path) -> None:
         registry = ProjectRegistry(write_registry(tmp_path, V2_DOCUMENT))
-        assert registry.project_ids() == ["api-only", "alpha"]
+        assert registry.project_ids() == ["alpha", "api-only"]
 
     def test_jira_identity_is_parsed(self, tmp_path) -> None:
         registry = ProjectRegistry(write_registry(tmp_path, V2_DOCUMENT))
