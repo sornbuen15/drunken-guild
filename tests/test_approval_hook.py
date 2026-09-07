@@ -95,6 +95,85 @@ class TestDenyIsNotNegotiable:
         assert decision.permission == "deny"
 
 
+class TestDG321UnreadableCallsFailClosed:
+    """A call the hook cannot read is denied, not waved through.
+
+    `main()` maps Antigravity's `toolCall` onto Claude's shape by field name:
+    `run_command` reads `args.CommandLine`, `view_file` reads
+    `args.AbsolutePath`. DG-303 records that those names are unverified against
+    a real payload. A wrong name is not merely noisy -- `.get(name, "")` yields
+    an empty string, and an empty string matches no rule at all, deny rules
+    included. The call then falls past the deny list it was supposed to be
+    stopped by.
+
+    So the guard cannot live in the mapping: any future tool whose field name
+    is wrong reopens the same hole. It lives here, with the deny check, and
+    reads "if this call carries no command or path, the hook has nothing to
+    judge and must not pretend otherwise."
+    """
+
+    def test_a_command_that_mapped_to_an_empty_string_is_denied(self) -> None:
+        """The exact shape a wrong `CommandLine` produces. Without the guard
+        this returns no decision and the harness carries on -- with `rm -rf`
+        on Antigravity's own allowlist and no denylist beside it."""
+        decision = hook.decide(
+            payload(command=""),
+            pr.Rules(allow=ALLOW_RULES, deny=DENY_RULES),
+            away=True,
+            ask_boss=never_asked,
+            is_antigravity=True,
+        )
+        assert decision.permission == "deny"
+
+    def test_a_bash_call_with_no_command_key_at_all_is_denied(self) -> None:
+        decision = hook.decide(
+            {"tool_name": "Bash", "tool_input": {}, "permission_mode": "default"},
+            pr.Rules(allow=ALLOW_RULES, deny=DENY_RULES),
+            away=True,
+            ask_boss=never_asked,
+        )
+        assert decision.permission == "deny"
+
+    def test_a_path_tool_that_mapped_to_an_empty_path_is_denied(self) -> None:
+        """`view_file` and `write_to_file` map onto `path`. An empty one is the
+        same failure as an empty command, and `Read(**/.env)` cannot fire on
+        it either."""
+        decision = hook.decide(
+            payload(tool_name="Read", path=""),
+            pr.Rules(allow=[], deny=DENY_RULES),
+            away=True,
+            ask_boss=never_asked,
+            is_antigravity=True,
+        )
+        assert decision.permission == "deny"
+
+    def test_an_unreadable_call_is_denied_before_bypass_permissions(self) -> None:
+        """Ordered with the deny list, not after it. `bypassPermissions` turns
+        off prompting; it does not turn off the floor, and a call nobody can
+        read is exactly when the floor matters."""
+        decision = hook.decide(
+            payload(command="", mode="bypassPermissions"),
+            pr.Rules(allow=ALLOW_RULES, deny=DENY_RULES),
+            away=False,
+            ask_boss=never_asked,
+        )
+        assert decision.permission == "deny"
+
+    def test_a_tool_that_carries_neither_is_left_alone(self) -> None:
+        """The guard must stay narrow. `Bash`, `Read` and `Write` are the three
+        shapes `main()` maps and the three where an empty value is meaningless.
+        A tool that legitimately carries no command and no path -- TodoWrite,
+        say -- is none of the hook's business, and denying it would break every
+        session to close a hole that is not there."""
+        decision = hook.decide(
+            {"tool_name": "TodoWrite", "tool_input": {}, "permission_mode": "default"},
+            pr.Rules(allow=ALLOW_RULES, deny=DENY_RULES),
+            away=False,
+            ask_boss=never_asked,
+        )
+        assert decision.permission is None
+
+
 class TestSilenceWhereSilenceIsCorrect:
     def test_an_allowlisted_call_gets_no_decision(self) -> None:
         """Not `allow` -- silence. The harness's own allowlist already covers
