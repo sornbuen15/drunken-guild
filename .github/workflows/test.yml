@@ -16,6 +16,18 @@ concurrency:
 
 permissions:
   contents: read
+  # `contents: read` alone is not enough for the secret scan. Declaring a
+  # `permissions:` block sets every scope not listed here to `none`, and on a
+  # `pull_request` event gitleaks-action takes its `ScanPullRequest` path, which
+  # asks the API which commits are in the PR. GitHub answers that call 403
+  # without this, and names the scope it wants in the response:
+  # `x-accepted-github-permissions: pull_requests=read`.
+  #
+  # Nothing here changed when it broke (DG-323): this block dates to 2026-08-06,
+  # the action's `v2` tag has pointed at the same commit since 2025-04-17, and
+  # the identical job logged `no leaks found` on 2026-08-29. The endpoint's
+  # requirement changed underneath. Read-only, and only what that one call needs.
+  pull-requests: read
 
 env:
   # src/service/discord_listener.py exits during import when these are unset,
@@ -123,7 +135,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          # gitleaks needs history to scan past commits, not just the tip.
+          # Full history, for the `push` half of this job: there, gitleaks scans
+          # the checkout and needs past commits, not just the tip.
+          #
+          # It buys nothing on a `pull_request` event, and the comment used to
+          # claim otherwise. There the action calls the API for the PR's commit
+          # list and never reads this checkout, so a PR is scanned over its own
+          # commits only. Making a PR scan full history would mean dropping
+          # `ScanPullRequest` and driving the gitleaks CLI directly -- a larger
+          # change than DG-323, recorded here rather than done quietly.
           fetch-depth: 0
 
       - uses: actions/setup-python@v5
@@ -174,8 +194,13 @@ jobs:
       # Secret scanning across the full history. Test fixtures that deliberately
       # look like credentials carry an explicit marker, allowlisted in
       # .gitleaks.toml.
+      # Pinned to the commit `v2` currently resolves to, not to the tag. A
+      # moving tag on a security gate is silent drift, which is the failure
+      # class this repository exists to remove -- and a gate is the worst place
+      # to keep one. `v2` has in fact been stable since 2025-04-17; this removes
+      # the possibility, not an observed problem.
       - name: Secret scan
-        uses: gitleaks/gitleaks-action@v2
+        uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7 # v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITLEAKS_CONFIG: .gitleaks.toml
@@ -185,7 +210,13 @@ jobs:
       # was deleted. A sweep has a shelf life; this does not. Deliberately a
       # grep list rather than a real doc-vs-code checker — the discipline it
       # needs is small: the PR that removes something adds its name.
+      #
+      # `if: always()` because these two are independent gates that happen to
+      # share a job. When the secret scan crashed on 2026-09-07 this was skipped
+      # with it, and CLAUDE.md says both run on every push -- coupling them by
+      # step order was an accident of ordering, not a decision.
       - name: Documentation drift
+        if: always()
         run: python scripts/check_doc_drift.py
 
   clean-install:
