@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess  # nosec B404 - git, invoked with a fixed argument list
 from dataclasses import asdict, dataclass, field
 from importlib.metadata import PackageNotFoundError, version
@@ -475,6 +476,153 @@ AI_LAYER_ROOTS: Final = (
     ("claude.skills", "~/.claude/skills"),
     ("antigravity.skills", "~/.gemini/config/skills"),
 )
+
+
+#: The MCP configs a host application actually reads. ``drunken-config`` writes
+#: and merges exactly one of them; the second is the host's own, and nothing
+#: here has ever looked at it.
+#:
+#: Reading only the managed file is what let a retired server keep launching.
+#: On Antigravity's last run it rewrote sixteen tool descriptors for a ``board``
+#: server — ``board_claim_task`` among them — while the managed file named no
+#: such server. The entry was in the other file. The board was retired in
+#: DG-265; the host was still starting it.
+HOST_MCP_CONFIGS: Final = (
+    ("antigravity.cli", "~/.gemini/antigravity-cli/mcp_config.json"),
+    ("antigravity.config", "~/.gemini/config/mcp_config.json"),
+)
+
+#: This project's Jira server. Anything else answering the same question is a
+#: second surface that can disagree with the first, which is the failure this
+#: repository was built to cure — not redundancy.
+OUR_JIRA_SERVER: Final = "drunken-jira-mcp"
+
+#: How many server names to list before summarising, matching
+#: :data:`_STALE_NAMES_SHOWN`.
+_HOST_NAMES_SHOWN: Final = 5
+
+
+def _unresolvable(server: dict[str, Any]) -> list[str]:
+    """The commands and arguments of one server that do not resolve on disk.
+
+    An absolute path is checked directly. A bare command — ``node``, ``npx``,
+    ``uv`` — is looked up on PATH, because treating every one of those as
+    missing would report a healthy config as broken, and a check that cries
+    wolf is a check nobody reads.
+
+    Only absolute arguments are checked. A shell fragment passed to ``-c`` is
+    not a path and guessing inside it would invent findings.
+    """
+    missing: list[str] = []
+    command = str(server.get("command") or "")
+    if command.startswith("/"):
+        if not Path(command).exists():
+            missing.append(command)
+    elif command and shutil.which(command) is None:
+        missing.append(command)
+
+    for arg in server.get("args") or []:
+        if isinstance(arg, str) and arg.startswith("/") and not Path(arg).exists():
+            missing.append(arg)
+    return missing
+
+
+def _rival_jira_servers(servers: dict[str, Any]) -> list[str]:
+    """Servers other than ours that look like they serve Jira.
+
+    Matched on the name and on the launch arguments, because the one found in
+    the wild declared itself neither way round: it was named ``jira-board`` and
+    ran ``npx -y @modelcontextprotocol/server-jira``, a package that answers 404.
+    """
+    rivals = []
+    for name, config in servers.items():
+        if name == OUR_JIRA_SERVER or not isinstance(config, dict):
+            continue
+        haystack = " ".join([name, *(str(a) for a in config.get("args") or [])])
+        if "jira" in haystack.lower():
+            rivals.append(name)
+    return sorted(rivals)
+
+
+def _check_host_configs(
+    report: Report,
+    roots: Optional[Sequence[tuple[str, Any]]] = None,
+) -> None:
+    """Whether the servers a host will launch can actually be launched.
+
+    Presence in a config is not the same as being startable, and nothing finds
+    out until the host tries. Five of the six servers in one real config could
+    not start — an npm package returning 404, and four extension paths for a
+    version that is not installed — and every launch attempted all six.
+
+    An absent config is a **skip**: a machine with no Antigravity legitimately
+    has none. Everything else is a **warn**, never a failure: these files are
+    outside this repository and the remedy is the operator's edit, exactly like
+    `ai_layer`.
+
+    ``archivedMcpServers`` is skipped. That key is the host's own record of what
+    it stopped launching, and reporting it would report a decision as a defect.
+    """
+    roots = roots if roots is not None else HOST_MCP_CONFIGS
+
+    for name, raw in roots:
+        check = f"host_mcp.{name}"
+        path = Path(raw).expanduser() if isinstance(raw, str) else Path(raw)
+        if not path.is_file():
+            report.add(check, "skip", f"No host config at {path}.")
+            continue
+
+        try:
+            document = json.loads(path.read_text(encoding="utf-8"))
+            servers = document["mcpServers"] if isinstance(document, dict) else {}
+            if not isinstance(servers, dict):
+                raise ValueError("mcpServers is not an object")
+        except (OSError, ValueError, KeyError) as exc:
+            report.add(
+                check,
+                "warn",
+                f"Could not read {path}: {exc}",
+                remediation=(
+                    "A host config this tool cannot parse is one the host may "
+                    "not be reading either. Open it and check the JSON."
+                ),
+            )
+            continue
+
+        broken = {
+            server: paths_missing
+            for server, config in servers.items()
+            if isinstance(config, dict) and (paths_missing := _unresolvable(config))
+        }
+        rivals = _rival_jira_servers(servers)
+
+        if not broken and not rivals:
+            report.add(check, "ok", f"all {len(servers)} server(s) in {path} resolve")
+            continue
+
+        parts = []
+        if broken:
+            named = sorted(broken)[:_HOST_NAMES_SHOWN]
+            more = len(broken) - len(named)
+            listed = ", ".join(f"{s} -> {broken[s][0]}" for s in named)
+            parts.append(
+                f"{len(broken)} of {len(servers)} server(s) cannot start: {listed}"
+                + (f", and {more} more" if more else "")
+            )
+        if rivals:
+            parts.append(f"{', '.join(rivals)} serve(s) Jira beside {OUR_JIRA_SERVER}")
+
+        report.add(
+            check,
+            "warn",
+            f"{path}: " + "; ".join(parts),
+            remediation=(
+                "Editing a host's own config is the operator's step, never this "
+                "tool's. A server that cannot start is attempted on every launch "
+                "and fails silently; a second Jira server is a surface that can "
+                "disagree with this project's."
+            ),
+        )
 
 
 def source_tree_root() -> Optional[Path]:
@@ -962,6 +1110,7 @@ def run_doctor(
     _check_daemon(report)
     _check_deployment(report, source_root=source_tree_root())
     _check_ai_layer(report)
+    _check_host_configs(report)
 
     if secrets.cached_refs():
         report.add(
