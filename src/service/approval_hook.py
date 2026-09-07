@@ -103,6 +103,23 @@ DENIED_BY_RULE = (
     "needs to happen, raise it with the Boss directly."
 )
 
+#: The three shapes ``main()`` maps a foreign payload onto, and the input keys
+#: each one is meaningless without. A ``Bash`` with no command and a ``Read``
+#: with no path are not calls this hook can judge -- they are calls it failed to
+#: read.
+UNREADABLE_KEYS: Final = {
+    "Bash": ("command",),
+    "Read": pr.PATH_KEYS,
+    "Write": pr.PATH_KEYS,
+}
+
+UNREADABLE = (
+    "This call carried no command or path, so no rule could be evaluated "
+    "against it — including the deny rules. Refused rather than waved through: "
+    "a call the hook cannot read is the one case where silence is the most "
+    "dangerous answer it could give."
+)
+
 NO_ANSWER = (
     "Asked the Boss on Discord and had no answer within {budget}s, so this "
     "call is refused rather than left hanging. The question ({req_id}) is "
@@ -354,6 +371,32 @@ def _record_learned_rule(cwd: str, tool_name: str, tool_input: dict[str, Any]) -
         pass
 
 
+def _is_unreadable(tool_name: str, tool_input: dict[str, Any]) -> bool:
+    """Whether a call arrived without the one field that gives it meaning.
+
+    DG-321. ``main()`` maps Antigravity's ``toolCall`` by field name --
+    ``run_command`` reads ``args.CommandLine``, ``view_file`` reads
+    ``args.AbsolutePath`` -- and DG-303 records that those names are unverified
+    against a real payload. A wrong name is not just noise: ``.get(name, "")``
+    yields an empty string, and an empty string matches no rule at all. Deny
+    rules are rules. ``is_denied("Bash", {"command": ""}, rules.deny)`` is
+    ``False``, so the call falls straight past the floor it was meant to hit.
+
+    Guarding the mapping instead would fix the two field names known today and
+    leave the next one open. This asks the question that survives a rename:
+    can this call be judged at all?
+
+    Narrow on purpose. Only the three tool names ``main()`` produces are
+    checked; a tool that legitimately carries neither a command nor a path is
+    not the hook's business, and denying it would break every session to close
+    a hole that is not there.
+    """
+    keys = UNREADABLE_KEYS.get(tool_name)
+    if keys is None:
+        return False
+    return not any(str(tool_input.get(key, "")).strip() for key in keys)
+
+
 def _describe_call(tool_name: str, tool_input: dict[str, Any]) -> str:
     """A one-line summary of the call, for the Discord message."""
     if tool_name == "Bash":
@@ -386,6 +429,13 @@ def decide(  # noqa: C901
     # 1. Deny, before anything else and regardless of mode or away state.
     if pr.is_denied(tool_name, tool_input, rules.deny):
         return Decision("deny", DENIED_BY_RULE)
+
+    # 1b. A call that cannot be read cannot have been checked against the deny
+    # list above, so it gets the same treatment rather than the benefit of the
+    # doubt. Before `bypassPermissions` for the same reason step 1 is: that mode
+    # turns off prompting, not the floor.
+    if _is_unreadable(tool_name, tool_input):
+        return Decision("deny", UNREADABLE)
 
     # 2. The operator turned prompting off. Nothing to reroute.
     if payload.get("permission_mode") == "bypassPermissions":
