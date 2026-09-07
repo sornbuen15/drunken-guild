@@ -104,8 +104,8 @@ class TestApplying:
 
     def test_a_backup_exists_before_the_write(self, tmp_path) -> None:
         """The convention already in that tree — `<name>.pre-<TICKET>.bak`, as
-        left by DG-277 and DT-246. Recovering by hand needs the file, not a
-        memory of what it held."""
+        left there by DG-277. Recovering by hand needs the file, not a memory
+        of what it held."""
         config = _config(tmp_path / "mcp.json", {"jira-board": {"command": "sh"}})
         clean.main(
             [

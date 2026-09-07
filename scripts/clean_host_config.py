@@ -15,9 +15,9 @@ So this is the other half, with the manners the other half needs:
 - **It writes nothing without ``--apply``.** The default run says what it would
   do and stops. A host config is not this project's file.
 - **A backup lands before the write,** as ``<name>.pre-<TICKET>.bak`` — the
-  convention already sitting in that directory from DG-277 and DT-246. An
-  existing backup is never overwritten: a second run must not replace the record
-  of the original state with the already-pruned one.
+  convention already sitting in that directory, as left beside this very file
+  by DG-277. An existing backup is never overwritten: a second run must not
+  replace the record of the original state with the already-pruned one.
 - **A ``drunken-*-mcp`` name is refused outright.** Two tools that can both
   remove the same entry are two tools that can disagree about who removed it.
 - **Servers are named explicitly, never inferred.** "Remove everything that does
