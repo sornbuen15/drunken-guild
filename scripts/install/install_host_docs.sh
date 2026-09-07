@@ -90,9 +90,9 @@ if [ "$APPLY" != true ]; then
 fi
 
 # Back up before writing, using the convention already in that tree:
-# <name>.pre-<TICKET>.bak, as left by DG-277 and DT-246. An existing backup is
-# kept — the first one holds the state before anything was replaced, and a
-# second run must not overwrite it with the already-replaced copy.
+# <name>.pre-<TICKET>.bak, as left there by DG-277. An existing backup is kept —
+# the first one holds the state before anything was replaced, and a second run
+# must not overwrite it with the already-replaced copy.
 if [ -f "$TARGET" ]; then
   BACKUP="$TARGET.pre-$TICKET.bak"
   if [ -e "$BACKUP" ]; then
