@@ -220,17 +220,16 @@ Full catalogue with triggers: [`skills/INDEX.md`](./skills/INDEX.md).
 
 ## Why this exists
 
-I'm a computer engineer, but I don't feel confident I'm good enough — and I don't have much time to
-develop my skills the way I'd like to.
+I wanted to know where AI-assisted delivery actually holds and where it breaks, so I built a system
+to find out rather than read about it.
 
-I built this to learn the fundamentals properly and try building an agent system from my own
-perspective. It's part study, part experiment.
+The constraints came first, from 16 years of engineering: work items live in one place, agents never
+merge, credentials are references and not tokens. Everything else was built around those.
 
-The skills were drafted by me, then **reviewed and improved with AI assistance** — I used Claude to
-audit the reasoning, tighten the constraints, and sharpen the output format of each `SKILL.md`.
+The skills were drafted by me and reviewed with AI assistance — I used Claude to audit the
+reasoning, tighten the constraints, and sharpen the output format of each `SKILL.md`.
 
-I'm sharing this because I wanted a review. I'm not sure I'm still where I need to be as a software
-engineer, and this project is my honest attempt to find out.
+Review and criticism are welcome.
 
 ---
 
