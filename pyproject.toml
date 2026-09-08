@@ -19,12 +19,20 @@ name = "drunken-guild"
 # products that carried two incompatible tag series reading as one line. Every
 # tag was deleted on purpose and the count restarted here.
 #
-# 1.1.0, not 1.0.1: DG-313 and DG-318 add a capability rather than repair one --
-# a daemon, a socket and an approval snapshot per project, where there was one
-# of each per machine. Backwards compatible on purpose: with nothing to resolve
-# every name is unchanged, so a single-project machine behaves exactly as it did
-# at 1.0.0.
-version = "1.1.0"
+# 1.2.0, and the reasoning is on the record because the rule points elsewhere.
+# `git-workflow` says retiring a skill or a slash command is a breaking interface
+# change, which would make this 2.0.0: DG-263 withdrew four skills and three
+# triggers (/debug-mantra, /post-mortem, /scrutinize). The Boss decided 1.2.0
+# with that rule in view -- those four were vendored from a third party and were
+# never this project's to ship, so removing them corrects a provenance claim
+# rather than withdrawing an interface this project ever owned. Anyone who was
+# invoking them still has them: the installed copies are symlinks into the
+# upstream pack, not into this repository.
+#
+# The MINOR half is earned on its own -- DG-322 and DG-324 add capability
+# (doctor reporting unresolvable host servers, the host-config operator
+# scripts), and DG-321 and DG-325 repair rather than remove.
+version = "1.2.0"
 description = "Skills, agents and MCP servers for directing AI coding agents"
 readme = "README.md"
 requires-python = ">=3.10"
