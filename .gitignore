@@ -161,6 +161,13 @@ client_secret*.json
 *.p12
 *.pfx
 
+# Neither is where a real credential lives -- `~/.drunken/secrets.json` is
+# outside any checkout, and the .bak files this project writes land beside the
+# host config they back up. Both are where one gets copied to "just for a
+# minute", which is the same story `.env` above already has a rule for (DG-325).
+*.bak
+secrets.json
+
 # Local Agent Configurations and Logs. Antigravity's state lives here and is
 # none of our business -- except the two things that are deliberately shared.
 # `.agents/*` and not `.agents/`: git does not descend into an ignored
