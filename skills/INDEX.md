@@ -53,9 +53,6 @@ Map task keywords to their absolute skill file paths. Load ONLY the relevant ski
 - `incident-response` (`/incident`) — Crisis leadership standard for outage mitigation, stakeholder communication, and blameless RCA. Apply whenever there's a production incident, system outage, cri
   Path: $HOME/.claude/skills/incident-response/SKILL.md
 
-- `management-talk` — Rewrite engineer-to-engineer content for engineering-org leadership (VPs, directors, PMs, release managers, execs in an engineering-savvy company) and shape it
-  Path: $HOME/.claude/skills/management-talk/SKILL.md
-
 - `servant-leadership` (`/lead`) — Standard for empathetic communication, constructive code reviews, and blameless engineering culture. Apply whenever the user is writing feedback for a teammate,
   Path: $HOME/.claude/skills/servant-leadership/SKILL.md
 
@@ -86,14 +83,8 @@ Map task keywords to their absolute skill file paths. Load ONLY the relevant ski
 - `core-engineering` (`/tdd`) — Engineering discipline for TDD, systematic debugging, and safe refactoring. Apply this skill whenever the user is fixing a bug, writing or updating tests, debug
   Path: $HOME/.claude/skills/core-engineering/SKILL.md
 
-- `debug-mantra` (`/debug-mantra`) — Four-mantra debugging discipline — reproduce, trace the fail path, falsify the hypothesis, cross-reference every breadcrumb. Recite the mantra block verbatim at
-  Path: $HOME/.claude/skills/debug-mantra/SKILL.md
-
 - `git-workflow` (`/git-workflow`) — Best-practice Git discipline — branch naming, commit conventions, PR lifecycle, which merge strategy belongs to which target, and release hygiene. Apply wheneve
   Path: $HOME/.claude/skills/git-workflow/SKILL.md
-
-- `post-mortem` (`/post-mortem`) — Write the canonical engineering record of a fixed bug — root cause, mechanism, fix, validation, and how it slipped through. Engineer-audience, code identifiers
-  Path: $HOME/.claude/skills/post-mortem/SKILL.md
 
 - `project-audit-reviewer` (`/audit-project`) — Comprehensive codebase health audit — architecture compliance, security, code quality, dependencies, and docs — with a scored report and dry-run backlog proposa
   Path: $HOME/.claude/skills/project-audit-reviewer/SKILL.md
@@ -103,9 +94,6 @@ Map task keywords to their absolute skill file paths. Load ONLY the relevant ski
 
 - `release-notes-writer` — Standardizes the generation of professional, readable Release Notes and Tag Version descriptions using markdown tables and clear categorizations.
   Path: $HOME/.claude/skills/release-notes-writer/SKILL.md
-
-- `scrutinize` (`/scrutinize`) — Outsider-perspective end-to-end review of a plan, PR, or code change. First questions intent and whether a simpler/more elegant approach would achieve the same
-  Path: $HOME/.claude/skills/scrutinize/SKILL.md
 
 - `test-report-generator` (`/test-report`) — Runs the full test suite live, audits Jira ticket state, checks architecture compliance, and writes a dated Markdown test report as the pre-merge quality gate r
   Path: $HOME/.claude/skills/test-report-generator/SKILL.md

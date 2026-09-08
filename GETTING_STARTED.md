@@ -57,9 +57,9 @@ Verify — you should see the skill directories and an index:
 ls ~/.claude/skills/
 ```
 
-### 30 of the 38 skills need nothing else
+### 26 of the 34 skills need nothing else
 
-Architecture, testing, security, UI/UX, Electron, git discipline, debugging, post-mortems — all of
+Architecture, testing, security, UI/UX, Electron, git discipline, debugging — all of
 it installs and works standalone.
 
 The remaining 8 plus the `principal-engineer` agent coordinate work on Jira. They call `jira_*`
@@ -317,5 +317,3 @@ A few commands worth knowing early:
 | `/secure` | any auth, data handling, or new endpoint |
 | `/tdd` | fixing a bug, or writing tests |
 | `/isolate` | a command has failed the same way twice |
-| `/scrutinize` | a second opinion on a plan or a diff |
-| `/post-mortem` | a bug is fixed and validated — write the record |

@@ -24,8 +24,8 @@ description: >
     confident, and it is entirely preventable by three checks in order.
 
     This skill is about **running things** — servers, deployments, end-to-end suites,
-    integrations. For diagnosing a bug in code that is already running, `debug-mantra`
-    (`/debug-mantra`) is the right protocol; the two are complements, not alternatives.
+    integrations. For diagnosing a bug in code that is already running, `core-engineering`
+    (`/tdd`) is the right protocol; the two are complements, not alternatives.
   </role>
 
   <execution_rules>
