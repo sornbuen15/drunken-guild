@@ -114,7 +114,10 @@ def sync_dir(src: str, dst: str) -> None:  # noqa: C901  # long dispatch chain; 
                 else:
                     print(f"[+] Installing script: {item}")
                 shutil.copy2(s_item, d_item)
-                os.chmod(d_item, 0o755)
+                # 0o700, not 0o755. These are installed into the operator's own
+                # config directory and run by that one account, so group and
+                # world need neither read nor execute (DG-325, bandit B103).
+                os.chmod(d_item, 0o700)
 
 
 def main() -> None:
