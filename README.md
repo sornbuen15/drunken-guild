@@ -13,7 +13,7 @@ halves are meant.
 
 | | what it is | where |
 |---|---|---|
-| **The AI layer** | 38 skills and 15 agents, installed into `~/.claude/` and read by Antigravity | `skills/`, `agents/` |
+| **The AI layer** | 34 skills and 15 agents, installed into `~/.claude/` and read by Antigravity | `skills/`, `agents/` |
 | **The runtime** | Python MCP servers and a CLI — Jira coordination, Discord approvals, cost accounting, health checks | `src/`, `scripts/` |
 
 They are one repository on purpose. They used to be two, and the two drifted: skills were authored
@@ -58,7 +58,7 @@ Set-ExecutionPolicy -Scope CurrentUser RemoteSigned   # one-time, if blocked
 .\scripts\install\install_agents.ps1
 ```
 
-Then invoke a skill by its trigger — `/tdd`, `/secure`, `/scrutinize`, `/post-mortem` — or hand work
+Then invoke a skill by its trigger — `/tdd`, `/secure`, `/system-design`, `/isolate` — or hand work
 to an agent. `skills/INDEX.md` and `agents/INDEX.md` list every one with its path and trigger.
 
 ## Quick start — the runtime

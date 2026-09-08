@@ -5,7 +5,17 @@ import os
 import sys
 import urllib.parse
 import urllib.request
+from pathlib import Path
 from typing import Any, Dict, List, Optional
+
+# Every outbound HTTP call in this codebase goes through core.http, which is the
+# only place `urlopen` is called and the only place a scheme is checked (DG-325).
+# Both bridges called `urlopen` directly and were missed for months, because CI
+# scanned `src` alone while `pyproject.toml` ships this directory too. A
+# `file://` Jira URL was read straight off local disk and returned as a parsed
+# API response.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
+from core import http  # noqa: E402
 
 # The `.env` parent-walk that used to live here is gone (DG-275).
 #
@@ -44,8 +54,12 @@ def make_request(
     req.add_header("Accept", "application/json")
 
     try:
-        data = json.dumps(payload).encode("utf-8") if payload else None
-        with urllib.request.urlopen(req, data=data, timeout=10) as response:
+        # The body goes on the Request rather than into the opener, so the
+        # guard receives a fully-formed request and decides only whether it
+        # may be opened at all. `method` is explicit above, so attaching a
+        # body does not silently turn a GET into a POST.
+        req.data = json.dumps(payload).encode("utf-8") if payload else None
+        with http.open_url(req, timeout=10) as response:
             res_body = response.read().decode("utf-8")
             return dict(json.loads(res_body)) if res_body else {}
     except Exception as e:

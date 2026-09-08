@@ -14,69 +14,74 @@
 #    that claim is made to everyone who installs it.
 #
 # ---------------------------------------------------------------------------
-# UNRESOLVED (DG-263) -- these four are third-party and their licence is unknown
+# RESOLVED (DG-263) -- four vendored skills were REMOVED, not licensed
 # ---------------------------------------------------------------------------
 #
-# Not listed as names below, because listing a name here means "expected, stop
-# reporting it", and this is the opposite of settled. Written out instead, so
-# nobody reads a silent file as an answer.
+# These four were tracked here and shipping, and none of them was ours:
 #
 #   skills/workflow/debug-mantra/SKILL.md
 #   skills/workflow/post-mortem/SKILL.md
 #   skills/workflow/scrutinize/SKILL.md
 #   skills/leadership/management-talk/SKILL.md
 #
-# All four are byte-identical to a third-party skill pack on this machine at
-# ~/Documents/9arm-skills-main, and that pack's .claude-plugin/plugin.json
-# lists exactly these four as its entire contents:
+# All four were byte-identical to a third-party skill pack, `9arm-skills`,
+# whose .claude-plugin/plugin.json lists exactly these four as its entire
+# contents:
 #
 #   {"name": "9arm-skills", "skills": ["./skills/engineering/debug-mantra",
 #    "./skills/engineering/post-mortem", "./skills/engineering/scrutinize",
 #    "./skills/productivity/management-talk"]}
 #
-# So this is not four coincidental name collisions. It is one plugin, vendored.
+# So this was not four coincidental name collisions. It was one plugin,
+# vendored. The pack carries NO LICENCE FILE, it is not a git checkout, and
+# nothing in the four files carries an attribution line -- so there was no
+# upstream to read terms from and no way to settle this from what was on disk.
 #
-# The pack carries NO LICENCE FILE. It is not a git checkout either -- the
-# `-main` suffix is the shape of a GitHub zip download -- so there is no remote
-# to read terms from, and nothing in the four files carries an attribution line.
+# Option (b) of the three written here previously was taken: they are removed.
+# Four skills is a smaller loss than shipping unlicensed work under MIT from a
+# public repository. They are recorded in RETIRED.md and kept out of git.
 #
-# The four installed under ~/.claude/skills/ are symlinks pointing INTO that
-# pack rather than at this repository, so what a session actually loads has
-# never been this repo's copy.
+# Nothing regressed operationally. The four installed under ~/.claude/skills/
+# were symlinks pointing INTO that pack rather than at this repository, so what
+# a session actually loaded had never been this repo's copy.
 #
 # ---------------------------------------------------------------------------
-# WHY THIS FILE PREVIOUSLY SAID THE OPPOSITE
+# THE PART THIS REPOSITORY CANNOT UNDO -- read this before reusing history
+# ---------------------------------------------------------------------------
+#
+# The four entered at a ROOT commit of this repository, `6777149` (2026-06-22),
+# under the flat paths `skills/<name>/SKILL.md`, and were moved into their
+# category directories later. Removing them cleans the working tree and every
+# release from that point on; it does NOT remove them from git history, and
+# rewriting 486 of 487 commits to do so was judged the larger harm.
+#
+# So, stated plainly, because nobody should have to infer it from a diff:
+#
+#   Copies of those four files remain reachable in this repository's git
+#   history, at commits at or before the one that removed them. They are the
+#   work of the `9arm-skills` author, they are NOT this project's to license,
+#   and the MIT LICENSE at the root of this repository DOES NOT COVER THEM.
+#   Do not copy them out of history and treat them as MIT.
+#
+# If you are the author of that pack and you are reading this: get in touch via
+# the address in SECURITY.md and we will do whatever you would prefer here --
+# attribution, or purging them from history outright.
+#
+# ---------------------------------------------------------------------------
+# WHY THIS FILE ONCE SAID THE OPPOSITE
 # ---------------------------------------------------------------------------
 #
 # It said these four "were listed here as third-party with no source. Their
 # source was the sibling repo all along... They are first-party now."
 #
-# Half of that is right and the conclusion is backwards. The sibling repo did
+# Half of that was right and the conclusion was backwards. The sibling repo did
 # have copies -- because the sibling repo had vendored them too. Finding a
 # second copy of somebody else's work does not make it yours. The ORIGINAL
 # entry, declaring them third-party, was correct; the merge resolved it in the
-# wrong direction and this file has claimed authorship of them since.
+# wrong direction and this file claimed authorship of them for months.
 #
-# This is the same failure the merge was meant to end -- a surface asserting
+# This was the same failure the merge was meant to end -- a surface asserting
 # something nobody had checked -- with the sign flipped.
-#
-# ---------------------------------------------------------------------------
-# WHAT HAS TO HAPPEN, AND BY WHOM
-# ---------------------------------------------------------------------------
-#
-# Licensing someone else's work is not an agent's call, and it cannot be
-# settled from what is on this disk. For the Boss:
-#
-#   a. Find the upstream and its terms. If they permit redistribution, add the
-#      four as names below with the source and the licence, and add the
-#      attribution the licence requires.
-#   b. If they do not, or the upstream cannot be identified, move the four to
-#      _not_used/ with a note. Four skills is a smaller loss than shipping
-#      unlicensed work under MIT from a public repository.
-#   c. If they were authored by someone reachable, ask.
-#
-# Until then they stay where they are, tracked and shipping, and this file says
-# so out loud rather than implying otherwise.
 #
 # ---------------------------------------------------------------------------
 # Add a name below only when a skill is genuinely authored elsewhere AND its
