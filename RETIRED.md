@@ -37,6 +37,7 @@ repository, and it cost more than disk:
 | `agent-layer-stubs/` — eight stubs from `.agents/skills/` | each was a thinner copy of something richer, or a persona written before the roster settled. Assessed one at a time, because "it looks like a duplicate" is how real content gets lost | `agents/`, now the single source Antigravity reads | `b72b433` |
 | `requirements/` — `requirements.txt` | 113 lines adrift from `pyproject.toml`, and nothing read it | `uv.lock`, exported on demand | `4c4c97c` |
 | `templates/mcp-settings.json` | superseded by generated MCP configuration | `drunken-config` | `abe5df1` |
+| `vendored-skills-unlicensed/` — `debug-mantra`, `post-mortem`, `scrutinize`, `management-talk` | never authored here. All four are byte-identical to the `9arm-skills` pack, which carries no licence file and no reachable upstream, so this repository could not redistribute them under its own MIT licence (DG-263). What a session actually loaded was never this copy — the installed files are symlinks into that pack | nothing. `think-analyze-isolate` covers the running-things half of `debug-mantra`; the rest have no replacement here | `d41d99d`, at their original `skills/` paths |
 
 ## Recovering one
 
@@ -44,6 +45,10 @@ repository, and it cost more than disk:
 git show <commit>:_not_used/<path>
 git checkout <commit> -- _not_used/<path>
 ```
+
+The last row is the exception: those four were never inside `_not_used/` in git. They were removed
+straight from `skills/`, so recover them from their original paths instead —
+`git show d41d99d:skills/workflow/debug-mantra/SKILL.md`.
 
 Each retired directory kept its own `RETIRED.md` with the long reasoning; those are in the same
 commits.
