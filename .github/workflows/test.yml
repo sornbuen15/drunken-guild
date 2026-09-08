@@ -188,8 +188,13 @@ jobs:
       # through core.http, not by suppressing them. The remaining LOW findings
       # are try/except/pass style in service/, tracked rather than silently
       # ignored.
+      # `src` and `scripts` both, because `pyproject.toml` ships both:
+      # `packages = ["scripts", "core", ...]`. Scanning `src` alone left a whole
+      # tree of shipped code unscanned, and it held three HIGH-confidence
+      # findings — two of them `urlopen` calls that bypassed the scheme guard
+      # core/http.py exists to be (DG-325).
       - name: Static analysis
-        run: bandit -r src -ll
+        run: bandit -r src scripts -ll
 
       # Secret scanning across the full history. Test fixtures that deliberately
       # look like credentials carry an explicit marker, allowlisted in
