@@ -107,10 +107,16 @@ DENIED_BY_RULE = (
 #: each one is meaningless without. A ``Bash`` with no command and a ``Read``
 #: with no path are not calls this hook can judge -- they are calls it failed to
 #: read.
+#:
+#: Keyed on :func:`~core.permission_rules.canonical_tool`'s output, not on the
+#: name the mapping happens to emit today. DG-334: the write side was guarded
+#: while ``main()`` produced ``Write`` and stopped being guarded the day it
+#: produced ``Edit``, because the guard was keyed on a spelling rather than on
+#: the family.
 UNREADABLE_KEYS: Final = {
     "Bash": ("command",),
     "Read": pr.PATH_KEYS,
-    "Write": pr.PATH_KEYS,
+    pr.EDIT_TOOL_CANONICAL: pr.PATH_KEYS,
 }
 
 UNREADABLE = (
@@ -331,7 +337,12 @@ def _generalize_rule(tool_name: str, tool_input: dict[str, Any]) -> Optional[str
         value = tool_input.get(key)
         if isinstance(value, str) and value:
             directory = os.path.dirname(value) or "."
-            return f"{tool_name}({directory}/*)"
+            # Canonical, because this rule is written into
+            # `settings.local.json` and Claude Code reads that file. Spelled
+            # `Write(...)` it would be accepted, never consulted, and warned
+            # about at startup -- so the prompt it was recorded to prevent
+            # would arrive again anyway (DG-334).
+            return f"{pr.canonical_tool(tool_name)}({directory}/*)"
     return None
 
 
@@ -391,7 +402,7 @@ def _is_unreadable(tool_name: str, tool_input: dict[str, Any]) -> bool:
     not the hook's business, and denying it would break every session to close
     a hole that is not there.
     """
-    keys = UNREADABLE_KEYS.get(tool_name)
+    keys = UNREADABLE_KEYS.get(pr.canonical_tool(tool_name))
     if keys is None:
         return False
     return not any(str(tool_input.get(key, "")).strip() for key in keys)

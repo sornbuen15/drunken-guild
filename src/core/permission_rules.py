@@ -36,6 +36,33 @@ from typing import Any, Final, Optional, Sequence
 #: first; the search tools use the second; notebooks the third.
 PATH_KEYS: Final = ("file_path", "path", "notebook_path")
 
+#: Every built-in tool that can change a file, and the single name they are
+#: all matched under.
+#:
+#: Not a convenience. Claude Code consults `Edit(path)` and `Read(path)` rules
+#: only -- a `Write(path)` rule is accepted, never consulted, and warned about
+#: at startup -- so a settings file has no way to spell a rule per writing
+#: tool even if it wanted to. Comparing tool names exactly here meant the one
+#: spelling the settings file is obliged to use was the one spelling this
+#: matcher could not act on: `Read(**/.env)` denied reading the secret while
+#: `Edit(**/.env)` let the `Write` tool overwrite it (DG-334).
+EDIT_TOOL_FAMILY: Final = frozenset({"Write", "Edit", "MultiEdit", "NotebookEdit"})
+
+#: The name the family answers to. Claude Code's own, so a rule written for
+#: this matcher is a rule the harness reads the same way.
+EDIT_TOOL_CANONICAL: Final = "Edit"
+
+
+def canonical_tool(tool_name: str) -> str:
+    """The rule name *tool_name* is matched under.
+
+    ``Read`` deliberately stays ``Read``. Grouping the writers must not hand
+    every write allowance a matching read allowance nobody wrote -- the
+    harness keeps the two apart for the same reason.
+    """
+    return EDIT_TOOL_CANONICAL if tool_name in EDIT_TOOL_FAMILY else tool_name
+
+
 #: The specifier suffix that turns an exact match into a prefix match.
 PREFIX_SUFFIX: Final = ":*"
 
@@ -160,7 +187,7 @@ class Rule:
         `rm -rfv`. Callers do not pass this -- :func:`is_allowed` and
         :func:`is_denied` each pick the side they need.
         """
-        if tool_name != self.tool:
+        if canonical_tool(tool_name) != canonical_tool(self.tool):
             return False
         if self.specifier is None:
             return True

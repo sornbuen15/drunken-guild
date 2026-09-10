@@ -220,3 +220,45 @@ class TestLayeredRules:
         rules = pr.load_layered_rules(tmp_path)
         assert pr.is_denied("Bash", {"command": "rm -rf /"}, rules.deny)
         assert not pr.is_denied("Bash", {"command": "git log"}, rules.deny)
+
+
+class TestDG334FileWritingToolsAreOneFamily:
+    """Every tool that can change a file answers to one rule name.
+
+    Claude Code consults `Edit(path)` and `Read(path)` rules only: a
+    `Write(path)` rule is accepted, never consulted, and warned about at
+    startup. So `.claude/settings.json` has to spell a file rule `Edit(...)`.
+    This matcher compared tool names exactly, so the deny rule the settings
+    file is obliged to write was the one rule that could not stop Claude's
+    `Write` tool -- `Read(**/.env)` denied reading the secret while
+    `Edit(**/.env)` let a write straight past. Matching the harness's own
+    grouping is what closes it.
+    """
+
+    @pytest.mark.parametrize("tool", ["Write", "Edit", "MultiEdit", "NotebookEdit"])
+    def test_an_edit_deny_rule_stops_every_tool_that_can_change_a_file(
+        self, tool
+    ) -> None:
+        rule = pr.Rule.parse("Edit(**/.env)")
+        assert rule.matches(tool, {"file_path": "/repo/.env"})
+
+    @pytest.mark.parametrize("tool", ["Write", "Edit", "MultiEdit", "NotebookEdit"])
+    def test_an_edit_allow_rule_covers_every_tool_that_can_change_a_file(
+        self, tool
+    ) -> None:
+        rule = pr.Rule.parse("Edit(/repo/**)", base_dir="/repo")
+        assert pr.is_allowed(tool, {"file_path": "/repo/src/thing.py"}, [rule])
+
+    def test_read_is_not_swept_into_the_family(self) -> None:
+        """Grouping the writers must not grant a reader. `Edit(src/**)` says
+        what may be changed, and answering for Read as well would hand every
+        write allowance a matching read allowance nobody wrote."""
+        rule = pr.Rule.parse("Edit(/repo/**)", base_dir="/repo")
+        assert not rule.matches("Read", {"file_path": "/repo/src/thing.py"})
+
+    def test_a_legacy_write_rule_still_stops_the_edit_tool(self) -> None:
+        """Settings files in the wild still carry `Write(...)`. The grouping
+        works from either spelling, so an older file keeps the protection it
+        was written for even though Claude Code no longer consults it."""
+        rule = pr.Rule.parse("Write(**/.env)")
+        assert rule.matches("Edit", {"file_path": "/repo/.env"})

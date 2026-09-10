@@ -785,3 +785,80 @@ class TestDG297LocalLearnedPermissions:
             ask_boss=_approved,
         )
         assert _local_allow(tmp_path) == []
+
+
+class TestDG334TheWriteSideOfTheFloor:
+    """`.env` is denied to every tool that can change it, not just to Read.
+
+    The settings file must spell a file rule `Edit(...)` -- Claude Code
+    consults no other name. When the matcher compared tool names exactly,
+    that spelling covered nothing Claude actually calls to create or
+    overwrite a file, so the deny list read as protection and was not.
+    Away mode is where it bites: an unlisted, undenied `.env` write is
+    routed to Discord, and the whole point of the deny list is that no
+    answer arriving from there can authorise it.
+    """
+
+    EDIT_DENY = [pr.Rule.parse("Edit(**/.env)")]
+
+    def test_writing_dotenv_is_denied(self) -> None:
+        decision = hook.decide(
+            payload(tool_name="Write", file_path="/somewhere/else/.env"),
+            pr.Rules(allow=[], deny=self.EDIT_DENY),
+            away=True,
+            ask_boss=never_asked,
+        )
+        assert decision.permission == "deny"
+
+    def test_an_antigravity_file_write_to_dotenv_is_denied(self) -> None:
+        """`write_to_file` and its siblings map onto `Edit`. Same floor."""
+        decision = hook.decide(
+            payload(tool_name="Edit", path="/repo/.env"),
+            pr.Rules(allow=[], deny=self.EDIT_DENY),
+            away=True,
+            ask_boss=never_asked,
+            is_antigravity=True,
+        )
+        assert decision.permission == "deny"
+
+    def test_a_mapped_file_write_carrying_no_path_is_denied(self) -> None:
+        """DG-321 for the write side. `main()` reads `args.TargetFile`; a
+        renamed field yields an empty string, which matches no rule at all --
+        deny rules included. It was guarded while the mapping produced
+        `Write` and stopped being guarded when the mapping produced `Edit`,
+        because the guard was keyed on the name rather than on the family."""
+        decision = hook.decide(
+            payload(tool_name="Edit", path=""),
+            pr.Rules(allow=ALLOW_RULES, deny=self.EDIT_DENY),
+            away=True,
+            ask_boss=never_asked,
+            is_antigravity=True,
+        )
+        assert decision.permission == "deny"
+
+    def test_an_edit_allow_rule_keeps_a_write_off_discord(self) -> None:
+        """The other half of the same defect, and the noisy one: with no
+        `Write(...)` rule left in the allow list, every file Claude creates
+        while away became a question for the Boss."""
+        decision = hook.decide(
+            payload(tool_name="Write", file_path="/repo/src/thing.py"),
+            pr.Rules(
+                allow=[pr.Rule.parse("Edit(/repo/**)", base_dir="/repo")], deny=[]
+            ),
+            away=True,
+            ask_boss=never_asked,
+        )
+        # Both halves. `decide` turns any failure inside `ask_boss` into a
+        # no-decision, so `never_asked` raising is indistinguishable from an
+        # allowlisted call on the permission alone -- the empty reason is what
+        # says the Boss was never reached for this.
+        assert decision.permission is None
+        assert decision.reason == ""
+
+    def test_a_learned_rule_for_a_write_is_spelled_edit(self) -> None:
+        """A learned rule is written into `settings.local.json`, which Claude
+        Code reads. Spelled `Write(...)` it is accepted, never consulted, and
+        warned about at startup -- so the prompt it was recorded to prevent
+        arrives again anyway."""
+        rule = hook._generalize_rule("Write", {"file_path": "/repo/src/thing.py"})
+        assert rule == "Edit(/repo/src/*)"
