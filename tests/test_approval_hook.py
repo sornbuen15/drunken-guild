@@ -369,11 +369,11 @@ class TestAntigravityPayloadLogging:
             }
         )
         assert hook.main(stdin_text=stdin) == 0
-        
+
         log_path = paths.antigravity_payload_debug_path().path
         logged = log_path.read_text(encoding="utf-8")
         entry = json.loads(logged.strip().splitlines()[-1])
-        
+
         assert entry["name"] == "write_to_file"
         assert "TargetFile" in entry["arg_keys"]
         assert "/etc/shadow" not in logged
@@ -434,11 +434,11 @@ class TestTheTimeoutsCannotDrift:
 
     def test_antigravity_hook_timeout_also_exceeds_budget(self) -> None:
         from pathlib import Path
-        
+
         hooks_json = Path(__file__).resolve().parents[1] / ".agents" / "hooks.json"
         if not hooks_json.exists():
             return
-            
+
         settings = json.loads(hooks_json.read_text(encoding="utf-8"))
         entries = [
             entry
