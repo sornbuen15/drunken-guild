@@ -587,7 +587,7 @@ def main(stdin_text: Optional[str] = None) -> int:
             elif raw_name == "view_file":
                 payload["tool_name"] = "Read"
                 payload["tool_input"] = {"path": raw_args.get("AbsolutePath", "")}
-            elif raw_name in ("write_to_file", "replace_file_content"):
+            elif raw_name in ("write_to_file", "replace_file_content", "multi_replace_file_content"):
                 payload["tool_name"] = "Write"
                 payload["tool_input"] = {"path": raw_args.get("TargetFile", "")}
             else:
