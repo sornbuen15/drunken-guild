@@ -1,0 +1,16 @@
+{
+  "drunken-approval-hook": {
+    "PreToolUse": [
+      {
+        "matcher": "run_command|write_to_file|replace_file_content|multi_replace_file_content",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "uv run --directory .. drunken-approval-hook",
+            "timeout": 1800
+          }
+        ]
+      }
+    ]
+  }
+}
