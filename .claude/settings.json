@@ -37,7 +37,6 @@
       "Bash(python scripts/*)",
       "Bash(./scripts/*.sh)",
       "Bash(uv run drunken-away:*)",
-      "Write(./**/*)",
       "Read(./**/*)",
       "Edit(./**/*)",
       "find_by_name(./**/*)",
@@ -53,9 +52,9 @@
       "Read(./.env)",
       "Read(./.env.local)",
       "Read(**/.env)",
-      "Write(./.env)",
-      "Write(./.env.local)",
-      "Write(**/.env)"
+      "Edit(./.env)",
+      "Edit(./.env.local)",
+      "Edit(**/.env)"
     ]
   },
   "hooks": {
