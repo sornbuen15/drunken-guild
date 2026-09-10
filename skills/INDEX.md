@@ -92,6 +92,9 @@ Map task keywords to their absolute skill file paths. Load ONLY the relevant ski
 - `project-hygiene` (`/git`) — Repository maintenance standard — commit hygiene, README, and Architecture Decision Records. Defers every branch and merge rule to `git-workflow`. Apply wheneve
   Path: $HOME/.claude/skills/project-hygiene/SKILL.md
 
+- `python-quality-gates` (`/lint`) — Mandatory quality checks for Python development. Apply whenever you write, modify, or refactor Python code in `src/`, `tests/`, or `scripts/`. Trigger on `/lint
+  Path: $HOME/.claude/skills/python-quality-gates/SKILL.md
+
 - `release-notes-writer` — Standardizes the generation of professional, readable Release Notes and Tag Version descriptions using markdown tables and clear categorizations.
   Path: $HOME/.claude/skills/release-notes-writer/SKILL.md
 
