@@ -51,7 +51,10 @@
       "Bash(rm -rf:*)",
       "Read(./.env)",
       "Read(./.env.local)",
-      "Read(**/.env)"
+      "Read(**/.env)",
+      "Edit(./.env)",
+      "Edit(./.env.local)",
+      "Edit(**/.env)"
     ]
   },
   "hooks": {
