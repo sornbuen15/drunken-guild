@@ -13,7 +13,7 @@ halves are meant.
 
 | | what it is | where |
 |---|---|---|
-| **The AI layer** | 34 skills and 3 team roles, installed into `~/.claude/` | `skills/`, `agents/` |
+| **The AI layer** | 16 skills and 3 team roles, installed into `~/.claude/` | `skills/`, `agents/` |
 | **The runtime** | Python MCP servers and a CLI — Jira coordination, Discord approvals, cost accounting, health checks | `src/`, `scripts/` |
 
 They are one repository on purpose. They used to be two, and the two drifted: skills were authored
@@ -158,8 +158,9 @@ generalists — live on unchanged as the optional `drunken-extras` plugin in
 
 ### Skill categories
 
-`architecture` · `backend` · `frontend` · `infrastructure` · `security` · `testing` · `product` ·
-`kanban` · `leadership` · `documents` · `workflow`
+`kanban` · `workflow` · `documents` — the skills the flow uses. The general engineering standards
+(architecture, security, UI/UX, testing, cloud, product, leadership) moved unchanged to the optional
+`drunken-extras` plugin in [`plugins/drunken-extras/`](./plugins/drunken-extras/).
 
 Full catalogue with triggers: [`skills/INDEX.md`](./skills/INDEX.md).
 
@@ -186,7 +187,7 @@ Full catalogue with triggers: [`skills/INDEX.md`](./skills/INDEX.md).
    sequence of them still adds up. `drunken-usage` will tell you what a run actually cost.
 2. **Coordination needs the MCP server.** Eight skills and the `manager` role need
    `drunken-jira-mcp` and the ticket-rules file. Without them those skills degrade to the rules they
-   carry inline — and they will not announce that they are working from a summary. The other 28
+   carry inline — and they will not announce that they are working from a summary. The other 8
    skills stand alone.
 3. **No claim expiry.** A Jira assignee never expires. If an agent stops mid-ticket the ticket stays
    assigned until a human reassigns it. The retired local board released a claim after 1800s, and

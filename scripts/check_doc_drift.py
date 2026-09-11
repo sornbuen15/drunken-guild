@@ -75,6 +75,15 @@ RETIRED = (
     Retired(
         "antigravity_payload_debug", "DG-349", "nothing; the mapping it logged is gone"
     ),
+    # Five skills that serve no step of the flow, and the bridge one of them
+    # needed (DG-352). The fifteen general skills that moved to the extras
+    # plugin are not listed: they still exist, just not in skills/.
+    Retired("python-quality-gates", "DG-352", "the project's own AGENTS.md commands"),
+    Retired("project-hygiene", "DG-352", "git-workflow"),
+    Retired("confluence-sync", "DG-352", "nothing in the core flow"),
+    Retired("confluence_bridge.py", "DG-352", "nothing in the core flow"),
+    Retired("zero-defect-mindset", "DG-352", "the /build step"),
+    Retired("ai-output", "DG-352", "the /build step"),
 )
 
 #: Documents whose job is to record what changed. They have to be able to name

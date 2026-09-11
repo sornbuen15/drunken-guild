@@ -57,10 +57,11 @@ Verify — you should see the skill directories and an index:
 ls ~/.claude/skills/
 ```
 
-### 26 of the 34 skills need nothing else
+### 8 of the 16 skills need nothing else
 
-Architecture, testing, security, UI/UX, Electron, git discipline, debugging — all of
-it installs and works standalone.
+Git discipline, TDD, safe refactoring, debugging and the project-document contract install and
+work standalone. The general engineering standards — architecture, security, UI/UX, testing and
+the rest — are in the optional `drunken-extras` plugin, and need nothing else either.
 
 The remaining 8 plus the `manager` agent coordinate work on Jira. They call `jira_*`
 tools, and without the runtime declared they will **say so and stop** rather than silently falling

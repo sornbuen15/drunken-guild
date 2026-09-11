@@ -20,7 +20,8 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
-BRIDGES = ("scripts/jira_bridge.py", "scripts/confluence_bridge.py")
+#: The Confluence bridge was retired with confluence-sync (DG-352).
+BRIDGES = ("scripts/jira_bridge.py",)
 
 #: `os.getcwd()` and a loop over `os.path.dirname` is the signature CLAUDE.md
 #: names. `dirname(abspath(__file__))` is not it — locating *packaged code*
