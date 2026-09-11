@@ -34,7 +34,7 @@ There is no separate "router AI" deciding what to do with your messages -- every
 
 ### 2.1 AI behavior boundaries
 
-The detailed rules an AI agent must follow while working in this repo (when it can act immediately, when it must ask, what's forbidden outright) live in [`.agents/AGENTS.md`](./.agents/AGENTS.md) -- that file is the source of truth for agent-facing rules, kept separate here to avoid two documents drifting out of sync. In short: destructive or merge-worthy actions go through the approval flow in [Section 6](#6-approval-flow), not straight execution.
+The detailed rules an AI agent must follow while working in this repo (when it can act immediately, when it must ask, what's forbidden outright) live in [`CLAUDE.md`](./CLAUDE.md) -- that file is the source of truth for agent-facing rules, whichever agent is reading it, kept separate here to avoid two documents drifting out of sync. In short: destructive or merge-worthy actions go through the approval flow in [Section 6](#6-approval-flow), not straight execution.
 
 ---
 
@@ -90,11 +90,10 @@ This writes one central registry under `$DRUNKEN_HOME` (default `~/.drunken`, mo
 
 > Why `file://` rather than `env://` for a local install: the MCP servers are launched as subprocesses by whatever AI tool you use, and that tool's environment is not your shell's. An `env://` reference resolves only if the variable is exported by whatever starts the tool — which is the kind of invisible configuration that makes a setup work on one machine and nowhere else. `file://` is also exactly what a mounted secret volume looks like later.
 
-**Migrating from an older release.** If you already have a working `.env`, this does both halves without ever printing the token:
+**Storing or rotating the token.** Put it into `secrets.json` without it ever being printed or reaching shell history — the value is read from a hidden prompt:
 
 ```bash
-uv run python scripts/migrate_env_to_registry.py --project drunken-guild --dry-run
-uv run python scripts/migrate_env_to_registry.py --project drunken-guild
+uv run python scripts/set_secret.py jira.default
 ```
 
 **3. Prove it resolves.** A separate, deliberate step, because Jira answers a search with `200` and `[]` when the credential is bad -- so searching cannot tell you whether it worked. `drunken-doctor` asks `/rest/api/3/myself`, which 401s:

@@ -193,7 +193,7 @@ record what your project has actually decided: `PROJECT_SPEC.md` (detailed featu
 `ARCHITECTURE.md`, and `POLICY.md`, plus an `adr/` directory for decisions. Put them beside the
 brief. Skills never invent a missing one and treat it as decided; they say it was absent.
 
-> **Why `.ai/`.** It is one place every agent reads, Claude and Antigravity alike, and it keeps
+> **Why `.ai/`.** It is one place every agent reads, whichever vendor it comes from, and it keeps
 > facts about the project out of the files that describe an agent. A project that already keeps
 > its documents at the root, in `.claude/` or in `docs/` works too — skills look there next. What
 > does not work is the same document in two of those places: that is two surfaces, and skills stop

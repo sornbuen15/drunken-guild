@@ -20,34 +20,21 @@ This will make the `drunken-jira-mcp` command available in your terminal.
 
 ## Configuration
 
-Before running the server, you **must** configure your Jira credentials. The server looks for configuration in the following order:
+The server reads its Jira connection from the **project registry** under `$DRUNKEN_HOME`, selected
+by the `--project <id>` it is started with. It reads no `.env` and no per-project JSON file. Register
+a project once with `drunken-init`; the credential is a reference (`file://…#key`, `env://VAR`, …),
+never the token itself:
 
-1. **Environment Variables** (or a local `.env` file in your project root)
-2. **Local JSON config**: `.agents/jira.json`
-3. **Global JSON config**: `~/.gemini/config/jira_config.json`
-
-### Option A: Using a `.env` file (Recommended)
-Copy the repo-root `.env.example` template (`cp .env.example .env`) and fill it in, or create a `.env` file at the root of your project with these variables directly:
-
-```env
-JIRA_URL="https://your-domain.atlassian.net"
-JIRA_EMAIL="your-email@example.com"
-JIRA_API_TOKEN="your-jira-api-token"
-JIRA_PROJECT_KEY="DG"
+```bash
+drunken-init --project my-project --jira-url https://your-domain.atlassian.net \
+  --jira-email you@example.com --jira-project-key XYZ \
+  --jira-credential 'file://~/.drunken/secrets.json#jira.default'
+uv run python scripts/set_secret.py jira.default     # the token, at a hidden prompt
+drunken-doctor --project my-project                   # proves it authenticates
 ```
-*(Note: You can also use `JIRA_TOKEN` instead of `JIRA_API_TOKEN`)*
 
-### Option B: Using `.agents/jira.json`
-Create a `.agents/jira.json` file in your project with the following structure:
-
-```json
-{
-  "jira_url": "https://your-domain.atlassian.net",
-  "jira_email": "your-email@example.com",
-  "project_key": "DG"
-}
-```
-*(The API Token will still be read from the environment variables or the global config for security reasons).*
+The full walk-through, including why a reference and not a token, is
+[Drunken-Guild-Guide.md §3.3](../../Drunken-Guild-Guide.md#33-configure-credentials).
 
 ## How to Run & Test (Human Developer)
 
@@ -67,22 +54,20 @@ Once the inspector starts, open the provided localhost URL in your browser, clic
 
 ## Connecting to an AI Agent
 
-To use this server with an AI Assistant (like Antigravity or Claude Desktop), you need to add it to your agent's MCP configuration file (e.g., `mcp.json` or `claude_desktop_config.json`).
+To use this server with an AI assistant (Claude Code, Claude Desktop, Cursor, …), add it to that assistant's MCP configuration file (e.g., `.mcp.json` or `claude_desktop_config.json`).
 
 Example configuration:
 ```json
 {
   "mcpServers": {
-    "jira-mcp": {
-      "command": "python",
-      "args": ["-m", "jira_mcp.server"],
-      "env": {
-        "PYTHONPATH": "/absolute/path/to/drunken-guild/src"
-      }
-    }
+    "drunken-jira-mcp": { "command": "drunken-jira-mcp", "args": ["--project", "my-project"] }
   }
 }
 ```
+
+`--project` is required: it selects which registry entry, and therefore which Jira project, the
+server acts on. `scripts/install/install_mcp.sh <project-id>` generates this rather than having it
+written by hand.
 
 ## Available Features for Agents
 

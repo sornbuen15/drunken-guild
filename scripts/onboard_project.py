@@ -130,9 +130,9 @@ def build_parser() -> argparse.ArgumentParser:
         "--merge-mcp-config",
         metavar="FILE",
         help=(
-            "Add the three servers to an existing host config, e.g. "
-            "~/.gemini/antigravity-cli/mcp_config.json. Its own entries are "
-            "left alone."
+            "Add this project's two servers to an existing host config, such "
+            "as another editor's global MCP file. Its own entries are left "
+            "alone."
         ),
     )
     parser.add_argument(
@@ -219,8 +219,9 @@ def main() -> int:
             file=sys.stderr,
         )
         print(
-            "  -> Add it first. `scripts/migrate_env_to_registry.py` can lift "
-            "one out of an existing .env without printing it.",
+            f"  -> Add it first: `uv run python scripts/set_secret.py "
+            f"jira.{args.credential_key}`, then paste the token at the prompt. "
+            "Nothing is echoed.",
             file=sys.stderr,
         )
         return 1

@@ -53,31 +53,6 @@ from core import paths
 from core import permission_rules as pr
 from service.daemon_client import call_daemon
 
-
-def _log_antigravity_shape(raw_name: str, raw_args: dict[str, Any]) -> None:
-    """DG-303: append one line recording a real Antigravity toolCall shape.
-
-    Names and arg *keys* only, never values -- an arg can carry a file path,
-    a command line, or worse, and this file is not accorded the same
-    protection as a secret. Best-effort and silent on failure: a diagnostic
-    that can break the hook it is riding along in would be exactly the
-    failure mode :func:`main`'s docstring warns against.
-    """
-    try:
-        target = paths.antigravity_payload_debug_path().path
-        paths.ensure_home()
-        entry = {
-            "time": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
-            "name": raw_name,
-            "arg_keys": sorted(raw_args.keys()) if isinstance(raw_args, dict) else [],
-        }
-        with open(target, "a", encoding="utf-8") as f:
-            f.write(json.dumps(entry) + "\n")
-        paths.secure_file(target)
-    except Exception:  # noqa: BLE001 - diagnostic logging must never break the hook
-        pass
-
-
 #: How long the hook will wait for the Boss before answering on its own.
 WAIT_BUDGET_SECONDS: Final = int(os.environ.get("DRUNKEN_HOOK_WAIT_SECONDS", "1500"))
 
@@ -103,16 +78,14 @@ DENIED_BY_RULE = (
     "needs to happen, raise it with the Boss directly."
 )
 
-#: The three shapes ``main()`` maps a foreign payload onto, and the input keys
-#: each one is meaningless without. A ``Bash`` with no command and a ``Read``
-#: with no path are not calls this hook can judge -- they are calls it failed to
-#: read.
+#: The tool families that are meaningless without one input key. A ``Bash``
+#: with no command and a ``Read`` with no path are not calls this hook can
+#: judge -- they are calls it failed to read.
 #:
-#: Keyed on :func:`~core.permission_rules.canonical_tool`'s output, not on the
-#: name the mapping happens to emit today. DG-334: the write side was guarded
-#: while ``main()`` produced ``Write`` and stopped being guarded the day it
-#: produced ``Edit``, because the guard was keyed on a spelling rather than on
-#: the family.
+#: Keyed on :func:`~core.permission_rules.canonical_tool`'s output, not on a
+#: tool's own spelling. DG-334: the write side was once guarded under ``Write``
+#: and stopped being guarded the day the name it arrived under became ``Edit``,
+#: because the guard was keyed on a spelling rather than on the family.
 UNREADABLE_KEYS: Final = {
     "Bash": ("command",),
     "Read": pr.PATH_KEYS,
@@ -385,22 +358,18 @@ def _record_learned_rule(cwd: str, tool_name: str, tool_input: dict[str, Any]) -
 def _is_unreadable(tool_name: str, tool_input: dict[str, Any]) -> bool:
     """Whether a call arrived without the one field that gives it meaning.
 
-    DG-321. ``main()`` maps Antigravity's ``toolCall`` by field name --
-    ``run_command`` reads ``args.CommandLine``, ``view_file`` reads
-    ``args.AbsolutePath`` -- and DG-303 records that those names are unverified
-    against a real payload. A wrong name is not just noise: ``.get(name, "")``
-    yields an empty string, and an empty string matches no rule at all. Deny
-    rules are rules. ``is_denied("Bash", {"command": ""}, rules.deny)`` is
-    ``False``, so the call falls straight past the floor it was meant to hit.
+    DG-321. A call whose command or path is missing is not just noise:
+    ``.get(name, "")`` yields an empty string, and an empty string matches no
+    rule at all. Deny rules are rules. ``is_denied("Bash", {"command": ""},
+    rules.deny)`` is ``False``, so the call would fall straight past the floor
+    it was meant to hit. The case first arose from a foreign payload mapped by
+    field name (retired with the Antigravity plumbing, DG-349); the question
+    survives any payload shape: can this call be judged at all?
 
-    Guarding the mapping instead would fix the two field names known today and
-    leave the next one open. This asks the question that survives a rename:
-    can this call be judged at all?
-
-    Narrow on purpose. Only the three tool names ``main()`` produces are
-    checked; a tool that legitimately carries neither a command nor a path is
-    not the hook's business, and denying it would break every session to close
-    a hole that is not there.
+    Narrow on purpose. Only the three tool families in :data:`UNREADABLE_KEYS`
+    are checked; a tool that legitimately carries neither a command nor a path
+    is not the hook's business, and denying it would break every session to
+    close a hole that is not there.
     """
     keys = UNREADABLE_KEYS.get(pr.canonical_tool(tool_name))
     if keys is None:
@@ -425,7 +394,6 @@ def decide(  # noqa: C901
     rules: pr.Rules,
     away: bool,
     ask_boss: Callable[..., dict[str, Any]],
-    is_antigravity: bool = False,
 ) -> Decision:
     """Resolve one tool call. Pure apart from *ask_boss*, which is injected.
 
@@ -456,11 +424,11 @@ def decide(  # noqa: C901
     if tool_name.startswith(NEVER_ROUTED_PREFIXES):
         return Decision(None)
 
-    # 4. Already allowed by the harness's own list.
-    # For Claude: Silence, not `allow`, because Claude's harness evaluates the same list.
-    # For Antigravity: The hook IS the allowlist enforcer, so return `allow`.
+    # 4. Already allowed by the harness's own list. Silence, not `allow`: the
+    # harness evaluates the same list, and a second authority saying the same
+    # thing is only a second thing to disagree.
     if pr.is_allowed(tool_name, tool_input, rules.allow):
-        return Decision("allow") if is_antigravity else Decision(None)
+        return Decision(None)
 
     # 5. The Boss is here. The terminal prompt is the better interface.
     if not away:
@@ -481,8 +449,6 @@ def decide(  # noqa: C901
     status = str(answer.get("status", ""))
     if status == "approved":
         cwd = payload.get("cwd") or os.getcwd()
-        if "workspacePaths" in payload and payload["workspacePaths"]:
-            cwd = payload["workspacePaths"][0]
         _record_learned_rule(cwd, tool_name, tool_input)
         return Decision("allow", "The Boss approved this on Discord.")
     if status == "rejected":
@@ -495,26 +461,13 @@ def decide(  # noqa: C901
     )
 
 
-def render(decision: Decision, is_antigravity: bool = False) -> str:
+def render(decision: Decision) -> str:
     """Serialise to the documented PreToolUse output shape.
 
     A ``permissionDecision`` of ``null`` is not silence -- it is an opinion
     the harness has to interpret. When there is no decision the key is absent
     entirely, and only the reason rides along as a system message.
     """
-    if is_antigravity:
-        out: dict[str, Any] = {}
-        if decision.permission == "allow":
-            out["decision"] = "allow"
-        elif decision.permission == "deny":
-            out["decision"] = "deny"
-        else:
-            out["decision"] = "ask"
-
-        if decision.reason:
-            out["reason"] = decision.reason
-        return json.dumps(out)
-
     specific: dict[str, Any] = {"hookEventName": "PreToolUse"}
     if decision.permission is not None:
         specific["permissionDecision"] = decision.permission
@@ -576,57 +529,19 @@ def main(stdin_text: Optional[str] = None) -> int:
     failing loudly would be worst. Anything this function cannot understand
     becomes silence, and the harness prompts exactly as it did before.
     """
-    is_antigravity = False
     try:
         raw = sys.stdin.read() if stdin_text is None else stdin_text
         payload = json.loads(raw)
         if not isinstance(payload, dict):
             raise ValueError("hook payload was not a JSON object")
 
-        # Detect Antigravity payload vs Claude payload
-        if "toolCall" in payload and isinstance(payload["toolCall"], dict):
-            is_antigravity = True
-            tool_call = payload["toolCall"]
-            raw_name = tool_call.get("name", "")
-            raw_args = tool_call.get("args", {})
-            _log_antigravity_shape(raw_name, raw_args)
-
-            # Map Antigravity shapes to Claude shapes for unified rules
-            if raw_name == "run_command":
-                payload["tool_name"] = "Bash"
-                payload["tool_input"] = {"command": raw_args.get("CommandLine", "")}
-            elif raw_name == "view_file":
-                payload["tool_name"] = "Read"
-                payload["tool_input"] = {"path": raw_args.get("AbsolutePath", "")}
-            elif raw_name in (
-                "write_to_file",
-                "replace_file_content",
-                "multi_replace_file_content",
-            ):
-                payload["tool_name"] = "Edit"
-                payload["tool_input"] = {"path": raw_args.get("TargetFile", "")}
-            else:
-                payload["tool_name"] = raw_name
-                payload["tool_input"] = raw_args
-
-            # Use workspacePaths if available, fallback to cwd
-            workspace_paths = payload.get("workspacePaths", [])
-            cwd = workspace_paths[0] if workspace_paths else os.getcwd()
-        else:
-            cwd = payload.get("cwd") or os.getcwd()
-
+        cwd = payload.get("cwd") or os.getcwd()
         rules = pr.load_layered_rules(cwd)
-        decision = decide(
-            payload,
-            rules,
-            away_mod.is_away(),
-            ask_boss_over_socket,
-            is_antigravity=is_antigravity,
-        )
+        decision = decide(payload, rules, away_mod.is_away(), ask_boss_over_socket)
     except Exception as exc:  # noqa: BLE001 - see docstring
         decision = Decision(None, f"approval hook stood aside: {exc}")
 
-    print(render(decision, is_antigravity=is_antigravity))
+    print(render(decision))
     return 0
 
 
