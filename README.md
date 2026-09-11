@@ -13,7 +13,7 @@ halves are meant.
 
 | | what it is | where |
 |---|---|---|
-| **The AI layer** | 34 skills and 15 agents, installed into `~/.claude/` | `skills/`, `agents/` |
+| **The AI layer** | 34 skills and 3 team roles, installed into `~/.claude/` | `skills/`, `agents/` |
 | **The runtime** | Python MCP servers and a CLI — Jira coordination, Discord approvals, cost accounting, health checks | `src/`, `scripts/` |
 
 They are one repository on purpose. They used to be two, and the two drifted: skills were authored
@@ -143,33 +143,18 @@ A **skill** is a standard — how to write a ticket, how to review for security,
 loads into whatever agent is already working. An **agent** is a role with its own model, tool set
 and system prompt. Skills are the craft; agents are the craftsmen.
 
-### The three-tier system
+### Three roles
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│  TIER 1 — Domain Specialists                            │
-│  WHAT to build · domain rules · regulations · data      │
-│  fintech-specialist · insurance-specialist              │
-└──────────────────────────┬──────────────────────────────┘
-                           │ Domain Brief
-                           ▼
-┌─────────────────────────────────────────────────────────┐
-│  TIER 2 — Principal Engineer                            │
-│  HOW to structure the team · technical direction        │
-│  platform strategy · ADRs · squad assembly              │
-└──────────────────────────┬──────────────────────────────┘
-                           │ Delegation
-                           ▼
-┌─────────────────────────────────────────────────────────┐
-│  TIER 3 — Engineering Squad                             │
-│  EXECUTION · code · infra · tests · security · mobile   │
-│  fullstack · devops · qa · security · ios · android     │
-│  cross-platform · laravel · desktop                     │
-└─────────────────────────────────────────────────────────┘
+manager   — reads the project's documents, proposes the plan and its order; the Boss approves
+worker    — implements one approved task: test first, smallest change, PR for a human to merge
+reviewer  — one round on the plan, tests before implementation, the PR before merge; never merges
 ```
 
-**Tier 1** is optional — skip it for general engineering work, required in a regulated space.
-**Tier 2** is always the orchestrator. **Tier 3** executes, loading the relevant skills first.
+One agent can play all three, or a team can split them. The fifteen specialist agents that came
+before these roles — fintech, insurance, mobile, desktop, voice, AI systems and the original
+generalists — live on unchanged as the optional `drunken-extras` plugin in
+[`plugins/drunken-extras/`](./plugins/drunken-extras/).
 
 ### Skill categories
 
@@ -199,15 +184,15 @@ Full catalogue with triggers: [`skills/INDEX.md`](./skills/INDEX.md).
 1. **Token cost and latency.** Running multiple agents consumes significant tokens. Handing a
    specialist a Jira issue key rather than a paraphrased brief keeps each delegation small, but a
    sequence of them still adds up. `drunken-usage` will tell you what a run actually cost.
-2. **Coordination needs the MCP server.** Eight skills and `principal-engineer` need
+2. **Coordination needs the MCP server.** Eight skills and the `manager` role need
    `drunken-jira-mcp` and the ticket-rules file. Without them those skills degrade to the rules they
    carry inline — and they will not announce that they are working from a summary. The other 28
    skills stand alone.
 3. **No claim expiry.** A Jira assignee never expires. If an agent stops mid-ticket the ticket stays
    assigned until a human reassigns it. The retired local board released a claim after 1800s, and
    that is the one capability the move to Jira gave up.
-4. **Process-heavy for small tasks.** The three-tier architecture is designed for complex features.
-   Using the full squad for a CSS tweak is overkill.
+4. **Process-heavy for small tasks.** The three roles are designed for complex features. Running
+   manager, worker and reviewer for a CSS tweak is overkill.
 5. **Retry loops.** Autonomous agents can enter retry cycles. `/isolate` carries an anti-loop
    mandate — stop after two identical failures — but monitor long runs and intervene.
 6. **Not on PyPI.** Nothing has been released yet. Install from a checkout.

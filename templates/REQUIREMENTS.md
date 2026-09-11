@@ -2,7 +2,7 @@
 
 > Copy this file into your project's `.ai/` directory as `REQUIREMENTS.md`, beside the brief.
 > Fill it out before running any agent session.
-> The principal-engineer and `/init-project` use this to generate the prioritized backlog.
+> The `manager` role and `/init-project` use this to generate the prioritized backlog.
 
 ---
 

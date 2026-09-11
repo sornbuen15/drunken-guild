@@ -4,7 +4,7 @@
 > the `project-docs` skill lists every place it is looked for. It is the one document a project
 > needs before `/init-project` will run.
 > Fill it out before running any agent session.
-> The principal-engineer reads this to make platform decisions and assemble the squad.
+> The `manager` role reads this to plan the work.
 
 ---
 
@@ -41,7 +41,7 @@
 ---
 
 ## Platform Targets
-<!-- Mark all that apply. This drives the principal-engineer's platform strategy. -->
+<!-- Mark all that apply. This drives the manager's platform decisions. -->
 
 - [ ] Web (browser)
 - [ ] Native iOS
@@ -55,8 +55,8 @@
 ## Domain
 <!-- Is this project in a regulated or domain-heavy space? Mark if applicable. -->
 
-- [ ] Fintech (payments, banking, lending, wallets) → run `fintech-specialist` first
-- [ ] Insurance (policy, claims, underwriting) → run `insurance-specialist` first
+- [ ] Fintech (payments, banking, lending, wallets) → `fintech-specialist` in the `drunken-extras` plugin
+- [ ] Insurance (policy, claims, underwriting) → `insurance-specialist` in the `drunken-extras` plugin
 - [ ] Health / Medical
 - [ ] Legal / Compliance
 - [ ] General / No specific domain
@@ -64,7 +64,7 @@
 ---
 
 ## Tech Stack (if already decided)
-<!-- Leave blank if the principal-engineer should recommend. -->
+<!-- Leave blank if the manager should recommend. -->
 
 | Layer | Technology | Notes |
 |---|---|---|
@@ -77,7 +77,7 @@
 ---
 
 ## Team
-<!-- Who is on the squad? This helps the principal-engineer scope the work. -->
+<!-- Who is on the team? This helps the manager scope the work. -->
 
 | Role | Available |
 |---|---|

@@ -1,0 +1,9 @@
+{
+  "name": "drunken-extras",
+  "description": "Optional specialist agents from drunken-guild: the fifteen that preceded the three team roles (manager, worker, reviewer) — domain specialists for mobile, desktop, fintech, insurance, voice and AI systems, plus the original engineering generalists. Install only if you want them.",
+  "author": {
+    "name": "Drunken Programmer"
+  },
+  "repository": "https://github.com/sornbuen15/drunken-guild",
+  "license": "MIT"
+}
