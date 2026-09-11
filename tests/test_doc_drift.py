@@ -98,12 +98,36 @@ def test_worktrees_and_vendored_copies_are_not_scanned(drift) -> None:
 
 
 def test_the_templates_we_hand_out_are_scanned(drift) -> None:
-    """`.guild_templates/` is copied into every downstream project, so a stale
-    instruction there propagates instead of just sitting still."""
-    scanned = {path.name for path in drift.documents()}
+    """`templates/` is copied into every downstream project, so a stale
+    instruction there propagates instead of just sitting still. The rulebooks
+    for Cursor and Aider carry no `.md` suffix, so a markdown-only glob would
+    skip exactly the two files most likely to be copied and forgotten."""
+    scanned = {
+        (path.parent.name, path.name)
+        for path in drift.documents()
+        if path.parent.name == "templates"
+    }
 
-    assert ".cursorrules" in scanned
-    assert "CONVENTIONS.md" in scanned
+    assert ("templates", ".cursorrules") in scanned
+    assert ("templates", ".aider.conf.yml") in scanned
+    assert ("templates", "CONVENTIONS.md") in scanned
+
+
+def test_the_retired_template_set_cannot_come_back(drift, tmp_path, monkeypatch):
+    """DG-337. Two template sets existed side by side for months, and the old one
+    -- still telling agents to shell out to a bridge script and park work on a
+    retired board -- was the one Integration-Guide pointed new projects at. A
+    doc that sends a reader there again must fail, and must say where to go
+    instead."""
+    stale = tmp_path / "guide.md"
+    stale.write_text("cp /path/to/drunken-guild/.guild_templates/CLAUDE.md .\n")
+    monkeypatch.setattr(drift, "documents", lambda: [stale])
+    monkeypatch.setattr(drift, "REPO_ROOT", tmp_path)
+
+    problems = drift.scan()
+
+    assert len(problems) == 1
+    assert "templates/" in problems[0].split("Use", 1)[1]
 
 
 def test_every_retired_entry_says_what_to_use_instead(drift) -> None:

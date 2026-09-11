@@ -1,0 +1,15 @@
+# Aider configuration — copy to your project root as `.aider.conf.yml`.
+# Authored in drunken-guild's `templates/.aider.conf.yml`; a project's own copy is its own.
+
+# Loaded read-only into every session. CLAUDE.md carries the rules; CONVENTIONS.md carries only
+# what differs for Aider. Both paths are relative to the project root, where this file lives.
+read:
+  - CLAUDE.md
+  - CONVENTIONS.md
+
+# Aider does not commit in a drunken-guild project. Its own messages follow neither the
+# project's commit format nor its review rule; the human commits and opens the pull request.
+auto-commits: false
+dirty-commits: false
+
+check-update: false

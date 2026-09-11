@@ -51,6 +51,10 @@ RETIRED = (
     Retired("Drunken Team", "DG-274", "Drunken Guild"),
     Retired("drunken-ai-team", "DG-274", "drunken-guild"),
     Retired("Drunken-Team-Guide.md", "DG-274", "Drunken-Guild-Guide.md"),
+    # Two template sets stood side by side, and the stale one -- a bridge
+    # script, a retired board tool, three commit formats -- was the one the
+    # integration guide sent new projects to.
+    Retired(".guild_templates", "DG-337", "templates/"),
 )
 
 #: Documents whose job is to record what changed. They have to be able to name
@@ -102,9 +106,10 @@ SKIPPED_DIRS = frozenset(
 def documents() -> list[Path]:
     """Markdown outside the records, plus the rulebooks we ship to others.
 
-    `.guild_templates/` is included deliberately: those files are copied into
-    every downstream project, so a stale instruction there propagates rather
-    than just sitting still.
+    `templates/` is included deliberately, suffix or not: those files are
+    copied into every downstream project, so a stale instruction there
+    propagates rather than just sitting still. `.cursorrules` and
+    `.aider.conf.yml` carry no `.md`, and a markdown-only glob skipped them.
     """
     found = [
         path
@@ -115,7 +120,7 @@ def documents() -> list[Path]:
     ]
     found += [
         path
-        for path in (REPO_ROOT / ".guild_templates").glob("*")
+        for path in (REPO_ROOT / "templates").glob("*")
         if path.is_file() and path.suffix != ".md"
     ]
     return sorted(found)
