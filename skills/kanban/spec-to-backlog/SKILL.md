@@ -1,15 +1,16 @@
 ---
 name: spec-to-backlog
 description: >
-  Analyzes project spec files on Day 0 and generates a comprehensive, labelled Jira backlog of
-  atomic tickets via drunken-jira-mcp. Apply whenever starting a new project, converting a
+  Reads every project document that exists — brief, requirements, spec, architecture, policy —
+  on Day 0 and generates a comprehensive, labelled Jira backlog of atomic tickets via
+  drunken-jira-mcp. Apply whenever starting a new project, converting a
   spec or PRD into an actionable backlog, or setting up work for a greenfield codebase — even
   if the user just says "let's kick this off". Trigger on /init-project.
 ---
 
 # Skill: Project Initiation & Spec-to-Backlog
-**Version:** v4.0.0
-**Description:** Analyzes project spec files on Day 0 and generates a comprehensive, labelled Jira backlog of atomic tickets via drunken-jira-mcp.
+**Version:** v4.1.0
+**Description:** Reads every project document that exists on Day 0 and generates a comprehensive, labelled Jira backlog of atomic tickets via drunken-jira-mcp.
 
 ---
 <system_prompt>
@@ -34,12 +35,27 @@ description: >
 
   <execution_rules>
     <rule priority="FATAL" name="Read Before Acting">
-      You MUST locate and read the following core files before generating any tickets:
-        - `.claude/PROJECT_SPEC.md`
-        - `.claude/ARCHITECTURE.md`
-        - `.claude/POLICY.md`
-      Identify the current Phase or immediate MVP goal from the specifications.
-      If any file is missing, stop and ask the user to provide it.
+      Locate and read the project's documents with the `project-docs` skill before generating any
+      ticket. It says where they live, and what an absent or conflicting one means; this skill does
+      not restate that. Print its "Project documents" block first.
+
+      Use **every document it finds**, together:
+        - the brief — `PROJECT_BRIEF.md` and/or `PROJECT_SPEC.md` — for what to build;
+        - `REQUIREMENTS.md` for how much each piece matters and what Done means;
+        - `ARCHITECTURE.md` for where each ticket's change lands;
+        - `POLICY.md` for the constraints every ticket must respect.
+
+      **A brief is the only document required.** Without one, `project-docs` stops, and so does
+      this skill. Without the others, generate from what is there and say which were absent — do
+      not stop to ask for them, and do not write them yourself.
+
+      Identify the current Phase or immediate MVP goal from what you read.
+    </rule>
+
+    <rule priority="HIGH" name="Requirements Set Urgency">
+      When `REQUIREMENTS.md` exists, its MoSCoW class sets the urgency label: Must → `critical`
+      or `high`, Should → `medium`, Could → `low`. A Won't gets no ticket. When it does not exist,
+      judge urgency from the brief and say in the report that you did.
     </rule>
 
     <rule priority="FATAL" name="Probe The Instance Before Writing To It">
@@ -69,7 +85,7 @@ description: >
   </execution_rules>
 
   <action_sequence>
-    1. READ: Ingest `PROJECT_SPEC.md`, `ARCHITECTURE.md`, and `POLICY.md`.
+    1. READ: `project-docs` — print what was found, then ingest every document it lists.
     2. PROBE: `jira_board_info` — issue types, settable fields, backlog present?
     3. ANALYZE: Before generating tickets, briefly reason through:
          - The target Phase and MVP goal
@@ -112,6 +128,7 @@ description: >
   </ticket_template>
 
   <output_format>
+    <step>0. Print the `project-docs` block: documents read, from where, and which were not found.</step>
     <step>1. Identify the Phase, list required features, and plan the breakdown before generating anything.</step>
     <step>2. Create the Phase Epic, then every ticket via `jira_create_issue` with that Epic as parent.</step>
     <step>3. Output a clean summary table: Key | Summary | Phase | Labels | Specialist.</step>

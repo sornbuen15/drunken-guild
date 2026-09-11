@@ -6,12 +6,13 @@ This guide is for connecting a local AI coding tool (Claude Code, Cursor, Aider)
 
 ## 1. The MCP Servers
 
-Drunken-Guild exposes three separate MCP servers -- there is no single combined server or `drunken-mcp` binary.
+Drunken-Guild exposes two separate MCP servers -- there is no single combined server or `drunken-mcp` binary.
 
 ### `drunken-jira-mcp` -- Jira operations
-- **Tools:** `jira_search_issues(jql)`, `jira_create_issue(summary, description)`, `jira_transition_issue(issue_key, target_status)`, `jira_add_comment(issue_key, comment)`, `jira_start_task(issue_key)` (transition to In Progress + the git branch command to run), `jira_submit_for_review(issue_key, pr_link, files_changed)` (transition to In Review + comment the PR link).
+- **Tools:** `jira_search_issues`, `jira_create_issue`, `jira_assign`, `jira_board_info`, `jira_transition_issue`, `jira_add_comment`, `jira_start_task` (transition to In Progress + the git branch command to run), `jira_submit_for_review` (transition to In Review + comment the PR link), `jira_move_to_backlog`, `jira_move_to_board`.
 - **Resources:** `jira://board`, `jira://issue/{issue_key}`, `jira://project/{project_key}/board`.
-- **Prompts:** `jira_daily_standup`, `init_project`, `refinement`, `sprint_planning`, `review_retro`.
+- **Prompts:** `jira_daily_standup`, `init_project`, `refinement`, `sprint_planning`, `review_retro` — each names the skill that owns that process, and says to stop if the skill is not installed.
+- How to write and run a ticket is the `jira-tickets` skill, not this list.
 - Full reference: [`src/jira_mcp/README.md`](./src/jira_mcp/README.md).
 
 ### `drunken-discord-mcp` -- approvals
@@ -21,16 +22,23 @@ Drunken-Guild exposes three separate MCP servers -- there is no single combined 
 
 > **`drunken-board-mcp` is retired and is not packaged.** DG-250 removed the local board: a board sitting next to Jira is a second surface that can disagree with the first, which is the failure DG-248 and DG-249 each cost a session to. It also cost 2,162 tokens per request for a server nothing should call. DG-265 removed it from `[project.scripts]` and from the package, so there is no command to declare — the code is kept at `_not_used/board-mcp/` because an agent does not delete. Do not create `.claude/board/` or `.agents/board/`. Jira is the only coordination surface -- the **assignee** says whose the work is, the **status** says where it is.
 
-Both are registered for you already in `.mcp.json` at the repo root:
+Neither is pre-registered anywhere. A project declares both in its own `.mcp.json`, which
+`scripts/install/install_mcp.sh` generates (Section 4, Step 4 shows the result):
 
 ```json
 {
   "mcpServers": {
-    "drunken-discord-mcp": { "command": "uv", "args": ["run", "python", "-m", "discord_mcp.server", "--project", "<PROJECT-ID>"], "env": { "PYTHONPATH": "src" } },
-    "drunken-jira-mcp": { "command": "uv", "args": ["run", "python", "-m", "jira_mcp.server", "--project", "<PROJECT-ID>"], "env": { "PYTHONPATH": "src" } }
+    "drunken-jira-mcp": { "command": "drunken-jira-mcp", "args": ["--project", "<PROJECT-ID>"] },
+    "drunken-discord-mcp": { "command": "drunken-discord-mcp", "args": ["--project", "<PROJECT-ID>"] }
   }
 }
 ```
+
+> **Put it where the session starts.** A host reads `.mcp.json` from the directory a session is
+> opened in. A project whose code sits one level down — a DG-250 wrapper — needs the file at the
+> wrapper, not beside the code, or the session never sees it. And do not register these servers
+> once at user scope with a fixed `--project`: user scope reaches every session on the machine, so
+> every other project silently talks to that one project's Jira and Discord room.
 
 > **`--project` is required on both servers (DG-313).** It is not decoration on the Discord one:
 > it selects which daemon socket the server dials, and therefore which Discord room approvals
@@ -53,16 +61,19 @@ If your tool auto-discovers project-level `.mcp.json`, you're done. Otherwise, p
 
 ## 2. Local AI Configuration Templates
 
-`.guild_templates/` holds rulebook templates for each tool, meant to be copied into a project's root:
+`templates/` is the one template set. **The rules live in one file, `CLAUDE.md`**; the files for
+other tools are thin and point at it, because a rulebook per tool is a rulebook per tool that drifts.
 
-| File | Tool | What it enforces |
+| File | For | What it is |
 |---|---|---|
-| `CLAUDE.md` | Claude Code | Check Jira before starting work, never push to `main`, call `request_boss_approval` instead of executing destructive commands unasked, run `pytest`/`mypy`/`pre-commit` before finishing. |
-| `.cursorrules` | Cursor | Same rules, phrased for Cursor's MCP integration. |
-| `CONVENTIONS.md` | Aider | Same rules, plus commit-message and mocking (`autospec=True`) conventions Aider should follow. |
-| `SESSION_CHECKPOINT.md` | All | A blank template for cross-session context handoff -- read at the start of a session, updated before ending one. |
+| `CLAUDE.md` | every tool | The project's rules: Jira lifecycle, approvals, git, what must never be deleted, where the project's documents are, build and test commands. |
+| `.cursorrules` | Cursor | "Read `CLAUDE.md`; it is the authority" — plus MCP setup and approvals, the parts that differ for Cursor. |
+| `CONVENTIONS.md` + `.aider.conf.yml` | Aider | The config loads `CLAUDE.md` and `CONVENTIONS.md` read-only into every session and turns off Aider's own commits. |
+| `SESSION_CHECKPOINT.md` | every tool | A handoff note, read at session start, rewritten before ending. Untracked. Jira stays the record. |
+| `PROJECT_BRIEF.md`, `REQUIREMENTS.md` | every tool | The project's own documents — what is built and what it must do. |
 
-None of these describe Drunken-Guild's own internals in depth; they just tell the local AI which Jira/MCP calls to make and when to ask for approval instead of acting.
+Which files to copy, and where, is [GETTING_STARTED.md, Step 1](./GETTING_STARTED.md#step-1--describe-your-project) —
+one list, kept in one place.
 
 ---
 
@@ -70,7 +81,7 @@ None of these describe Drunken-Guild's own internals in depth; they just tell th
 
 The collaboration between your local AI tool and the Guild's Discord daemon follows the same lifecycle either from the CLI or via MCP:
 
-1. **Intake:** Call `jira_start_task(issue_key)` to claim a ticket and get the branch name to check out. (`scripts/jira_bridge.py transition <key> "In Progress"` still works for shell use, but the MCP tools are the supported path.)
+1. **Intake:** Call `jira_start_task(issue_key)` to claim a ticket and get the branch name to check out. The MCP tools are the only supported path for an agent — no shell script, no local board.
 2. **Execution:** Write code and tests against that ticket's acceptance criteria. Before any destructive or merge-worthy action: if the Boss is reading the conversation, just ask them there. Otherwise call `request_boss_approval_async`, don't perform the action yet, and move on to whatever else is unblocked -- there is no local board, so "parking" a task is just not doing that step, not a tool call. Collect answers with `check_approvals` **when a task finishes or a session starts -- never mid-task**, because acting on an approval the moment it lands is how a repo ends up half-changed.
 3. **Handoff:** Push the branch, open a PR, then call `jira_submit_for_review(issue_key, pr_link, files_changed)` to move the ticket to In Review with the PR linked.
 4. **Validation:** The round-integration QA gate (`scripts/qa_automation.py`, triggerable from Discord with `/qa`) picks up every In Review ticket, reruns the full suite with all of them merged together, and transitions to Done (or back to In Progress with a failure report) accordingly.
@@ -134,7 +145,7 @@ drunken-init \
 
 **Credentials are referenced, never stored.** `--jira-credential` takes `file://path#key.path`, `env://VAR`, `op://vault/item/field` or `keyring://service/user`, and there is deliberately no flag that accepts a token. A reference with no scheme is rejected as an error rather than read as a literal -- `literal://` is the visible, greppable opt-out. That is what stops a real token ending up in a committable file and working right up until it is pushed.
 
-`--path` is optional: a containerised server that only talks to Jira or Discord has no host checkout to name. Only the file-backed board needs one.
+`--path` is optional: a containerised server that only talks to Jira or Discord has no host checkout to name.
 
 ### Step 2b: Prove it, before trusting it
 
@@ -146,14 +157,12 @@ drunken-doctor --project existing-project
 
 You want `project.existing-project.jira` to come back naming *you*.
 
-### Step 3: Copy the AI templates
+### Step 3: Copy the templates
 
-```bash
-cp /path/to/drunken-guild/.guild_templates/CLAUDE.md .
-cp /path/to/drunken-guild/.guild_templates/.cursorrules .
-cp /path/to/drunken-guild/.guild_templates/CONVENTIONS.md .
-cp /path/to/drunken-guild/.guild_templates/SESSION_CHECKPOINT.md .
-```
+Follow [GETTING_STARTED.md, Step 1](./GETTING_STARTED.md#step-1--describe-your-project). It is
+the one list of what to copy from `templates/` and where each file goes; a second list here is the
+kind of copy that drifts. For an existing project, fill `CLAUDE.md`'s build and test commands from
+what the project already runs — the placeholders read as instructions if left in.
 
 ### Step 4: The MCP config
 
@@ -172,7 +181,7 @@ This depends on step 1 — the commands have to be on `PATH`. Without `uv tool i
 
 For Cursor: **Settings > Features > MCP > Add New Server**, type `command`, `drunken-jira-mcp` with args `--project existing-project`, then the same for the other one.
 
-From here, your local AI reads `CLAUDE.md`/`.cursorrules`, checks Jira via the MCP tools, writes code, and hands off through the same lifecycle described in Section 3.
+From here, your local AI reads `CLAUDE.md` — directly, or through `.cursorrules` / `.aider.conf.yml`, which point at it — checks Jira via the MCP tools, writes code, and hands off through the same lifecycle described in Section 3.
 
 ---
 *This document covers integration and handoff only. For Drunken-Guild's own architecture and day-to-day Discord commands, see [Drunken-Guild-Guide.md](./Drunken-Guild-Guide.md).*

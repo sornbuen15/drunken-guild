@@ -2,7 +2,7 @@
 
 This is the operating manual for Drunken-Guild ("the Guild"). It covers the architecture, how to install and run it, and how to use the Jira workflow and the Discord bot day to day.
 
-*(This document explains how the Guild's own automation works. For an individual project's feature specs or system design, see that project's own `PROJECT_SPEC.md`/`DESIGN.md`.)*
+*(This document explains how the Guild's own automation works. For an individual project's brief, requirements, spec, architecture or policy, see that project's own documents — usually in its `.ai/` directory; the `project-docs` skill lists every place they are looked for.)*
 
 ---
 

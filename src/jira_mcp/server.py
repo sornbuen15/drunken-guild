@@ -366,68 +366,83 @@ async def get_project_board(project_key: str) -> str:
     return json.dumps(issues, indent=2)
 
 
+#: DG-339. Each prompt names the skill that owns its process, and stops there.
+#: They used to describe the processes themselves, and described them
+#: differently from the skills: a `DESIGN.md` no other surface mentions, the
+#: blocking approval as the default, "adjust priorities" on a Jira where
+#: `priority` cannot be set, a board move read as a status change. A prompt is
+#: one more place a rule can be written, which makes it one more place it can
+#: disagree. tests/test_jira_mcp_prompts.py holds every prompt -- including any
+#: added later -- to naming a skill that exists.
+_WITHOUT_THE_SKILL = (
+    "If that skill is not installed, say so and stop. Do not reconstruct the "
+    "process from memory: a remembered process is how two of them come to disagree."
+)
+
+
+def _follow(process: str, owner: str, scope: str) -> str:
+    return (
+        f"You are starting {process}. Follow {owner}. It owns this process; "
+        f"this prompt does not restate it.\n{scope}\n{_WITHOUT_THE_SKILL}"
+    )
+
+
 @mcp.prompt()  # type: ignore[misc]
 def jira_daily_standup() -> str:
-    """
-    Prompt template for a daily standup update based on active Jira issues.
-    """
-    return "Please summarize the current blockers and active work using the tickets in 'In Progress' and 'In Review' states."
+    """A daily standup, owned by the `local-progress-reporter` skill."""
+    return _follow(
+        "a daily standup",
+        "the `local-progress-reporter` skill (`/report`)",
+        "Cover what is In Progress, what is In Review, and what is blocked. "
+        "In Review is in flight, not done.",
+    )
 
 
 @mcp.prompt()  # type: ignore[misc]
 def init_project() -> str:
-    """
-    Triggers the initial project architecture phase.
-    """
-    return (
-        "You are beginning the init-project phase.\n"
-        "1. Read PROJECT_SPEC.md and DESIGN.md.\n"
-        "2. If this is an existing project, briefly scan the source code structure.\n"
-        "3. Generate a high-level Domain-Driven Design (DDD) architecture document.\n"
-        "4. Develop a 'Walking Skeleton' (Feasibility Spike) to prove the tech stack.\n"
-        "5. Present the DDD and Spike to the Boss. You MUST call the request_boss_approval MCP tool to get approval before creating any tickets."
+    """Day-0 backlog generation, owned by the `spec-to-backlog` skill."""
+    return _follow(
+        "project initiation",
+        "the `spec-to-backlog` skill (`/init-project`)",
+        "It reads the project's documents through the `project-docs` skill "
+        "first, and needs only a brief to start.",
     )
 
 
 @mcp.prompt()  # type: ignore[misc]
 def refinement() -> str:
-    """
-    Triggers the project backlog refinement phase.
-    """
-    return (
-        "You are beginning the refinement phase.\n"
-        "1. Read the approved architecture and DDD.\n"
-        "2. Break down the work into structured Jira tasks.\n"
-        "3. Use the jira_create_issue tool to populate the backlog.\n"
-        "4. CRITICAL: Every task MUST have strict Acceptance Criteria (AC) which will be used for TDD."
+    """Choosing what moves onto the board, owned by `backlog-refinement`."""
+    return _follow(
+        "backlog refinement",
+        "the `backlog-refinement` skill (`/refine`)",
+        "Refinement chooses what moves from the backlog onto the board. It "
+        "changes no ticket's status and creates no tickets; creating them is "
+        "`spec-to-backlog`.",
     )
 
 
 @mcp.prompt()  # type: ignore[misc]
 def sprint_planning() -> str:
-    """
-    Triggers the sprint planning phase.
-    """
-    return (
-        "You are beginning the sprint-planning phase.\n"
-        "1. Read all tasks in the Backlog and the active board.\n"
-        "2. Adjust priorities and move selected tasks to 'To Do'.\n"
-        "3. Dependency Triage: Determine if tasks touch the same files. If yes, they must be executed in Sequence. If no, they can be executed in Parallel.\n"
-        "4. Present the Sprint Plan to the Boss and ask: 'Execute in Sequence or Parallel?'"
+    """Planning the next working set: `backlog-refinement`, then `task-estimation`."""
+    return _follow(
+        "sprint planning",
+        "the `backlog-refinement` skill (`/refine`), then the `task-estimation` "
+        "skill (`/estimate`)",
+        "This Jira has no sprints. Planning here means choosing what moves "
+        "from the backlog onto the board, then sizing it.",
     )
 
 
 @mcp.prompt()  # type: ignore[misc]
 def review_retro() -> str:
-    """
-    Triggers the sprint review and retro phase.
-    """
-    return (
-        "You are beginning the review-retro phase.\n"
-        "1. Evaluate the completed sprint.\n"
-        "2. Identify any Tech Debt or Enhancements. Use jira_create_issue to add them to the backlog, but strictly tag them as [TECH-DEBT] or [ENHANCEMENT] with low priority.\n"
-        "3. Ask the Boss: 'Proceed with next sprint planning? (Yes/No)'.\n"
-        "4. Advise the Boss: 'Recommendation: Create a session checkpoint and close this session to clear memory context.'"
+    """Review and retro: `local-progress-reporter`, then `audit-to-backlog`."""
+    return _follow(
+        "a review and retrospective",
+        "the `local-progress-reporter` skill (`/report`) for the review, then "
+        "the `audit-to-backlog` skill (`/audit`) to turn what went wrong into "
+        "backlog tickets",
+        "Before ending the session, rewrite SESSION_CHECKPOINT.md if the "
+        "project keeps one.",
     )
 
 

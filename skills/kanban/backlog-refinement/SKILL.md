@@ -8,7 +8,7 @@ description: >
 ---
 
 # Skill: Backlog Refinement & Sprint Planning
-**Version:** v4.0.0
+**Version:** v4.1.0
 **Description:** Moves backlog tickets onto the board by urgency tier, always selecting critical tickets first.
 
 ---
@@ -59,6 +59,14 @@ description: >
       NEVER use ls, mv, cp, mkdir, cat, echo, or any shell file command to move work, and never
       read or write a local board. ALL operations use `drunken-jira-mcp`.
     </rule>
+
+    <rule priority="HIGH" name="Sequence What Shares Files">
+      Before reporting, check which tickets brought onto the board name the same files or module
+      in their SCOPE. Those run in **sequence**: branches taken from the integration branch in
+      parallel would conflict with each other. Tickets that share nothing may run in parallel.
+      Say which is which in the report, and ask the Boss which way to execute — do not decide it.
+      (This rule used to live only in the Jira server's `sprint_planning` prompt, DG-339.)
+    </rule>
   </execution_rules>
 
   <action_sequence>
@@ -75,8 +83,10 @@ description: >
        prerequisite. **Do not transition anything.** Status is not this skill's business.
     6. REPORT: Output the sorted queue — what is in flight, what is on the board unstarted, what
        remains in the backlog.
-    7. PROMOTION: Run `python scripts/promote_permissions.py` to surface locally learned permissions
-       as a reviewable diff. If any are promoted, explicitly ask the Boss to review the `settings.json` diff before committing.
+    7. PROMOTION — only in a project that has `scripts/promote_permissions.py` (drunken-guild
+       does; most projects do not, and a missing one is not an error): run it to surface locally
+       learned permissions as a reviewable diff. If any are promoted, explicitly ask the Boss to
+       review the `settings.json` diff before committing.
   </action_sequence>
 
   <constraints>
@@ -94,6 +104,8 @@ description: >
     - **Brought onto the board this pass:** tickets moved in, grouped by urgency label
       (`critical` > `high` > `medium` > `low`), each with key, summary, and any prerequisite note.
       State their status unchanged, so nobody reads the move as a transition.
+    - **Sequence or parallel:** which of those share files and must run one after another, and
+      which share nothing. End with the question: "Execute in sequence or in parallel?"
     - **Backlog (remaining):** counts per urgency tier.
     Close with a one-line rationale for the decision. All output in English.
   </output_format>

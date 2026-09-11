@@ -38,6 +38,7 @@ repository, and it cost more than disk:
 | `requirements/` — `requirements.txt` | 113 lines adrift from `pyproject.toml`, and nothing read it | `uv.lock`, exported on demand | `4c4c97c` |
 | `templates/mcp-settings.json` | superseded by generated MCP configuration | `drunken-config` | `abe5df1` |
 | `vendored-skills-unlicensed/` — `debug-mantra`, `post-mortem`, `scrutinize`, `management-talk` | never authored here. All four are byte-identical to the `9arm-skills` pack, which carries no licence file and no reachable upstream, so this repository could not redistribute them under its own MIT licence (DG-263). What a session actually loaded was never this copy — the installed files are symlinks into that pack | nothing. `think-analyze-isolate` covers the running-things half of `debug-mantra`; the rest have no replacement here | `d41d99d`, at their original `skills/` paths |
+| `guild-templates/` — the whole `.guild_templates/` set: `CLAUDE.md`, `.cursorrules`, `CONVENTIONS.md`, `.aider.conf.yml`, `SESSION_CHECKPOINT.md` | a second template set beside `templates/`, and the stale one — it told agents to shell out to the Jira bridge script, parked work with a retired `board_*` tool, gave three commit formats none of which is `git-workflow`'s, and its Aider config loaded a path that exists in no project it was copied into. It was still the set `Integration-Guide.md` sent new projects to (DG-337) | `templates/`, where the Cursor, Aider and checkpoint files were rewritten to defer to the project's `CLAUDE.md` rather than restate it. `check_doc_drift.py` fails any document that names the old set | `ba6077c`, at `.guild_templates/` |
 
 ## Recovering one
 
@@ -46,9 +47,9 @@ git show <commit>:_not_used/<path>
 git checkout <commit> -- _not_used/<path>
 ```
 
-The last row is the exception: those four were never inside `_not_used/` in git. They were removed
-straight from `skills/`, so recover them from their original paths instead —
-`git show d41d99d:skills/workflow/debug-mantra/SKILL.md`.
+The last two rows are the exception: they were never inside `_not_used/` in git. They were removed
+straight from where they lived, so recover them from their original paths instead —
+`git show d41d99d:skills/workflow/debug-mantra/SKILL.md`, `git show ba6077c:.guild_templates/CLAUDE.md`.
 
 Each retired directory kept its own `RETIRED.md` with the long reasoning; those are in the same
 commits.

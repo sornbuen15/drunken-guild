@@ -115,8 +115,16 @@ status.
 - `jira://project/{project_key}/board`: Same as `jira://board`, but for a specific project key instead of the configured default.
 
 ### Prompts
-- `jira_daily_standup`: Instructs the agent to summarize blockers based on 'In Progress' and 'In Review' tickets.
-- `init_project`: Starts the initial architecture phase -- read the spec, produce a DDD architecture doc and a feasibility spike, then present both for approval before any tickets are created.
-- `refinement`: Breaks an approved architecture down into Jira tickets, each with strict acceptance criteria for TDD.
-- `sprint_planning`: Reviews the backlog and active board, adjusts priorities, moves selected tickets to To Do, and triages which can run in parallel vs. must run in sequence.
-- `review_retro`: Reviews a completed round, files any tech debt/enhancements found, and asks whether to proceed to the next round.
+
+Each prompt names the skill that owns its process and says to stop if that skill is not
+installed. None of them describes the process itself — that was five more places for a rule to be
+written differently, and they were (DG-339). `tests/test_jira_mcp_prompts.py` holds every prompt to
+it, including any added later.
+
+| prompt | owned by |
+|---|---|
+| `jira_daily_standup` | `local-progress-reporter` (`/report`) |
+| `init_project` | `spec-to-backlog` (`/init-project`), which reads documents through `project-docs` |
+| `refinement` | `backlog-refinement` (`/refine`) |
+| `sprint_planning` | `backlog-refinement` (`/refine`), then `task-estimation` (`/estimate`) |
+| `review_retro` | `local-progress-reporter` (`/report`), then `audit-to-backlog` (`/audit`) |

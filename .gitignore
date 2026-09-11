@@ -223,8 +223,8 @@ _not_used/
 # Session scratchpad for cross-agent coordination -- not project record.
 # The Boss confirmed this is working state, not history: it belongs to
 # whoever's session wrote it, not to git. Anchored to root so it does not
-# swallow .guild_templates/SESSION_CHECKPOINT.md, the tracked template this
-# file is generated from.
+# swallow templates/SESSION_CHECKPOINT.md, the tracked template this file is
+# generated from.
 /SESSION_CHECKPOINT.md
 
 # DG-313 / DG-250: operating config, not source. It names this machine

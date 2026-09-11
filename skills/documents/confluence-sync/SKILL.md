@@ -1,33 +1,72 @@
 ---
 name: confluence-sync
-description: Synchronizes project documentation files (Architecture, Specs, ADRs, and API docs) to the Confluence Cloud space, maintaining page hierachies. Trigger on `/confluence-sync`, "sync confluence", "publish confluence".
+description: >
+  Synchronizes a project's own documents (brief, requirements, spec, architecture, policy, ADRs,
+  and API docs) to the Confluence Cloud space, maintaining the page hierarchy. Apply when the user
+  wants the project's documentation published or refreshed in Confluence. Trigger on
+  `/confluence-sync`, "sync confluence", "publish confluence".
 ---
 
-# Confluence Documentation Sync Skill
+# Skill: Confluence Documentation Sync
+**Version:** v2.0.0
+**Description:** Publishes whichever project documents exist to Confluence Cloud, with ADRs grouped under one parent page.
 
-This skill defines the process to parse, structure, and publish workspace documentation to Confluence Cloud space.
+---
+<system_prompt>
+  <role>
+    When this skill applies, publish the project's documents to Confluence as they are — the
+    ones that exist, from where the `project-docs` skill finds them — and report every page it
+    created or updated.
+  </role>
 
-## Execution Process
+  <execution_rules>
+    <rule priority="FATAL" name="API Bridge Verification">
+      Ensure the `scripts/confluence_bridge.py` script exists and is executable. The access token
+      is read from the `JIRA_TOKEN` environment variable by the bridge itself; never print it, and
+      never pass it on a command line.
+    </rule>
 
-1. **API Bridge Verification**:
-   - Ensure the `scripts/confluence_bridge.py` script exists and is executable.
-   - Access token must be retrieved from the `JIRA_TOKEN` environment variable.
+    <rule priority="FATAL" name="Publish What Exists">
+      Locate the documents with the `project-docs` skill and print its block. Publish each one it
+      found; skip each one it did not, and list the skipped ones in the report. Never write a
+      missing document in order to have something to publish.
+    </rule>
 
-2. **Generate API Reference**:
-   - Run `scripts/openapi_to_markdown.py` to parse the OpenAPI JSON specification (`doc/openapi.json`) and generate a clean Markdown file (`doc/openapi.md`).
+    <rule priority="HIGH" name="API Reference Only If The Project Has One">
+      If the project has `doc/openapi.md`, publish it. If it has only `doc/openapi.json` and its
+      own converter to Markdown, run that converter first. drunken-guild ships no converter; if the
+      project has none, skip the API Reference and say so.
+    </rule>
+  </execution_rules>
 
-3. **Publish Pages in Hierarchy**:
-   - **Root Level Pages**:
-     - Push `PROJECT_SPEC.md` -> Title: `Project Specification`
-     - Push `ARCHITECTURE.md` -> Title: `Architecture Guide`
-     - Push `POLICY.md` -> Title: `Security & Integration Policy`
-     - Push `doc/openapi.md` -> Title: `API Reference`
-   - **Parent Grouping Page**:
-     - Create/Update parent page `Architecture Decision Records (ADRs)` under root.
-     - Retrieve its numeric `page_id` from the return value.
-   - **Child Pages (ADRs)**:
-     - Push `ADR-001-autonomous-action-authorization.md` -> Title: `ADR-001: Autonomous Action Authorization` under the parent page ID.
-     - Push `ADR-002-websocket-voice-confirmation.md` -> Title: `ADR-002: WebSocket Voice Confirmation` under the parent page ID.
+  <action_sequence>
+    1. VERIFY the bridge (rule above).
+    2. LOCATE documents with `project-docs`.
+    3. PUBLISH root-level pages, each only if found:
+         - `PROJECT_BRIEF.md` → `Project Brief`
+         - `PROJECT_SPEC.md` → `Project Specification`
+         - `REQUIREMENTS.md` → `Requirements`
+         - `ARCHITECTURE.md` → `Architecture Guide`
+         - `POLICY.md` → `Security & Integration Policy`
+         - `doc/openapi.md` → `API Reference`
+    4. ADRs, only if `adr/` exists and holds any:
+         a. Create/update the parent page `Architecture Decision Records (ADRs)` under root, and
+            keep the numeric `page_id` it returns.
+         b. Push every `adr/ADR-*.md` as a child of that page, in filename order. Title each from
+            the document's own first heading — `ADR-001: Autonomous Action Authorization` — not
+            from a list written into this skill.
+    5. REPORT (output format below).
+  </action_sequence>
 
-4. **Verify & Document Results**:
-   - Compile all created/updated Confluence page IDs and output a clean table summarizing the synchronized documentation.
+  <constraints>
+    <constraint priority="FATAL">Requires `scripts/confluence_bridge.py` and a `JIRA_TOKEN` in the environment. Without either, stop and say which is missing.</constraint>
+    <constraint priority="FATAL">Never generate a document that does not exist in order to publish it.</constraint>
+    <constraint priority="HIGH">All output must be in English.</constraint>
+  </constraints>
+
+  <output_format>
+    The `project-docs` block, then one table:
+
+    | Document | Confluence title | Page ID | Result (created / updated / skipped — not found) |
+  </output_format>
+</system_prompt>

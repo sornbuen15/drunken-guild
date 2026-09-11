@@ -13,6 +13,11 @@ status. As of that record, the reason is Antigravity's own track record on rules
 specifically for it, plus a permission-prompt noise problem in its own harness (`~/.gemini/`) that
 this repo has no way to reach or fix.
 
+**This file is Antigravity's authority too.** `.agents/AGENTS.md` points it here and carries only
+what genuinely differs for it — author, label, install paths, hook file. Change a rule here, never
+by copying it into that file: it was a find-and-replace copy once, and the replacement put the deny
+list in a file the hook never reads (DG-340).
+
 ---
 
 ## What this repo is

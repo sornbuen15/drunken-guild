@@ -1,0 +1,29 @@
+# Cursor rules — <Your Project Name>
+#
+# This is a template. Copy it to your project root as `.cursorrules`. It is authored in
+# drunken-guild's `templates/.cursorrules`; a project's own copy is its own to change.
+#
+# It is deliberately thin. The rules live in ONE file, the project's `CLAUDE.md`, and this one
+# points at it. A rulebook per tool is a rulebook per tool that drifts: the set this replaced told
+# Cursor to park work on a board that no longer existed, three weeks after the board was retired.
+
+## Read `CLAUDE.md` first. It is the authority here.
+
+Before any work, read `CLAUDE.md` at the project root. It is written to Claude Code, but **every
+rule in it applies to you**: the Jira lifecycle, the approval protocol, git, what must never be
+deleted, the build and test commands. Where this file and `CLAUDE.md` disagree, `CLAUDE.md` wins.
+
+`CLAUDE.md` also says where this project's documents are — brief, requirements, spec,
+architecture, policy. Read the ones that exist; do not invent the ones that do not.
+
+## What is different for Cursor
+
+- **MCP.** Connect `drunken-jira-mcp` and `drunken-discord-mcp` under Settings → MCP, each as a
+  `command` with args `--project <project-id>`. They are the only coordination path: no shell
+  script, no local board, no ticket list kept in a file.
+- **Approvals.** If the Boss is reading the conversation, ask there. Otherwise call
+  `request_boss_approval_async` — it returns a request id, not an answer. Do not perform the
+  action; take the next unblocked task; collect with `check_approvals` when a task finishes,
+  never mid-task.
+- **Commits.** Cursor does not commit on its own. When you do, follow the commit format in
+  `CLAUDE.md`, not a format remembered from another project.

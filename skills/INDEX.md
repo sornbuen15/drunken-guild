@@ -11,8 +11,11 @@ Map task keywords to their absolute skill file paths. Load ONLY the relevant ski
 - `acronym-namer` — Generates meaningful, thematic acronyms (like S.H.I.E.L.D., I.S.A.C., M.I.N.A.) for projects, bots, architectures, and features.
   Path: $HOME/.claude/skills/acronym-namer/SKILL.md
 
-- `confluence-sync` (`/confluence-sync`) — Synchronizes project documentation files (Architecture, Specs, ADRs, and API docs) to the Confluence Cloud space, maintaining page hierachies. Trigger on `/conf
+- `confluence-sync` — Synchronizes a project's own documents (brief, requirements, spec, architecture, policy, ADRs, and API docs) to the Confluence Cloud space, maintaining the page
   Path: $HOME/.claude/skills/confluence-sync/SKILL.md
+
+- `project-docs` — The one contract for a project's own documents — which ones exist, where to look for them, how to read them together, and what to do when one is missing or two
+  Path: $HOME/.claude/skills/project-docs/SKILL.md
 
 - `standard-playbook-generator` (`/playbook`) — Generates anonymized Engineering Playbooks and Developer Workflow Guides by cross-referencing actual skill files. Apply whenever the user wants to document engi
   Path: $HOME/.claude/skills/standard-playbook-generator/SKILL.md
@@ -44,7 +47,7 @@ Map task keywords to their absolute skill file paths. Load ONLY the relevant ski
 - `local-progress-reporter` (`/report`) — Aggregates Jira ticket data into a structured project status report. Apply whenever the user asks about progress, wants a status update, asks what's done or in-
   Path: $HOME/.claude/skills/local-progress-reporter/SKILL.md
 
-- `spec-to-backlog` (`/init-project`) — Analyzes project spec files on Day 0 and generates a comprehensive, labelled Jira backlog of atomic tickets via drunken-jira-mcp. Apply whenever starting a new
+- `spec-to-backlog` (`/init-project`) — Reads every project document that exists — brief, requirements, spec, architecture, policy — on Day 0 and generates a comprehensive, labelled Jira backlog of at
   Path: $HOME/.claude/skills/spec-to-backlog/SKILL.md
 
 - `task-estimation` (`/estimate`) — Estimates complexity, AI execution cycles, and human review effort for the TODO tickets on the Jira board. Apply whenever the user asks how long something will
