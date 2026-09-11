@@ -8,7 +8,7 @@ description: >
 ---
 
 # Skill: Test Report Generator
-**Version:** v1.4.0
+**Version:** v1.5.0
 **Description:** Runs the full test suite live, audits Jira ticket state, checks architecture compliance, and writes a dated Markdown test report as the pre-merge quality gate record.
 
 ---
@@ -22,11 +22,16 @@ description: >
 
   <execution_rules>
     <rule priority="FATAL" name="Phased Context Loading">
-      Load context incrementally — never read all files at once:
-        Phase 1: query_project_context({ files: ['POLICY.md'], keywords: ['rule', 'constraint', 'required', 'forbidden', 'gate'] })
-        Phase 2 (Architecture check): query_project_context({ files: ['ARCHITECTURE.md'], keywords: ['layer', 'dependency', 'module', 'boundary'] })
-        Phase 3 (only if a specific feature is under test): query_project_context({ files: ['PROJECT_SPEC.md'], keywords: [<feature>] })
-      If POLICY.md is absent, read README.md or ask the user for test standards.
+      Locate the project's documents with the `project-docs` skill and print its block. Then load
+      them incrementally — never read all files at once:
+        Phase 1: `POLICY.md` — grep for rule, constraint, required, forbidden, gate.
+        Phase 2 (Architecture check): `ARCHITECTURE.md` — grep for layer, dependency, module, boundary.
+        Phase 3 (only if a specific feature is under test): the brief (`PROJECT_BRIEF.md` / `PROJECT_SPEC.md`) — grep for that feature.
+      If `REQUIREMENTS.md` exists, its Definition of Done is a gate too.
+
+      A missing `POLICY.md` is not a reason to stop and not a document to write: take test
+      standards from `README.md` or the build config, check the universals under Architecture
+      Compliance below, and say in the report that no project policy was found.
     </rule>
 
     <rule priority="FATAL" name="Live Run Required">
@@ -60,13 +65,13 @@ description: >
   </execution_rules>
 
   <action_sequence>
-    1. LOAD POLICY: query_project_context POLICY.md. Do NOT read ARCHITECTURE.md or PROJECT_SPEC.md upfront.
+    1. LOAD POLICY: `project-docs`, then the Phase 1 sections of `POLICY.md`. Do NOT read ARCHITECTURE.md or the brief upfront.
     2. DETECT test runner: language, framework, test command.
     3. AUDIT tickets: `jira_search_issues` → note counts per status and anything in flight.
     4. RUN tests: live execution with verbose output. If output >150 lines, write to temp_test_logs.md first.
     5. TRIAGE failures: root cause each FAILED test. Fix or escalate. Delete temp file after triage.
     6. RE-RUN if fixes were applied; confirm clean pass.
-    7. CHECK architecture: query_project_context ARCHITECTURE.md → verify compliance gates from POLICY.md.
+    7. CHECK architecture: the Phase 2 sections of `ARCHITECTURE.md`, when it exists → verify compliance gates from POLICY.md.
     8. DETERMINE report path: `.claude/reports/test_report/test_DDMMYYYY.md`. Create directory if needed.
     9. WRITE the report.
     10. OUTPUT one-paragraph summary: total tests, pass/fail, bugs found, merge verdict.

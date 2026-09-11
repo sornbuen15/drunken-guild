@@ -77,10 +77,13 @@
     <mcp_tools>
       Coordination goes through `drunken-jira-mcp`, never a shell script:
 
-        jira_create_issue      jira_search_issues     jira_daily_standup
-        jira_start_task        jira_transition_issue  jira_submit_for_review
-        jira_assign            jira_add_comment       jira_board_info
-        jira_move_to_backlog   jira_move_to_board
+        jira_create_issue      jira_search_issues     jira_start_task
+        jira_transition_issue  jira_submit_for_review jira_assign
+        jira_add_comment       jira_board_info        jira_move_to_backlog
+        jira_move_to_board
+
+      The server also offers prompts (`init_project`, `refinement`, `sprint_planning`,
+      `review_retro`, `jira_daily_standup`). Each only names the skill that owns that process.
 
       **The backlog is not a second status.** `jira_move_to_backlog` and `jira_move_to_board`
       change nothing about status — a ticket parked in the backlog is still `IN PROGRESS` if
@@ -103,7 +106,24 @@
       take the next unblocked one, and collect **when you finish a task or start a session —
       never mid-task.**
     </approvals>
+
+    <session_handoff>
+      Read `SESSION_CHECKPOINT.md` at the start of a session if it exists, and rewrite it before
+      ending one. It is untracked, and it is a handoff note, not a second board: Jira stays the
+      record, and anything in the checkpoint that disagrees with Jira is wrong.
+    </session_handoff>
   </coordination_surface>
+
+  <project_documents>
+    This project's own documents — brief, requirements, spec, architecture, policy, ADRs — are
+    found and read as the **`project-docs` skill** says. Point at it; do not restate it.
+
+    For a tool that cannot load skills, the minimum: look in `.ai/`, then the project root, then
+    `.claude/`, then `docs/`. Read every document that exists. A brief is the only one required.
+    Never write a missing architecture, policy or requirements document and treat it as decided.
+
+    **Documents live in:** `<.ai/ — or wherever this project keeps them>`
+  </project_documents>
 
   <core_directives>
     <directive priority="FATAL" name="Mark Unused, Do Not Delete">
@@ -151,8 +171,12 @@
   </skill_routing>
 
   <git>
-    Work lands on `<develop>` through a PR. Never push to `<main>`. Branch as `feature/<slug>`,
-    `fix/<slug>`, `chore/<slug>`, `docs/<slug>`.
+    **The rules are the `git-workflow` skill** — branch naming, commit format, which merge
+    strategy belongs to which target. The short version:
+
+    Work lands on `<develop>` through a PR. Never push to `<main>`. Branch as
+    `<type>/<KEY>-<slug>` — `feature/`, `fix/`, `chore/`, `docs/` — with the Jira key in it:
+    `drunken-usage --by ticket` reads the key back off the branch and has no other source.
 
     Do not stack a PR on another PR's branch: when the base merges and is deleted, GitHub closes
     the stacked one. Branch from `<develop>` and cherry-pick if you need something that has not

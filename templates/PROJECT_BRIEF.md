@@ -1,6 +1,8 @@
 # Project Brief
 
-> Copy this file into your project root as `PROJECT_BRIEF.md`.
+> Copy this file into your project's `.ai/` directory as `PROJECT_BRIEF.md` — the root works too;
+> the `project-docs` skill lists every place it is looked for. It is the one document a project
+> needs before `/init-project` will run.
 > Fill it out before running any agent session.
 > The principal-engineer reads this to make platform decisions and assemble the squad.
 

@@ -8,7 +8,7 @@ description: >
 ---
 
 # Skill: Project Code Audit & Health Check
-**Version:** v4.0.0
+**Version:** v4.1.0
 **Description:** Comprehensive codebase health audit — architecture compliance, security, code quality, dependencies, and docs — with a scored report and dry-run backlog proposal.
 
 ---
@@ -22,11 +22,17 @@ description: >
 
   <execution_rules>
     <rule priority="FATAL" name="Phased Context Loading">
-      Load context incrementally — never all at once:
-        Phase 1: query_project_context({ files: ['POLICY.md'], keywords: ['rule', 'constraint', 'forbidden', 'required', 'must', 'never'] })
-        Phase 2 (Architecture): query_project_context({ files: ['ARCHITECTURE.md'], keywords: ['layer', 'dependency', 'module', 'boundary', 'pattern'] })
-        Phase 3 (only if needed): query_project_context({ files: ['PROJECT_SPEC.md'], keywords: [<feature>] })
-      Bulk-reading all files upfront degrades LLM recall for later findings ("Lost in the Middle").
+      Locate the project's documents with the `project-docs` skill and print its block. Then load
+      them incrementally — never all at once:
+        Phase 1: `POLICY.md` — grep for rule, constraint, forbidden, required, must, never.
+        Phase 2 (Architecture): `ARCHITECTURE.md` — grep for layer, dependency, module, boundary, pattern.
+        Phase 3 (only if needed): the brief (`PROJECT_BRIEF.md` / `PROJECT_SPEC.md`) — grep for the feature in question.
+      Read a long document by its matching sections, not end to end. Bulk-reading every file
+      upfront degrades recall for later findings ("Lost in the Middle").
+
+      A missing `POLICY.md` or `ARCHITECTURE.md` is not a reason to stop, and not a document to
+      write. Audit against the universal checks in the dimensions below, and say in the report
+      that no project policy or architecture was found to grade against.
     </rule>
     <rule priority="FATAL" name="Evidence-Based Findings Only">
       Every finding MUST reference a specific file path and line range. No vague claims.
@@ -43,7 +49,7 @@ description: >
   </execution_rules>
 
   <action_sequence>
-    1. LOAD POLICY: query_project_context POLICY.md for compliance rules that define audit pass/fail.
+    1. LOAD POLICY: `project-docs`, then the Phase 1 sections of `POLICY.md` — the compliance rules that define audit pass/fail.
     2. SCAN: Use find, grep, Read to explore entry points, layers, deps, config, test coverage.
     3. AUDIT against 5 dimensions:
          a. Architecture compliance — ARCHITECTURE.md + Dependency Rule violations, boundary crossings
@@ -113,7 +119,8 @@ description: >
     <constraint priority="FATAL">Every ticket carries exactly one `agent:<slug>` label.</constraint>
     <constraint priority="FATAL">Never set `priority`, and never invent story points. Neither is settable here.</constraint>
     <constraint priority="FATAL">Every finding must cite a specific file and line number.</constraint>
-    <constraint priority="FATAL">Do NOT read whole context files upfront — use query_project_context with targeted keywords.</constraint>
+    <constraint priority="FATAL">Do NOT read whole project documents upfront — locate them with `project-docs`, then grep them for targeted keywords.</constraint>
+    <constraint priority="FATAL">Never write a missing `POLICY.md` or `ARCHITECTURE.md` to have something to grade against. Grade against the universal checks and say none was found.</constraint>
     <constraint priority="HIGH">All output must be in English.</constraint>
   </constraints>
 </system_prompt>

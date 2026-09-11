@@ -155,12 +155,23 @@ directory layout never reaches another repo's git history.
 
 ### Step 1 — Describe your project
 
-Copy the context templates into **your project root** and fill them in.
+This is the one list of what to copy from `templates/`, and where. The **rules** go at the project
+root; the **project's documents** go in `.ai/`.
 
 ```bash
-cp templates/PROJECT_BRIEF.md  ~/Projects/my-project/
-cp templates/REQUIREMENTS.md   ~/Projects/my-project/
-cp templates/CLAUDE.md         ~/Projects/my-project/CLAUDE.md
+cp templates/CLAUDE.md              ~/Projects/my-project/CLAUDE.md
+cp templates/SESSION_CHECKPOINT.md  ~/Projects/my-project/    # then add /SESSION_CHECKPOINT.md to .gitignore
+mkdir -p ~/Projects/my-project/.ai
+cp templates/PROJECT_BRIEF.md       ~/Projects/my-project/.ai/
+cp templates/REQUIREMENTS.md        ~/Projects/my-project/.ai/
+```
+
+Using Cursor or Aider as well? Add their files — both are thin and point at `CLAUDE.md`, so the rules
+stay in one place:
+
+```bash
+cp templates/.cursorrules                          ~/Projects/my-project/   # Cursor
+cp templates/CONVENTIONS.md templates/.aider.conf.yml ~/Projects/my-project/   # Aider
 ```
 
 `CLAUDE.md` is the one that carries the **rules**: which Jira project this is, that Jira is the only
@@ -170,9 +181,23 @@ review, the MCP tools available, and your build and test commands.
 Fill in every `<angle-bracket>` placeholder and delete what does not apply. Skills and agents read
 this file every session — **a placeholder left in reads as an instruction.**
 
+**The project's documents** are read by every skill that needs them, the same way — the
+`project-docs` skill is the contract. Two are needed to start:
+
 - `PROJECT_BRIEF.md` — what you're building, who for, the stack, constraints, what's out of scope
 - `REQUIREMENTS.md` — Must/Should/Could/Won't, performance targets, security requirements, and your
   Definition of Done
+
+Three more are used whenever they exist, and there are no templates for them on purpose — they
+record what your project has actually decided: `PROJECT_SPEC.md` (detailed features and phases),
+`ARCHITECTURE.md`, and `POLICY.md`, plus an `adr/` directory for decisions. Put them beside the
+brief. Skills never invent a missing one and treat it as decided; they say it was absent.
+
+> **Why `.ai/`.** It is one place every agent reads, Claude and Antigravity alike, and it keeps
+> facts about the project out of the files that describe an agent. A project that already keeps
+> its documents at the root, in `.claude/` or in `docs/` works too — skills look there next. What
+> does not work is the same document in two of those places: that is two surfaces, and skills stop
+> and ask which one is real.
 
 > [`examples/00-setup/`](./examples/00-setup/) has both filled in for a fictional task manager.
 
@@ -184,11 +209,17 @@ Open Claude Code inside **your project directory**:
 /init-project
 ```
 
-It reads `PROJECT_BRIEF.md` and `REQUIREMENTS.md` and creates one Jira ticket per feature in the
-backlog. It prints a summary table, then **halts and asks** before moving anything onto the board.
+It first prints which project documents it found and where. Then it reads **every one that
+exists** — the brief and requirements at minimum; the spec, architecture and policy when they are
+there — and creates one Jira ticket per feature in the backlog. It prints a summary table, then
+**halts and asks** before moving anything onto the board.
 
-Urgency lands as a **label** — `CRITICAL`, `HIGH`, `MEDIUM`, `LOW` — not as Jira's `priority` field,
-which cannot be set on a team-managed project and reads `Medium` on every issue.
+Only the brief is required. Without `REQUIREMENTS.md` or the others it still runs, and says which
+were absent.
+
+Urgency lands as a **label** — `critical`, `high`, `medium`, `low`, lower case — set from the requirement's
+Must/Should/Could class, not as Jira's `priority` field, which cannot be set on a team-managed
+project and reads `Medium` on every issue.
 
 Review the tickets in Jira and edit them there directly.
 
@@ -201,7 +232,7 @@ Review the tickets in Jira and edit them there directly.
 ```
 
 It probes with `jira_board_info` first — **not every board has a backlog** — then moves tickets on
-by urgency label. `CRITICAL` moves immediately; the rest are offered by tier for you to choose.
+by urgency label. `critical` moves immediately; the rest are offered by tier for you to choose.
 
 **It does not transition anything.** Backlog membership and status are separate axes: a ticket moved
 onto the board is still `TODO` if that is what it was. On the retired local board, moving a lane

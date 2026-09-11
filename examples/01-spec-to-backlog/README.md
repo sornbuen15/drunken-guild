@@ -2,8 +2,9 @@
 
 ## What this skill does
 
-`/init-project` reads your `PROJECT_BRIEF.md` and `REQUIREMENTS.md` and creates one Jira ticket
-per feature or concern, in the project's backlog, via `drunken-jira-mcp`.
+`/init-project` reads every project document that exists — `PROJECT_BRIEF.md` and
+`REQUIREMENTS.md` at minimum — and creates one Jira ticket per feature or concern, in the
+project's backlog, via `drunken-jira-mcp`.
 
 ## How to invoke
 
@@ -15,8 +16,14 @@ Run this on Day 0, before any code is written.
 
 ## What the skill reads
 
-- `PROJECT_BRIEF.md` in your project root (or `.claude/PROJECT_SPEC.md`)
-- `REQUIREMENTS.md`
+Whatever the `project-docs` skill finds, looked for in `.ai/`, then the project root, then
+`.claude/`, then `docs/`:
+
+- a brief — `PROJECT_BRIEF.md` and/or `PROJECT_SPEC.md`. **The only one required.**
+- `REQUIREMENTS.md` — sets each ticket's urgency label from its Must/Should/Could class
+- `ARCHITECTURE.md`, `POLICY.md`, `adr/` — used when present; never invented when absent
+
+This example's project has the first two.
 
 ## What it produces
 
