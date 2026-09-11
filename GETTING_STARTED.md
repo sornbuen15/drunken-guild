@@ -14,7 +14,7 @@ Python, no credentials and no server. Add the runtime only when you want work co
 3. [Add the runtime (optional)](#add-the-runtime-optional)
 4. [Step-by-step: your first ticket](#step-by-step-your-first-ticket)
 5. [Mid-sprint scenarios](#mid-sprint-scenarios)
-6. [Using the multi-agent squad](#using-the-multi-agent-squad)
+6. [Using the three roles](#using-the-three-roles)
 7. [Where to go next](#where-to-go-next)
 
 ---
@@ -62,7 +62,7 @@ ls ~/.claude/skills/
 Architecture, testing, security, UI/UX, Electron, git discipline, debugging — all of
 it installs and works standalone.
 
-The remaining 8 plus the `principal-engineer` agent coordinate work on Jira. They call `jira_*`
+The remaining 8 plus the `manager` agent coordinate work on Jira. They call `jira_*`
 tools, and without the runtime declared they will **say so and stop** rather than silently falling
 back to a file or a shell script. Every one of them names the server it requires in its own
 constraints.
@@ -312,20 +312,20 @@ What's done, what's in progress, what's queued, what's blocked. Useful for async
 
 ---
 
-## Using the multi-agent squad
+## Using the three roles
 
-The workflow above runs skills in your own session. For larger autonomous work, delegate to the
-squad:
+The workflow above runs skills in your own session. For larger work, start with the manager:
 
 ```bash
-claude --agent principal-engineer
+claude --agent manager
 ```
 
-> "Read `PROJECT_BRIEF.md` and `REQUIREMENTS.md`. Analyse the project and give me a platform
-> strategy, an initial ADR, and a squad plan."
+> "Read the project's documents and give me a plan: Epics, Stories and Tasks, in order, with what
+> can run in parallel."
 
-The orchestrator assembles the squad and delegates with context-rich prompts. The three tiers are
-described in the [README](./README.md#the-three-tier-system).
+The manager proposes and you approve before anything starts; a `worker` then takes one task at a
+time, and a `reviewer` checks the tests and the PR. The roles are described in the
+[README](./README.md#three-roles).
 
 ---
 
