@@ -219,8 +219,9 @@ def main() -> int:
             file=sys.stderr,
         )
         print(
-            "  -> Add it first. `scripts/migrate_env_to_registry.py` can lift "
-            "one out of an existing .env without printing it.",
+            f"  -> Add it first: `uv run python scripts/set_secret.py "
+            f"jira.{args.credential_key}`, then paste the token at the prompt. "
+            "Nothing is echoed.",
             file=sys.stderr,
         )
         return 1

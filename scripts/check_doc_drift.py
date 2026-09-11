@@ -55,6 +55,8 @@ RETIRED = (
     # script, a retired board tool, three commit formats -- was the one the
     # integration guide sent new projects to.
     Retired(".guild_templates", "DG-337", "templates/"),
+    Retired("migrate_env_to_registry.py", "DG-351", "scripts/set_secret.py"),
+    Retired("clean_host_config.py", "DG-351", "drunken-config --kind host"),
     # The Antigravity plumbing (DG-349). `templates/AGENTS.md` is deliberately
     # not listed: the re-scope's vendor-neutral AGENTS.md template may reuse
     # the name, and a guard that fires on the replacement is a guard that gets
