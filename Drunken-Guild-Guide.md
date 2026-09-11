@@ -34,7 +34,7 @@ There is no separate "router AI" deciding what to do with your messages -- every
 
 ### 2.1 AI behavior boundaries
 
-The detailed rules an AI agent must follow while working in this repo (when it can act immediately, when it must ask, what's forbidden outright) live in [`.agents/AGENTS.md`](./.agents/AGENTS.md) -- that file is the source of truth for agent-facing rules, kept separate here to avoid two documents drifting out of sync. In short: destructive or merge-worthy actions go through the approval flow in [Section 6](#6-approval-flow), not straight execution.
+The detailed rules an AI agent must follow while working in this repo (when it can act immediately, when it must ask, what's forbidden outright) live in [`CLAUDE.md`](./CLAUDE.md) -- that file is the source of truth for agent-facing rules, whichever agent is reading it, kept separate here to avoid two documents drifting out of sync. In short: destructive or merge-worthy actions go through the approval flow in [Section 6](#6-approval-flow), not straight execution.
 
 ---
 

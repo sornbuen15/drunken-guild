@@ -20,9 +20,8 @@ Two repositories held the same AI layer and drifted — 26 skills duplicated by 
 at 73 lines against 196, while a merged PR told one copy to defer to the other. Nobody was wrong at
 any single step, and two agents still ended up reading two different halves of one rulebook.
 
-**One surface is the answer.** Where a second surface is unavoidable — Antigravity's tree, the
-installed tool environment, `INDEX.md` — it is *generated from* the first, never maintained beside
-it. Most of what follows is that sentence applied to a specific place.
+**One surface is the answer.** Where a second surface is unavoidable — the installed tool
+environment, `INDEX.md` — it is *generated from* the first, never maintained beside it. Most of what follows is that sentence applied to a specific place.
 
 ---
 
@@ -38,7 +37,7 @@ case-by-case judgement is not good enough:
 |---|---|---|
 | config loading | which credential was used | DG-254 |
 | both Jira bridges | same, on the daemon's own path | DG-275 |
-| `sync_customizations.py` | **where an install was written** | DG-276 |
+| `sync_customizations.py` (retired, DG-349) | **where an install was written** | DG-276 | <!-- drift-ok: records the lesson, not an instruction -->
 
 The third was written off in the checkpoint as harmless — "it resolves a directory, not a secret".
 The directory was a *write target*. Where skills and agents landed was decided by whichever
@@ -206,5 +205,5 @@ silently widened permission are both worse than a refusal.
 | branch, commit, PR and merge rules | `skills/workflow/git-workflow/SKILL.md` |
 | what each component does | [`Drunken-Guild-Guide.md`](./Drunken-Guild-Guide.md) |
 | wiring the MCP servers into a project | [`Integration-Guide.md`](./Integration-Guide.md) |
-| agent-facing rules for this repository | [`.agents/AGENTS.md`](./.agents/AGENTS.md) |
+| agent-facing rules for this repository | [`CLAUDE.md`](./CLAUDE.md) |
 | what is pinned, and why | `pyproject.toml`, at each pin |

@@ -49,14 +49,3 @@ repos:
         entry: python scripts/check_settings_lint.py
         language: system
         files: \.claude/settings\.json$
-
-      # DG-299. DG-288 says Antigravity works from its own `git worktree`,
-      # never the shared primary tree. Nothing enforced that until this:
-      # Antigravity's DG-298 commit landed straight in the primary tree and
-      # left it checked out on a feature branch after the session ended.
-      - id: check-worktree-isolation
-        name: Block an Antigravity commit landing in the primary working tree
-        entry: python scripts/check_worktree_isolation.py
-        language: system
-        pass_filenames: false
-        always_run: true

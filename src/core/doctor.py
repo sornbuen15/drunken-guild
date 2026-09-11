@@ -465,32 +465,22 @@ def compare_pin(deployed: Optional[str], locked: Optional[str]) -> tuple[Status,
     )
 
 
-#: Where the AI layer is installed to, and what shape it takes there.
-#:
-#: Only skills are compared, and only the ones this repository produces. The
-#: Antigravity *agents* are generated with a transformation — the model is
-#: rewritten to its tier equivalent and the skill-index path is repointed — so
-#: they are correctly not byte-identical to their source and comparing them
-#: would report drift on every healthy install.
-AI_LAYER_ROOTS: Final = (
-    ("claude.skills", "~/.claude/skills"),
-    ("antigravity.skills", "~/.gemini/config/skills"),
-)
+#: Where the AI layer is installed to. Only skills are compared, and only the
+#: ones this repository produces. The Antigravity tree that used to sit beside
+#: this one was retired with the rest of its plumbing (DG-349).
+AI_LAYER_ROOTS: Final = (("claude.skills", "~/.claude/skills"),)
 
 
-#: The MCP configs a host application actually reads. ``drunken-config`` writes
-#: and merges exactly one of them; the second is the host's own, and nothing
-#: here has ever looked at it.
+#: The MCP configs a host application actually reads, beyond the one
+#: ``drunken-config`` manages. Reading only the managed file is what once let a
+#: retired server keep launching: the host started a ``board`` server the
+#: managed file no longer named, because the entry was in the host's own file.
 #:
-#: Reading only the managed file is what let a retired server keep launching.
-#: On Antigravity's last run it rewrote sixteen tool descriptors for a ``board``
-#: server — ``board_claim_task`` among them — while the managed file named no
-#: such server. The entry was in the other file. The board was retired in
-#: DG-265; the host was still starting it.
-HOST_MCP_CONFIGS: Final = (
-    ("antigravity.cli", "~/.gemini/antigravity-cli/mcp_config.json"),
-    ("antigravity.config", "~/.gemini/config/mcp_config.json"),
-)
+#: Empty since DG-349 retired the Antigravity plumbing — both entries here were
+#: Antigravity's own configs under ``~/.gemini``. :func:`_check_host_configs`
+#: stays, tested with injected roots, so a host config can be added back as a
+#: one-line entry rather than a rewrite.
+HOST_MCP_CONFIGS: Final[tuple[tuple[str, str], ...]] = ()
 
 #: This project's Jira server. Anything else answering the same question is a
 #: second surface that can disagree with the first, which is the failure this

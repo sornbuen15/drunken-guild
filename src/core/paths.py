@@ -33,7 +33,6 @@ ENV_AUTH_DB: Final = "DRUNKEN_AUTH_DB"
 ENV_PID_REGISTRY: Final = "DRUNKEN_PID_REGISTRY"
 ENV_APPROVAL_SNAPSHOT: Final = "DRUNKEN_APPROVAL_SNAPSHOT"
 ENV_AWAY_FLAG: Final = "DRUNKEN_AWAY_FLAG"
-ENV_ANTIGRAVITY_PAYLOAD_DEBUG: Final = "DRUNKEN_ANTIGRAVITY_PAYLOAD_DEBUG"
 
 DEFAULT_HOME: Final = "~/.drunken"
 
@@ -251,21 +250,6 @@ def away_flag_path() -> ResolvedPath:
     model never sees. A file can. ``DRUNKEN_AWAY_FLAG`` is the override.
     """
     return _under_home("away.json", ENV_AWAY_FLAG)
-
-
-def antigravity_payload_debug_path() -> ResolvedPath:
-    """DG-303: where the hook records a real Antigravity toolCall shape.
-
-    ``CommandLine``/``AbsolutePath`` (approval_hook.py's mapping for
-    ``run_command``/``view_file``) were never verified against a real
-    payload -- no test exercises them, and they match nothing in this
-    machine's own Antigravity CLI logs. This is temporary, throwaway
-    diagnostic state to capture one real shape and settle the question,
-    not a permanent record -- hence a plain append-only log file rather
-    than a name in the approvals/registry family above.
-    ``DRUNKEN_ANTIGRAVITY_PAYLOAD_DEBUG`` is the override.
-    """
-    return _under_home("antigravity_payload_debug.log", ENV_ANTIGRAVITY_PAYLOAD_DEBUG)
 
 
 def ensure_home() -> Path:

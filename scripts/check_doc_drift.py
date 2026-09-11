@@ -57,6 +57,24 @@ RETIRED = (
     Retired(".guild_templates", "DG-337", "templates/"),
     Retired("migrate_env_to_registry.py", "DG-351", "scripts/set_secret.py"),
     Retired("clean_host_config.py", "DG-351", "drunken-config --kind host"),
+    # The Antigravity plumbing (DG-349). `templates/AGENTS.md` is deliberately
+    # not listed: the re-scope's vendor-neutral AGENTS.md template may reuse
+    # the name, and a guard that fires on the replacement is a guard that gets
+    # switched off.
+    Retired(".agents/AGENTS.md", "DG-349", "CLAUDE.md"),
+    Retired(".agents/hooks.json", "DG-349", ".claude/settings.json hooks"),
+    Retired(
+        "install_host_docs.sh", "DG-349", "nothing; the global file was Antigravity's"
+    ),
+    Retired(
+        "check_worktree_isolation.py", "DG-349", "git-workflow's One Working Tree rule"
+    ),
+    Retired(
+        "sync_customizations.py", "DG-349", "install_skills.sh / install_agents.sh"
+    ),
+    Retired(
+        "antigravity_payload_debug", "DG-349", "nothing; the mapping it logged is gone"
+    ),
 )
 
 #: Documents whose job is to record what changed. They have to be able to name
