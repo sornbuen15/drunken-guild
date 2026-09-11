@@ -2,10 +2,9 @@
 # Usage: .\scripts\install\install_agents.ps1
 #
 # KNOWN GAP -- this does less than install_agents.sh, and the difference is
-# stated rather than hidden. The shell version also generates the
-# Antigravity variant of each agent, rewriting the model to its tier
-# equivalent, and accepts --index-only to rebuild agents/INDEX.md without
-# installing anything. Neither is implemented here.
+# stated rather than hidden. The shell version also accepts --index-only
+# to rebuild agents/INDEX.md without installing anything. That is not
+# implemented here.
 #
 # Not an oversight: this project has no Windows machine to run PowerShell
 # against, and an untested installer that writes into a shared config

@@ -98,30 +98,23 @@ class TestDenyIsNotNegotiable:
 class TestDG321UnreadableCallsFailClosed:
     """A call the hook cannot read is denied, not waved through.
 
-    `main()` maps Antigravity's `toolCall` onto Claude's shape by field name:
-    `run_command` reads `args.CommandLine`, `view_file` reads
-    `args.AbsolutePath`. DG-303 records that those names are unverified against
-    a real payload. A wrong name is not merely noisy -- `.get(name, "")` yields
-    an empty string, and an empty string matches no rule at all, deny rules
+    A missing command or path is not merely noisy -- `.get(name, "")` yields an
+    empty string, and an empty string matches no rule at all, deny rules
     included. The call then falls past the deny list it was supposed to be
-    stopped by.
-
-    So the guard cannot live in the mapping: any future tool whose field name
-    is wrong reopens the same hole. It lives here, with the deny check, and
-    reads "if this call carries no command or path, the hook has nothing to
-    judge and must not pretend otherwise."
+    stopped by. The case first came from a foreign payload mapped by field
+    name (that mapping is retired, DG-349); the guard asks the question that
+    survives any payload shape: "if this call carries no command or path, the
+    hook has nothing to judge and must not pretend otherwise."
     """
 
-    def test_a_command_that_mapped_to_an_empty_string_is_denied(self) -> None:
-        """The exact shape a wrong `CommandLine` produces. Without the guard
-        this returns no decision and the harness carries on -- with `rm -rf`
-        on Antigravity's own allowlist and no denylist beside it."""
+    def test_a_command_that_is_an_empty_string_is_denied(self) -> None:
+        """Without the guard this returns no decision, and the harness carries
+        on with a call no deny rule was ever evaluated against."""
         decision = hook.decide(
             payload(command=""),
             pr.Rules(allow=ALLOW_RULES, deny=DENY_RULES),
             away=True,
             ask_boss=never_asked,
-            is_antigravity=True,
         )
         assert decision.permission == "deny"
 
@@ -134,16 +127,14 @@ class TestDG321UnreadableCallsFailClosed:
         )
         assert decision.permission == "deny"
 
-    def test_a_path_tool_that_mapped_to_an_empty_path_is_denied(self) -> None:
-        """`view_file` and `write_to_file` map onto `path`. An empty one is the
-        same failure as an empty command, and `Read(**/.env)` cannot fire on
-        it either."""
+    def test_a_path_tool_with_an_empty_path_is_denied(self) -> None:
+        """An empty path is the same failure as an empty command, and
+        `Read(**/.env)` cannot fire on it either."""
         decision = hook.decide(
             payload(tool_name="Read", path=""),
             pr.Rules(allow=[], deny=DENY_RULES),
             away=True,
             ask_boss=never_asked,
-            is_antigravity=True,
         )
         assert decision.permission == "deny"
 
@@ -160,8 +151,8 @@ class TestDG321UnreadableCallsFailClosed:
         assert decision.permission == "deny"
 
     def test_a_tool_that_carries_neither_is_left_alone(self) -> None:
-        """The guard must stay narrow. `Bash`, `Read` and `Write` are the three
-        shapes `main()` maps and the three where an empty value is meaningless.
+        """The guard must stay narrow. `Bash`, `Read` and the file-writing
+        family are the three where an empty value is meaningless.
         A tool that legitimately carries no command and no path -- TodoWrite,
         say -- is none of the hook's business, and denying it would break every
         session to close a hole that is not there."""
@@ -313,92 +304,6 @@ class TestTheWireFormat:
         assert "permissionDecision" not in emitted.get("hookSpecificOutput", {})
 
 
-class TestAntigravityPayloadLogging:
-    """DG-303: CommandLine/AbsolutePath were never verified against a real
-    Antigravity payload -- this only proves the capture mechanism itself
-    works and never leaks a value, not that the field names are right."""
-
-    def test_a_real_toolcall_shape_is_logged_without_its_values(
-        self, tmp_path, monkeypatch, capsys
-    ) -> None:
-        from core import paths
-
-        monkeypatch.setenv(paths.ENV_HOME, str(tmp_path))
-        stdin = json.dumps(
-            {
-                "toolCall": {
-                    "name": "run_command",
-                    "args": {
-                        "CommandLine": "cat /etc/shadow",
-                        "secretish": "should-never-appear",
-                    },
-                },
-                "workspacePaths": [str(tmp_path)],
-            }
-        )
-
-        assert hook.main(stdin_text=stdin) == 0
-        capsys.readouterr()  # the decision itself isn't what this test checks
-
-        log_path = paths.antigravity_payload_debug_path().path
-        logged = log_path.read_text(encoding="utf-8")
-        entry = json.loads(logged.strip().splitlines()[-1])
-        assert entry["name"] == "run_command"
-        assert entry["arg_keys"] == ["CommandLine", "secretish"]
-        assert "cat /etc/shadow" not in logged
-        assert "should-never-appear" not in logged
-
-    def test_path_tools_extract_their_specific_fields(
-        self, tmp_path, monkeypatch, capsys
-    ) -> None:
-        """DG-303: verifies that AbsolutePath for view_file and TargetFile for
-        write_to_file map correctly without leaking their string values."""
-        from core import paths
-
-        monkeypatch.setenv(paths.ENV_HOME, str(tmp_path))
-        stdin = json.dumps(
-            {
-                "toolCall": {
-                    "name": "write_to_file",
-                    "args": {
-                        "TargetFile": "/etc/shadow",
-                        "CodeContent": "evil data",
-                    },
-                },
-                "workspacePaths": [str(tmp_path)],
-            }
-        )
-        assert hook.main(stdin_text=stdin) == 0
-
-        log_path = paths.antigravity_payload_debug_path().path
-        logged = log_path.read_text(encoding="utf-8")
-        entry = json.loads(logged.strip().splitlines()[-1])
-
-        assert entry["name"] == "write_to_file"
-        assert "TargetFile" in entry["arg_keys"]
-        assert "/etc/shadow" not in logged
-        assert "evil data" not in logged
-
-    def test_a_claude_shaped_payload_logs_nothing(self, tmp_path, monkeypatch) -> None:
-        """No `toolCall` key means no Antigravity shape to capture -- logging
-        on every Claude call too would make the file noise, not evidence."""
-        from core import paths
-
-        monkeypatch.setenv(paths.ENV_HOME, str(tmp_path))
-        stdin = json.dumps(
-            {
-                "hook_event_name": "PreToolUse",
-                "tool_name": "Bash",
-                "tool_input": {"command": "git status"},
-                "permission_mode": "default",
-                "cwd": str(tmp_path),
-            }
-        )
-
-        assert hook.main(stdin_text=stdin) == 0
-        assert not paths.antigravity_payload_debug_path().path.exists()
-
-
 class TestTheTimeoutsCannotDrift:
     def test_the_configured_hook_timeout_exceeds_the_hooks_own_budget(self) -> None:
         """Two numbers that have to stay in a relationship, in two files --
@@ -426,27 +331,6 @@ class TestTheTimeoutsCannotDrift:
             if "drunken-approval-hook" in entry.get("command", "")
         ]
         assert entries, "the approval hook is not wired into .claude/settings.json"
-        for entry in entries:
-            assert (
-                entry["timeout"]
-                >= hook.WAIT_BUDGET_SECONDS + hook.TIMEOUT_MARGIN_SECONDS
-            )
-
-    def test_antigravity_hook_timeout_also_exceeds_budget(self) -> None:
-        from pathlib import Path
-
-        hooks_json = Path(__file__).resolve().parents[1] / ".agents" / "hooks.json"
-        if not hooks_json.exists():
-            return
-
-        settings = json.loads(hooks_json.read_text(encoding="utf-8"))
-        entries = [
-            entry
-            for group in settings.get("drunken-approval-hook", {}).get("PreToolUse", [])
-            for entry in group.get("hooks", [])
-            if "drunken-approval-hook" in entry.get("command", "")
-        ]
-        assert entries, "the approval hook is not wired into .agents/hooks.json"
         for entry in entries:
             assert (
                 entry["timeout"]
@@ -637,7 +521,6 @@ def test_decide_does_not_mutate_tracked_settings_file(monkeypatch, tmp_path):
         rules=rules,
         away=True,
         ask_boss=ask_boss,
-        is_antigravity=True,
     )
 
     assert decision.permission == "allow"
@@ -810,29 +693,26 @@ class TestDG334TheWriteSideOfTheFloor:
         )
         assert decision.permission == "deny"
 
-    def test_an_antigravity_file_write_to_dotenv_is_denied(self) -> None:
-        """`write_to_file` and its siblings map onto `Edit`. Same floor."""
+    def test_an_edit_to_dotenv_is_denied(self) -> None:
+        """The Edit tool itself, not just Write. Same floor."""
         decision = hook.decide(
             payload(tool_name="Edit", path="/repo/.env"),
             pr.Rules(allow=[], deny=self.EDIT_DENY),
             away=True,
             ask_boss=never_asked,
-            is_antigravity=True,
         )
         assert decision.permission == "deny"
 
-    def test_a_mapped_file_write_carrying_no_path_is_denied(self) -> None:
-        """DG-321 for the write side. `main()` reads `args.TargetFile`; a
-        renamed field yields an empty string, which matches no rule at all --
-        deny rules included. It was guarded while the mapping produced
-        `Write` and stopped being guarded when the mapping produced `Edit`,
-        because the guard was keyed on the name rather than on the family."""
+    def test_a_file_write_carrying_no_path_is_denied(self) -> None:
+        """DG-321 for the write side. An empty path matches no rule at all --
+        deny rules included. It was once guarded under `Write` and stopped
+        being guarded when the name it arrived under became `Edit`, because
+        the guard was keyed on the name rather than on the family."""
         decision = hook.decide(
             payload(tool_name="Edit", path=""),
             pr.Rules(allow=ALLOW_RULES, deny=self.EDIT_DENY),
             away=True,
             ask_boss=never_asked,
-            is_antigravity=True,
         )
         assert decision.permission == "deny"
 

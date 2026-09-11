@@ -8,7 +8,7 @@ description: >
 ---
 
 # Skill: Git Workflow & Branching Strategy
-**Version:** v2.2.0
+**Version:** v2.3.0
 **Description:** Best-practice Git discipline — branch naming, commit conventions, PR lifecycle, which merge strategy belongs to which target, and release hygiene. An agent opens pull requests; a human merges them.
 
 ---
@@ -61,42 +61,36 @@ description: >
 
   <concurrent_agents>
     <rule priority="FATAL" name="One Working Tree Per Agent">
-      Claude and Antigravity never share a checked-out working tree. Each works from its own
-      `git worktree` of this repository, on its own branch — so a checkout switched or edited by
-      one can never be pulled out from under the other mid-session, whether they are handing off
-      in turn or, by mistake, started at the same time.
+      Two agents never share a checked-out working tree. Each works from its own `git worktree`
+      of the repository, on its own branch — so a checkout switched or edited by one can never be
+      pulled out from under another mid-session, whether they are handing off in turn or, by
+      mistake, started at the same time. One task, one owner, one branch, one worktree, one PR.
 
-      Claude works from the checkout its harness starts it in. Antigravity works from a sibling
-      worktree, added once and left in place between sessions:
+      The first agent may work from the checkout its harness starts it in; any agent running beside
+      it works from a sibling worktree, added once and left in place between sessions:
 
       ```
-      git worktree add ../drunken-guild.antigravity <starting-branch>
+      git worktree add ../<repo>.<agent> <starting-branch>
       ```
 
-      If Antigravity's own runtime already isolates its checkout elsewhere — see the note in
-      `CLAUDE.md` about `~/.gemini/antigravity-cli/brain/*/worktrees/` — that satisfies the same
-      rule; confirm which and record it once DG-287 has actually run Antigravity to check. Neither
-      agent runs `git worktree remove` on a path it does not own, and neither switches the branch
-      checked out in the other's worktree.
+      A harness that isolates each session itself satisfies the rule without that step — Claude
+      Code's worktree sessions, and Remote Control's `--spawn worktree`, both do. No agent runs
+      `git worktree remove` on a path it does not own, and none switches the branch checked out in
+      another's worktree.
 
       DG-288: decided over two cheaper-looking alternatives, and why each was rejected —
-      - **Antigravity read-only, Claude writes.** Does not describe what either agent already
-        does: Antigravity writes code, tests it, and opens its own PRs (DG-284, DG-285), and the
-        parent Epic is about it running as a peer, not a reviewer.
-      - **Strict alternating turns.** Needs a turn marker both agents read, which is a second
+      - **One agent read-only, the other writes.** Does not describe how agents are used: each one
+        writes code, tests it, and opens its own PRs.
+      - **Strict alternating turns.** Needs a turn marker every agent reads, which is a second
         coordination surface that can disagree with the first — the exact failure the retired
         local board was (DG-250).
 
       A worktree needs neither: two sessions can start at the same moment and still never touch
       the same file on disk, because neither ever sees the other's branch.
-
-      This rule stands regardless of whether Antigravity is currently active on a given repo —
-      "supported, not recommended" (see that repo's `CLAUDE.md`) changes who gets assigned work,
-      not what the rule requires if both do run.
     </rule>
 
     <rule priority="HIGH" name="Unchanged Either Way">
-      Opening a PR and waiting for a human to merge it is identical for both agents, worktree or
+      Opening a PR and waiting for a human to merge it is identical for every agent, worktree or
       not — see `<pr_lifecycle>` below. A worktree only decides who owns the filesystem while work
       is in progress; it changes nothing about review, CI, or merge.
     </rule>
@@ -130,13 +124,12 @@ description: >
 
     <rule priority="HIGH" name="Agent Commit Attribution">
       An agent commit passes `--author`, never the operator's own git identity:
-      `git commit --author="Claude Code <claude@drunken.local>" -m "..."` for Claude,
-      `--author="Antigravity <antigravity@drunken.local>"` for Antigravity (DG-293).
+      `git commit --author="Claude Code <claude@drunken.local>" -m "..."` for Claude, and the
+      same shape with its own name for any other agent (DG-293).
 
       The addresses are local-only and resolve to no real account — that is the point. `git log`
       then tells an agent's commit from the operator's on sight, the same way Assignee stays the
-      accountable human while a ticket's `agent:claude` / `agent:antigravity` label says who is
-      typing.
+      accountable human while a ticket's `agent:<name>` label says who is typing.
     </rule>
   </commit_conventions>
 
@@ -237,7 +230,7 @@ description: >
     <constraint priority="FATAL">Never run `git merge` locally against `main` or `develop` and push the result — squash, no-ff or fast-forward alike. Merges happen on the remote, through a PR.</constraint>
     <constraint priority="FATAL">Never open a PR into `main` from anything except `develop`.</constraint>
     <constraint priority="FATAL">Always branch first — file changes come second.</constraint>
-    <constraint priority="FATAL">Claude and Antigravity never share a checked-out working tree. Each works from its own `git worktree`, on its own branch.</constraint>
+    <constraint priority="FATAL">Two agents never share a checked-out working tree. Each works from its own `git worktree`, on its own branch.</constraint>
     <constraint priority="HIGH">One branch per task. One commit per logical unit.</constraint>
     <constraint priority="HIGH">All output must be in English.</constraint>
   </constraints>

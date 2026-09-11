@@ -57,8 +57,8 @@ class TestNamingWhatCannotStart:
             },
         )
         report = doctor.Report()
-        doctor._check_host_configs(report, roots=(("antigravity.config", config),))
-        check = _named(report, "host_mcp.antigravity.config")
+        doctor._check_host_configs(report, roots=(("example.host", config),))
+        check = _named(report, "host_mcp.example.host")
         assert check.status == "warn"
         assert "notebooks" in check.detail
 
@@ -68,8 +68,8 @@ class TestNamingWhatCannotStart:
             {"board": {"command": str(tmp_path / "bin" / "drunken-board-mcp")}},
         )
         report = doctor.Report()
-        doctor._check_host_configs(report, roots=(("antigravity.config", config),))
-        check = _named(report, "host_mcp.antigravity.config")
+        doctor._check_host_configs(report, roots=(("example.host", config),))
+        check = _named(report, "host_mcp.example.host")
         assert check.status == "warn"
         assert "board" in check.detail
 
@@ -82,8 +82,8 @@ class TestNamingWhatCannotStart:
             {"drunken-jira-mcp": {"command": str(binary), "args": ["--project", "dg"]}},
         )
         report = doctor.Report()
-        doctor._check_host_configs(report, roots=(("antigravity.config", config),))
-        assert _named(report, "host_mcp.antigravity.config").status == "ok"
+        doctor._check_host_configs(report, roots=(("example.host", config),))
+        assert _named(report, "host_mcp.example.host").status == "ok"
 
     def test_a_command_found_on_path_is_not_reported_missing(self, tmp_path) -> None:
         """`node`, `npx` and `uv` are named without a path on purpose. Treating
@@ -94,8 +94,8 @@ class TestNamingWhatCannotStart:
             {"github": {"command": "sh", "args": ["-c", "true"]}},
         )
         report = doctor.Report()
-        doctor._check_host_configs(report, roots=(("antigravity.config", config),))
-        assert _named(report, "host_mcp.antigravity.config").status == "ok"
+        doctor._check_host_configs(report, roots=(("example.host", config),))
+        assert _named(report, "host_mcp.example.host").status == "ok"
 
     def test_an_archived_server_is_not_checked(self, tmp_path) -> None:
         """`archivedMcpServers` is the host's own record of what it stopped
@@ -106,8 +106,8 @@ class TestNamingWhatCannotStart:
             archived={"board": {"command": str(tmp_path / "gone" / "board-mcp")}},
         )
         report = doctor.Report()
-        doctor._check_host_configs(report, roots=(("antigravity.config", config),))
-        assert _named(report, "host_mcp.antigravity.config").status == "ok"
+        doctor._check_host_configs(report, roots=(("example.host", config),))
+        assert _named(report, "host_mcp.example.host").status == "ok"
 
 
 class TestOneJiraSurface:
@@ -125,8 +125,8 @@ class TestOneJiraSurface:
             },
         )
         report = doctor.Report()
-        doctor._check_host_configs(report, roots=(("antigravity.config", config),))
-        check = _named(report, "host_mcp.antigravity.config")
+        doctor._check_host_configs(report, roots=(("example.host", config),))
+        check = _named(report, "host_mcp.example.host")
         assert check.status == "warn"
         assert "jira-board" in check.detail
 
@@ -136,8 +136,8 @@ class TestOneJiraSurface:
             {"drunken-jira-mcp": {"command": "sh", "args": ["-c", "true"]}},
         )
         report = doctor.Report()
-        doctor._check_host_configs(report, roots=(("antigravity.config", config),))
-        assert _named(report, "host_mcp.antigravity.config").status == "ok"
+        doctor._check_host_configs(report, roots=(("example.host", config),))
+        assert _named(report, "host_mcp.example.host").status == "ok"
 
 
 class TestWhenThereIsNothingToRead:
@@ -145,16 +145,16 @@ class TestWhenThereIsNothingToRead:
         """A machine with no Antigravity installed legitimately has none."""
         report = doctor.Report()
         doctor._check_host_configs(
-            report, roots=(("antigravity.config", tmp_path / "nope.json"),)
+            report, roots=(("example.host", tmp_path / "nope.json"),)
         )
-        assert _named(report, "host_mcp.antigravity.config").status == "skip"
+        assert _named(report, "host_mcp.example.host").status == "skip"
 
     def test_unreadable_json_is_a_warning_that_names_the_file(self, tmp_path) -> None:
         config = tmp_path / "mcp_config.json"
         config.write_text("{not json", encoding="utf-8")
         report = doctor.Report()
-        doctor._check_host_configs(report, roots=(("antigravity.config", config),))
-        check = _named(report, "host_mcp.antigravity.config")
+        doctor._check_host_configs(report, roots=(("example.host", config),))
+        check = _named(report, "host_mcp.example.host")
         assert check.status == "warn"
         assert str(config) in check.detail
 
@@ -168,11 +168,11 @@ class TestItNeverBreaksTheRun:
             {"gone": {"command": str(tmp_path / "nope")}},
         )
         report = doctor.Report()
-        doctor._check_host_configs(report, roots=(("antigravity.config", config),))
+        doctor._check_host_configs(report, roots=(("example.host", config),))
         assert report.failed is False
 
-    def test_the_default_roots_are_both_antigravity_configs(self) -> None:
-        """Reading only the file `drunken-config` writes is what let a retired
-        board server keep launching from the file it does not."""
-        names = [name for name, _ in doctor.HOST_MCP_CONFIGS]
-        assert names == ["antigravity.cli", "antigravity.config"]
+    def test_no_default_root_reaches_into_a_retired_host(self) -> None:
+        """Both defaults were Antigravity's own configs under `~/.gemini`, and
+        DG-349 retired that plumbing. The check itself stays, exercised above
+        with injected roots, so a host can come back as a one-line entry."""
+        assert doctor.HOST_MCP_CONFIGS == ()

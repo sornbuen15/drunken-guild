@@ -130,9 +130,9 @@ def build_parser() -> argparse.ArgumentParser:
         "--merge-mcp-config",
         metavar="FILE",
         help=(
-            "Add the three servers to an existing host config, e.g. "
-            "~/.gemini/antigravity-cli/mcp_config.json. Its own entries are "
-            "left alone."
+            "Add this project's two servers to an existing host config, such "
+            "as another editor's global MCP file. Its own entries are left "
+            "alone."
         ),
     )
     parser.add_argument(

@@ -18,13 +18,8 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 LOCAL_SKILLS_DIR="$PROJECT_ROOT/skills"
 GLOBAL_SKILLS_DIR="$HOME/.claude/skills"
 
-# Antigravity reads the same skills from its own tree. Unlike the agents, a
-# skill needs no rewriting on the way across -- nothing under skills/ names a
-# per-agent index path -- so we symlink it rather than holding a second copy.
-ANTIGRAVITY_SKILLS_DIR="${ANTIGRAVITY_SKILLS_DIR:-$HOME/.gemini/config/skills}"
-
 # --index-only rebuilds the repository's INDEX.md and writes nothing else --
-# not to ~/.claude, not to Antigravity, not to any target. It exists because
+# not to ~/.claude, not to any target. It exists because
 # the index is generated but also committed, so it goes stale on any change to
 # a skill's name or description, and the only way to refresh it used to be to
 # perform an install. An agent that must not install had no way to keep a
@@ -52,20 +47,8 @@ echo -e "  Project:  $PROJECT_ROOT"
 echo -e "  Source:   $LOCAL_SKILLS_DIR"
 echo -e "  Target:   $GLOBAL_SKILLS_DIR"
 
-# Written to only if it already exists, and only ever *added to*. That
-# directory is shared: alongside ours it holds ~30 Apache-2.0 skills shipped by
-# Google and Antigravity's own template, none of which have another copy on
-# this machine. Never replace the directory, never sync with --delete, and do
-# not create it -- a machine with no Antigravity should not grow a config for
-# one because an installer ran.
-INSTALL_ANTIGRAVITY=false
 if [ "$INDEX_ONLY" = true ]; then
   echo -e "${YELLOW}  --index-only: rebuilding skills/INDEX.md, installing nothing${NC}"
-elif [ -d "$ANTIGRAVITY_SKILLS_DIR" ]; then
-  INSTALL_ANTIGRAVITY=true
-  echo -e "  Also:     $ANTIGRAVITY_SKILLS_DIR"
-else
-  echo -e "${YELLOW}  Antigravity not found at $ANTIGRAVITY_SKILLS_DIR — skipping that variant${NC}"
 fi
 echo ""
 
@@ -93,11 +76,6 @@ fi
 
 NEW_COUNT=0
 UPDATED_COUNT=0
-# Same reason as install_agents.sh: one pair of counters can only describe one
-# target, and reporting more work than happened is the same defect as reporting
-# less. See DG-272.
-AG_NEW_COUNT=0
-AG_UPDATED_COUNT=0
 
 _skill_list=$(mktemp)
 find "$LOCAL_SKILLS_DIR" -type f -name "SKILL.md" | sort > "$_skill_list"
@@ -135,27 +113,6 @@ while IFS= read -r skill_file; do
 
   if [ "$INDEX_ONLY" = false ]; then
     _copy_dir "$skill_dir" "$TARGET_DIR"
-  fi
-
-  if [ "$INSTALL_ANTIGRAVITY" = true ]; then
-    if [ -e "$ANTIGRAVITY_SKILLS_DIR/$skill_name" ] || [ -L "$ANTIGRAVITY_SKILLS_DIR/$skill_name" ]; then
-      AG_UPDATED_COUNT=$((AG_UPDATED_COUNT + 1))
-    else
-      AG_NEW_COUNT=$((AG_NEW_COUNT + 1))
-    fi
-    # DG-302: refuse rather than rm -rf a path built from variables that
-    # could theoretically be empty or point outside the target directory --
-    # a script under the already-allowlisted `Bash(./scripts/*.sh)` gets none
-    # of the protection .claude/settings.json's deny list gives a direct
-    # `rm -rf` tool call, so this check is the only guard that exists.
-    _ag_target="$ANTIGRAVITY_SKILLS_DIR/$skill_name"
-    if [ -z "$ANTIGRAVITY_SKILLS_DIR" ] || [ -z "$skill_name" ] \
-      || [ "${_ag_target#"$ANTIGRAVITY_SKILLS_DIR"/}" = "$_ag_target" ]; then
-      echo -e "${RED}Refusing to touch '$_ag_target' -- not a clean child of \$ANTIGRAVITY_SKILLS_DIR${NC}" >&2
-      exit 1
-    fi
-    rm -rf "$_ag_target"
-    ln -s "$GLOBAL_SKILLS_DIR/$skill_name" "$_ag_target"
   fi
 
   if [ "$INDEX_ONLY" = true ]; then
@@ -253,9 +210,6 @@ cp "$INDEX_FILE" "$LOCAL_SKILLS_DIR/INDEX.md"
 
 echo ""
 echo -e "${GREEN}Done.${NC} $NEW_COUNT new  |  $UPDATED_COUNT updated"
-if [ "$INSTALL_ANTIGRAVITY" = true ]; then
-  echo -e "  Antigravity: $AG_NEW_COUNT new  |  $AG_UPDATED_COUNT updated"
-fi
 echo -e "  INDEX.md: $INDEX_FILE"
 
 # Anything installed that this repo does not produce. Reported, never deleted:

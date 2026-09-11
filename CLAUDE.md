@@ -5,18 +5,14 @@ Loaded automatically. Kept short enough that it is actually read.
 `SESSION_CHECKPOINT.md` is the other half: **read it at the start of a session.** This file says
 how to work; that file says where things stand.
 
-**Antigravity as an active peer on this repo is supported, not recommended.** The rules below
-(worktree isolation, the `--author` split, `agent:antigravity` labels) still exist and still hold
-if it runs — this is not a removal. But do not assign it work or expect it to pick any up:
-`SESSION_CHECKPOINT.md` carries the current decision record (DG-301) and is the authoritative
-status. As of that record, the reason is Antigravity's own track record on rules written
-specifically for it, plus a permission-prompt noise problem in its own harness (`~/.gemini/`) that
-this repo has no way to reach or fix.
+**The repository is being re-scoped to 2.0.0** (Epic DG-348). The target and every decision so
+far are in `SESSION_CHECKPOINT.md` §0 — judge any change against it, and do not start work the
+inventory has not approved.
 
-**This file is Antigravity's authority too.** `.agents/AGENTS.md` points it here and carries only
-what genuinely differs for it — author, label, install paths, hook file. Change a rule here, never
-by copying it into that file: it was a find-and-replace copy once, and the replacement put the deny
-list in a file the hook never reads (DG-340).
+**No agent-specific plumbing lives here any more.** The Antigravity hook config, its payload mapping,
+its install trees and its copy of these rules were retired in DG-349. Another agent working in this
+repository follows the same rules as Claude — this file, for now; a vendor-neutral `AGENTS.md` is the
+re-scope's target — with its own name in the author and the `agent:` label.
 
 ---
 
@@ -27,7 +23,7 @@ list in a file the hook never reads (DG-340).
 | | what it is | where |
 |---|---|---|
 | **The runtime** | a Python package — MCP servers (`drunken-jira-mcp`, `drunken-discord-mcp`) and the CLI (`drunken-doctor`, `drunken-away`, `drunken-usage`, …) | `src/`, `tests/`, `scripts/` |
-| **The AI layer** | the skills and agents that get installed into `~/.claude/` and read by Antigravity | `skills/`, `agents/`, `templates/`, `examples/` |
+| **The AI layer** | the skills and agents that get installed into `~/.claude/` | `skills/`, `agents/`, `templates/`, `examples/` |
 
 It exists because these two were separate repositories that drifted. Skills were authored in four
 places with 26 duplicated by name; `git-workflow` silently diverged to 73 lines against 196 while a
@@ -109,8 +105,8 @@ did not see.
 
 **How to write and run a ticket is `skills/kanban/jira-tickets/SKILL.md`** — the
 FINDING/SCOPE/ACCEPTANCE shape, the fields this Jira can actually set, and what must be verified
-before anything is Done. Read it before opening or closing a ticket. It is the same file
-Antigravity is pointed at, so the rules cannot drift apart per agent.
+before anything is Done. Read it before opening or closing a ticket. It is the same file every
+agent is pointed at, so the rules cannot drift apart per agent.
 
 A ticket is scanned, not read: the story of how you found it belongs in the commit and the PR.
 
@@ -139,8 +135,8 @@ membership of the current working set and nothing else. A ticket parked in the b
 
 **Assignee is the accountable human; the agent doing the typing is a label.** Assignee can only
 hold a real email, so it cannot say which agent is on a ticket. A ticket an agent is actively
-working carries `agent:claude` or `agent:antigravity` in `labels` — set it, do not repurpose
-Assignee for it (DG-293).
+working carries `agent:<name>` — `agent:claude`, or the other agent's own name — in `labels`. Set
+it; do not repurpose Assignee for it (DG-293).
 
 ---
 
@@ -160,12 +156,11 @@ rule itself:
 - Never `git merge` locally against `main` or `develop` and push the result.
 - Merge strategy is chosen by target, not preference.
 - **An agent commit passes `--author`**, so `git log` tells an agent's commit from the operator's:
-  `Claude Code <claude@drunken.local>` or `Antigravity <antigravity@drunken.local>` (DG-293). The
-  addresses are local-only and resolve nowhere — they exist to be visibly not a real account.
-- **Claude and Antigravity never share a checked-out working tree.** Each works from its own
-  `git worktree`, on its own branch, so a checkout one switches or edits can never be pulled out
-  from under the other (DG-288). Still the rule if Antigravity runs here — see the note at the top
-  of this file on why that is currently not recommended.
+  `Claude Code <claude@drunken.local>`, or `<Agent> <agent@drunken.local>` for any other (DG-293).
+  The addresses are local-only and resolve nowhere — they exist to be visibly not a real account.
+- **Two agents never share a checked-out working tree.** Each works from its own `git worktree`, on
+  its own branch, so a checkout one switches or edits can never be pulled out from under the other
+  (DG-288). One task, one owner, one branch, one worktree, one PR.
 
 The `DG-` key in a branch name is not decoration: `drunken-usage --by ticket` reads it back off the
 branch and has no other source, so a branch without one reports as untracked cost, silently.
@@ -233,8 +228,8 @@ so and give the command; do not run it. This rule came from the toolkit side of 
 was FATAL, and it is FATAL here.
 
 ```
-scripts/install/install_skills.sh    → ~/.claude/skills/  + the Antigravity tree
-scripts/install/install_agents.sh    → ~/.claude/agents/  + the Antigravity variant, generated
+scripts/install/install_skills.sh    → ~/.claude/skills/
+scripts/install/install_agents.sh    → ~/.claude/agents/
 scripts/install/install_mcp.sh       → prints or writes a project's MCP config
 ```
 
@@ -353,6 +348,5 @@ Three things worth knowing before you turn it on:
 - **Every outbound HTTP call goes through `core/http.py`.** One `# nosec`, on the guard itself.
 - **Do not touch `~/Projects/drunken-team` or `~/Projects/ai-team-toolkit`.** They are the fallback
   until this repo is released and verified.
-- **Do not touch `~/.gemini/antigravity-cli/brain/*/worktrees/`.** That belongs to Antigravity.
-- Antigravity reviews and runs client-side acceptance tests. It does **not** edit this repo's source
-  while security work is in flight.
+- **Do not touch another agent's own state** — `~/.gemini/` and anything under it included. Nothing
+  here installs into it any more (DG-349), and editing a file there is an install.
