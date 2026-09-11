@@ -32,7 +32,14 @@ name = "drunken-guild"
 # The MINOR half is earned on its own -- DG-322 and DG-324 add capability
 # (doctor reporting unresolvable host servers, the host-config operator
 # scripts), and DG-321 and DG-325 repair rather than remove.
-version = "1.2.0"
+#
+# 1.3.1, and 1.3.0 was never declared here. `v1.3.0` was tagged on PR #71, a
+# plain develop-to-main sync that changed no version -- the mistake DG-330
+# describes -- so this field read 1.2.0 under a 1.3.0 tag and `version.declared`
+# failed on both branches. The tag stays: it names a real commit, and that
+# commit did carry a MINOR change (the python-quality-gates skill, DG-333).
+# 1.3.1 is that commit plus DG-334, a security repair, so PATCH (DG-335).
+version = "1.3.1"
 description = "Skills, agents and MCP servers for directing AI coding agents"
 readme = "README.md"
 requires-python = ">=3.10"
