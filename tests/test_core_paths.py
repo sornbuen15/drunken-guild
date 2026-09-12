@@ -18,7 +18,6 @@ def isolated_env(monkeypatch, tmp_path):
     for var in (
         paths.ENV_HOME,
         paths.ENV_REGISTRY,
-        paths.ENV_SOCKET,
         paths.ENV_AUTH_DB,
     ):
         monkeypatch.delenv(var, raising=False)
@@ -85,25 +84,6 @@ class TestEntries:
         monkeypatch.setenv(paths.ENV_REGISTRY, str(tmp_path / "custom.json"))
         assert paths.registry_path().path == tmp_path / "custom.json"
 
-    def test_socket_sits_under_home_by_default(self, monkeypatch, tmp_path) -> None:
-        monkeypatch.setenv(paths.ENV_HOME, str(tmp_path))
-        assert paths.daemon_socket_path().path == tmp_path / "daemon.sock"
-
-    def test_the_retired_agy_variable_is_ignored(self, monkeypatch, tmp_path) -> None:
-        """``AGY_DAEMON_SOCKET`` was the deprecated alias, removed in DG-244
-        along with the rest of the old product name.
-
-        Asserted rather than simply deleted: silently ignoring a variable
-        someone has set would point their daemon at one socket and their
-        clients at another, which is the exact failure DG-241 was about.
-        ``drunken-doctor`` reports the path it resolved, so a stale setting
-        shows up there.
-        """
-        monkeypatch.setenv(paths.ENV_HOME, str(tmp_path))
-        monkeypatch.setenv("AGY_DAEMON_SOCKET", str(tmp_path / "old.sock"))
-
-        assert paths.daemon_socket_path().path == tmp_path / "daemon.sock"
-
 
 class TestPermissions:
     def test_ensure_home_creates_owner_only_directory(
@@ -163,7 +143,6 @@ class TestDescribe:
 
         described = paths.describe()
 
-        assert set(described) == {"home", "registry", "daemon_socket", "auth_db"}
+        assert set(described) == {"home", "registry", "auth_db"}
         assert described["registry"]["source"] == f"${paths.ENV_REGISTRY}"
         assert described["home"]["source"] == f"${paths.ENV_HOME}"
-        assert described["daemon_socket"]["path"] == str(tmp_path / "daemon.sock")

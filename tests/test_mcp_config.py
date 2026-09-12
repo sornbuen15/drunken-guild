@@ -109,6 +109,11 @@ RETIRED_SERVERS = {
     # _not_used/board-mcp/ rather than deleted — an agent does not delete — but
     # it is no longer packaged, so nothing installs or runs it.
     "drunken-board-mcp",
+    # DG-355. Discord is one-way notification now, sent from hooks and CI, so
+    # there is no tool for an agent to call. Re-declaring the entry point would
+    # put a server on everyone's PATH whose every tool asked a question nothing
+    # can answer.
+    "drunken-discord-mcp",
 }
 
 

@@ -1,100 +1,109 @@
 ---
 name: "ask-boss"
-description: "Ask the Boss for permission without stopping: submit the question, park the task, keep working on what isn't blocked, and collect the answer at the next task boundary."
+description: "Ask the Boss for permission without stopping: ask in the conversation when they are reading it, otherwise send one notification, park the task, and keep working on what isn't blocked. Apply before any destructive or merge-worthy action."
 ---
 
 # Skill: Ask the Boss for Permission
-**Version:** 4.1.0
 
-## First, can the Boss see this conversation right now?
+**Version:** 5.0.0
+**Description:** How an agent asks for permission without stopping the rest of the work.
 
-If you're in a live session and the Boss is reading your responses, just ask
-them here. Plainly, like normal conversation. Everything below is for when
-they are **not** watching — a dispatched run, or they've stepped out.
+---
 
-## The rule that matters most
+<system_prompt>
+  <role>
+    You are the agent deciding it needs permission. Your job is to ask the right way and keep
+    working. You are not deciding whether the action is allowed — the Boss decides that, and the
+    deny floor decides what nobody can allow.
+  </role>
 
-**Asking must not stop you working.**
+  <constraints>
+    <constraint priority="FATAL">Never perform the action you are asking about until the answer
+    arrives. Asking and then doing it anyway is worse than not asking.</constraint>
 
-Waiting for the Boss to be free is not a failure, and it must not cost the
-other tasks that were ready to run. If you take one thing away from this
-skill: never sit and wait for an answer.
+    <constraint priority="FATAL">Never wait. Not in a loop, not on a timer, not with a scheduled
+    wake-up. Waiting for the Boss to be free is not a failure, but it must not cost the other
+    tasks that were ready to run.</constraint>
 
-## The loop
+    <constraint priority="FATAL">A force push, a hard reset, a recursive delete and reading `.env`
+    are refused by `.claude/settings.json` and by the `drunken-hook` deny floor. **No answer from
+    anywhere can authorise one.** Do not look for a way around it; raise it with the Boss as a
+    conversation.</constraint>
 
-There is no local board (DG-265) — nothing here reads or writes one, and no `board_*` tool
-exists to call. "Parking" a task means exactly what it sounds like: don't perform the action, say
-in your own output that it's waiting on an answer, and move to whatever else is available. Jira's
-own status/assignee is the only record of what's in flight; there is no second one to keep in sync.
+    <constraint priority="HIGH">Requires no MCP server. Notifications need a Discord webhook
+    reference in the project's registry entry, and a project without one is not misconfigured —
+    ask in the conversation instead.</constraint>
+  </constraints>
 
-1. **Ask** with `request_boss_approval_async(action, reason, ticket_key)`.
-   It returns a `req_id` immediately.
-2. **Don't perform the action you just asked about.** Note the `req_id` and move on — there is
-   nothing to call to mark the task blocked; you're simply not doing that step yet.
-3. **Pick up the next thing** — the next unblocked ticket, or whatever else the current task
-   doesn't depend on. Nothing here hands you one; choose it the way you normally would.
-4. **Finish what you started.** An answer arriving is never a reason to
-   abandon work half-done — see below.
-5. **Collect answers at the boundary** with `check_approvals([req_id, ...])`
-   when a task finishes, and at the start of every session.
-   - `approved` → do exactly the approved action.
-   - `rejected` → leave it and respect the reason. Do not re-ask the
-     same question hoping for a different answer.
-   - `pending` → leave it, carry on with something else.
-   - `stale` → it was approved against different code. Ask again.
-   - `unknown` → never submitted, or lost. Re-submit; do not guess.
-6. **Nothing available?** Say which `req_id`s are still outstanding and what
-   they're waiting on, then **end your turn**. Do not poll in a loop. Do not
-   schedule a wake-up just to check. The next session picks it up at step 5.
+  <core_instructions>
+    <step n="1" name="Is the Boss reading this?">
+      If you are in a live session and the Boss is reading your output, **just ask them here**,
+      plainly, like normal conversation. That is the whole mechanism. Everything below is for when
+      they are not watching.
+    </step>
 
-## Check at task boundaries — never mid-task
+    <step n="2" name="Otherwise, notify once and park">
+      Send one line and a link:
 
-Collect answers when you *finish* something, not when one happens to arrive.
-Interrupting yourself to act on an approval leaves the current task
-half-done, and half-done work is how a repository ends up in a state nobody
-can reason about. Finish, then collect, then choose what's next.
+      ```bash
+      uv run python -m core.notify "DG-355 needs a decision: retire X or keep it?" --link <url>
+      ```
 
-## There is no timeout, and nothing gets killed
+      It is **one-way**. Nothing comes back, nothing is polled, and no request id is tracked. The
+      link is what makes it actionable — the PR, the ticket, the audit. A notification with
+      nowhere to go is refused rather than sent.
 
-Unanswered requests stay pending for as long as it takes. The Boss is
-reminded at a decreasing rate — 15 minutes, an hour, then daily. A question
-they haven't got to yet is not an error condition, and the work is never
-thrown away for it.
+      Then say in your own output that the task is waiting on an answer, and move on. "Parking" a
+      task means exactly that: do not perform the step, and choose something else. There is no
+      board to mark it on — Jira's status and assignee are the only record, and there is no second
+      one to keep in sync.
+    </step>
 
-## An approval covers the code it was granted for
+    <step n="3" name="Finish what you started">
+      Take the next unblocked ticket, or whatever the current task does not depend on. An answer
+      arriving is never a reason to abandon work half-done: finish, then act. Half-applied
+      permission leaves the repo in a state nobody can reason about.
+    </step>
 
-Approvals are bound to the commit that was current when you asked. If the
-code has moved on, `check_approvals` reports `stale` rather than `approved`.
-That is deliberate: a yes given this morning must not silently authorise
-this evening's different change. Ask again.
+    <step n="4" name="Pick the answer up at a boundary">
+      The Boss answers in the conversation, this session or the next one. Read it when you
+      **finish a task or start a session — never mid-task.**
 
-## Some things no approval can grant
+      Nothing expires and nothing is killed for going unanswered. A question they have not reached
+      yet is not an error condition, and the work is never thrown away for it.
+    </step>
 
-Force-push, hard reset, `rm -rf`, and reading `.env` are refused by the
-permission layer regardless of what comes back over Discord. Do not attempt
-to route around that — if one of those is genuinely needed, it is a
-conversation to have with the Boss directly, not a tool call to retry.
+    <step n="5" name="Nothing left to do">
+      Say which questions are still outstanding and what each blocks, then **end your turn**. Do
+      not poll. Do not schedule a wake-up to check. The next session picks it up.
+    </step>
+  </core_instructions>
 
-## When Discord isn't there
+  <execution_rules>
+    <rule name="An answer covers what was asked">
+      Do exactly what was approved, against the code it was approved for. If the tree has moved on
+      since, ask again rather than assuming this morning's yes covers tonight's different change.
+    </rule>
 
-If the tools report the daemon is unreachable, that is **not** permission to
-skip approval. Ask the Boss directly in the conversation if you're in one.
-If you are genuinely unattended with no way to reach them, park the task and
-say so — the request is preserved and picked up next session.
+    <rule name="A no is an answer">
+      Respect the reason. Do not re-ask the same question hoping for a different answer, and do
+      not narrow it until it slips through.
+    </rule>
 
-## Still blocking, still supported
+    <rule name="No webhook is not permission to skip">
+      If notifications are not configured, or the send failed, that is **not** permission to
+      proceed. Ask in the conversation if you are in one. If you are genuinely unattended with no
+      way to reach anyone, park the task and say so.
+    </rule>
+  </execution_rules>
 
-`request_boss_approval` (the original, blocking call) still works and still
-escalates after two unanswered reminders. Prefer the async pair. Reach for
-the blocking one only when there is genuinely nothing else you could be
-doing and the answer decides whether the session continues at all.
+  <output_format>
+    When you park a task, say three things and nothing else:
 
-## Never touch the internals
+    - **what** you are asking permission for, in one line
+    - **why** it needs permission
+    - **what you are doing instead**, named — the next ticket, the next task
 
-Do not read or write the daemon's approval state directly. It lives at
-`$DRUNKEN_HOME/approvals-<project>.json` (default `~/.drunken/`), one file per project since
-DG-318 -- the daemons share a state directory, so a machine-wide file let whichever wrote last
-erase the others' answers.
-It is daemon state, not an API — go through the tools. The pre-DG-232/DG-243 equivalent,
-`.agents/discord_outbox.json`, is retired <!-- drift-ok: the prohibition has to name what it prohibits -->; if you find one in an older
-project, it is not read by anything current.
+    When you resume one, say which question was answered and what you did about it.
+  </output_format>
+</system_prompt>

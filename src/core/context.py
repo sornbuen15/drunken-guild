@@ -24,7 +24,7 @@ from pathlib import Path
 from typing import Any, Final, Optional
 
 from . import secrets
-from .errors import AuthzError, ConfigError, DrunkenError, SecretError, UpstreamError
+from .errors import AuthzError, ConfigError, DrunkenError, UpstreamError
 from .http import open_url
 from .redact import Secret, register_secret
 from .registry import (
@@ -65,33 +65,6 @@ class ResolvedJira:
         encoded = base64.b64encode(raw).decode("ascii")
         register_secret(encoded)
         return f"Basic {encoded}"
-
-
-@dataclass(frozen=True)
-class ResolvedDiscord:
-    """Discord identity with the credential fetched from its backend.
-
-    The mirror of :class:`ResolvedJira`, and it exists for the same reason that
-    class does: so that the object a caller is handed carries a usable
-    credential rather than a string that has to be resolved first.
-
-    Without it, :meth:`ProjectContext.require_discord` returned a
-    :class:`~core.registry.DiscordIdentity`, whose ``credential`` is an
-    unresolved *reference* — ``file://…#key`` or ``env://…``. Nothing in the
-    type or the name said so, while the obviously symmetric ``require_jira()``
-    handed back a ready credential. Sending the reference as a token gets a
-    ``401`` from Discord, which reads exactly like a bad token or a bot that was
-    never invited to the room, and sends the next hour in the wrong place.
-
-    ``token`` is optional because a per-project bot token is: ``None`` means the
-    daemon's own token applies, which is the normal case. It is a
-    :class:`~core.redact.Secret`, so interpolating it yields the mask rather
-    than the value — a header built by hand is then visibly wrong at the first
-    log line instead of silently valid-looking.
-    """
-
-    channel_id: str
-    token: Optional[Secret] = None
 
 
 @dataclass(frozen=True)
@@ -188,62 +161,6 @@ class ProjectContext:
                 ),
             )
         return self.jira
-
-    def require_discord(self) -> ResolvedDiscord:
-        """Return the Discord identity with its credential resolved.
-
-        **Resolved here rather than in :meth:`build`, and that is deliberate.**
-        Jira resolves at construction because every server that builds a context
-        is about to call Jira. Discord is not: ``drunken-doctor`` builds a
-        context for every registered project purely to read
-        ``discord.channel_id``, and a credential that no longer resolves must
-        not stop it — reporting the bad configuration is the whole job. Keeping
-        ``ProjectContext.discord`` raw is what preserves that, so this pays the
-        cost only for a caller that actually wants the token.
-        """
-        if self.discord is None:
-            raise ConfigError(
-                f"Project {self.project_id!r} has no Discord channel configured.",
-                remediation=(
-                    f"Add a 'discord' block with a channel_id for {self.project_id}."
-                ),
-            )
-        return self._resolve_discord(self.discord, self.project_id)
-
-    @staticmethod
-    def _resolve_discord(identity: DiscordIdentity, project_id: str) -> ResolvedDiscord:
-        """Fetch *identity*'s credential, or say what to do about it."""
-        if not identity.channel_id:
-            raise ConfigError(
-                f"Project {project_id!r} has a 'discord' block with no channel_id.",
-                remediation=(
-                    f"Set discord.channel_id for {project_id} in the registry. "
-                    "It is the room id, not a room name."
-                ),
-            )
-
-        if not identity.credential:
-            # The ordinary case: one bot, one token, held by the daemon.
-            return ResolvedDiscord(channel_id=identity.channel_id)
-
-        try:
-            token = secrets.resolve(identity.credential)
-        except SecretError as exc:
-            # Narrow on purpose. A reference that does not resolve is a
-            # configuration fault with a fix the caller can act on; anything
-            # else is a bug and must keep its own traceback.
-            raise ConfigError(
-                f"Project {project_id!r} has a Discord credential that did not "
-                f"resolve: {exc}",
-                remediation=(
-                    "discord.credential is a reference such as "
-                    "'env://DISCORD_BOT_TOKEN' or 'file://…#key', never the "
-                    "token itself. Check the reference resolves, or drop the "
-                    "field to use the daemon's own token."
-                ),
-            ) from exc
-
-        return ResolvedDiscord(channel_id=identity.channel_id, token=token)
 
     def root_path(self) -> Path:
         """The project checkout. Only meaningful for filesystem-backed work."""

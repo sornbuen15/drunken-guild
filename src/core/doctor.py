@@ -314,7 +314,6 @@ LEGACY_TOOL_ROOTS: Final = ("~/.local/share/uv/tools/drunken-team",)
 #: point is to notice a *merge* that has not been deployed, which these are the
 #: evidence of.
 DEPLOYED_MODULES: Final = (
-    "core.away",
     "core.permission_rules",
     "core.usage",
     "core.hook",
@@ -366,7 +365,6 @@ PACKAGED_TREES: Final = (
     "route",
     "service",
     "jira_mcp",
-    "discord_mcp",
     "scripts",
 )
 
@@ -1040,42 +1038,47 @@ def _check_project(
     else:
         _check_jira_live(report, project_id, context)
 
-    if context.discord is None:
+    _check_notifications(report, project_id, context)
+
+
+def _check_notifications(
+    report: Report, project_id: str, context: ProjectContext
+) -> None:
+    """Whether one-way Discord notifications are configured, and reachable.
+
+    Three states rather than two. A project with no webhook is *not*
+    misconfigured — notifications are optional — but a registry still carrying
+    the retired ``channel_id`` is a third thing: it looks configured to whoever
+    wrote it, and nothing will ever be sent. Saying so is the only way that
+    ever gets noticed, because nobody is blocked when a notification is missing.
+    """
+    identity = context.discord
+    if identity is not None and identity.webhook:
         report.add(
-            f"project.{project_id}.discord", "skip", "No Discord channel configured."
-        )
-    else:
-        report.add(
-            f"project.{project_id}.discord",
+            f"project.{project_id}.notify",
             "ok",
-            f"channel {context.discord.channel_id}",
+            f"webhook from {identity.webhook}",
         )
+        return
 
-
-def _check_daemon(report: Report) -> None:
-    socket = paths.daemon_socket_path()
-    path = socket.path
-    if not path.exists():
+    if identity is not None and identity.legacy_channel_id:
         report.add(
-            "daemon.socket",
+            f"project.{project_id}.notify",
             "warn",
-            f"No socket at {path} (from {socket.source}) — the approval daemon is not running.",
+            f"discord.channel_id {identity.legacy_channel_id} is set, but a "
+            "channel is no longer how anything is sent, so nothing will be.",
             remediation=(
-                "Start it with 'drunken-listen'. Discord approval falls back to "
-                "asking in-conversation, so this is not fatal."
+                f"Replace it with a 'discord.webhook' reference for {project_id} "
+                "(for example 'env://DISCORD_WEBHOOK_URL'), or drop the block."
             ),
         )
         return
 
-    report.add("daemon.socket", "ok", f"{path}  (from {socket.source})")
-    if paths.is_group_or_world_accessible(path):
-        report.add(
-            "daemon.socket.permissions",
-            "fail",
-            f"{path} is reachable by other users on this machine, who could "
-            "approve actions as the Boss.",
-            remediation=f"chmod 600 {path} and restart the daemon.",
-        )
+    report.add(
+        f"project.{project_id}.notify",
+        "skip",
+        "No Discord webhook configured. Notifications are optional.",
+    )
 
 
 def run_doctor(
@@ -1097,7 +1100,6 @@ def run_doctor(
     for project_id in project_ids:
         _check_project(report, project_id, registry, offline)
 
-    _check_daemon(report)
     _check_deployment(report, source_root=source_tree_root())
     _check_ai_layer(report)
     _check_host_configs(report)

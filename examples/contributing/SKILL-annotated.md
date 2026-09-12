@@ -293,8 +293,8 @@ description: >
          that explains itself. Most skills in this repo need no server at all and say nothing.
 
          The tail matters as much as the name: "rather than falling back to a file or a shell
-         script". Without it, a missing server becomes an improvised `.md` backlog or a call to
-         `jira_bridge.py` — a second surface, created by helpfulness. -->
+         script". Without it, a missing server becomes an improvised `.md` backlog or a hand-rolled
+         shell call to the Jira API — a second surface, created by helpfulness. -->
 
     <constraint priority="FATAL">Never create or write to `.claude/board/` or `.agents/board/`. The `board_*` tools are retired.</constraint>
     <constraint priority="FATAL">Never create a ticket at any level without its `req:REQ-xxx` label.</constraint>

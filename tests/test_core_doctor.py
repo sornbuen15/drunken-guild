@@ -36,7 +36,6 @@ def clean_state(monkeypatch, tmp_path):
     forget_secrets()
     monkeypatch.setenv(paths.ENV_HOME, str(tmp_path / "home"))
     monkeypatch.delenv(paths.ENV_REGISTRY, raising=False)
-    monkeypatch.delenv(paths.ENV_SOCKET, raising=False)
     monkeypatch.setenv("JIRA_TOKEN_ALPHA", "a-valid-looking-token-value")
     yield
     secrets.clear_cache()
@@ -226,32 +225,6 @@ class TestRegistryProblems:
         assert failures_under_test(report) == [], (
             "A v1 registry must warn, not take the whole report down."
         )
-
-
-class TestDaemonSocket:
-    def test_a_missing_socket_warns_rather_than_fails(self, registry) -> None:
-        """Approval falls back to asking in-conversation, so this is not fatal."""
-        report = doctor.run_doctor(registry=registry, offline=True)
-
-        assert find(report, "daemon.socket").status == "warn"
-        assert failures_under_test(report) == [], (
-            "Approval falls back to asking in-conversation, so a missing "
-            "socket must not fail the report."
-        )
-
-    def test_a_world_accessible_socket_is_a_failure(
-        self, registry, monkeypatch, tmp_path
-    ) -> None:
-        socket = tmp_path / "daemon.sock"
-        socket.write_text("")
-        socket.chmod(0o666)
-        monkeypatch.setenv(paths.ENV_SOCKET, str(socket))
-
-        report = doctor.run_doctor(registry=registry, offline=True)
-
-        check = find(report, "daemon.socket.permissions")
-        assert check.status == "fail"
-        assert "as the Boss" in check.detail
 
 
 class TestEnvironment:

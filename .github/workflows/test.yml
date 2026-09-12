@@ -29,13 +29,6 @@ permissions:
   # requirement changed underneath. Read-only, and only what that one call needs.
   pull-requests: read
 
-env:
-  # src/service/discord_listener.py exits during import when these are unset,
-  # which kills pytest collection outright. Placeholders, not secrets — nothing
-  # in the suite connects to Discord.
-  DISCORD_BOT_TOKEN: "ci-placeholder-token"
-  DISCORD_CHANNEL_ID: "123456789"
-
 jobs:
   # GitHub filters paths per *workflow*, not per job, so the obvious
   # `paths-ignore: ["**.md"]` would also switch off the secret scan and the

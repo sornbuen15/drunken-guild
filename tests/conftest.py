@@ -30,7 +30,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 #: Everything this repository puts on the import path under a generic name.
 #: `core`, `scripts`, `route` and `service` are common enough that another
 #: project's editable install claims them without anyone noticing.
-OWN_PACKAGES = ("core", "scripts", "route", "service", "jira_mcp", "discord_mcp")
+OWN_PACKAGES = ("core", "scripts", "route", "jira_mcp")
 
 
 def pytest_sessionstart(session: pytest.Session) -> None:

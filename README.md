@@ -212,7 +212,7 @@ Full catalogue with triggers: [`skills/INDEX.md`](./skills/INDEX.md).
    specialist a Jira issue key rather than a paraphrased brief keeps each delegation small, but a
    sequence of them still adds up. `drunken-usage` will tell you what a run actually cost.
 2. **Coordination needs the MCP server.** `/breakdown`, `/build`, `/audit` and the `manager` role
-   need `drunken-jira-mcp`; `ask-boss` needs `drunken-discord-mcp` for the case where the Boss is
+   need `drunken-jira-mcp`; `ask-boss` needs a notification webhook for the case where the Boss is
    not reading the conversation. Without the server the three flow steps say so and stop rather
    than falling back to a file or a shell script. The other seven skills — `/prd`, `/clarify`,
    `/ddd`, `jira-tickets`, `project-docs`, `git-workflow` and `/isolate` — stand alone;

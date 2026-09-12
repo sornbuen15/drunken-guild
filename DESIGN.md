@@ -177,7 +177,7 @@ The shared shape: when a tool cannot know something, it says so. An under-report
 silently widened permission are both worse than a refusal.
 
 > The full hook resolution order, and the two-layer split the model cannot see: `CLAUDE.md`,
-> *Away mode*.
+> *The deny floor*.
 
 ---
 

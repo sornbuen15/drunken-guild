@@ -112,15 +112,13 @@ def _apply_project(document: dict[str, Any], args: argparse.Namespace) -> str:
     jira = _build_jira_block(args)
     if jira:
         entry["jira"] = jira
-    if args.discord_channel:
-        discord: dict[str, str] = {"channel_id": str(args.discord_channel)}
-        if args.discord_credential:
-            # Validated the same way as the Jira one: a bot token pasted here
-            # instead of a reference would be written straight into a file
-            # meant to be readable and shareable.
-            _validate_credential_reference(args.discord_credential)
-            discord["credential"] = str(args.discord_credential)
-        entry["discord"] = discord
+    if args.discord_webhook:
+        # Validated the same way as the Jira credential: a webhook URL pasted
+        # here instead of a reference would be written straight into a file
+        # meant to be readable and shareable — and anyone holding that URL can
+        # post as the bot.
+        _validate_credential_reference(args.discord_webhook)
+        entry["discord"] = {"webhook": str(args.discord_webhook)}
     if args.board_dir:
         entry["board"] = {"dir": args.board_dir}
 
@@ -165,10 +163,12 @@ def build_parser() -> argparse.ArgumentParser:
         "--jira-credential",
         help="Secret REFERENCE, not a token. e.g. env://JIRA_TOKEN_ALPHA",
     )
-    parser.add_argument("--discord-channel", help="Discord channel id for approvals.")
     parser.add_argument(
-        "--discord-credential",
-        help="Secret REFERENCE to the bot token, not the token itself.",
+        "--discord-webhook",
+        help=(
+            "Secret REFERENCE to a Discord webhook URL, not the URL itself. "
+            "Notifications are one-way and optional."
+        ),
     )
     parser.add_argument("--board-dir", help="Board directory relative to the checkout.")
     parser.add_argument(

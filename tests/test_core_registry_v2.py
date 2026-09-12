@@ -31,7 +31,7 @@ V2_DOCUMENT = {
                 "project_key": "ALPHA",
                 "credential": "env://JIRA_TOKEN_ALPHA",
             },
-            "discord": {"channel_id": "123456789012345678"},
+            "discord": {"webhook": "env://DISCORD_WEBHOOK_ALPHA"},
             "board": {"dir": ".claude/board"},
         },
         "api-only": {
@@ -146,7 +146,7 @@ class TestV2Schema:
 
         config = registry.get_project_config("alpha")
 
-        assert config.discord.channel_id == "123456789012345678"
+        assert config.discord.webhook == "env://DISCORD_WEBHOOK_ALPHA"
         assert config.board_dir == ".claude/board"
         assert config.git_root == "alpha"
 
