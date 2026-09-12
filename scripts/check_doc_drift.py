@@ -84,6 +84,24 @@ RETIRED = (
     Retired("confluence_bridge.py", "DG-352", "nothing in the core flow"),
     Retired("zero-defect-mindset", "DG-352", "the /build step"),
     Retired("ai-output", "DG-352", "the /build step"),
+    # The local pre-push hook duplicated a server-side ruleset that cannot be
+    # bypassed, with one that can -- by not being installed (DG-354).
+    Retired("setup_git_hooks.py", "DG-354", "the GitHub rulesets on main and develop"),
+    # The ten skills the six flow commands replace (DG-353). Only the skill
+    # names are listed, not their slash commands: `/refine` and `/next` are
+    # also Discord commands that still exist, and a guard that fires on a live
+    # command is a guard that gets switched off. Add the slash commands when
+    # the Discord lane goes.
+    Retired("spec-to-backlog", "DG-353", "the `breakdown` skill (/breakdown)"),
+    Retired("backlog-refinement", "DG-353", "the `breakdown` skill (/breakdown)"),
+    Retired("task-estimation", "DG-353", "a task is sized to a day in /breakdown"),
+    Retired("issue-intake", "DG-353", "the Bug path of the `breakdown` skill"),
+    Retired("audit-to-backlog", "DG-353", "the `audit` skill (/audit)"),
+    Retired("local-progress-reporter", "DG-353", "the `audit` skill (/audit)"),
+    Retired("project-audit-reviewer", "DG-353", "the `audit` skill (/audit)"),
+    Retired("test-report-generator", "DG-353", "the `audit` skill (/audit)"),
+    Retired("core-engineering", "DG-353", "the `build` skill (/build)"),
+    Retired("anti-regression", "DG-353", "the `build` skill (/build)"),
 )
 
 #: Documents whose job is to record what changed. They have to be able to name

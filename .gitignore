@@ -8,7 +8,9 @@ __pycache__/
 
 # Distribution / packaging
 .Python
-build/
+# Anchored to the root: unanchored, `build/` also matched the `/build` skill at
+# skills/flow/build/ and silently kept it out of the commit (DG-353).
+/build/
 develop-eggs/
 dist/
 downloads/

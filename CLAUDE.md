@@ -30,6 +30,15 @@ places with 26 duplicated by name; `git-workflow` silently diverged to 73 lines 
 just-merged PR told one repo to defer to the other's copy. **One surface is the answer.** Do not
 recreate a second one.
 
+### The flow is six commands
+
+`/prd` → `/clarify` → `/ddd` → `/breakdown` → `/build` → `/audit`, one skill each, in
+`skills/flow/`. They are the product: a requirement becomes `PRD.md`, a domain becomes `DOMAIN.md`,
+those become the Jira hierarchy REQ → Epic → Story → Task → Subtask with every level labelled
+`req:REQ-xxx`, and `/audit` traces each requirement back to a task and a test that passes on the
+merged tree. **Read the skill rather than reasoning from this paragraph** — it is a map, not the
+rule. Anything that does not serve a step of that flow does not belong in `skills/` (DG-353).
+
 *Drunken Programmer* is the pen name; `drunken-guild` is the product. The name says drunk and the
 contents are FATAL directives, blast-radius checks and post-mortems. That tension is the brand —
 do not soften either half.
@@ -103,7 +112,7 @@ did not see.
 
 `TODO` → `IN PROGRESS` → `IN REVIEW` → `DONE`. **Never skip IN REVIEW**, including for your own work.
 
-**How to write and run a ticket is `skills/kanban/jira-tickets/SKILL.md`** — the
+**How to write and run a ticket is `skills/workflow/jira-tickets/SKILL.md`** — the
 FINDING/SCOPE/ACCEPTANCE shape, the fields this Jira can actually set, and what must be verified
 before anything is Done. Read it before opening or closing a ticket. It is the same file every
 agent is pointed at, so the rules cannot drift apart per agent.

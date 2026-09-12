@@ -21,7 +21,7 @@ description: >
 
   <core_instructions>
     <instruction category="Architectural Approaches">
-      **TDD (Test-Driven Development):** Testability as first-class design constraint. Forces clean boundaries and small functions — untestable code is a design smell. For Red-Green-Refactor cycle, load the `core-engineering` skill (`/tdd`).
+      **TDD (Test-Driven Development):** Testability as first-class design constraint. Forces clean boundaries and small functions — untestable code is a design smell. For the Red-Green-Refactor cycle, load the `build` skill (`/build`).
       **BDD (Behavior-Driven Development):** Tests in business language (Gherkin: Given/When/Then) so stakeholders can validate them. Tools: Cucumber, Behave. Tests describe observable behavior, not implementation.
       **ATDD (Acceptance TDD):** Business acceptance criteria become automated tests BEFORE development begins. Three-way conversation (business, QA, engineering) before any code.
       **Contract Testing:** In distributed systems, test consumer/provider contracts independently without a shared live environment. Tools: Pact, Spring Cloud Contract. Catches breaking API changes early.

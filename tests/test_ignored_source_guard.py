@@ -48,7 +48,7 @@ class TestWhatCountsAsASourceFile:
         working because gitignore does not affect files already in the index,
         so only a NEW one was invisible, and the docs pointing at it would have
         shipped referencing a file that was not in the repository."""
-        assert guard.is_source(Path("skills/kanban/jira-tickets/SKILL.md"))
+        assert guard.is_source(Path("skills/workflow/jira-tickets/SKILL.md"))
         assert guard.is_source(Path("agents/manager.md"))
 
     def test_antigravity_state_does_not(self) -> None:

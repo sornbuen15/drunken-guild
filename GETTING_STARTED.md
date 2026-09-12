@@ -57,18 +57,22 @@ Verify — you should see the skill directories and an index:
 ls ~/.claude/skills/
 ```
 
-### 8 of the 16 skills need nothing else
+### 7 of the 11 skills need nothing else
 
-Git discipline, TDD, safe refactoring, debugging and the project-document contract install and
-work standalone. The general engineering standards — architecture, security, UI/UX, testing and
-the rest — are in the optional `drunken-extras` plugin, and need nothing else either.
+`/prd`, `/clarify` and `/ddd` write markdown and ask you questions; `project-docs`, `git-workflow`
+and `/isolate` are standards that read files and nothing else; `jira-tickets` is the reference for
+the shape of a ticket, and it reads as documentation whether or not a server is there. All seven
+install and work standalone. The general engineering standards — architecture, security, UI/UX,
+testing and the rest — are in the optional `drunken-extras` plugin, and need nothing else either.
 
-The remaining 8 plus the `manager` agent coordinate work on Jira. They call `jira_*`
-tools, and without the runtime declared they will **say so and stop** rather than silently falling
-back to a file or a shell script. Every one of them names the server it requires in its own
-constraints.
+The other 4 coordinate work. `/breakdown`, `/build` and `/audit` call `jira_*` tools and name
+`drunken-jira-mcp` in their own constraints — without the runtime declared they will **say so and
+stop** rather than silently falling back to a file or a shell script. `ask-boss` needs
+`drunken-discord-mcp` only for the case where the Boss is not reading the conversation; when they
+are, it tells you to just ask them there.
 
-If you have no Jira, skip the next section and ignore those 8. Nothing else is affected.
+If you have no Jira, you can still run `/prd`, `/clarify` and `/ddd` — skip the next section and
+stop the flow at `DOMAIN.md`.
 
 ### Skills not authored here
 
@@ -154,17 +158,15 @@ directory layout never reaches another repo's git history.
 
 ## Step-by-step: your first ticket
 
-### Step 1 — Describe your project
+### Step 1 — Set up the project's rules
 
 This is the one list of what to copy from `templates/`, and where. The **rules** go at the project
-root; the **project's documents** go in `.ai/`.
+root; the **project's documents** are not copied from anywhere — the flow writes them, in Steps 2
+to 4.
 
 ```bash
 cp templates/CLAUDE.md              ~/Projects/my-project/CLAUDE.md
 cp templates/SESSION_CHECKPOINT.md  ~/Projects/my-project/    # then add /SESSION_CHECKPOINT.md to .gitignore
-mkdir -p ~/Projects/my-project/.ai
-cp templates/PROJECT_BRIEF.md       ~/Projects/my-project/.ai/
-cp templates/REQUIREMENTS.md        ~/Projects/my-project/.ai/
 ```
 
 Using Cursor or Aider as well? Add their files — both are thin and point at `CLAUDE.md`, so the rules
@@ -182,110 +184,201 @@ review, the MCP tools available, and your build and test commands.
 Fill in every `<angle-bracket>` placeholder and delete what does not apply. Skills and agents read
 this file every session — **a placeholder left in reads as an instruction.**
 
-**The project's documents** are read by every skill that needs them, the same way — the
-`project-docs` skill is the contract. Two are needed to start:
+**The project's documents** are located the same way by every skill that reads them — the
+`project-docs` skill is the contract, and every flow step prints its block before doing anything
+else. The map is a `## Documents` section in the project's root `AGENTS.md`. When there is no map,
+these are the defaults:
 
-- `PROJECT_BRIEF.md` — what you're building, who for, the stack, constraints, what's out of scope
-- `REQUIREMENTS.md` — Must/Should/Could/Won't, performance targets, security requirements, and your
-  Definition of Done
+- `.ai/PRD.md` — the brief and the numbered requirements, written by `/prd` in Step 2
+- `.ai/DOMAIN.md` — contexts, vocabulary and entities, written by `/ddd` in Step 4
+- `.ai/audit/` — one report per `/audit` run
+- `docs/` and `docs/decisions/` — what people read, and the ADRs
 
-Three more are used whenever they exist, and there are no templates for them on purpose — they
-record what your project has actually decided: `PROJECT_SPEC.md` (detailed features and phases),
-`ARCHITECTURE.md`, and `POLICY.md`, plus an `adr/` directory for decisions. Put them beside the
-brief. Skills never invent a missing one and treat it as decided; they say it was absent.
+There is nothing to write yet. A skill never invents a missing document and treats it as decided;
+it says it was absent.
 
 > **Why `.ai/`.** It is one place every agent reads, whichever vendor it comes from, and it keeps
-> facts about the project out of the files that describe an agent. A project that already keeps
-> its documents at the root, in `.claude/` or in `docs/` works too — skills look there next. What
-> does not work is the same document in two of those places: that is two surfaces, and skills stop
-> and ask which one is real.
+> facts about the project out of the files that describe an agent. A project that keeps its
+> documents somewhere else works too — record the paths in `AGENTS.md` and the skills follow. What
+> does not work is the same document in two places: that is two surfaces, and skills stop and ask
+> which one is real.
 
+> **Already have a brief?** An older project's `PROJECT_BRIEF.md`, `REQUIREMENTS.md` and
+> `PROJECT_SPEC.md` stay where they are. `/prd` offers to consolidate them into one `PRD.md`, names
+> the source beside each section it carries over, says what the sources disagreed about rather than
+> picking a winner, and does none of it without a yes.
+> [`templates/PROJECT_BRIEF.md`](./templates/PROJECT_BRIEF.md) and
+> [`templates/REQUIREMENTS.md`](./templates/REQUIREMENTS.md) are still there if you would rather
+> write something down before the interview in Step 2;
 > [`examples/00-setup/`](./examples/00-setup/) has both filled in for a fictional task manager.
 
-### Step 2 — Generate your backlog
+### Step 2 — Write the PRD
 
 Open Claude Code inside **your project directory**:
 
 ```
-/init-project
+/prd
 ```
 
-It first prints which project documents it found and where. Then it reads **every one that
-exists** — the brief and requirements at minimum; the spec, architecture and policy when they are
-there — and creates one Jira ticket per feature in the backlog. It prints a summary table, then
-**halts and asks** before moving anything onto the board.
+It prints which project documents it found and where, then routes: an existing `PRD.md` is
+**updated, never rewritten**; an older split set is offered for consolidation; nothing at all means
+an interview — what is being built, who for, the stack, the constraints, what is explicitly out of
+scope, all in **one batch of questions** rather than one at a time.
 
-Only the brief is required. Without `REQUIREMENTS.md` or the others it still runs, and says which
-were absent.
+The output is one file: a brief, then numbered requirements. Every requirement carries an id
+`REQ-001`, `REQ-002`, … and a **MoSCoW class** — Must, Should, Could, Won't — plus one acceptance
+sentence saying how anyone can tell it works.
 
-Urgency lands as a **label** — `critical`, `high`, `medium`, `low`, lower case — set from the requirement's
-Must/Should/Could class, not as Jira's `priority` field, which cannot be set on a team-managed
-project and reads `Medium` on every issue.
+Three rules are worth knowing before you read the draft:
 
-Review the tickets in Jira and edit them there directly.
+- **Ids are allocated once and never reused.** A dropped requirement is struck through and keeps
+  its id. Jira labels, branches and merged tickets already point at those numbers; renumbering
+  silently repoints history at the wrong requirement.
+- **Anything the AI inferred lands under `## Inferred — not yet accepted`**, with no id, until you
+  accept it. A generated requirement in the numbered list reads to `/breakdown` as a decision
+  nobody made.
+- **Nothing is written until you say yes.** You see the whole draft, or the diff against an
+  existing PRD, first.
 
-> [`examples/01-spec-to-backlog/`](./examples/01-spec-to-backlog/)
+This step writes no Jira ticket. It ends by listing what is still ambiguous.
 
-### Step 3 — Load the sprint queue
-
-```
-/refine
-```
-
-It probes with `jira_board_info` first — **not every board has a backlog** — then moves tickets on
-by urgency label. `critical` moves immediately; the rest are offered by tier for you to choose.
-
-**It does not transition anything.** Backlog membership and status are separate axes: a ticket moved
-onto the board is still `TODO` if that is what it was. On the retired local board, moving a lane
-*was* the transition — that is the one translation that does not survive.
-
-> [`examples/02-backlog-refinement/`](./examples/02-backlog-refinement/)
-
-### Step 4 — Size the work
+### Step 3 — Answer the questions only you can answer
 
 ```
-/estimate
+/clarify
 ```
 
-Prints a table: T-shirt size, estimated AI turns, human review effort per ticket.
+It reads the PRD as someone who has to build from it tomorrow and cannot, and puts **about ten
+ranked questions** to you — the one that decides an architecture first, the one that decides a
+label last. Each names its `REQ-xxx`, states the ambiguity, and gives two or three concrete options
+with what each costs. If more than ten qualify it asks the ten and says how many it held back.
 
-The table is printed, **not written back**. This Jira has no story points, so the skill has nowhere
-to put an estimate and is forbidden to invent one.
+It does **not** answer them itself, and it does not proceed on your behalf. Your answers are written
+back into `PRD.md` — into the acceptance sentence, or as a dated `**Decided:**` line — after you
+confirm the diff. An answer that lives only in the transcript is lost by the next session, and the
+requirement still reads ambiguous to `/ddd`.
 
-Anything rated **XL** gets flagged for splitting — XL tickets outgrow a single agent context window
-and produce unreliable output.
+Every item left open is labelled either **`BLOCKS /ddd`** or **`Carry`**, with the reason on the
+same line. Some ambiguity is fine to carry, and saying which is the point of this step.
 
-> [`examples/03-task-estimation/`](./examples/03-task-estimation/)
+### Step 4 — Agree the vocabulary
 
-### Step 5 — Start the first task
+```
+/ddd
+```
 
-There is no `/next` command. Picking up work is two Jira calls and a habit, not a skill.
+Produces `DOMAIN.md` from the clarified PRD: **bounded contexts** (each one lists the requirements
+it serves by id), the **shared vocabulary** — one term, one definition, one spelling — and the
+**core entities** with the rules that must always hold about them. Three sections, not a fourth. No
+tables, no endpoints, no framework names: those are decisions made per task in Step 6.
 
-Ask the agent to start the next ticket. It should:
+It is a **proposal until you accept it.** The Boss owns the language of their own domain, and an
+agent that names it for them has renamed their business. Correct the names and it applies your
+corrections; if a corrected name collides with another term it asks rather than resolving it
+quietly.
 
-1. Read the current working set
-2. Pick the highest urgency **label**
-3. Call `jira_assign`, then `jira_start_task` — assignee says whose it is, status says where it is
-4. Read the relevant project files
-5. Propose a full **execution plan** — target files, steps, risk notes
+Two findings get reported rather than quietly fixed, because each means something different:
 
-Then it should **halt** and ask whether you approve. This is your last checkpoint before code is
-written. Approve, adjust, or send the ticket back to `TODO` and pick another.
+- a context that serves **no requirement** is wrong — it would become an Epic with no work under it;
+- a requirement that belongs to **no context** is a gap — either the model is missing a context or
+  the PRD is missing a requirement.
+
+Each context becomes exactly one Epic in the next step.
+
+### Step 5 — Cut the backlog
+
+```
+/breakdown
+```
+
+This is where traceability is created or lost for good. It maps
+`REQ-xxx → Epic → Story → Task → Subtask` — one Epic per bounded context, Stories from the
+requirements that context serves, Tasks sized to **a vertical slice finishable in a day**, Subtasks
+only where steps are genuinely ordered. **Every level carries the label `req:REQ-xxx`.** That label
+is the only thing `/audit` can trace on: not the summary text, not the parent chain, not the branch
+name.
+
+It probes `jira_board_info` first — issue types, settable field ids, **and whether this board has a
+backlog at all** — then prints the whole hierarchy as a table and **halts**. Nothing is created
+until you say yes.
+
+> **Confirm your Jira project key is real before this step writes anything.** A green
+> `drunken-doctor` line proves the credential authenticates, not that the project exists — it has
+> printed `OK … (project ALPHA)` while Jira answered *"No project could be found"*. And a bad
+> credential comes back as `200` with an empty list, which reads exactly like a project with no
+> issues in it.
+
+Urgency lands as a **label** — `critical`, `high`, `medium`, `low`, lower case — mapped from the
+requirement's MoSCoW class: Must → `critical` or `high`, Should → `medium`, Could → `low`. **A
+Won't gets no ticket at all.** Jira's `priority` field cannot be set on a team-managed project and
+reads `Medium` on every issue, and there are no story points, so neither is used.
+
+Everything it creates lands **in the backlog, in `TODO`, unassigned**. It never transitions or
+starts anything — moving work onto the board and starting it are separate acts, with separate
+owners. It ends with two questions: create these tickets, and execute in sequence or in parallel?
+Tasks that touch the same files must run in sequence; that call is yours, not the agent's.
+
+### Step 6 — Build one task
+
+```
+/build
+```
+
+The only flow step that writes code, and it does exactly one task. `jira_start_task` moves the
+ticket to `IN PROGRESS` and hands back the branch command; the agent puts `agent:<its name>` in
+`labels`, because the assignee is the accountable human, not the thing doing the typing.
+
+Then, in order: read the ticket's SCOPE and ACCEPTANCE · check the plan still holds against the
+code as it is now, and **comment on the ticket if it diverges** rather than deviating silently ·
+**write the test, run it, and watch it fail** · implement the smallest change that turns it green ·
+run the whole suite · open the PR.
+
+**The failing run is the evidence, so it gets reported.** Not "tests added" — the test id and what
+the assertion actually said: `AssertionError: expected 401, got 200`. A test written after the fix
+proves only that it compiles.
+
+**1 task = 1 owner = 1 branch = 1 worktree = 1 PR.** Two agents never share a checked-out working
+tree, and tasks touching the same files run one after another.
+
+The agent calls `jira_submit_for_review` — the ticket goes to `IN REVIEW`, never straight to
+`DONE`. **Never skip `IN REVIEW`, including for your own work.** Then it stops: **an agent opens
+the PR and a human merges it**, with no exception for a one-line change, a green CI, or an approval
+that arrived in chat.
+
+A ticket in `IN REVIEW` is not merged code. Run the suite and read the diff against the target
+branch before believing any claim that it is fixed.
 
 > Nothing expires a Jira assignee. If an agent stops mid-ticket, reassign it yourself — that is the
 > one thing the retired board did that Jira does not.
 
-### Step 6 — Review and close
+### Step 7 — Audit what actually shipped
 
-The agent calls `jira_submit_for_review` — the ticket goes to `IN REVIEW`, never straight to `DONE`.
-**Never skip `IN REVIEW`, including for your own work.**
+After the day's tasks merge:
 
-A ticket in `IN REVIEW` is not merged code. Run the suite and read the diff against the target
-branch before believing any claim that it is fixed. Then transition it, and commit:
-
-```bash
-git commit -m "feat: add user authentication (register/login/JWT)"
 ```
+/audit
+```
+
+It traces **every** `REQ-xxx` in the PRD through to its tickets, their status, the test that covers
+it, and whether that test passed **on the merged tree** — fetched and run from a clean worktree of
+`origin/develop`, not from the branch you happen to be standing on and not from the PR page.
+
+Every gap has a name, because they have different causes and different fixes: `no-ticket` (nobody
+was ever asked to build it) · `no-test` (built, unproven) · `unverified` (green on a branch, never
+run on the merged tree) · `not-merged` (`DONE`, but the branch is not in `origin/develop`) ·
+`not-deployed` (merged, and the thing a person can look at is still older than the merge).
+
+One run writes two dated files under the audit directory, and never overwrites yesterday's: the
+**audit report**, which is the engineering half, and the **daily report**, which is plain language
+and can be handed to a customer unedited. Gaps are proposed as tickets in one table and created
+through `/breakdown` only on your approval, off the board.
+
+It diagnoses and records — it never edits source and never fixes a failing test. An auditor who
+patches what he is grading has no finding left to report.
+
+> **Merged is not deployed.** A merge does not update an installed tool or restart a running
+> process. Where a project deploys is recorded in its own `AGENTS.md`; if it is not recorded there,
+> the audit reports the target as unknown and asks. Deploying is your step, never the agent's.
 
 ---
 
@@ -296,20 +389,29 @@ git commit -m "feat: add user authentication (register/login/JWT)"
 Do **not** interrupt the current ticket.
 
 ```
-/issue
+/breakdown
 ```
 
-Describe the bug. The skill runs read-only diagnosis, creates a ticket with the root cause and an
-urgency label, and leaves your in-flight work untouched. Pick it up when the current ticket reaches
-`IN REVIEW` — or sooner if it outranks what you are holding.
+A bug comes through the same skill that cut the backlog, and it is a small job there: **one Bug
+ticket against the `REQ-xxx` it breaks**, carrying that `req:` label and an urgency label. It does
+not re-read the whole PRD, does not re-cut the hierarchy, and does not touch the work in flight.
+You decide whether it jumps the queue — pick it up when the current ticket reaches `IN REVIEW`, or
+sooner if it outranks what you are holding.
 
-### End-of-sprint snapshot
+The same applies to a defect noticed *by* `/build` while it is working: its own ticket, and the
+task in flight continues. Widening scope mid-branch is how one task stops being finishable in a day.
+
+### End-of-day snapshot
 
 ```
-/report
+/audit
 ```
 
-What's done, what's in progress, what's queued, what's blocked. Useful for async standups.
+Step 7 above is also the standing report. The **daily report** it writes is the one to read or
+forward: what shipped today in plain language, which requirement each piece serves, what is still
+open and what it waits on, and where to go and look at it. Progress is counted in **requirements
+traced, not tickets closed** — tickets closed is a number that rises steadily while the thing you
+asked for is still missing.
 
 ---
 
@@ -340,12 +442,19 @@ time, and a `reviewer` checks the tests and the PR. The roles are described in t
 | [`Integration-Guide.md`](./Integration-Guide.md) | bringing another project under this workflow |
 | [`CLAUDE.md`](./CLAUDE.md) | the rules, if you are going to contribute here |
 
-A few commands worth knowing early:
+The commands, in one place:
 
 | Command | When |
 |---|---|
-| `/system-design` | before writing any new system or API |
-| `/clean-arch` | designing or reviewing layer structure |
-| `/secure` | any auth, data handling, or new endpoint |
-| `/tdd` | fixing a bug, or writing tests |
+| `/prd` | starting a project, or requirements have changed |
+| `/clarify` | the PRD reads cleanly but is not actually decided |
+| `/ddd` | before any ticket is cut, to agree the contexts and the names |
+| `/breakdown` | cutting the backlog — and filing a bug against the requirement it breaks |
+| `/build` | executing one task: test first, one branch, one PR |
+| `/audit` | after the day's merges, before anyone says a requirement is done |
 | `/isolate` | a command has failed the same way twice |
+| `/git-workflow` | branch naming, commit shape, which merge strategy belongs to which target |
+
+The general engineering standards — `/system-design`, `/secure`, `/clean-arch`, `/ui`, `/ux` and
+the rest — live in the optional `drunken-extras` plugin in
+[`plugins/drunken-extras/`](./plugins/drunken-extras/).

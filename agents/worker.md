@@ -16,8 +16,7 @@ tools: Read, Edit, Write, Bash, Glob, Grep, WebSearch, WebFetch, mcp__drunken-ji
 
   <skill_integration>
     Load what the task needs, from the installed skill index (`~/.claude/skills/INDEX.md`):
-    - New code or a bug fix → `core-engineering` (TDD)
-    - Changing existing code → `anti-regression` (blast radius first)
+    - Writing the code for a task → `build` (TDD, blast radius, one task at a time)
     - Branch, commit, PR → `git-workflow`
     - Anything domain-specific the project has installed a skill for
     Load only what the task requires.

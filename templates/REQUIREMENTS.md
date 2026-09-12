@@ -1,8 +1,9 @@
 # Requirements
 
-> Copy this file into your project's `.ai/` directory as `REQUIREMENTS.md`, beside the brief.
-> Fill it out before running any agent session.
-> The `manager` role and `/init-project` use this to generate the prioritized backlog.
+> **Optional**, and the same applies as to `PROJECT_BRIEF.md`: `/prd` folds both into one
+> `PRD.md`, where every requirement carries an id `REQ-xxx` that the Jira hierarchy and `/audit`
+> trace against. Use this only if you would rather draft the requirements before the interview.
+> Copy it into your project's `.ai/` directory as `REQUIREMENTS.md`, beside the brief.
 
 ---
 

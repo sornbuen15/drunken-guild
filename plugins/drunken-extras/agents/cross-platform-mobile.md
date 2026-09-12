@@ -19,8 +19,7 @@ tools: Read, Edit, Write, Bash, WebSearch, WebFetch
   <skill_integration>
     Before writing code, check which domain skills apply and load them:
     - Architecture / layering decisions      → load `clean-architecture` skill
-    - New feature or bug fix                 → load `core-engineering` skill (TDD)
-    - Modifying existing cross-platform code → load `anti-regression` skill
+    - Writing or changing shared code        → load `build` skill (TDD, blast radius)
     - UI layout and visual standards         → load `universal-ui` skill
     - User flow and state management         → load `universal-ux` skill
     - Any auth, data storage, or API change  → load `secure-by-design` skill
