@@ -1,5 +1,5 @@
 # mypy: ignore-errors
-"""The two bridges must not open a URL the scheme guard never saw — DG-325.
+"""The Jira bridge must not open a URL the scheme guard never saw — DG-325.
 
 `core/http.py` exists for one reason, stated in its own docstring: `urlopen`
 honours every scheme its openers know about, so a URL arriving from
@@ -8,7 +8,7 @@ valid argument and the body comes back looking exactly like an API response.
 CLAUDE.md turns that into a rule — every outbound HTTP call goes through
 `core/http.py`, with one `# nosec` on the guard itself.
 
-Both bridges were missed. They called `urllib.request.urlopen` directly, and
+Both bridges were missed (the Confluence one is since retired, DG-352). They called `urllib.request.urlopen` directly, and
 nothing caught it because CI runs `bandit -r src -ll` while `pyproject.toml`
 ships `scripts` as a package: a whole tree of shipped code that has never been
 scanned.
@@ -30,7 +30,6 @@ REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "scripts"))
 sys.path.insert(0, str(REPO / "src"))
 
-import confluence_bridge  # noqa: E402
 import jira_bridge  # noqa: E402
 
 
@@ -49,13 +48,6 @@ class TestAFileUrlIsNeverOpened:
         response."""
         with pytest.raises(SystemExit):
             jira_bridge.make_request(f"file://{local_file}", email="a@b.c", token="x")
-        assert "read-off-the-local-disk" not in capsys.readouterr().out
-
-    def test_the_confluence_bridge_refuses_it(self, local_file, capsys) -> None:
-        with pytest.raises(SystemExit):
-            confluence_bridge.make_request(
-                f"file://{local_file}", email="a@b.c", token="x"
-            )
         assert "read-off-the-local-disk" not in capsys.readouterr().out
 
     @pytest.mark.parametrize("scheme", ["file", "ftp"])
