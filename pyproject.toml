@@ -96,8 +96,8 @@ drunken-jira-mcp = "jira_mcp.server:main"
 
 
 [tool.setuptools]
-packages = ["scripts", "core", "route", "service", "jira_mcp", "discord_mcp"]
-package-dir = {"core" = "src/core", "route" = "src/route", "service" = "src/service", "jira_mcp" = "src/jira_mcp", "discord_mcp" = "src/discord_mcp"}
+packages = ["scripts", "core", "route", "jira_mcp"]
+package-dir = {"core" = "src/core", "route" = "src/route", "jira_mcp" = "src/jira_mcp"}
 
 [tool.ruff.lint]
 select = ["E", "F", "B", "C90", "I"]
