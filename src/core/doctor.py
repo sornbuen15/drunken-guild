@@ -317,7 +317,7 @@ DEPLOYED_MODULES: Final = (
     "core.away",
     "core.permission_rules",
     "core.usage",
-    "service.approval_hook",
+    "core.hook",
     "jira_mcp.jql",
     "jira_mcp.assign",
     "jira_mcp.backlog",
