@@ -28,7 +28,7 @@ description: >
     </instruction>
 
     <instruction category="2. Agentic Workflow & CLI Commands Documentation">
-      If the user requests a Workflow Guide (e.g., for `/audit`, `/refine`, `/estimate`, `/next`, `/report`):
+      If the user requests a Workflow Guide (e.g., for `/prd`, `/clarify`, `/ddd`, `/breakdown`, `/build`, `/audit`):
       - You MUST FIRST read `$HOME/.claude/skills/INDEX.md` to locate the exact paths of the relevant skills.
       - You MUST read the actual `SKILL.md` files to understand their precise `Trigger` and `action_sequence`.
       - Explain the "Phase", "When to use", and "What it does" for each command clearly.

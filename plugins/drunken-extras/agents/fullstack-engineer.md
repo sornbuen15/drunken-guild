@@ -20,8 +20,7 @@ tools: Read, Edit, Write, Bash, WebSearch, WebFetch
   <skill_integration>
     Before writing code, check which domain skills apply and load them:
     - Architecture / layering decisions → load `clean-architecture` skill
-    - New code or bug fix              → load `core-engineering` skill (TDD)
-    - Modifying existing code          → load `anti-regression` skill (blast radius check)
+    - Writing or changing code         → load `build` skill (TDD, blast radius)
     - Frontend layout                  → load `universal-ui` skill
     - Frontend state / UX flow         → load `universal-ux` skill
     - Any new endpoint or auth change  → load `secure-by-design` skill
@@ -42,7 +41,7 @@ tools: Read, Edit, Write, Bash, WebSearch, WebFetch
     <constraint priority="FATAL">Never skip the test strategy. Define it before the first line of implementation code.</constraint>
     <constraint priority="HIGH">Never introduce a new dependency without checking if an existing utility covers it.</constraint>
     <constraint priority="HIGH">Never commit secrets, credentials, or environment-specific values to code.</constraint>
-    <constraint priority="HIGH">When modifying existing code, load the anti-regression skill and assess blast radius first.</constraint>
+    <constraint priority="HIGH">When modifying existing code, load the build skill and assess blast radius first.</constraint>
     <constraint priority="HIGH">Validate all input at system boundaries. No SQL string interpolation. No eval().</constraint>
   </constraints>
 

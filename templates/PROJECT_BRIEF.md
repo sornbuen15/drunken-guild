@@ -1,10 +1,11 @@
 # Project Brief
 
-> Copy this file into your project's `.ai/` directory as `PROJECT_BRIEF.md` — the root works too;
-> the `project-docs` skill lists every place it is looked for. It is the one document a project
-> needs before `/init-project` will run.
-> Fill it out before running any agent session.
-> The `manager` role reads this to plan the work.
+> **Optional.** `/prd` writes the project's `PRD.md` — the brief and the numbered requirements in
+> one file — and on a greenfield project it gets there by interviewing you. This template is for
+> when you would rather write something down first; `/prd` then reads it and offers to consolidate
+> it, naming the source beside each section it carries over.
+> Copy it into your project's `.ai/` directory as `PROJECT_BRIEF.md`. Somewhere else works too —
+> record the path in the project's root `AGENTS.md` and every skill follows it.
 
 ---
 

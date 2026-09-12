@@ -129,7 +129,7 @@ async def jira_create_issue(
     project at all. `duedate` and `start_date` are ISO YYYY-MM-DD.
 
     Full rules, including the status lifecycle and what to verify before Done:
-    the `jira-tickets` skill (`skills/kanban/jira-tickets/SKILL.md`).
+    the `jira-tickets` skill (`skills/workflow/jira-tickets/SKILL.md`).
 
     Warns, never refuses.
     """
@@ -389,10 +389,10 @@ def _follow(process: str, owner: str, scope: str) -> str:
 
 @mcp.prompt()  # type: ignore[misc]
 def jira_daily_standup() -> str:
-    """A daily standup, owned by the `local-progress-reporter` skill."""
+    """The day's state, owned by the `audit` skill."""
     return _follow(
         "a daily standup",
-        "the `local-progress-reporter` skill (`/report`)",
+        "the `audit` skill (`/audit`)",
         "Cover what is In Progress, what is In Review, and what is blocked. "
         "In Review is in flight, not done.",
     )
@@ -400,49 +400,49 @@ def jira_daily_standup() -> str:
 
 @mcp.prompt()  # type: ignore[misc]
 def init_project() -> str:
-    """Day-0 backlog generation, owned by the `spec-to-backlog` skill."""
+    """The start of the flow, owned by the `prd` skill."""
     return _follow(
-        "project initiation",
-        "the `spec-to-backlog` skill (`/init-project`)",
-        "It reads the project's documents through the `project-docs` skill "
-        "first, and needs only a brief to start.",
+        "a new project",
+        "the `prd` skill (`/prd`)",
+        "The flow is /prd, then /clarify, then /ddd, then /breakdown. No "
+        "ticket exists before /breakdown, and nothing is created there before "
+        "the Boss approves the hierarchy.",
     )
 
 
 @mcp.prompt()  # type: ignore[misc]
 def refinement() -> str:
-    """Choosing what moves onto the board, owned by `backlog-refinement`."""
+    """What is in the working set, owned by the `jira-tickets` skill."""
     return _follow(
-        "backlog refinement",
-        "the `backlog-refinement` skill (`/refine`)",
-        "Refinement chooses what moves from the backlog onto the board. It "
-        "changes no ticket's status and creates no tickets; creating them is "
-        "`spec-to-backlog`.",
+        "choosing what moves onto the board",
+        "the `jira-tickets` skill",
+        "Backlog membership and status are independent axes: moving a ticket "
+        "onto the board changes what is in the working set and nothing else. "
+        "Which tickets move is the Boss's decision, not a skill's.",
     )
 
 
 @mcp.prompt()  # type: ignore[misc]
 def sprint_planning() -> str:
-    """Planning the next working set: `backlog-refinement`, then `task-estimation`."""
+    """Cutting the work, owned by the `breakdown` skill."""
     return _follow(
-        "sprint planning",
-        "the `backlog-refinement` skill (`/refine`), then the `task-estimation` "
-        "skill (`/estimate`)",
-        "This Jira has no sprints. Planning here means choosing what moves "
-        "from the backlog onto the board, then sizing it.",
+        "planning the work",
+        "the `breakdown` skill (`/breakdown`)",
+        "This Jira has no sprints and no story points. A task is a vertical "
+        "slice finishable in a day, and tasks touching the same files run in "
+        "sequence.",
     )
 
 
 @mcp.prompt()  # type: ignore[misc]
 def review_retro() -> str:
-    """Review and retro: `local-progress-reporter`, then `audit-to-backlog`."""
+    """Review and retro, owned by the `audit` skill."""
     return _follow(
         "a review and retrospective",
-        "the `local-progress-reporter` skill (`/report`) for the review, then "
-        "the `audit-to-backlog` skill (`/audit`) to turn what went wrong into "
-        "backlog tickets",
-        "Before ending the session, rewrite SESSION_CHECKPOINT.md if the "
-        "project keeps one.",
+        "the `audit` skill (`/audit`)",
+        "Every requirement traces to a task and to a test that passes on the "
+        "merged tree; each gap becomes a ticket. Before ending the session, "
+        "rewrite SESSION_CHECKPOINT.md if the project keeps one.",
     )
 
 

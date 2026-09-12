@@ -108,8 +108,8 @@ it, including any added later.
 
 | prompt | owned by |
 |---|---|
-| `jira_daily_standup` | `local-progress-reporter` (`/report`) |
-| `init_project` | `spec-to-backlog` (`/init-project`), which reads documents through `project-docs` |
-| `refinement` | `backlog-refinement` (`/refine`) |
-| `sprint_planning` | `backlog-refinement` (`/refine`), then `task-estimation` (`/estimate`) |
-| `review_retro` | `local-progress-reporter` (`/report`), then `audit-to-backlog` (`/audit`) |
+| `jira_daily_standup` | `audit` (`/audit`) |
+| `init_project` | `prd` (`/prd`), the first step of the flow |
+| `refinement` | `jira-tickets` — which tickets move onto the board is the Boss's decision, not a skill's |
+| `sprint_planning` | `breakdown` (`/breakdown`) |
+| `review_retro` | `audit` (`/audit`) |

@@ -138,7 +138,7 @@ expires, so a ticket left assigned to an agent that died stays that way until a 
 a ten-second fix, weighed against a class of silent disagreement between two boards that costs
 weeks.
 
-> The lifecycle, and why the backlog is not a status: `skills/kanban/jira-tickets/SKILL.md`.
+> The lifecycle, and why the backlog is not a status: `skills/workflow/jira-tickets/SKILL.md`.
 
 ### 3.3 A ticket is scanned, not read — and leaves nothing to decide twice
 
@@ -201,7 +201,7 @@ silently widened permission are both worse than a refusal.
 |---|---|
 | how to work in this repository | [`CLAUDE.md`](./CLAUDE.md) |
 | where things stand right now | [`SESSION_CHECKPOINT.md`](./SESSION_CHECKPOINT.md) |
-| how to write and run a ticket | `skills/kanban/jira-tickets/SKILL.md` |
+| how to write and run a ticket | `skills/workflow/jira-tickets/SKILL.md` |
 | branch, commit, PR and merge rules | `skills/workflow/git-workflow/SKILL.md` |
 | what each component does | [`Drunken-Guild-Guide.md`](./Drunken-Guild-Guide.md) |
 | wiring the MCP servers into a project | [`Integration-Guide.md`](./Integration-Guide.md) |

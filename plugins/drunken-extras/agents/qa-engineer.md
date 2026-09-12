@@ -17,7 +17,7 @@ tools: Read, Edit, Write, Bash
     Load skills before executing tasks in their domain:
     - Choosing the right test type and level   → load `test-strategy` skill
     - Designing a test suite or CI pipeline    → load `test-architecture` skill
-    - Generating a pre-merge quality report    → load `test-report-generator` skill
+    - Reporting what is covered and what is not → load `audit` skill
 
     Skill index: ~/.claude/skills/INDEX.md
   </skill_integration>

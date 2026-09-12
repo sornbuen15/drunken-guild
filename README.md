@@ -13,7 +13,7 @@ halves are meant.
 
 | | what it is | where |
 |---|---|---|
-| **The AI layer** | 16 skills and 3 team roles, installed into `~/.claude/` | `skills/`, `agents/` |
+| **The AI layer** | 11 skills and 3 team roles, installed into `~/.claude/` | `skills/`, `agents/` |
 | **The runtime** | Python MCP servers and a CLI — Jira coordination, Discord approvals, cost accounting, health checks | `src/`, `scripts/` |
 
 They are one repository on purpose. They used to be two, and the two drifted: skills were authored
@@ -54,7 +54,7 @@ Set-ExecutionPolicy -Scope CurrentUser RemoteSigned   # one-time, if blocked
 .\scripts\install\install_agents.ps1
 ```
 
-Then invoke a skill by its trigger — `/tdd`, `/secure`, `/system-design`, `/isolate` — or hand work
+Then invoke a skill by its trigger — `/prd`, `/breakdown`, `/build`, `/isolate` — or hand work
 to an agent. `skills/INDEX.md` and `agents/INDEX.md` list every one with its path and trigger.
 
 ## Quick start — the runtime
@@ -156,9 +156,35 @@ before these roles — fintech, insurance, mobile, desktop, voice, AI systems an
 generalists — live on unchanged as the optional `drunken-extras` plugin in
 [`plugins/drunken-extras/`](./plugins/drunken-extras/).
 
+### The flow — six commands, in order
+
+```
+/prd        →  PRD.md: the brief and the requirements in one file, every requirement
+               carrying an id REQ-xxx and a MoSCoW class
+/clarify    →  a short ranked list of decisions only the Boss can make, answered back
+               into PRD.md
+/ddd        →  DOMAIN.md: bounded contexts, shared vocabulary, core entities.
+               Each context becomes an Epic
+/breakdown  →  the Jira hierarchy — REQ → Epic → Story → Task → Subtask — every level
+               labelled req:REQ-xxx. Nothing is created until the Boss approves the plan
+/build      →  one task, one branch, one PR. The test comes from the ticket's acceptance
+               and is seen failing first. The Boss merges
+/audit      →  every requirement traced to a task and to a test that passes on the merged
+               tree. Gaps become tickets; the day's report is written
+```
+
+A Task is a vertical slice finishable in a day. Where a project's documents live is the
+`project-docs` skill's contract — the project's root `AGENTS.md` is the map, and the defaults
+when there is no map are `.ai/PRD.md`, `.ai/DOMAIN.md`, `.ai/audit/`, `docs/` and
+`docs/decisions/`.
+
+**Where to deploy is deliberately not part of the standard.** No skill assumes a target; the
+first time it matters, the AI asks the project owner and records the answer in that project's
+`AGENTS.md`.
+
 ### Skill categories
 
-`kanban` · `workflow` · `documents` — the skills the flow uses. The general engineering standards
+`flow` · `workflow` · `documents` — the skills the flow uses. The general engineering standards
 (architecture, security, UI/UX, testing, cloud, product, leadership) moved unchanged to the optional
 `drunken-extras` plugin in [`plugins/drunken-extras/`](./plugins/drunken-extras/).
 
@@ -175,7 +201,7 @@ Full catalogue with triggers: [`skills/INDEX.md`](./skills/INDEX.md).
 | [`Drunken-Guild-Guide.md`](./Drunken-Guild-Guide.md) | architecture, the Jira workflow, the Discord command reference, the approval flow |
 | [`DESIGN.md`](./DESIGN.md) | why it is shaped this way — the decisions, and the failure behind each one |
 | [`Integration-Guide.md`](./Integration-Guide.md) | connecting an external tool, or bringing another project under this workflow |
-| [`examples/`](./examples/) | the full project lifecycle walked through with a fictional app |
+| [`examples/`](./examples/) | the flow and its filled-in setup documents, for a fictional app |
 | [`SESSION_CHECKPOINT.md`](./SESSION_CHECKPOINT.md) | where the work currently stands |
 
 ---
@@ -185,10 +211,13 @@ Full catalogue with triggers: [`skills/INDEX.md`](./skills/INDEX.md).
 1. **Token cost and latency.** Running multiple agents consumes significant tokens. Handing a
    specialist a Jira issue key rather than a paraphrased brief keeps each delegation small, but a
    sequence of them still adds up. `drunken-usage` will tell you what a run actually cost.
-2. **Coordination needs the MCP server.** Eight skills and the `manager` role need
-   `drunken-jira-mcp` and the ticket-rules file. Without them those skills degrade to the rules they
-   carry inline — and they will not announce that they are working from a summary. The other 8
-   skills stand alone.
+2. **Coordination needs the MCP server.** `/breakdown`, `/build`, `/audit` and the `manager` role
+   need `drunken-jira-mcp`; `ask-boss` needs `drunken-discord-mcp` for the case where the Boss is
+   not reading the conversation. Without the server the three flow steps say so and stop rather
+   than falling back to a file or a shell script. The other seven skills — `/prd`, `/clarify`,
+   `/ddd`, `jira-tickets`, `project-docs`, `git-workflow` and `/isolate` — stand alone;
+   `jira-tickets` is the ticket reference those Jira steps follow, and it reads as documentation
+   with or without a server.
 3. **No claim expiry.** A Jira assignee never expires. If an agent stops mid-ticket the ticket stays
    assigned until a human reassigns it. The retired local board released a claim after 1800s, and
    that is the one capability the move to Jira gave up.
