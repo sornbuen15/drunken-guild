@@ -482,10 +482,19 @@ AI_LAYER_ROOTS: Final = (("claude.skills", "~/.claude/skills"),)
 #: managed file no longer named, because the entry was in the host's own file.
 #:
 #: Empty since DG-349 retired the Antigravity plumbing — both entries here were
-#: Antigravity's own configs under ``~/.gemini``. :func:`_check_host_configs`
-#: stays, tested with injected roots, so a host config can be added back as a
-#: one-line entry rather than a rewrite.
-HOST_MCP_CONFIGS: Final[tuple[tuple[str, str], ...]] = ()
+#: Antigravity's own configs under ``~/.gemini``, and emptying it left the check
+#: reading nothing at all: every test here injects its own roots, so it stayed
+#: green while unable to fire. DG-341's stale-project notice then could not reach
+#: the one file where it matters.
+#:
+#: ``~/.claude.json`` is that file. Its top-level ``mcpServers`` is **user
+#: scope** — every session on this machine, whatever project it is opened in,
+#: which is the scope that carried the leak this check now reports. Only that
+#: block is read: a project-scoped entry under ``projects.<path>`` reaches one
+#: directory and is the operator's deliberate choice for it.
+HOST_MCP_CONFIGS: Final[tuple[tuple[str, str], ...]] = (
+    ("claude.json", "~/.claude.json"),
+)
 
 #: This project's Jira server. Anything else answering the same question is a
 #: second surface that can disagree with the first, which is the failure this
@@ -594,10 +603,16 @@ def _check_host_configs(
 
         try:
             document = json.loads(path.read_text(encoding="utf-8"))
-            servers = document["mcpServers"] if isinstance(document, dict) else {}
+            # `.get`, not `[...]`. `~/.claude.json` holds far more than MCP
+            # servers, and a host declaring none is ordinary -- reading a missing
+            # key as unparseable would report the common case as a fault, which
+            # is how a check earns the habit of being ignored.
+            servers = (
+                document.get("mcpServers") or {} if isinstance(document, dict) else {}
+            )
             if not isinstance(servers, dict):
                 raise ValueError("mcpServers is not an object")
-        except (OSError, ValueError, KeyError) as exc:
+        except (OSError, ValueError) as exc:
             report.add(
                 check,
                 "warn",
@@ -617,6 +632,10 @@ def _check_host_configs(
         rivals = _rival_jira_servers(servers)
         stale = _stale_project_servers(servers)
 
+        if not servers:
+            report.add(check, "skip", f"{path} declares no MCP servers.")
+            continue
+
         if not broken and not rivals and not stale:
             report.add(check, "ok", f"all {len(servers)} server(s) in {path} resolve")
             continue
@@ -634,8 +653,9 @@ def _check_host_configs(
             parts.append(f"{', '.join(rivals)} serve(s) Jira beside {OUR_JIRA_SERVER}")
         if stale:
             parts.append(
-                f"{', '.join(stale)} still pass(es) --project, which is ignored "
-                "now that every tool takes the project as an argument (DG-341)"
+                f"{', '.join(stale)} still pass(es) --project, which this "
+                "checkout's server ignores — every tool takes the project as an "
+                "argument (DG-341)"
             )
 
         report.add(
@@ -646,9 +666,12 @@ def _check_host_configs(
                 "Editing a host's own config is the operator's step, never this "
                 "tool's. A server that cannot start is attempted on every launch "
                 "and fails silently; a second Jira server is a surface that can "
-                "disagree with this project's; and an ignored --project reads "
-                "like the thing that chooses a project when it is not — drop "
-                "the args, and drop any user-scope entry carrying one."
+                "disagree with this project's. On --project: leave it in place "
+                "until the deployment above reports no drift. This checkout "
+                "ignores it, but the *installed* server is what a host launches, "
+                "and a version predating DG-341 needs it — remove it first and "
+                'every tool call answers "started without a project" instead. '
+                "Reinstall, confirm, then drop the args."
             ),
         )
 
