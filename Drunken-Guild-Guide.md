@@ -110,7 +110,7 @@ and the session falls back to driving Jira by hand.
 Generate it, in the checkout, once:
 
 ```bash
-uv run drunken-config --project <PROJECT-ID> --kind mcp --out .mcp.json
+bash scripts/install/install_mcp.sh --out .mcp.json
 ```
 
 That writes exactly this — named as a command, with no path anywhere:
@@ -188,7 +188,7 @@ Two warnings here are worth acting on rather than skimming past:
   the files that differ. Fix with `uv tool install . --reinstall`. **Every module being present
   says nothing about which revision of it is there**, which is why the check compares content.
 - `deployment.mcp_pin` — `uv tool install` ignores `uv.lock`, so the deployment drifts inside the
-  allowed range. `drunken-config --project <id> --kind install` gives you the pinned command.
+  allowed range. `drunken-doctor --requirements` writes the pins and gives you the command.
 
 `drunken-doctor` verifies that a credential *works*. It does **not** verify that the project key
 exists — it once printed `OK … (project XYZ)` while Jira answered *"No project could be found"*

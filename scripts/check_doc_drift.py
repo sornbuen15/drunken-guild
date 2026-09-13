@@ -56,7 +56,11 @@ RETIRED = (
     # integration guide sent new projects to.
     Retired(".guild_templates", "DG-337", "templates/"),
     Retired("migrate_env_to_registry.py", "DG-351", "scripts/set_secret.py"),
-    Retired("clean_host_config.py", "DG-351", "drunken-config --kind host"),
+    Retired(
+        "clean_host_config.py",
+        "DG-351",
+        "onboard_project.py --merge-mcp-config, which prunes on every merge",
+    ),
     # The Antigravity plumbing (DG-349). `templates/AGENTS.md` is deliberately
     # not listed: the re-scope's vendor-neutral AGENTS.md template may reuse
     # the name, and a guard that fires on the replacement is a guard that gets
@@ -139,6 +143,17 @@ RETIRED = (
         "DG-341",
         "no args at all — one MCP entry serves every project",
     ),
+    # DG-356. Four commands ship; these two answered questions nothing asks any
+    # more. The library behind `drunken-config` survives — what is retired is
+    # the command, so the name is what the guard looks for.
+    Retired(
+        "drunken-config",
+        "DG-356",
+        "install_mcp.sh for the config; drunken-doctor --requirements for the pins",
+    ),
+    Retired("drunken-status", "DG-356", "the /audit step"),
+    Retired("--kind install", "DG-356", "drunken-doctor --requirements"),
+    Retired("--kind host", "DG-356", "onboard_project.py --merge-mcp-config"),
 )
 
 #: Documents whose job is to record what changed. They have to be able to name

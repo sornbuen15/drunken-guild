@@ -185,9 +185,11 @@ silently widened permission are both worse than a refusal.
 
 - **A second Jira surface.** Everything reaching Jira goes through `drunken-jira-mcp`.
 - **A local board.** §3.2.
-- **A second config emitter.** `install_mcp.sh` is a thin wrapper over `drunken-config`, which reads
-  the registry, knows a repository's config from a host application's, and merges rather than
-  overwrites. A second emitter would be two things answering one question.
+- **A second config emitter.** There is one MCP configuration and it is a constant, because the
+  project is an argument to every tool rather than a flag in a file (DG-341). `install_mcp.sh`
+  prints it; `onboard_project.py --merge-mcp-config` is what merges into a host's own file, reading
+  what is there and pruning only what this project owns. Two things emitting one document would be
+  two things that can disagree.
 - **Story points and priority.** A team-managed Jira project cannot set `priority` at all — every
   issue reads `Medium` because that is the only available value — and no story points exist. Urgency
   is expressed with labels. A constraint of the instance, not a gap to fill.

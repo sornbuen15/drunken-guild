@@ -75,6 +75,13 @@ description: >
       — what is on the board is what the team is working on this week, and that is their call.
     </rule>
 
+    <rule priority="FATAL" name="Could Not Ask Is Not An Empty Answer">
+      `gh` may not be installed, Jira may not answer, a checkout may have no tags. None of those
+      are a result: report "could not ask" and say which source, never an empty list. Collapsing
+      the two is how a board came to read as empty for months while it held thirty-nine issues —
+      every layer above believed the empty answer.
+    </rule>
+
     <rule priority="HIGH" name="Urgency Comes From The Requirement">
       A gap ticket inherits the class of the requirement it belongs to, straight from `PRD.md`.
       `/breakdown` owns the mapping from that class to the urgency label; use it rather than
@@ -113,6 +120,11 @@ description: >
     3. TRACE: for each `REQ-xxx`, `jira_search_issues` on `req:REQ-xxx`. Build the table.
     4. VERIFY: fetch, take a clean worktree of `origin/develop`, run the suite there. Record the
        runner's actual output; never describe a run you did not make.
+    4b. READ THE STATE OF THE WORK, rather than asking anyone what it is: the current branch and
+       what `origin/develop` is at, the open pull requests and which ticket each carries, the
+       suite's own count from the run in step 4, and the tickets by status. All four are derivable,
+       which is why they are derived — the parts of a hand-written status that go stale are exactly
+       the parts nobody has to write.
     5. CHECK THE PREVIEW: is what a person can look at older than the merge? Say which.
     6. CLASSIFY: every gap into exactly one class. One requirement can raise more than one.
     7. WRITE: the audit report and the daily report, dated, at the located path.
@@ -141,6 +153,8 @@ description: >
 
     ```
     Audit — <date>
+      branch:      develop @ <sha>  ·  origin/develop @ <sha>
+      open PRs:    #80 DG-355  ·  #81 DG-341   (or: could not ask — gh not installed)
       traced:      9 / 14 requirements
       gaps:        no-ticket 2 · no-test 2 · unverified 1 · not-merged 1 · not-deployed 1
       merged tree: origin/develop @ <sha> — 212 passed, 3 failed

@@ -50,7 +50,7 @@ It is not pre-registered anywhere. A project declares it in its own `.mcp.json`,
 
 Which project a server acts on comes from `--project <id>`, resolved against the central registry -- never from the working directory, and never from a `.env` next to the code. Add `"--project", "<id>"` to `args` when running a server against a project other than the one it was launched from.
 
-> **A host config regenerates itself clean; a repository's `.mcp.json` does not.** `drunken-config --kind host --out <file>` (what `install_mcp.sh` and `onboard_project.py --merge-mcp-config` both call underneath) merges by name into whatever the host — Antigravity, Cursor — already has there, so its own servers survive. It also now **prunes** any entry matching this project's own `drunken-*-mcp` naming convention that is no longer in `MCP_SERVERS`, so a server this project retires (`drunken-board-mcp`, DG-265) disappears on the next regeneration instead of sitting there indefinitely. An entry that was never ours — a third-party `jira-board`, a local `kanban-board` — is never touched either way; regeneration only ever removes what it could also have added (DG-286). DG-277 is the one hand-fix that predates this: entries dead before the pruning rule existed still needed a human to delete them once, under `~/.gemini/`, because editing a file there is an install.
+> **A host config regenerates itself clean; a repository's `.mcp.json` does not.** `onboard_project.py --merge-mcp-config` merges by name into whatever the host — Antigravity, Cursor — already has there, so its own servers survive. It also now **prunes** any entry matching this project's own `drunken-*-mcp` naming convention that is no longer in `MCP_SERVERS`, so a server this project retires (`drunken-board-mcp`, DG-265) disappears on the next regeneration instead of sitting there indefinitely. An entry that was never ours — a third-party `jira-board`, a local `kanban-board` — is never touched either way; regeneration only ever removes what it could also have added (DG-286). DG-277 is the one hand-fix that predates this: entries dead before the pruning rule existed still needed a human to delete them once, under `~/.gemini/`, because editing a file there is an install.
 
 
 
@@ -99,12 +99,12 @@ cd drunken-guild
 uv tool install .
 ```
 
-This installs the commands globally: `drunken-init` (create the state directory and register a project), `drunken-config` (generate MCP and install configuration), `drunken-doctor` (report where every path and secret actually resolves from), `drunken-usage` (what a run cost), `drunken-hook` (the permission floor, called by `.claude/settings.json` rather than by you), and `drunken-jira-mcp` (the MCP server).
+This installs four commands plus two pieces of plumbing: `drunken-init` (create the state directory and register a project), `drunken-doctor` (report where every path and secret actually resolves from, and print the pinned install line), `drunken-usage` (what a run cost) — and `drunken-jira-mcp` (the MCP server, which a host launches) and `drunken-hook` (the permission floor, which `.claude/settings.json` calls). Nobody types the last two.
 
-> **`uv tool install` ignores `uv.lock`**, so the tool environment drifts inside the allowed dependency range -- the deployment carried `mcp` 1.29.0 against a lock pinning 1.28.1 for two releases, both satisfying `<2`, with nothing reporting it. To install what the lock actually names, let `drunken-config` write the requirements and give you the command:
+> **`uv tool install` ignores `uv.lock`**, so the tool environment drifts inside the allowed dependency range -- the deployment carried `mcp` 1.29.0 against a lock pinning 1.28.1 for two releases, both satisfying `<2`, with nothing reporting it. `drunken-doctor` is what reports it, and the same tool writes the pinned requirements and hands you the command:
 >
 > ```bash
-> drunken-config --project <id> --kind install
+> drunken-doctor --requirements
 > ```
 >
 > `drunken-doctor` reports the gap either way (`deployment.mcp_pin`).
