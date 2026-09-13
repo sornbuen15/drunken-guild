@@ -85,19 +85,10 @@ def get_client(project: str) -> JiraClient:
 @as_tool_result
 async def jira_search_issues(project: str, jql: str, detail: str = "brief") -> str:
     """
-    Search a project's Jira with JQL.
-
-    `project` is the registry project id (`drunken-doctor` lists them), not the
-    Jira project key, and the project's own AGENTS.md names which one to use.
-
-    Returns key, summary, status, assignee, and parent when the issue has one.
-    `detail="full"` adds priority and the description as plain text; it costs
-    roughly twenty times more per issue, so ask for one issue by key instead of
-    running a full search over many.
-
-    The query is scoped to the project you named: it is wrapped as
-    `project = "KEY" AND (your query)`. A clause naming another project is kept
-    and simply matches nothing.
+    Search a project's Jira with JQL. `project` is the registry id, not the
+    Jira key. The query is wrapped as `project = "KEY" AND (yours)`, so a clause
+    naming another project matches nothing. `detail="full"` adds priority and
+    description at about twenty times the cost.
     """
     client = get_client(project)
     # S8 (DG-225). --project named the project and did not confine anything to
@@ -110,20 +101,17 @@ async def jira_search_issues(project: str, jql: str, detail: str = "brief") -> s
     return json.dumps(issues, indent=2)
 
 
+# With the local board retired, this is how an agent says "this one is mine" and
+# how work is handed over: the assignee says whose it is, the status says where
+# it is. An ambiguous name is refused rather than guessed — a ticket assigned to
+# the wrong person goes quiet on somebody else's queue and nothing reports it.
 @mcp.tool()  # type: ignore[misc]
 @as_tool_result
 async def jira_assign(project: str, issue_key: str, assignee: str) -> str:
     """
-    Assign an issue, or clear its assignee.
-
-    With the local board retired, this is how an agent says "this one is mine"
-    and how work is handed to another. The assignee says whose it is; the
-    status says where it is.
-
-    `assignee` accepts an email, a display name, "me" for the calling identity,
-    or "none" to unassign. A name that matches more than one assignable user is
-    refused rather than guessed — a ticket assigned to the wrong person goes
-    quiet on somebody else's queue and nothing reports it.
+    Assign an issue in `project`, or clear it. `assignee` takes an email, a
+    display name, "me", or "none". A name matching more than one assignable
+    user is refused rather than guessed.
     """
     client = get_client(project)
 
@@ -154,22 +142,11 @@ async def jira_create_issue(
     labels: str = "",
 ) -> str:
     """
-    Create an issue in the named project.
-
-    SHAPE: three headings, FINDING / SCOPE / ACCEPTANCE, and nothing else.
-    Declarative, not narrative -- the story of how you found it belongs in the
-    commit and the PR. A task is <=120 words; a post-mortem or security finding
-    may be as long as it needs.
-
-    `parent` is an Epic or Story key; without it Timeline stays empty, and
-    shared context belongs on the Epic rather than copied into each child.
-    `labels` stands in for priority, which cannot be set on a team-managed
-    project at all. `duedate` and `start_date` are ISO YYYY-MM-DD.
-
-    Full rules, including the status lifecycle and what to verify before Done:
-    the `jira-tickets` skill (`skills/workflow/jira-tickets/SKILL.md`).
-
-    Warns, never refuses.
+    Create an issue in `project`. Its shape and word budget are the
+    `jira-tickets` skill's. `parent` is an Epic or Story key — without one the
+    Timeline stays empty. `labels` is comma-separated and stands in for
+    priority, which this Jira cannot set. Dates are ISO YYYY-MM-DD. Warns,
+    never refuses.
     """
     client = get_client(project)
     res = await client.create_issue(
@@ -260,27 +237,21 @@ def _require_backlog_board(profile: BoardProfile, project_key: str) -> int:
     return int(profile.id)
 
 
+# The board's own `name` is deliberately not reported: it is frozen at creation
+# and nothing can change it, so it goes stale against the project it names.
+# `backlog` is probed rather than inferred, because type does not predict it — a
+# kanban board may have none while a team-managed 'simple' board has one. Looked
+# up once per process and cached, so asking is free after the first call. (These
+# were in the docstring until DG-361; a comment costs nothing, a description
+# costs every session.)
 @mcp.tool()  # type: ignore[misc]
 @as_tool_result
 async def jira_board_info(project: str) -> str:
     """
-    What a project's Jira board is, and what it can actually do.
-
-    Reports the board's id and type, what it is attached to, and whether it has
-    a backlog. The attachment is `project_key`, `project_name` and
-    `display_name`; the board's own `name` is deliberately absent because it is
-    frozen at creation and nothing can change it — see BoardProfile. The
-    latter probed rather than inferred, because type does not predict it. A
-    kanban board may have no backlog while a team-managed 'simple' board has
-    one. `backlog: null` means the question could not be answered, which is not
-    the same as no.
-
-    Also reports the issue types this project accepts and the ids of the
-    optional fields `jira_create_issue` can set. Field ids differ per instance
-    -- read them here rather than hardcoding one found in a payload.
-
-    Looked up once per process and cached, so asking is free after the first
-    call.
+    What `project`'s board is and what it can do: id, type, what it is attached
+    to, whether it has a backlog, the issue types it accepts, and the settable
+    field ids. Field ids differ per instance — read them here, never hardcode
+    one. `backlog: null` means the question could not be answered, not no.
     """
     client = get_client(project)
     profile = await client.board_profile()
@@ -314,17 +285,10 @@ async def jira_board_info(project: str) -> str:
 @as_tool_result
 async def jira_move_to_backlog(project: str, issue_keys: str) -> str:
     """
-    Move active issues off a project's board and into its backlog.
-
-    `issue_keys` is one key or several, separated by commas or spaces, e.g.
-    "DG-251" or "DG-251, DG-250". At most 50 per call, which is Jira's limit.
-
-    Only issues from the project you named can be moved; a key from another
-    project is refused before the request is sent, because the underlying agile
-    endpoint would otherwise move it without complaint.
-
-    This does not change status. A ticket parked in the backlog keeps the status
-    it had — use jira_transition_issue for that.
+    Move issues off `project`'s board into its backlog. `issue_keys` is one or
+    several, comma- or space-separated, at most 50 (Jira's limit). A key from
+    another project is refused before the request is sent. Does not change
+    status.
     """
     client = get_client(project)
     keys = backlog.scope_keys(issue_keys, client.project_key)
@@ -337,10 +301,9 @@ async def jira_move_to_backlog(project: str, issue_keys: str) -> str:
 @as_tool_result
 async def jira_move_to_board(project: str, issue_keys: str) -> str:
     """
-    Move issues out of a project's backlog and back onto its board.
-
-    The way back from jira_move_to_backlog. Same rules: keys from this project
-    only, at most 50 at a time, and status is left exactly as it was.
+    Move issues out of `project`'s backlog back onto its board. Same rules as
+    jira_move_to_backlog: this project's keys only, at most 50, status
+    untouched.
     """
     client = get_client(project)
     keys = backlog.scope_keys(issue_keys, client.project_key)
@@ -355,7 +318,8 @@ async def jira_transition_issue(
     project: str, issue_key: str, target_status: str
 ) -> str:
     """
-    Move an issue between columns/statuses (e.g., 'To Do' -> 'In Progress').
+    Move an issue in `project` between statuses, e.g. 'To Do' -> 'In Progress'.
+    `target_status` is the status name.
     """
     client = get_client(project)
     res = await client.transition_issue(issue_key, target_status)
@@ -366,7 +330,7 @@ async def jira_transition_issue(
 @as_tool_result
 async def jira_add_comment(project: str, issue_key: str, comment: str) -> str:
     """
-    Add a comment to an issue to provide updates or audit trails.
+    Add a comment to an issue in `project`.
     """
     client = get_client(project)
     res = await client.add_comment(issue_key, comment)
@@ -484,7 +448,8 @@ def review_retro() -> str:
 @as_tool_result
 async def jira_start_task(project: str, issue_key: str) -> str:
     """
-    Start working on a Jira task. Transitions the ticket to 'In Progress' and returns the Git command required for branching.
+    Move an issue in `project` to In Progress and return the branch command to
+    run before coding.
     """
     client = get_client(project)
     await client.transition_issue(issue_key, "In Progress")
@@ -504,7 +469,8 @@ async def jira_submit_for_review(
     project: str, issue_key: str, pr_link: str, files_changed: str
 ) -> str:
     """
-    Submit a task for review. Transitions the ticket to 'In Review' and adds a comment with the PR link.
+    Move an issue in `project` to In Review and comment the PR link. The
+    argument is `pr_link`; `files_changed` is a one-line summary.
     """
     client = get_client(project)
     await client.transition_issue(issue_key, "In Review")
