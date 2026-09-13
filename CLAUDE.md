@@ -240,7 +240,7 @@ was FATAL, and it is FATAL here.
 ```
 scripts/install/install_skills.sh    → ~/.claude/skills/
 scripts/install/install_agents.sh    → ~/.claude/agents/
-scripts/install/install_mcp.sh       → prints or writes a project's MCP config
+scripts/install/install_mcp.sh       → prints or writes the MCP config (the same for every project)
 ```
 
 The first two also refresh `INDEX.md`, which is generated *and* committed — so it goes stale on any
