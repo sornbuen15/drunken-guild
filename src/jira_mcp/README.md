@@ -21,9 +21,10 @@ This will make the `drunken-jira-mcp` command available in your terminal.
 ## Configuration
 
 The server reads its Jira connection from the **project registry** under `$DRUNKEN_HOME`, selected
-by the `--project <id>` it is started with. It reads no `.env` and no per-project JSON file. Register
-a project once with `drunken-init`; the credential is a reference (`file://…#key`, `env://VAR`, …),
-never the token itself:
+by the project id **each tool call names** — the server itself is started with no project at all
+(DG-341). It reads no `.env` and no per-project JSON file. Register a project once with
+`drunken-init`; the credential is a reference (`file://…#key`, `env://VAR`, …), never the token
+itself:
 
 ```bash
 drunken-init --project my-project --jira-url https://your-domain.atlassian.net \
@@ -60,14 +61,16 @@ Example configuration:
 ```json
 {
   "mcpServers": {
-    "drunken-jira-mcp": { "command": "drunken-jira-mcp", "args": ["--project", "my-project"] }
+    "drunken-jira-mcp": { "command": "drunken-jira-mcp" }
   }
 }
 ```
 
-`--project` is required: it selects which registry entry, and therefore which Jira project, the
-server acts on. `scripts/install/install_mcp.sh <project-id>` generates this rather than having it
-written by hand.
+**The same entry works for every project, and that is deliberate.** Each tool takes the registry
+project id as its first argument, so nothing here decides which Jira is reached. It used to: a
+config carrying `--project` registered at *user* scope reached every session on the machine and gave
+them all one project's board while reporting success (DG-341). A missing or unknown id is refused
+with the registered ids named, never guessed.
 
 ## Available Features for Agents
 

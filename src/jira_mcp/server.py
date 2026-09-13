@@ -1,12 +1,11 @@
-import argparse
 import json
-import sys
 from typing import Optional
 
 from mcp.server.fastmcp import FastMCP
 
 from core.context import ProjectContext
 from core.errors import ConfigError, as_tool_result
+from core.registry import ProjectRegistry
 
 from . import assign, backlog
 from .jira_client import BoardProfile, JiraClient
@@ -25,44 +24,82 @@ _NOT_A_STATUS = (
 # Create the FastMCP server instance
 mcp = FastMCP("drunken-jira-mcp")
 
-# JiraClient will be initialized on demand by get_client()
-jira = None  # type: ignore[assignment]
-ctx: ProjectContext | None = None
+#: One client per project, built on first use and kept.
+#:
+#: Kept, because :mod:`core.secrets` consults each backend once per process and
+#: a backend like 1Password prompts for biometrics on every read — resolving per
+#: tool call would make the server unusable. Keyed by project id, because this
+#: one process serves every project now.
+_clients: dict[str, JiraClient] = {}
 
 
-def get_client() -> JiraClient:
-    global jira
-    if not jira:
-        if not ctx:
-            raise ConfigError(
-                "This server was started without a project, so it has no Jira "
-                "credentials to use.",
-                remediation=(
-                    "Relaunch it as `drunken-jira-mcp --project <id>`, using an "
-                    "id from your registry. `drunken-doctor` lists what is "
-                    "registered and `drunken-init` adds a project."
-                ),
-            )
-        jira = JiraClient(ctx)
-    return jira
+def forget_clients() -> None:
+    """Drop every resolved client. For tests, and for a credential reload."""
+    _clients.clear()
+
+
+def get_client(project: str) -> JiraClient:
+    """The Jira client for *project*, or a refusal that says what to do.
+
+    *project* is the **project id from the registry** — the name
+    ``drunken-doctor`` lists — not the Jira project key. One server serves every
+    project, so this is the only thing that says which one a call is about.
+
+    Nothing here falls back. Not to a single registered project, not to the
+    first key in the registry file, not to the working directory. DG-341 is what
+    a fallback costs: a server pinned to one project answered every session on
+    the machine, and the sessions that were not that project got its board while
+    reporting success. A refusal is recoverable; a wrong board is not noticed.
+    """
+    key = (project or "").strip()
+    if not key:
+        registry = ProjectRegistry()
+        known = registry.project_ids()
+        raise ConfigError(
+            "No project was given, so there is nothing to act on.",
+            remediation=(
+                "Pass the project id as the first argument of the tool. "
+                + (
+                    f"Registered: {', '.join(known)}. "
+                    if known
+                    else f"The registry at {registry.registry_path} has no "
+                    "projects yet; add one with `drunken-init`. "
+                )
+                + "It is the registry id (as `drunken-doctor` lists it), not "
+                "the Jira project key. The project's AGENTS.md names which one "
+                "to use."
+            ),
+        )
+
+    client = _clients.get(key)
+    if client is None:
+        # `get_project_config` validates the id and refuses an unknown one,
+        # naming what is registered — so a traversal attempt and a typo both
+        # arrive as words rather than as a path join or an empty board.
+        client = JiraClient(ProjectContext.build(key))
+        _clients[key] = client
+    return client
 
 
 @mcp.tool()  # type: ignore[misc]
 @as_tool_result
-async def jira_search_issues(jql: str, detail: str = "brief") -> str:
+async def jira_search_issues(project: str, jql: str, detail: str = "brief") -> str:
     """
-    Search this project's Jira with JQL.
+    Search a project's Jira with JQL.
+
+    `project` is the registry project id (`drunken-doctor` lists them), not the
+    Jira project key, and the project's own AGENTS.md names which one to use.
 
     Returns key, summary, status, assignee, and parent when the issue has one.
     `detail="full"` adds priority and the description as plain text; it costs
     roughly twenty times more per issue, so ask for one issue by key instead of
     running a full search over many.
 
-    The query is scoped to the project this server was launched for: it is
-    wrapped as `project = "KEY" AND (your query)`. A clause naming another
-    project is kept and simply matches nothing.
+    The query is scoped to the project you named: it is wrapped as
+    `project = "KEY" AND (your query)`. A clause naming another project is kept
+    and simply matches nothing.
     """
-    client = get_client()
+    client = get_client(project)
     # S8 (DG-225). --project named the project and did not confine anything to
     # it. Scoping happens here, at the boundary, rather than inside JiraClient:
     # the client is also used by jira_create_issue and the transition tools,
@@ -75,7 +112,7 @@ async def jira_search_issues(jql: str, detail: str = "brief") -> str:
 
 @mcp.tool()  # type: ignore[misc]
 @as_tool_result
-async def jira_assign(issue_key: str, assignee: str) -> str:
+async def jira_assign(project: str, issue_key: str, assignee: str) -> str:
     """
     Assign an issue, or clear its assignee.
 
@@ -88,7 +125,7 @@ async def jira_assign(issue_key: str, assignee: str) -> str:
     refused rather than guessed — a ticket assigned to the wrong person goes
     quiet on somebody else's queue and nothing reports it.
     """
-    client = get_client()
+    client = get_client(project)
 
     if assign.is_unassign(assignee):
         return json.dumps(await client.assign_issue(issue_key, None), indent=2)
@@ -107,6 +144,7 @@ async def jira_assign(issue_key: str, assignee: str) -> str:
 @mcp.tool()  # type: ignore[misc]
 @as_tool_result
 async def jira_create_issue(
+    project: str,
     summary: str,
     description: str,
     issue_type: str = "Task",
@@ -116,7 +154,7 @@ async def jira_create_issue(
     labels: str = "",
 ) -> str:
     """
-    Create an issue in this project.
+    Create an issue in the named project.
 
     SHAPE: three headings, FINDING / SCOPE / ACCEPTANCE, and nothing else.
     Declarative, not narrative -- the story of how you found it belongs in the
@@ -133,7 +171,7 @@ async def jira_create_issue(
 
     Warns, never refuses.
     """
-    client = get_client()
+    client = get_client(project)
     res = await client.create_issue(
         summary,
         description,
@@ -183,9 +221,9 @@ def _orphan_warning(description: str, parent: str) -> Optional[str]:
 def _require_backlog_board(profile: BoardProfile, project_key: str) -> int:
     """The board id to move against, or a refusal that says what to do instead.
 
-    Derived from the project this server was launched for. The agent never
-    passes a board id — same rule as S2: the binding is what the server was
-    started with, never an argument to a tool.
+    Derived from the project the call named. The agent never passes a board
+    id: a board is a fact about a project, looked up, not something a caller
+    gets to assert.
     """
     if not profile.known:
         raise ConfigError(
@@ -224,9 +262,9 @@ def _require_backlog_board(profile: BoardProfile, project_key: str) -> int:
 
 @mcp.tool()  # type: ignore[misc]
 @as_tool_result
-async def jira_board_info() -> str:
+async def jira_board_info(project: str) -> str:
     """
-    What this project's Jira board is, and what it can actually do.
+    What a project's Jira board is, and what it can actually do.
 
     Reports the board's id and type, what it is attached to, and whether it has
     a backlog. The attachment is `project_key`, `project_name` and
@@ -244,7 +282,7 @@ async def jira_board_info() -> str:
     Looked up once per process and cached, so asking is free after the first
     call.
     """
-    client = get_client()
+    client = get_client(project)
     profile = await client.board_profile()
     return json.dumps(
         {
@@ -274,21 +312,21 @@ async def jira_board_info() -> str:
 
 @mcp.tool()  # type: ignore[misc]
 @as_tool_result
-async def jira_move_to_backlog(issue_keys: str) -> str:
+async def jira_move_to_backlog(project: str, issue_keys: str) -> str:
     """
-    Move active issues off this project's board and into its backlog.
+    Move active issues off a project's board and into its backlog.
 
     `issue_keys` is one key or several, separated by commas or spaces, e.g.
     "DG-251" or "DG-251, DG-250". At most 50 per call, which is Jira's limit.
 
-    Only issues from the project this server was launched for can be moved; a
-    key from another project is refused before the request is sent, because the
-    underlying agile endpoint would otherwise move it without complaint.
+    Only issues from the project you named can be moved; a key from another
+    project is refused before the request is sent, because the underlying agile
+    endpoint would otherwise move it without complaint.
 
     This does not change status. A ticket parked in the backlog keeps the status
     it had — use jira_transition_issue for that.
     """
-    client = get_client()
+    client = get_client(project)
     keys = backlog.scope_keys(issue_keys, client.project_key)
     board_id = _require_backlog_board(await client.board_profile(), client.project_key)
     result = await client.move_to_backlog(board_id, keys)
@@ -297,14 +335,14 @@ async def jira_move_to_backlog(issue_keys: str) -> str:
 
 @mcp.tool()  # type: ignore[misc]
 @as_tool_result
-async def jira_move_to_board(issue_keys: str) -> str:
+async def jira_move_to_board(project: str, issue_keys: str) -> str:
     """
-    Move issues out of this project's backlog and back onto its board.
+    Move issues out of a project's backlog and back onto its board.
 
     The way back from jira_move_to_backlog. Same rules: keys from this project
     only, at most 50 at a time, and status is left exactly as it was.
     """
-    client = get_client()
+    client = get_client(project)
     keys = backlog.scope_keys(issue_keys, client.project_key)
     board_id = _require_backlog_board(await client.board_profile(), client.project_key)
     result = await client.move_to_board(board_id, keys)
@@ -313,55 +351,51 @@ async def jira_move_to_board(issue_keys: str) -> str:
 
 @mcp.tool()  # type: ignore[misc]
 @as_tool_result
-async def jira_transition_issue(issue_key: str, target_status: str) -> str:
+async def jira_transition_issue(
+    project: str, issue_key: str, target_status: str
+) -> str:
     """
     Move an issue between columns/statuses (e.g., 'To Do' -> 'In Progress').
     """
-    client = get_client()
+    client = get_client(project)
     res = await client.transition_issue(issue_key, target_status)
     return json.dumps(res, indent=2)
 
 
 @mcp.tool()  # type: ignore[misc]
 @as_tool_result
-async def jira_add_comment(issue_key: str, comment: str) -> str:
+async def jira_add_comment(project: str, issue_key: str, comment: str) -> str:
     """
     Add a comment to an issue to provide updates or audit trails.
     """
-    client = get_client()
+    client = get_client(project)
     res = await client.add_comment(issue_key, comment)
     return json.dumps(res, indent=2)
 
 
-@mcp.resource("jira://issue/{issue_key}")  # type: ignore[misc]
-async def get_issue_details(issue_key: str) -> str:
+# Both resource URIs carry the project, for the same reason every tool takes
+# it. `jira://board` — "the default project" — is gone: there is no default, and
+# a URI that implied one would be read as though there were.
+@mcp.resource("jira://project/{project}/issue/{issue_key}")  # type: ignore[misc]
+async def get_issue_details(project: str, issue_key: str) -> str:
     """
     Get full JSON details of a specific Jira issue.
     """
-    client = get_client()
+    client = get_client(project)
     res = await client.get_issue(issue_key)
     return json.dumps(res, indent=2)
 
 
-@mcp.resource("jira://board")  # type: ignore[misc]
-async def get_default_project_board() -> str:
+@mcp.resource("jira://project/{project}/board")  # type: ignore[misc]
+async def get_project_board(project: str) -> str:
     """
-    Get a snapshot of the current active board for the default project.
+    Get a snapshot of a project's active board (To Do, In Progress, In Review).
     """
-    client = get_client()
-    project_key = client.project_key
-    jql = f"project = {project_key} AND status in ('To Do', 'In Progress', 'In Review')"
-    issues = await client.search_issues(jql)
-    return json.dumps(issues, indent=2)
-
-
-@mcp.resource("jira://project/{project_key}/board")  # type: ignore[misc]
-async def get_project_board(project_key: str) -> str:
-    """
-    Get a snapshot of the current active board for the project (returns To Do, In Progress, In Review issues).
-    """
-    client = get_client()
-    jql = f"project = {project_key} AND status in ('To Do', 'In Progress', 'In Review')"
+    client = get_client(project)
+    jql = (
+        f"project = {client.project_key} "
+        "AND status in ('To Do', 'In Progress', 'In Review')"
+    )
     issues = await client.search_issues(jql)
     return json.dumps(issues, indent=2)
 
@@ -448,11 +482,11 @@ def review_retro() -> str:
 
 @mcp.tool()  # type: ignore[misc]
 @as_tool_result
-async def jira_start_task(issue_key: str) -> str:
+async def jira_start_task(project: str, issue_key: str) -> str:
     """
     Start working on a Jira task. Transitions the ticket to 'In Progress' and returns the Git command required for branching.
     """
-    client = get_client()
+    client = get_client(project)
     await client.transition_issue(issue_key, "In Progress")
     git_command = f"git checkout -b feature/{issue_key}"
     return json.dumps(
@@ -467,12 +501,12 @@ async def jira_start_task(issue_key: str) -> str:
 @mcp.tool()  # type: ignore[misc]
 @as_tool_result
 async def jira_submit_for_review(
-    issue_key: str, pr_link: str, files_changed: str
+    project: str, issue_key: str, pr_link: str, files_changed: str
 ) -> str:
     """
     Submit a task for review. Transitions the ticket to 'In Review' and adds a comment with the PR link.
     """
-    client = get_client()
+    client = get_client(project)
     await client.transition_issue(issue_key, "In Review")
 
     comment = f"**Code Submitted for Review**\n\n*PR Link:* {pr_link}\n*Files Changed:* {files_changed}"
@@ -487,47 +521,20 @@ async def jira_submit_for_review(
     )
 
 
-def parse_project_arg(argv: list[str]) -> str | None:
-    """Read --project without ever exiting the process.
-
-    Deliberately not `required=True`: argparse enforces that by calling
-    sys.exit(2), which killed the server before the MCP handshake. The host
-    then saw a process that simply vanished, with nothing to read and
-    nothing to act on. A server that starts and says what is wrong when a
-    tool is called is strictly more useful than one that is not there.
-    """
-    parser = argparse.ArgumentParser(add_help=False)
-    parser.add_argument("--project", type=str, default=None)
-    args, _ = parser.parse_known_args(argv)
-    project: str | None = args.project
-    return project
-
-
 def main() -> None:
-    global ctx
-    project = parse_project_arg(sys.argv[1:])
+    """Start the server. It takes no arguments, and that is the fix.
 
-    if project:
-        try:
-            ctx = ProjectContext.build(project)
-        except Exception as e:
-            # Same reasoning as above, one layer down: a bad project id, an
-            # unreadable registry, or an unresolvable secret must surface
-            # from the tool call that needs it, carrying its remediation --
-            # not as a dead process at startup.
-            print(
-                f"[drunken-jira-mcp] Could not load project {project!r}: {e}. "
-                "Starting anyway; tools will report this with the fix.",
-                file=sys.stderr,
-                flush=True,
-            )
+    `--project` is gone (DG-341). It was what user scope was able to pin: one
+    entry in `~/.claude.json` reaches every session on the machine, so a server
+    launched with `--project drunken-guild` answered sessions that were not that
+    project, handing them its board while reporting success.
 
-    if "--project" in sys.argv:
-        idx = sys.argv.index("--project")
-        sys.argv.pop(idx)
-        if len(sys.argv) > idx:
-            sys.argv.pop(idx)
-
+    With the project arriving per call, one configuration is correct everywhere
+    and there is nothing to pin. An unexpected argument is ignored rather than
+    fatal, for the reason `--project` used to be parsed loosely: argparse's own
+    failure is `sys.exit(2)`, which killed the process before the MCP handshake
+    and left the host with nothing to read.
+    """
     mcp.run(transport="stdio")
 
 

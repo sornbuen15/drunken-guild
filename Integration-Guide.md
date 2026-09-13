@@ -28,7 +28,7 @@ It is not pre-registered anywhere. A project declares it in its own `.mcp.json`,
 ```json
 {
   "mcpServers": {
-    "drunken-jira-mcp": { "command": "drunken-jira-mcp", "args": ["--project", "<PROJECT-ID>"] }
+    "drunken-jira-mcp": { "command": "drunken-jira-mcp" }
   }
 }
 ```
@@ -39,10 +39,10 @@ It is not pre-registered anywhere. A project declares it in its own `.mcp.json`,
 > once at user scope with a fixed `--project`: user scope reaches every session on the machine, so
 > every other project silently talks to that one project's Jira and Discord room.
 
-> **`--project` is required on both servers (DG-313).** It is not decoration on the Discord one:
-> it selects which daemon socket the server dials, and therefore which Discord room approvals
-> reach. Omit it on a machine with more than one project registered and approvals post into
-> whichever project's daemon answers first. Do **not** put a channel id here — the project id is
+> **The server takes no project (DG-341).** Every tool takes the registry project id as its first
+> argument, which is why one entry serves every project. The flag it replaces was what user scope
+> could pin: one `~/.claude.json` entry reaches every session on the machine, so a server launched
+> with a project answered sessions that were not that project. Do **not** put a channel id here — the project id is
 > the reference and the registry holds the value.
 >
 > `.mcp.json` is operating config, not source. Per DG-250 it lives at the wrapper level, outside
@@ -170,12 +170,12 @@ what the project already runs — the placeholders read as instructions if left 
 ```json
 {
   "mcpServers": {
-    "drunken-jira-mcp": { "command": "drunken-jira-mcp", "args": ["--project", "existing-project"] }
+    "drunken-jira-mcp": { "command": "drunken-jira-mcp" }
   }
 }
 ```
 
-This depends on step 1 — the commands have to be on `PATH`. Without `uv tool install`, fall back to `uv run --directory /path/to/drunken-guild drunken-jira-mcp --project existing-project`, and keep that file out of git.
+This depends on step 1 — the command has to be on `PATH`. Without `uv tool install`, fall back to `uv run --directory /path/to/drunken-guild drunken-jira-mcp`, and keep that file out of git.
 
 For Cursor: **Settings > Features > MCP > Add New Server**, type `command`, `drunken-jira-mcp` with args `--project existing-project`, then the same for the other one.
 

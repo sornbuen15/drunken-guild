@@ -66,14 +66,22 @@ def is_drunken_managed(name: str) -> bool:
     return name.startswith("drunken-") and name.endswith("-mcp")
 
 
-def mcp_config(project_id: str) -> Dict[str, Any]:
-    """The config a repository commits. Names, never paths -- see the module doc."""
-    return {
-        "mcpServers": {
-            name: {"command": name, "args": ["--project", project_id]}
-            for name in MCP_SERVERS
-        }
-    }
+def mcp_config(project_id: str = "") -> Dict[str, Any]:
+    """The config a repository commits. Names, never paths -- see the module doc.
+
+    **It carries no project, and that is the point (DG-341).** `--project` used
+    to be written in here, which made this file the thing that decided which
+    Jira a server talked to — and an entry registered at *user* scope then
+    decided it for every session on the machine. One pinned config served
+    sessions that were not that project, handing them its board while reporting
+    success.
+
+    Every tool takes the project as an argument now, so this config is identical
+    for every project and there is nothing left to pin. *project_id* is accepted
+    and ignored: callers pass one, and refusing it would break them to remove a
+    value nothing reads.
+    """
+    return {"mcpServers": {name: {"command": name} for name in MCP_SERVERS}}
 
 
 def _tool_bin_dir() -> Path:
@@ -115,13 +123,15 @@ def resolve_command(name: str) -> str:
     return name
 
 
-def host_config(project_id: str) -> Dict[str, Any]:
-    """The config a host application reads, with commands resolved to paths."""
+def host_config(project_id: str = "") -> Dict[str, Any]:
+    """The config a host application reads, with commands resolved to paths.
+
+    No project here either, and this is the shape where it mattered most: a host
+    config lives in the user's home and reaches every session it opens. See
+    :func:`mcp_config`.
+    """
     return {
-        "mcpServers": {
-            name: {"command": resolve_command(name), "args": ["--project", project_id]}
-            for name in MCP_SERVERS
-        }
+        "mcpServers": {name: {"command": resolve_command(name)} for name in MCP_SERVERS}
     }
 
 

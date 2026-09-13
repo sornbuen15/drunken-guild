@@ -56,11 +56,21 @@ class TestARepoConfigAndAHostConfigDifferOnPurpose:
 
         assert entry["command"] == str(bin_dir / "drunken-jira-mcp")
 
-    def test_every_server_is_scoped_to_the_project(self) -> None:
-        for entry in config_gen.mcp_config("alpha")["mcpServers"].values():
-            assert entry["args"] == ["--project", "alpha"], (
-                "An unscoped server acts on whichever project it defaulted to."
+    def test_no_server_carries_a_project(self) -> None:
+        """The inverse of what this asserted before DG-341, and the reason.
+
+        A config that named a project was the thing a user-scope entry could
+        pin: one file then decided which Jira every session on the machine
+        talked to. The project is an argument to every tool now, so this config
+        is identical for every project and there is nothing to pin.
+        """
+        for shape in (config_gen.mcp_config("alpha"), config_gen.host_config("alpha")):
+            serialised = json.dumps(shape)
+            assert "--project" not in serialised, (
+                "A project in the config is what user scope was able to pin "
+                "(DG-341). It belongs in the tool call."
             )
+            assert "alpha" not in serialised
 
 
 class TestTheInstallCommandHonoursTheLock:

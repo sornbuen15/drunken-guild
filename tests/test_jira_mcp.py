@@ -14,7 +14,7 @@ async def test_jira_start_task(mock_get_client: AsyncMock) -> None:
     mock_client = AsyncMock()
     mock_get_client.return_value = mock_client
 
-    result_json = await jira_start_task("DAGY-29")
+    result_json = await jira_start_task("dg", "DAGY-29")
     result = json.loads(result_json)
 
     mock_client.transition_issue.assert_called_once_with("DAGY-29", "In Progress")
@@ -29,7 +29,7 @@ async def test_jira_submit_for_review(mock_get_client: AsyncMock) -> None:
     mock_get_client.return_value = mock_client
 
     result_json = await jira_submit_for_review(
-        "DAGY-29", "http://github.com/pr/1", "src/server.py"
+        "dg", "DAGY-29", "http://github.com/pr/1", "src/server.py"
     )
     result = json.loads(result_json)
 
@@ -39,39 +39,22 @@ async def test_jira_submit_for_review(mock_get_client: AsyncMock) -> None:
 
 
 # --- DG-235: the server must not die before it can explain itself ----------
+#
+# The original pair of tests here asserted that a missing `--project` was not an
+# argparse exit. DG-341 removed the flag, so the startup half has no subject: the
+# server takes no arguments and cannot fail on them. What survives is the
+# principle -- anything that can fail, fails inside a tool call carrying its
+# remediation -- and that is asserted in test_jira_mcp_project_parameter.py and
+# in test_tool_errors.py, against the project argument instead.
 
 
-def test_startup_without_project_does_not_kill_the_server() -> None:
-    """A missing --project must not be an argparse exit.
+def test_the_server_starts_with_no_arguments() -> None:
+    """Nothing to pass, so nothing to get wrong at startup (DG-341)."""
+    import inspect
 
-    `--project` was declared required=True, so launching the server without
-    it exited with code 2 before the MCP handshake — the host saw a process
-    that vanished, with nothing to read. Checkpoint principle 8: anything
-    that can fail must fail inside a tool call.
-    """
-    from jira_mcp.server import parse_project_arg
-
-    assert parse_project_arg([]) is None
-    assert parse_project_arg(["--project", "dg"]) == "dg"
-
-
-def test_tool_without_a_context_explains_the_fix() -> None:
-    """The failure has to arrive as words the agent can act on."""
     import jira_mcp.server as srv
-    from core.errors import DrunkenError
 
-    original = srv.ctx
-    srv.ctx = None
-    srv.jira = None
-    try:
-        with pytest.raises(DrunkenError) as excinfo:
-            srv.get_client()
-    finally:
-        srv.ctx = original
-
-    err = excinfo.value
-    assert err.remediation, "an error with no next step leaves the agent stuck"
-    assert "--project" in err.remediation
+    assert list(inspect.signature(srv.main).parameters) == []
 
 
 # --- DG-234: a ticket with nowhere to appear ------------------------------
@@ -162,7 +145,7 @@ async def test_create_issue_carries_the_warning(mock_get_client: AsyncMock) -> N
     mock_client.board_warning.return_value = "ALPHA has no agile board"
     mock_get_client.return_value = mock_client
 
-    result = await jira_create_issue("summary", "description")
+    result = await jira_create_issue("alpha", "summary", "description")
 
     assert "ALPHA-40" in result
     assert "no agile board" in result
@@ -180,6 +163,6 @@ async def test_create_issue_is_unchanged_when_healthy(
     mock_client.board_warning.return_value = None
     mock_get_client.return_value = mock_client
 
-    result = await jira_create_issue("summary", "description")
+    result = await jira_create_issue("dg", "summary", "description")
 
     assert json.loads(result) == {"ok": True, "key": "DG-40"}
