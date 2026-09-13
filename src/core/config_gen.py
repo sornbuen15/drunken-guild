@@ -23,7 +23,6 @@ terminal and fails silently inside the IDE.
 
 from __future__ import annotations
 
-import argparse
 import json
 import os
 import shutil
@@ -66,14 +65,22 @@ def is_drunken_managed(name: str) -> bool:
     return name.startswith("drunken-") and name.endswith("-mcp")
 
 
-def mcp_config(project_id: str) -> Dict[str, Any]:
-    """The config a repository commits. Names, never paths -- see the module doc."""
-    return {
-        "mcpServers": {
-            name: {"command": name, "args": ["--project", project_id]}
-            for name in MCP_SERVERS
-        }
-    }
+def mcp_config(project_id: str = "") -> Dict[str, Any]:
+    """The config a repository commits. Names, never paths -- see the module doc.
+
+    **It carries no project, and that is the point (DG-341).** `--project` used
+    to be written in here, which made this file the thing that decided which
+    Jira a server talked to — and an entry registered at *user* scope then
+    decided it for every session on the machine. One pinned config served
+    sessions that were not that project, handing them its board while reporting
+    success.
+
+    Every tool takes the project as an argument now, so this config is identical
+    for every project and there is nothing left to pin. *project_id* is accepted
+    and ignored: callers pass one, and refusing it would break them to remove a
+    value nothing reads.
+    """
+    return {"mcpServers": {name: {"command": name} for name in MCP_SERVERS}}
 
 
 def _tool_bin_dir() -> Path:
@@ -115,13 +122,15 @@ def resolve_command(name: str) -> str:
     return name
 
 
-def host_config(project_id: str) -> Dict[str, Any]:
-    """The config a host application reads, with commands resolved to paths."""
+def host_config(project_id: str = "") -> Dict[str, Any]:
+    """The config a host application reads, with commands resolved to paths.
+
+    No project here either, and this is the shape where it mattered most: a host
+    config lives in the user's home and reaches every session it opens. See
+    :func:`mcp_config`.
+    """
     return {
-        "mcpServers": {
-            name: {"command": resolve_command(name), "args": ["--project", project_id]}
-            for name in MCP_SERVERS
-        }
+        "mcpServers": {name: {"command": resolve_command(name)} for name in MCP_SERVERS}
     }
 
 
@@ -242,99 +251,19 @@ def install_command(requirements: Optional[Path]) -> str:
     return f"uv tool install . --with-requirements {requirements}"
 
 
-def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
-        prog="drunken-config",
-        description=(
-            "Generate the configuration hosts and installers read, instead of "
-            "hand-writing it."
-        ),
-    )
-    parser.add_argument("--project", required=True, help="Project id to scope to.")
-    parser.add_argument(
-        "--kind",
-        choices=("mcp", "host", "install"),
-        default="mcp",
-        help=(
-            "mcp: a repository's own .mcp.json, names only. "
-            "host: a host application's config, absolute paths. "
-            "install: the pinned install command, with requirements exported "
-            "from uv.lock."
-        ),
-    )
-    parser.add_argument(
-        "--out",
-        help=(
-            "Write here instead of printing. For --kind host the file is "
-            "merged, so the host's own servers survive."
-        ),
-    )
-    return parser
-
-
-def main() -> int:
-    args = build_parser().parse_args()
-
-    from core.registry import validate_project_id
-
-    validate_project_id(args.project)
-
-    if args.kind == "install":
-        return _emit_install(args.out)
-
-    if args.kind == "host":
-        if not args.out:
-            print(json.dumps(host_config(args.project), indent=2))
-            return 0
-        diff = merge_into_host_config(Path(args.out).expanduser(), args.project)
-        if not diff:
-            print(f"{args.out}: already correct, nothing changed")
-            return 0
-        if diff.added:
-            print(f"{args.out}: added/updated: {', '.join(diff.added)}")
-        if diff.removed:
-            print(f"{args.out}: removed (retired): {', '.join(diff.removed)}")
-        return 0
-
-    document = json.dumps(mcp_config(args.project), indent=2)
-    if not args.out:
-        print(document)
-        return 0
-    Path(args.out).expanduser().write_text(document + "\n", encoding="utf-8")
-    print(f"{args.out}: written")
-    return 0
-
-
-def _emit_install(out: Optional[str]) -> int:
-    """Print the install command, writing the pinned requirements beside it.
-
-    Printed rather than run. Installing is the operator's call -- it replaces
-    the deployment that a host config is already pointing at, and doing that as
-    a side effect of asking for a config would be the kind of surprise this
-    project keeps writing post-mortems about.
-    """
-    root = Path.cwd()
-    exported = export_requirements(root)
-    if exported is None:
-        print(
-            "warning: could not export uv.lock (is `uv` on PATH, and is this a "
-            "project root?). Falling back to an unpinned install.",
-            file=sys.stderr,
-        )
-        print(install_command(None))
-        return 0
-
-    target = Path(out).expanduser() if out else root / "requirements.lock.txt"
-    target.write_text(exported, encoding="utf-8")
-    # Say what was and was not done, in that order. The first version printed
-    # the filename and the command with no verb between them, which reads as a
-    # report of work completed -- and was taken as one, leaving a deployment
-    # three tickets behind while every surface looked fine.
-    print(f"Wrote {target} ({count_pins(exported)} pinned packages).")
-    print("NOT INSTALLED. To deploy, run:\n")
-    print(f"    {install_command(target)}\n")
-    return 0
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())
+# The CLI that used to live here is retired (DG-356). `drunken-config` had
+# three jobs and lost one of them outright: `--kind mcp` emitted a document that
+# is now a constant, because the project moved into every tool call (DG-341).
+# The other two moved to where they belong rather than being dropped:
+#
+# * `--kind host` -- merging into a host application's own config file, pruning
+#   the servers this project has retired -- is reached through
+#   `scripts/onboard_project.py --merge-mcp-config`, which already called these
+#   functions directly rather than shelling out to the command.
+# * `--kind install` -- the pinned install line, the remedy for `uv tool
+#   install` ignoring `uv.lock` -- is now `drunken-doctor --requirements`, which
+#   puts it in the tool that reports the drift instead of in a second command
+#   that warning had to name.
+#
+# What stays here is the library the two of them use. Everything below this line
+# is called from Python; nothing in this module is a command any more.

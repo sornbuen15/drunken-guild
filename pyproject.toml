@@ -88,8 +88,6 @@ dev = [
 [project.scripts]
 drunken-doctor = "core.doctor:main"
 drunken-init = "core.init:main"
-drunken-config = "core.config_gen:main"
-drunken-status = "core.status:main"
 drunken-usage = "core.usage:main"
 drunken-hook = "core.hook:main"
 drunken-jira-mcp = "jira_mcp.server:main"

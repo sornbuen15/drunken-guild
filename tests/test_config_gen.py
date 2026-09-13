@@ -56,11 +56,21 @@ class TestARepoConfigAndAHostConfigDifferOnPurpose:
 
         assert entry["command"] == str(bin_dir / "drunken-jira-mcp")
 
-    def test_every_server_is_scoped_to_the_project(self) -> None:
-        for entry in config_gen.mcp_config("alpha")["mcpServers"].values():
-            assert entry["args"] == ["--project", "alpha"], (
-                "An unscoped server acts on whichever project it defaulted to."
+    def test_no_server_carries_a_project(self) -> None:
+        """The inverse of what this asserted before DG-341, and the reason.
+
+        A config that named a project was the thing a user-scope entry could
+        pin: one file then decided which Jira every session on the machine
+        talked to. The project is an argument to every tool now, so this config
+        is identical for every project and there is nothing to pin.
+        """
+        for shape in (config_gen.mcp_config("alpha"), config_gen.host_config("alpha")):
+            serialised = json.dumps(shape)
+            assert "--project" not in serialised, (
+                "A project in the config is what user scope was able to pin "
+                "(DG-341). It belongs in the tool call."
             )
+            assert "alpha" not in serialised
 
 
 class TestTheInstallCommandHonoursTheLock:
@@ -210,29 +220,11 @@ class TestARetiredHostServerIsPrunedOnRegeneration:
         assert set(diff.added) == set(config_gen.MCP_SERVERS)
 
 
-class TestTheInstallOutputDoesNotLookLikeAnInstall:
-    """It writes a file and prints a command; it installs nothing.
-
-    The first version printed the filename and the command with no verb between
-    them. That reads as a report of work completed, it was taken as one, and a
-    deployment stayed three tickets behind -- including an unfixed security
-    finding -- while every surface looked fine. Cost a full round-trip on
-    2026-08-19.
-    """
-
-    def test_it_says_not_installed(self, tmp_path, monkeypatch, capsys) -> None:
-        monkeypatch.setattr(
-            config_gen, "export_requirements", lambda root: "mcp==1.28.1\n"
-        )
-
-        config_gen._emit_install(str(tmp_path / "req.txt"))
-
-        out = capsys.readouterr().out
-        assert "NOT INSTALLED" in out, (
-            "Output that only names a file and a command reads as a report of "
-            "work done. It has to say which of the two it did."
-        )
-        assert "uv tool install" in out, "It still has to hand over the command."
+# The "it says NOT INSTALLED" property moved with the code it guards: the
+# emitter is `drunken-doctor --requirements` now (DG-356), and
+# tests/test_core_doctor_requirements.py asserts the same thing there. Named
+# rather than deleted, because a property that quietly loses its test is how the
+# behaviour it protected comes back.
 
 
 class TestTheImageInstallsWhatTheLockNames:

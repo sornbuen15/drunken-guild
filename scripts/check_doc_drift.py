@@ -34,7 +34,7 @@ class Retired(NamedTuple):
 
 #: Every name that has been removed. Add to this in the PR that removes one.
 RETIRED = (
-    Retired("--workspace", "DG-224", "--project <id>"),
+    Retired("--workspace", "DG-224", "the project argument on each tool"),
     Retired("drunken-register", "S11 / 2.2.0", "drunken-init"),
     Retired("jira_mcp/config.py", "DG-224 (S3)", "core.registry + core.secrets"),
     Retired("AGY_DAEMON_SOCKET", "DG-244", "DRUNKEN_DAEMON_SOCKET"),
@@ -56,7 +56,11 @@ RETIRED = (
     # integration guide sent new projects to.
     Retired(".guild_templates", "DG-337", "templates/"),
     Retired("migrate_env_to_registry.py", "DG-351", "scripts/set_secret.py"),
-    Retired("clean_host_config.py", "DG-351", "drunken-config --kind host"),
+    Retired(
+        "clean_host_config.py",
+        "DG-351",
+        "onboard_project.py --merge-mcp-config, which prunes on every merge",
+    ),
     # The Antigravity plumbing (DG-349). `templates/AGENTS.md` is deliberately
     # not listed: the re-scope's vendor-neutral AGENTS.md template may reuse
     # the name, and a guard that fires on the replacement is a guard that gets
@@ -125,6 +129,31 @@ RETIRED = (
     Retired("/refine", "DG-355", "the `breakdown` skill (/breakdown)"),
     Retired("/next", "DG-355", "the `breakdown` skill (/breakdown)"),
     Retired("/qa", "DG-355", "the `build` and `audit` steps"),
+    # DG-341. Deliberately the *MCP server* spelling and not a bare
+    # `--project`: the flag is alive and correct on `drunken-doctor`,
+    # `drunken-init` and `drunken-usage`, so a bare entry would fire on every
+    # line that documents those and get switched off within a day.
+    Retired(
+        "drunken-jira-mcp --project",
+        "DG-341",
+        "the project argument on each tool; the server takes none",
+    ),
+    Retired(
+        '"args": ["--project"',
+        "DG-341",
+        "no args at all — one MCP entry serves every project",
+    ),
+    # DG-356. Four commands ship; these two answered questions nothing asks any
+    # more. The library behind `drunken-config` survives — what is retired is
+    # the command, so the name is what the guard looks for.
+    Retired(
+        "drunken-config",
+        "DG-356",
+        "install_mcp.sh for the config; drunken-doctor --requirements for the pins",
+    ),
+    Retired("drunken-status", "DG-356", "the /audit step"),
+    Retired("--kind install", "DG-356", "drunken-doctor --requirements"),
+    Retired("--kind host", "DG-356", "onboard_project.py --merge-mcp-config"),
 )
 
 #: Documents whose job is to record what changed. They have to be able to name

@@ -18,9 +18,9 @@ architecture, policy. Read the ones that exist; do not invent the ones that do n
 
 ## What is different for Cursor
 
-- **MCP.** Connect `drunken-jira-mcp` under Settings → MCP, as a `command` with args
-  `--project <project-id>`. It is the only coordination path: no shell script, no local board,
-  no ticket list kept in a file.
+- **MCP.** Connect `drunken-jira-mcp` under Settings → MCP, as a `command` with no arguments —
+  every tool takes the project id as its first argument instead. It is the only coordination path:
+  no shell script, no local board, no ticket list kept in a file.
 - **Approvals.** If the Boss is reading the conversation, ask there. Otherwise send one
   notification and park the task — do not perform the action, take the next unblocked one, and
   pick the answer up when a task finishes or a session starts, never mid-task.

@@ -45,7 +45,7 @@ class TestTheGeneratedConfigCarriesNoPaths:
         assert "--directory" not in serialised
         assert "PYTHONPATH" not in serialised
 
-    def test_every_server_is_declared_and_scoped_to_the_project(self) -> None:
+    def test_every_server_is_declared_and_carries_no_project(self) -> None:
         config = config_gen.mcp_config("alpha")["mcpServers"]
 
         assert set(config) == set(config_gen.MCP_SERVERS)
@@ -54,9 +54,9 @@ class TestTheGeneratedConfigCarriesNoPaths:
                 "The command is the entry point name, which is what makes it "
                 "resolvable without a path once installed."
             )
-            assert entry["args"] == ["--project", "alpha"], (
-                f"{name} is not scoped to a project, so it would act on "
-                "whichever one it defaulted to."
+            assert "--project" not in json.dumps(entry), (
+                f"{name} carries a project, which is what a user-scope entry "
+                "was able to pin (DG-341). It belongs in the tool call."
             )
 
     def test_the_retired_board_server_is_not_wired_in(self) -> None:

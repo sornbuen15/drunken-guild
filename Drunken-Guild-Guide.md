@@ -110,7 +110,7 @@ and the session falls back to driving Jira by hand.
 Generate it, in the checkout, once:
 
 ```bash
-uv run drunken-config --project <PROJECT-ID> --kind mcp --out .mcp.json
+bash scripts/install/install_mcp.sh --out .mcp.json
 ```
 
 That writes exactly this — named as a command, with no path anywhere:
@@ -118,7 +118,7 @@ That writes exactly this — named as a command, with no path anywhere:
 ```json
 {
   "mcpServers": {
-    "drunken-jira-mcp": { "command": "drunken-jira-mcp", "args": ["--project", "<PROJECT-ID>"] }
+    "drunken-jira-mcp": { "command": "drunken-jira-mcp" }
   }
 }
 ```
@@ -129,7 +129,8 @@ naming either, that config predates the retirement — regenerating prunes it.
 
 **Names, never paths.** An absolute path here is one machine's directory layout in everyone else's
 repository. The command form depends on §3.2 having run `uv tool install .`, so the executable is
-on `PATH`. Without that, and only then, fall back to the checkout-relative form — and note it
+on `PATH`. **And no project:** the same entry is correct for every project, because each tool takes
+the registry project id as its first argument. Without that, and only then, fall back to the checkout-relative form — and note it
 works *only* from inside that checkout, silently doing nothing from anywhere else:
 
 ```json
@@ -137,12 +138,14 @@ works *only* from inside that checkout, silently doing nothing from anywhere els
                             "drunken-jira-mcp", "--project", "<PROJECT-ID>"] }
 ```
 
-> **`--project` is required.** Omit it on a machine with more than one project registered and the
-> server has no project at all — it refuses rather than guessing, because a server that guessed
-> would quietly file every ticket onto somebody else's board.
+> **The project arrives per call, not per server (DG-341).** A tool called with no project, or with
+> an id the registry does not have, is refused with the registered ids named — it never guesses,
+> because a server that guessed would quietly file work onto somebody else's board. That is not
+> hypothetical: an entry registered at user scope reaches every session on the machine, and one
+> pinned to `drunken-guild` answered sessions that were not it.
 
-Which project a server acts on comes from `--project <id>`, resolved against the registry — never
-from the working directory.
+Which project a call acts on comes from its first argument, resolved against the registry — never
+from the working directory, and never from how the server was started.
 
 **Regenerating is always safe.** The file is derived entirely from the registry, so if you are ever
 unsure whether it is current, write it again. Re-run the command above after anything that changes
@@ -185,7 +188,7 @@ Two warnings here are worth acting on rather than skimming past:
   the files that differ. Fix with `uv tool install . --reinstall`. **Every module being present
   says nothing about which revision of it is there**, which is why the check compares content.
 - `deployment.mcp_pin` — `uv tool install` ignores `uv.lock`, so the deployment drifts inside the
-  allowed range. `drunken-config --project <id> --kind install` gives you the pinned command.
+  allowed range. `drunken-doctor --requirements` writes the pins and gives you the command.
 
 `drunken-doctor` verifies that a credential *works*. It does **not** verify that the project key
 exists — it once printed `OK … (project XYZ)` while Jira answered *"No project could be found"*
@@ -197,13 +200,13 @@ exists — it once printed `OK … (project XYZ)` while Jira answered *"No proje
 cat .mcp.json
 ```
 
-Missing entirely is the common case on a fresh clone — see §3.4. Wrong `--project` is the quieter
-one: the server starts, the tools appear, and every ticket goes to another project's board.
+Missing entirely is the common case on a fresh clone — see §3.4. There is no wrong project to
+configure any more: the file carries none.
 
 **4 — The server starts.**
 
 ```bash
-drunken-jira-mcp --project <PROJECT-ID> --help
+drunken-jira-mcp --help
 ```
 
 Exit 0 means the entry point resolves and its dependencies import. This is worth doing separately

@@ -240,7 +240,7 @@ was FATAL, and it is FATAL here.
 ```
 scripts/install/install_skills.sh    → ~/.claude/skills/
 scripts/install/install_agents.sh    → ~/.claude/agents/
-scripts/install/install_mcp.sh       → prints or writes a project's MCP config
+scripts/install/install_mcp.sh       → prints or writes the MCP config (the same for every project)
 ```
 
 The first two also refresh `INDEX.md`, which is generated *and* committed — so it goes stale on any
@@ -254,9 +254,11 @@ with *"Executables already exist"* while `drunken-team` still owns those names, 
 the wrong answer: it repoints the symlinks and leaves the old environment installed, still shipping
 a `drunken-board-mcp` this package no longer contains. `uv tool uninstall drunken-team` first.
 
-`install_mcp.sh` is a thin wrapper over `drunken-config` on purpose. `drunken-config` reads the
-registry, knows a repository's config from a host application's, and merges rather than overwrites.
-A second emitter beside it would be two things answering one question.
+`install_mcp.sh` prints a constant, and there is no generator behind it any more (DG-356). The
+config carries no project — every tool takes it as an argument (DG-341) — so it is identical for
+every project. Merging into a host application's own file is a different operation, and it belongs
+to `scripts/onboard_project.py --merge-mcp-config`, which reads what is already there and prunes
+only the servers this project owns.
 
 ### Four layers reach a project, from three places
 

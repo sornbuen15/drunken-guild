@@ -125,7 +125,7 @@ directory layout out of another repo's git history:
 ```json
 {
   "mcpServers": {
-    "drunken-jira-mcp": { "command": "drunken-jira-mcp", "args": ["--project", "your-project"] }
+    "drunken-jira-mcp": { "command": "drunken-jira-mcp" }
   }
 }
 ```

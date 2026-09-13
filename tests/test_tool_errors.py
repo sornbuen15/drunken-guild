@@ -42,8 +42,11 @@ class TestTheWrapperDoesNotEatTheSignature:
     @pytest.mark.parametrize(  # type: ignore[misc]
         "tool, expected",
         [
-            (jira_server.jira_search_issues, {"jql", "detail"}),
-            (jira_server.jira_transition_issue, {"issue_key", "target_status"}),
+            (jira_server.jira_search_issues, {"project", "jql", "detail"}),
+            (
+                jira_server.jira_transition_issue,
+                {"project", "issue_key", "target_status"},
+            ),
             # DG-255 added five optional fields here. They are the whole point
             # of the ticket -- an Epic with no children leaves Timeline empty --
             # so if the wrapper eats them the feature is gone while every unit
@@ -51,6 +54,7 @@ class TestTheWrapperDoesNotEatTheSignature:
             (
                 jira_server.jira_create_issue,
                 {
+                    "project",
                     "summary",
                     "description",
                     "issue_type",
@@ -73,21 +77,39 @@ class TestTheWrapperDoesNotEatTheSignature:
 
 class TestAKnownFailureCarriesItsRemediation:
     @pytest.mark.asyncio
-    async def test_jira_tool_without_a_project_explains_the_fix(
-        self, monkeypatch
-    ) -> None:
-        """The DG-235 scenario, one layer up: started with no project, every
-        tool call has to say so and say what to do about it."""
-        monkeypatch.setattr(jira_server, "ctx", None)
-        monkeypatch.setattr(jira_server, "jira", None)
+    async def test_a_tool_called_with_no_project_explains_the_fix(self) -> None:
+        """The DG-235 scenario, moved to where the project now comes from.
 
-        result = _payload(await jira_server.jira_search_issues("project = DG"))
+        It used to be "the server was started without a project"; since DG-341
+        there is nothing to start it with, so the same failure is a call that
+        named no project. The requirement is unchanged: the answer has to carry
+        the fix, not just the complaint.
+        """
+        result = _payload(await jira_server.jira_search_issues("", "project = DG"))
 
         assert result["ok"] is False
-        assert "drunken-init" in json.dumps(result), (
-            "The error reached the agent but without the command that fixes "
-            "it, which is the half that makes it actionable."
+        assert "AGENTS.md" in json.dumps(result), (
+            "The error reached the agent but without where to find the project "
+            "id, which is the half that makes it actionable."
         )
+
+    @pytest.mark.asyncio
+    async def test_an_unknown_project_names_the_registered_ones(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        """A typo must not resolve to somebody else's board."""
+        from core import paths, secrets
+
+        registry = tmp_path / "projects.json"
+        registry.write_text('{"version": 2, "projects": {"alpha": {}}}')
+        monkeypatch.setenv(paths.ENV_REGISTRY, str(registry))
+        secrets.clear_cache()
+        jira_server.forget_clients()
+
+        result = _payload(await jira_server.jira_search_issues("alfa", "ORDER BY key"))
+
+        assert result["ok"] is False
+        assert "alpha" in json.dumps(result)
 
 
 class TestAnUnexpectedFailureIsStillAnAnswer:
@@ -99,12 +121,12 @@ class TestAnUnexpectedFailureIsStillAnAnswer:
         agent as a framework traceback, or as a dead server, and neither tells
         it anything it can use."""
 
-        def boom() -> None:
+        def boom(project) -> None:
             raise RuntimeError("upstream fell over")
 
         monkeypatch.setattr(jira_server, "get_client", boom)
 
-        result = _payload(await jira_server.jira_search_issues("project = DG"))
+        result = _payload(await jira_server.jira_search_issues("dg", "project = DG"))
 
         assert result["ok"] is False
         assert result["error"]["code"] == "internal_error"
@@ -119,11 +141,11 @@ class TestAnUnexpectedFailureIsStillAnAnswer:
 
         register_secret("s3cr3t-token-value")
 
-        def boom() -> None:
+        def boom(project) -> None:
             raise RuntimeError("401 from Basic s3cr3t-token-value")
 
         monkeypatch.setattr(jira_server, "get_client", boom)
 
-        raw = await jira_server.jira_search_issues("project = DG")
+        raw = await jira_server.jira_search_issues("dg", "project = DG")
 
         assert "s3cr3t-token-value" not in raw

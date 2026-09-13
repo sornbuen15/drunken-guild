@@ -1,9 +1,9 @@
 # mypy: ignore-errors
 """The MCP configs a host reads, which nothing here writes — DG-322.
 
-`drunken-config` manages exactly one file per host and merges into it, so the
-servers this project installs are correct by construction. The servers it does
-*not* install are the problem, and no check has ever looked at them.
+Onboarding merges into exactly one file per host, so the servers this project
+installs are correct by construction. The servers it does *not* install are the
+problem, and no check has ever looked at them.
 
 Two facts drove this:
 
@@ -77,9 +77,12 @@ class TestNamingWhatCannotStart:
         binary = tmp_path / "bin" / "drunken-jira-mcp"
         binary.parent.mkdir(parents=True)
         binary.write_text("", encoding="utf-8")
+        # `args` deliberately empty: this test is about the command resolving,
+        # and a `--project` here would also trip the stale-project check below,
+        # making a passing test depend on two unrelated properties.
         config = _write(
             tmp_path / "mcp_config.json",
-            {"drunken-jira-mcp": {"command": str(binary), "args": ["--project", "dg"]}},
+            {"drunken-jira-mcp": {"command": str(binary), "args": []}},
         )
         report = doctor.Report()
         doctor._check_host_configs(report, roots=(("example.host", config),))
@@ -137,6 +140,51 @@ class TestOneJiraSurface:
         )
         report = doctor.Report()
         doctor._check_host_configs(report, roots=(("example.host", config),))
+        assert _named(report, "host_mcp.example.host").status == "ok"
+
+
+class TestAStaleProjectIsReported:
+    """DG-341 left one thing for a person to do, and this is what tells them.
+
+    The server takes no project now; every tool takes it as an argument. An
+    entry still passing `--project` is not broken — verified by handshake: the
+    flag is accepted and ignored, so nothing fails. That is exactly why it needs
+    saying. It reads like the thing that decides which Jira a session reaches,
+    it no longer is, and the user-scope entry carrying it is the one DG-341 asks
+    the operator to remove.
+    """
+
+    def test_a_drunken_server_still_carrying_a_project_is_named(self, tmp_path) -> None:
+        config = _write(
+            tmp_path / "mcp_config.json",
+            {
+                "drunken-jira-mcp": {
+                    "command": "sh",
+                    "args": ["--project", "drunken-guild"],
+                }
+            },
+        )
+        report = doctor.Report()
+        doctor._check_host_configs(report, roots=(("example.host", config),))
+
+        check = _named(report, "host_mcp.example.host")
+        assert check.status == "warn"
+        assert "--project" in check.detail
+        assert "ignored" in check.detail or "ignored" in check.remediation
+
+    def test_a_foreign_server_carrying_a_project_is_not_our_business(
+        self, tmp_path
+    ) -> None:
+        """`--project` is a perfectly ordinary flag on somebody else's server,
+        and a check that fired on it would be noise the operator learns to
+        skip."""
+        config = _write(
+            tmp_path / "mcp_config.json",
+            {"some-other-mcp": {"command": "sh", "args": ["--project", "whatever"]}},
+        )
+        report = doctor.Report()
+        doctor._check_host_configs(report, roots=(("example.host", config),))
+
         assert _named(report, "host_mcp.example.host").status == "ok"
 
 

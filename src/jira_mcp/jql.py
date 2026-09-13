@@ -1,9 +1,11 @@
-"""Keeping a JQL query inside the project the server was launched for.
+"""Keeping a JQL query inside the project the call named.
 
 S8 (DG-225). ``jira_search_issues`` passed the caller's JQL straight to Jira.
-``--project`` named which project the server was *for* and then did nothing to
-keep a query inside it, so ``project = OTHER AND ...`` reached whatever the
-credential could reach — and one credential reaches DG, ALPHA and BETA.
+The project named the search's *subject* and then did nothing to keep the query
+inside it, so ``project = OTHER AND ...`` reached whatever the credential could
+reach — and one credential reaches several projects. Since DG-341 the subject
+arrives as the tool's own first argument rather than as a flag on the server,
+which changes where it comes from and nothing about why wrapping is needed.
 
 The approach is deliberately not "validate the query". Deciding whether a
 query language expression is safe by parsing it is the same losing game as

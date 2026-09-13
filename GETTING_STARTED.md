@@ -146,13 +146,19 @@ old environment installed, still shipping a `drunken-board-mcp` this package no 
 Then generate the config for **your project** rather than writing it by hand:
 
 ```bash
-./scripts/install/install_mcp.sh my-project --out ~/Projects/my-project/.mcp.json
+./scripts/install/install_mcp.sh --out ~/Projects/my-project/.mcp.json
 ```
 
-It prints by default and only writes when you pass `--out`. `--host` (the default) emits absolute
-paths and merges, so any other MCP servers that config already declares survive; `--repo` emits the
-names-only form, which is what a repository's own `.mcp.json` should carry so one machine's
-directory layout never reaches another repo's git history.
+It prints by default and only writes when you pass `--out`.
+
+**The same file is correct for every project.** It names the server and nothing else: each tool
+takes the registry project id as its first argument, so no configuration decides which Jira is
+reached (DG-341). It carries no absolute path either — a path here is one machine's directory
+layout in another repository's git history.
+
+To add the server to a host application's own config file instead, where other MCP servers are
+already declared, use `scripts/onboard_project.py --merge-mcp-config <file>`: it merges by name so
+those survive, and prunes only the servers this project has retired.
 
 ---
 

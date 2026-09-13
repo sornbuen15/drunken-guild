@@ -22,12 +22,19 @@ import json
 import os
 import shutil
 import subprocess  # nosec B404 - git, invoked with a fixed argument list
+import sys
 from dataclasses import asdict, dataclass, field
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from typing import Any, Final, Literal, Optional, Sequence
 
 from . import paths, secrets
+from .config_gen import (
+    count_pins,
+    export_requirements,
+    install_command,
+    is_drunken_managed,
+)
 from .context import ProjectContext
 from .errors import DrunkenError
 from .redact import redact
@@ -470,7 +477,7 @@ AI_LAYER_ROOTS: Final = (("claude.skills", "~/.claude/skills"),)
 
 
 #: The MCP configs a host application actually reads, beyond the one
-#: ``drunken-config`` manages. Reading only the managed file is what once let a
+#: onboarding manages. Reading only the managed file is what once let a
 #: retired server keep launching: the host started a ``board`` server the
 #: managed file no longer named, because the entry was in the host's own file.
 #:
@@ -513,6 +520,31 @@ def _unresolvable(server: dict[str, Any]) -> list[str]:
         if isinstance(arg, str) and arg.startswith("/") and not Path(arg).exists():
             missing.append(arg)
     return missing
+
+
+#: Ours, and the only entries a stale project is worth reporting on. A
+#: `--project` on somebody else's server is an ordinary flag, and a check that
+#: fired on it would be noise an operator learns to skip.
+def _stale_project_servers(servers: dict[str, Any]) -> list[str]:
+    """Our own entries that still pass a project to a server that takes none.
+
+    DG-341 moved the project into every tool call, which is what stopped one
+    user-scope entry deciding the Jira for every session on the machine. An
+    entry still carrying the flag is **not broken** — verified by handshake: it
+    is accepted and ignored. That is precisely why it is worth naming. It reads
+    like the thing that chooses a project, it no longer is, and the user-scope
+    entry carrying it is the one an operator still has to remove by hand.
+    """
+    stale = []
+    for name, config in servers.items():
+        if not isinstance(config, dict) or not is_drunken_managed(name):
+            continue
+        args = config.get("args")
+        if isinstance(args, list) and any(
+            isinstance(arg, str) and arg == "--project" for arg in args
+        ):
+            stale.append(name)
+    return sorted(stale)
 
 
 def _rival_jira_servers(servers: dict[str, Any]) -> list[str]:
@@ -583,8 +615,9 @@ def _check_host_configs(
             if isinstance(config, dict) and (paths_missing := _unresolvable(config))
         }
         rivals = _rival_jira_servers(servers)
+        stale = _stale_project_servers(servers)
 
-        if not broken and not rivals:
+        if not broken and not rivals and not stale:
             report.add(check, "ok", f"all {len(servers)} server(s) in {path} resolve")
             continue
 
@@ -599,6 +632,11 @@ def _check_host_configs(
             )
         if rivals:
             parts.append(f"{', '.join(rivals)} serve(s) Jira beside {OUR_JIRA_SERVER}")
+        if stale:
+            parts.append(
+                f"{', '.join(stale)} still pass(es) --project, which is ignored "
+                "now that every tool takes the project as an argument (DG-341)"
+            )
 
         report.add(
             check,
@@ -608,7 +646,9 @@ def _check_host_configs(
                 "Editing a host's own config is the operator's step, never this "
                 "tool's. A server that cannot start is attempted on every launch "
                 "and fails silently; a second Jira server is a surface that can "
-                "disagree with this project's."
+                "disagree with this project's; and an ignored --project reads "
+                "like the thing that chooses a project when it is not — drop "
+                "the args, and drop any user-scope entry carrying one."
             ),
         )
 
@@ -1135,6 +1175,43 @@ def render(report: Report) -> str:
     return "\n".join(lines)
 
 
+def emit_requirements(out: Optional[str] = None) -> int:
+    """Write the pinned requirements and print the install command. Never runs it.
+
+    Moved here from the retired ``drunken-config --kind install`` (DG-356). It
+    belongs with the check that finds the problem: ``uv tool install`` ignores
+    ``uv.lock`` and resolves afresh inside the declared ranges, so a deployment
+    drifts silently — ``deployment.mcp_pin`` above is what notices, and the
+    remedy used to live in a second command that warning had to name.
+
+    **Printed, never run.** Installing replaces the deployment a host config is
+    already pointing at, and doing that as a side effect of asking a diagnostic
+    question is the kind of surprise this project keeps writing post-mortems
+    about. Installing is the operator's step.
+    """
+    root = Path.cwd()
+    exported = export_requirements(root)
+    if exported is None:
+        print(
+            "warning: could not export uv.lock (is `uv` on PATH, and is this a "
+            "project root?). Falling back to an unpinned install.",
+            file=sys.stderr,
+        )
+        print(install_command(None))
+        return 0
+
+    target = Path(out).expanduser() if out else root / "requirements.lock.txt"
+    target.write_text(exported, encoding="utf-8")
+    # Say what was and was not done, in that order. The first version of this
+    # printed the filename and the command with no verb between them, which
+    # reads as a report of work completed -- and was taken as one, leaving a
+    # deployment three tickets behind while every surface looked fine.
+    print(f"Wrote {target} ({count_pins(exported)} pinned packages).")
+    print("NOT INSTALLED. To deploy, run:\n")
+    print(f"    {install_command(target)}\n")
+    return 0
+
+
 def main() -> int:
     """Entry point for ``drunken-doctor``."""
     import argparse  # noqa: PLC0415 - CLI only
@@ -1155,7 +1232,20 @@ def main() -> int:
     parser.add_argument(
         "--json", action="store_true", help="Emit JSON instead of text."
     )
+    parser.add_argument(
+        "--requirements",
+        nargs="?",
+        const="",
+        metavar="FILE",
+        help=(
+            "Write uv.lock as pinned requirements and print the install command "
+            "that honours it. Prints; never installs."
+        ),
+    )
     args = parser.parse_args()
+
+    if args.requirements is not None:
+        return emit_requirements(args.requirements or None)
 
     report = run_doctor(
         project=args.project,
