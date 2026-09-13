@@ -105,7 +105,11 @@ class TestNamingWhatCannotStart:
         launching. Reporting it would be reporting a decision as a defect."""
         config = _write(
             tmp_path / "mcp_config.json",
-            {},
+            # One live server beside it, so "the archived one was ignored" is
+            # distinguishable from "there was nothing to read at all" -- with an
+            # empty block this now reports `skip`, which would pass for the
+            # wrong reason.
+            {"drunken-jira-mcp": {"command": "sh", "args": []}},
             archived={"board": {"command": str(tmp_path / "gone" / "board-mcp")}},
         )
         report = doctor.Report()
@@ -170,7 +174,28 @@ class TestAStaleProjectIsReported:
         check = _named(report, "host_mcp.example.host")
         assert check.status == "warn"
         assert "--project" in check.detail
-        assert "ignored" in check.detail or "ignored" in check.remediation
+        assert "ignores it" in check.detail or "ignores it" in check.remediation
+
+    def test_the_remedy_does_not_break_a_stale_deployment(self, tmp_path) -> None:
+        """The first version of this said "drop the args", and that is wrong
+        while the installed server predates DG-341: it reads `--project`, and
+        without one every tool call answers "started without a project". Proved
+        by handshake against the installed binary on 2026-09-13, after the advice
+        had already been followed once. Merging is not deploying, and this
+        remediation is read by whoever is about to edit the live file.
+        """
+        config = _write(
+            tmp_path / "mcp_config.json",
+            {"drunken-jira-mcp": {"command": "sh", "args": ["--project", "dg"]}},
+        )
+        report = doctor.Report()
+        doctor._check_host_configs(report, roots=(("example.host", config),))
+
+        remediation = _named(report, "host_mcp.example.host").remediation
+        assert "Reinstall" in remediation, (
+            "The order matters: reinstall, confirm, then drop the flag."
+        )
+        assert "installed" in remediation
 
     def test_a_foreign_server_carrying_a_project_is_not_our_business(
         self, tmp_path
@@ -221,6 +246,56 @@ class TestItNeverBreaksTheRun:
 
     def test_no_default_root_reaches_into_a_retired_host(self) -> None:
         """Both defaults were Antigravity's own configs under `~/.gemini`, and
-        DG-349 retired that plumbing. The check itself stays, exercised above
-        with injected roots, so a host can come back as a one-line entry."""
-        assert doctor.HOST_MCP_CONFIGS == ()
+        DG-349 retired that plumbing — reading a file there is reaching into
+        another agent's own state.
+
+        Asserted as "nothing points at ~/.gemini" rather than "there are no
+        default roots", which is what it used to say. The tuple being empty was
+        a consequence of that removal, not the rule; asserting the consequence
+        made the check's own blindness look deliberate (DG-356).
+        """
+        for _, raw in doctor.HOST_MCP_CONFIGS:
+            assert ".gemini" not in raw, (
+                f"{raw} is another agent's own state; editing or reading a file "
+                "there is an install, and DG-349 retired that plumbing."
+            )
+
+
+class TestItActuallyLooksAtSomething:
+    """A check with no roots cannot fire, and passes its own tests forever.
+
+    `HOST_MCP_CONFIGS` was emptied when DG-349 retired the Antigravity plumbing:
+    both entries were configs under `~/.gemini`. Every test in this file injects
+    its own roots, so the check stayed green while having nothing to read — and
+    the stale-project notice added in DG-341 could never reach the one file that
+    matters, `~/.claude.json`, where a user-scope entry reaches every session on
+    the machine.
+    """
+
+    def test_the_default_roots_are_not_empty(self) -> None:
+        assert doctor.HOST_MCP_CONFIGS, (
+            "No default roots means this check reads nothing in real use. Its "
+            "tests would still pass, because they pass their own roots."
+        )
+
+    def test_the_claude_host_config_is_among_them(self) -> None:
+        named = [raw for _, raw in doctor.HOST_MCP_CONFIGS]
+        assert any("claude.json" in raw for raw in named), (
+            "~/.claude.json is where a user-scope entry lives, which is the "
+            "scope that reaches every session (DG-341)."
+        )
+
+    def test_a_config_with_no_servers_is_not_a_warning(self, tmp_path) -> None:
+        """`~/.claude.json` holds much more than MCP servers, and a host with
+        none declared is ordinary. Reading a missing key as unparseable would
+        make the common case look like a fault."""
+        path = tmp_path / ".claude.json"
+        path.write_text(json.dumps({"someOtherKey": True}), encoding="utf-8")
+
+        report = doctor.Report()
+        doctor._check_host_configs(report, roots=(("example.host", path),))
+
+        check = _named(report, "host_mcp.example.host")
+        assert check.status in ("ok", "skip"), (
+            f"a config declaring no servers reported {check.status}: {check.detail}"
+        )
