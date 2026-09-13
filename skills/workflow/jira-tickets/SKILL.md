@@ -234,7 +234,10 @@ on or check.
 
 Read `jira_board_info` rather than assuming. It reports the issue types this
 project accepts and the settable field ids, **which differ per instance** —
-never hardcode one you found in a payload.
+never hardcode one you found in a payload. It also says whether the board has a
+backlog, probed rather than inferred: type does not predict it, a kanban board
+may have none while a team-managed 'simple' board has one, and `backlog: null`
+means the question could not be answered — which is not the same as no.
 
 - **`parent`** — Story parents to Epic, Task to Story, Subtask to Task. Without
   it the issue has no place in the hierarchy and Timeline stays empty. Shared
