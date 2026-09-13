@@ -43,7 +43,11 @@ from typing import Any, Dict, List, NamedTuple, Optional
 #: DG-265 finished the job: it is no longer packaged at all, so there is no
 #: command to declare even by accident. The code is kept at
 #: ``_not_used/board-mcp/`` because an agent does not delete. Do not add it back.
-MCP_SERVERS = ("drunken-jira-mcp", "drunken-discord-mcp")
+#: ``drunken-discord-mcp`` left the same way (DG-355): Discord is one-way
+#: notification now, sent from hooks and CI, so there is no tool for an agent
+#: to call and no server to declare. ``is_drunken_managed`` still matches the
+#: name, which is what prunes it from a host config on the next regeneration.
+MCP_SERVERS = ("drunken-jira-mcp",)
 
 
 def is_drunken_managed(name: str) -> bool:

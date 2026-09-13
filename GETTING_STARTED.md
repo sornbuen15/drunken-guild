@@ -68,7 +68,7 @@ testing and the rest — are in the optional `drunken-extras` plugin, and need n
 The other 4 coordinate work. `/breakdown`, `/build` and `/audit` call `jira_*` tools and name
 `drunken-jira-mcp` in their own constraints — without the runtime declared they will **say so and
 stop** rather than silently falling back to a file or a shell script. `ask-boss` needs
-`drunken-discord-mcp` only for the case where the Boss is not reading the conversation; when they
+a notification webhook only for the case where the Boss is not reading the conversation; when they
 are, it tells you to just ask them there.
 
 If you have no Jira, you can still run `/prd`, `/clarify` and `/ddd` — skip the next section and

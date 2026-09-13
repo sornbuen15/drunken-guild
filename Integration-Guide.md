@@ -15,21 +15,20 @@ Drunken-Guild exposes two separate MCP servers -- there is no single combined se
 - How to write and run a ticket is the `jira-tickets` skill, not this list.
 - Full reference: [`src/jira_mcp/README.md`](./src/jira_mcp/README.md).
 
-### `drunken-discord-mcp` -- approvals
-- **Tools:** `request_boss_approval_async(action, reason, ticket_key)` returns a `req_id` immediately; `check_approvals(req_ids)` collects the answers later. Asking never stops the agent -- park the task and take the next unblocked one.
-- `request_boss_approval(action, reason, ticket_key)` is the older blocking form. It still works and is kept until 3.0.0, but prefer the async pair; reach for it only when nothing else could possibly be done meanwhile.
-- There is no timeout and nothing is killed for going unanswered: reminders back off 15 min → 1 h → daily and survive a daemon restart. An approval is bound to the commit it was granted against, so from a different HEAD it reads `stale` and must be asked again.
+### Approvals -- no server, and nothing to call
+- **The Boss is reading the conversation → ask them there.** That is the whole mechanism (DG-355). The approval server, its daemon and its 👍/👎 protocol are retired: a question that needs a person is a question for the person who is already reading.
+- **Not reading it → send one notification and park the task.** `python -m core.notify "<line>" --link <url>` posts to the project's webhook. It is one-way: nothing comes back, so take the next unblocked task and pick the answer up next session.
+- Nothing is killed for going unanswered, and nothing expires.
 
 > **`drunken-board-mcp` is retired and is not packaged.** DG-250 removed the local board: a board sitting next to Jira is a second surface that can disagree with the first, which is the failure DG-248 and DG-249 each cost a session to. It also cost 2,162 tokens per request for a server nothing should call. DG-265 removed it from `[project.scripts]` and from the package, so there is no command to declare — the code is kept at `_not_used/board-mcp/` because an agent does not delete. Do not create `.claude/board/` or `.agents/board/`. Jira is the only coordination surface -- the **assignee** says whose the work is, the **status** says where it is.
 
-Neither is pre-registered anywhere. A project declares both in its own `.mcp.json`, which
+It is not pre-registered anywhere. A project declares it in its own `.mcp.json`, which
 `scripts/install/install_mcp.sh` generates (Section 4, Step 4 shows the result):
 
 ```json
 {
   "mcpServers": {
-    "drunken-jira-mcp": { "command": "drunken-jira-mcp", "args": ["--project", "<PROJECT-ID>"] },
-    "drunken-discord-mcp": { "command": "drunken-discord-mcp", "args": ["--project", "<PROJECT-ID>"] }
+    "drunken-jira-mcp": { "command": "drunken-jira-mcp", "args": ["--project", "<PROJECT-ID>"] }
   }
 }
 ```
@@ -79,12 +78,12 @@ one list, kept in one place.
 
 ## 3. Workflow Handoff
 
-The collaboration between your local AI tool and the Guild's Discord daemon follows the same lifecycle either from the CLI or via MCP:
+The lifecycle is the same from the CLI or via MCP:
 
 1. **Intake:** Call `jira_start_task(issue_key)` to claim a ticket and get the branch name to check out. The MCP tools are the only supported path for an agent — no shell script, no local board.
-2. **Execution:** Write code and tests against that ticket's acceptance criteria. Before any destructive or merge-worthy action: if the Boss is reading the conversation, just ask them there. Otherwise call `request_boss_approval_async`, don't perform the action yet, and move on to whatever else is unblocked -- there is no local board, so "parking" a task is just not doing that step, not a tool call. Collect answers with `check_approvals` **when a task finishes or a session starts -- never mid-task**, because acting on an approval the moment it lands is how a repo ends up half-changed.
+2. **Execution:** Write code and tests against that ticket's acceptance criteria. Before any destructive or merge-worthy action: if the Boss is reading the conversation, just ask them there. Otherwise notify and park -- don't perform the action, and move on to whatever else is unblocked. There is no local board, so "parking" a task is just not doing that step, not a tool call. Pick the answer up **when a task finishes or a session starts -- never mid-task**, because acting on it the moment it lands is how a repo ends up half-changed.
 3. **Handoff:** Push the branch, open a PR, then call `jira_submit_for_review(issue_key, pr_link, files_changed)` to move the ticket to In Review with the PR linked.
-4. **Validation:** The round-integration QA gate (`scripts/qa_automation.py`, triggerable from Discord with `/qa`) picks up every In Review ticket, reruns the full suite with all of them merged together, and transitions to Done (or back to In Progress with a failure report) accordingly.
+4. **Validation:** A ticket is Done when its test was seen failing first, is green **on the merged tree**, traces to a requirement, and the Boss merged the PR. `/audit` is what checks that.
 
 ---
 
@@ -100,7 +99,7 @@ cd drunken-guild
 uv tool install .
 ```
 
-This installs the commands globally: `drunken-init` (create the state directory and register a project), `drunken-config` (generate MCP and install configuration), `drunken-doctor` (report where every path and secret actually resolves from), `drunken-listen` (run the Discord daemon), and `drunken-jira-mcp`, `drunken-discord-mcp` (the two MCP servers).
+This installs the commands globally: `drunken-init` (create the state directory and register a project), `drunken-config` (generate MCP and install configuration), `drunken-doctor` (report where every path and secret actually resolves from), `drunken-usage` (what a run cost), `drunken-hook` (the permission floor, called by `.claude/settings.json` rather than by you), and `drunken-jira-mcp` (the MCP server).
 
 > **`uv tool install` ignores `uv.lock`**, so the tool environment drifts inside the allowed dependency range -- the deployment carried `mcp` 1.29.0 against a lock pinning 1.28.1 for two releases, both satisfying `<2`, with nothing reporting it. To install what the lock actually names, let `drunken-config` write the requirements and give you the command:
 >
@@ -171,8 +170,7 @@ what the project already runs — the placeholders read as instructions if left 
 ```json
 {
   "mcpServers": {
-    "drunken-jira-mcp": { "command": "drunken-jira-mcp", "args": ["--project", "existing-project"] },
-    "drunken-discord-mcp": { "command": "drunken-discord-mcp", "args": ["--project", "existing-project"] }
+    "drunken-jira-mcp": { "command": "drunken-jira-mcp", "args": ["--project", "existing-project"] }
   }
 }
 ```

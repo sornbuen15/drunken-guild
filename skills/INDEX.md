@@ -23,7 +23,7 @@ Map task keywords to their absolute skill file paths. Load ONLY the relevant ski
 - `prd` (`/prd`) — The first step of the flow: write or update the project's PRD — the brief and the numbered requirements in one file, each requirement carrying an id REQ-xxx and
   Path: $HOME/.claude/skills/prd/SKILL.md
 
-- `ask-boss` — Ask the Boss for permission without stopping: submit the question, park the task, keep working on what isn't blocked, and collect the answer at the next task bo
+- `ask-boss` — Ask the Boss for permission without stopping: ask in the conversation when they are reading it, otherwise send one notification, park the task, and keep working
   Path: $HOME/.claude/skills/ask-boss/SKILL.md
 
 - `git-workflow` (`/git-workflow`) — Best-practice Git discipline — branch naming, commit conventions, PR lifecycle, which merge strategy belongs to which target, and release hygiene. Apply wheneve

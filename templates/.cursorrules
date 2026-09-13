@@ -18,12 +18,11 @@ architecture, policy. Read the ones that exist; do not invent the ones that do n
 
 ## What is different for Cursor
 
-- **MCP.** Connect `drunken-jira-mcp` and `drunken-discord-mcp` under Settings → MCP, each as a
-  `command` with args `--project <project-id>`. They are the only coordination path: no shell
-  script, no local board, no ticket list kept in a file.
-- **Approvals.** If the Boss is reading the conversation, ask there. Otherwise call
-  `request_boss_approval_async` — it returns a request id, not an answer. Do not perform the
-  action; take the next unblocked task; collect with `check_approvals` when a task finishes,
-  never mid-task.
+- **MCP.** Connect `drunken-jira-mcp` under Settings → MCP, as a `command` with args
+  `--project <project-id>`. It is the only coordination path: no shell script, no local board,
+  no ticket list kept in a file.
+- **Approvals.** If the Boss is reading the conversation, ask there. Otherwise send one
+  notification and park the task — do not perform the action, take the next unblocked one, and
+  pick the answer up when a task finishes or a session starts, never mid-task.
 - **Commits.** Cursor does not commit on its own. When you do, follow the commit format in
   `CLAUDE.md`, not a format remembered from another project.

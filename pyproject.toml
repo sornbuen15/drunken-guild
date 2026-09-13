@@ -45,12 +45,10 @@ readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
 dependencies = [
-    "discord.py>=2.0.0",
-    # Transitive, via discord.py, which only asks for `aiohttp<4,>=3.7.4`. Named
-    # here purely to raise the floor past PYSEC-2026-3545/3546/3547, which
-    # pip-audit flags in 3.14.1. Drop this line once discord.py's own floor
-    # clears those.
-    "aiohttp>=3.14.3",
+    # `discord.py` and the `aiohttp` floor pinned for it left with the bot
+    # (DG-355). Notifications are one POST to a webhook through `core.http`,
+    # which is urllib — a gateway library for a message nobody replies to was
+    # the only thing keeping a websocket client in this dependency tree.
     "python-dotenv>=0.21.0",
     # Pinned <2 deliberately: mcp 2.0.0 removed `mcp.server.fastmcp` (replaced by
     # `mcp.server.mcpserver.MCPServer`), so an unpinned resolve crashes every
@@ -92,17 +90,14 @@ drunken-doctor = "core.doctor:main"
 drunken-init = "core.init:main"
 drunken-config = "core.config_gen:main"
 drunken-status = "core.status:main"
-drunken-away = "core.away:main"
 drunken-usage = "core.usage:main"
-drunken-approval-hook = "service.approval_hook:main"
-drunken-listen = "service.discord_listener:main"
+drunken-hook = "core.hook:main"
 drunken-jira-mcp = "jira_mcp.server:main"
-drunken-discord-mcp = "discord_mcp.server:main"
 
 
 [tool.setuptools]
-packages = ["scripts", "core", "route", "service", "jira_mcp", "discord_mcp"]
-package-dir = {"core" = "src/core", "route" = "src/route", "service" = "src/service", "jira_mcp" = "src/jira_mcp", "discord_mcp" = "src/discord_mcp"}
+packages = ["scripts", "core", "route", "jira_mcp"]
+package-dir = {"core" = "src/core", "route" = "src/route", "jira_mcp" = "src/jira_mcp"}
 
 [tool.ruff.lint]
 select = ["E", "F", "B", "C90", "I"]

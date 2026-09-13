@@ -22,7 +22,7 @@ re-scope's target — with its own name in the author and the `agent:` label.
 
 | | what it is | where |
 |---|---|---|
-| **The runtime** | a Python package — MCP servers (`drunken-jira-mcp`, `drunken-discord-mcp`) and the CLI (`drunken-doctor`, `drunken-away`, `drunken-usage`, …) | `src/`, `tests/`, `scripts/` |
+| **The runtime** | a Python package — the `drunken-jira-mcp` server, the CLI (`drunken-doctor`, `drunken-init`, `drunken-usage`) and the `drunken-hook` permission floor | `src/`, `tests/`, `scripts/` |
 | **The AI layer** | the skills and agents that get installed into `~/.claude/` | `skills/`, `agents/`, `templates/`, `examples/` |
 
 It exists because these two were separate repositories that drifted. Skills were authored in four
@@ -121,8 +121,9 @@ A ticket is scanned, not read: the story of how you found it belongs in the comm
 
 Use the `drunken-jira-mcp` tools (`jira_search_issues`, `jira_start_task`, `jira_transition_issue`,
 `jira_submit_for_review`, `jira_add_comment`, `jira_assign`, `jira_board_info`,
-`jira_move_to_backlog`, `jira_move_to_board`). `scripts/jira_bridge.py` still exists for shell use
-but is not the supported path.
+`jira_move_to_backlog`, `jira_move_to_board`). There is no shell fallback: the bridge script that
+was one went with the Discord lane (DG-355), because two ways to write to Jira is two things that
+can disagree about what happened.
 
 One ticket per phase, and each phase must merge on its own without breaking the one before it.
 
@@ -275,51 +276,37 @@ change it in both.
 
 ---
 
-## Approvals — ask without stopping
+## Approvals — ask the person who is reading
 
 Full protocol in `skills/workflow/ask-boss/SKILL.md`; the short version:
 
-- The Boss is reading this conversation → **just ask them here.** Discord is for when they are not.
-- Otherwise `request_boss_approval_async(action, reason, ticket_key)`, which returns a `req_id`
-  immediately. Park the task, take the next unblocked one, and collect with `check_approvals`
-  **when you finish a task or start a session — never mid-task.** Half-applied approvals leave the
-  repo in a state nobody can reason about.
-- There is no timeout and nothing is killed for going unanswered.
-- An approval is bound to the commit it was granted against. From a different HEAD it reads `stale`.
-- Force-push, hard reset, `rm -rf` and reading `.env` are denied by `.claude/settings.json`
-  **regardless of what comes back over Discord.** Do not route around it; raise it with the Boss.
+- The Boss is reading this conversation → **just ask them here.** That is the whole mechanism now.
+- Not reading it → send one notification carrying a link (`core.notify`), park the task, take the
+  next unblocked one, and pick the answer up when you next start a session. Asking must never stop
+  the rest of the work, and half-applied permission leaves the repo in a state nobody can reason
+  about.
+- Nothing is killed for going unanswered, and nothing expires.
+- A force push, a hard reset, a recursive delete and reading `.env` are denied by
+  `.claude/settings.json` and by the `drunken-hook` floor, **and no answer from anywhere can
+  authorise one.** Do not route around it; raise it with the Boss.
 
-## Away mode — the other layer that asks
+## The deny floor — the layer that answers before the model runs
 
 Everything above is the agent deciding it needs permission. The **harness** also asks, before the
-model runs at all. The model never sees that one, which is why saying "I'm going out, send it to
-Discord" in chat never worked and never could.
+model runs at all, and the model never sees that one — which is why no sentence typed in chat has
+ever been able to redirect it. `drunken-hook` answers there, and it answers two things:
 
-```bash
-uv run drunken-away on --note "out until 6"   # prompts go to Discord
-uv run drunken-away off                       # back to the terminal
-uv run drunken-away status
-```
+1. **On the deny list → denied**, whatever the mode. `bypassPermissions` turns off prompting; it
+   does not turn off the floor.
+2. **A call carrying no command and no path → denied.** An empty string matches no rule at all,
+   deny rules included, so a call nobody can read would otherwise fall straight past the floor it
+   was meant to hit (DG-321).
 
-With it on, the PreToolUse hook resolves each call in this order, and the order is the design:
-
-1. **On the deny list → denied.** It never reaches Discord. A 👍 cannot authorise `rm -rf`.
-2. `bypassPermissions` mode, or an approval tool → no decision. Asking for permission must not
-   itself need permission.
-3. **On the allow list → no decision**, not `allow`. The hook never *widens* permission.
-4. Not away → no decision. The terminal prompt is the better interface when you are at it.
-5. Otherwise → ask on Discord, wait, and map 👍/👎 onto allow/deny.
-
-Three things worth knowing before you turn it on:
-
-- **A timed-out hook does not block the call** — it falls through to the normal permission flow. So
-  the hook answers *before* its own deadline (`WAIT_BUDGET_SECONDS`, 25 min) rather than waiting to
-  be killed at the `timeout` in `.claude/settings.json` (30 min). A test asserts the gap; do not
-  change one number without the other.
-- **`uv run drunken-away off` is allowlisted on purpose** — found the hard way with the agent
-  stranded. Do not remove that rule.
-- **It is noisy by design.** Widen the allow list deliberately rather than reaching for
-  `bypassPermissions`.
+Everything else gets **silence** — no decision, so the harness prompts exactly as it would have.
+Silence is not `allow`: the floor can refuse and it can stand aside, and it never widens
+permission. The version that routed a prompt to Discord and learned a standing rule from the answer
+is retired (DG-355). Worth knowing that shape existed: a rule in `.claude/settings.local.json` that
+nobody remembers adding was written by it.
 
 ---
 

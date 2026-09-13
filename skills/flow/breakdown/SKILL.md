@@ -63,8 +63,8 @@ description: >
     </rule>
 
     <rule priority="FATAL" name="Jira I/O via MCP Tools Only">
-      Create with `jira_create_issue`, confirm each with `jira_search_issues`. Never shell out to
-      `jira_bridge.py`, never call a retired `board_*` tool, and never create `.claude/board/` or
+      Create with `jira_create_issue`, confirm each with `jira_search_issues`. Never shell out to a
+      script that talks to the Jira API, never call a retired `board_*` tool, and never create `.claude/board/` or
       `.agents/board/` — a board beside Jira is a second surface that can disagree with it.
     </rule>
 

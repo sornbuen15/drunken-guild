@@ -64,11 +64,38 @@ fi
 
 VENV="$WORK/venv"
 uv venv "$VENV" >/dev/null 2>&1
-VIRTUAL_ENV="$VENV" uv pip install -q "$REPO" >/dev/null 2>&1
+
+# Install from an export of HEAD, not from the working tree.
+#
+# DG-355 is why. `pyproject.toml` still listed `src/service` as a package after
+# the directory was retired, and this script reported a clean install anyway --
+# because the directory was still there on the developer's disk, empty apart
+# from a `__pycache__` that `git rm` does not remove. setuptools found a package
+# directory, the build succeeded, and the check that exists to catch exactly
+# this said 20 passed. CI, checking out fresh, failed on the first install.
+#
+# A clean room cannot be the room you have been working in. The untracked
+# leftovers are the whole point: what everyone else gets is HEAD.
+SOURCE="$REPO"
+SOURCE_NOTE="the working tree"
+if HEAD_SHA="$(git -C "$REPO" rev-parse --short HEAD 2>/dev/null)"; then
+  SOURCE="$WORK/export"
+  mkdir -p "$SOURCE"
+  if git -C "$REPO" archive HEAD | tar -x -C "$SOURCE" 2>/dev/null; then
+    SOURCE_NOTE="HEAD ($HEAD_SHA), untracked files excluded"
+  else
+    SOURCE="$REPO"
+    SOURCE_NOTE="the working tree (export failed)"
+  fi
+fi
+
+install_log="$(VIRTUAL_ENV="$VENV" uv pip install -q "$SOURCE" 2>&1)"
 BIN="$VENV/bin"
 
-if [ -x "$BIN/drunken-doctor" ]; then ok "installed from a clean checkout"; else
-  bad "install failed"; exit 1
+if [ -x "$BIN/drunken-doctor" ]; then ok "installed from $SOURCE_NOTE"; else
+  bad "install failed"
+  printf '%s\n' "$install_log" | tail -n 12
+  exit 1
 fi
 
 python_version="$("$BIN/python" -c 'import sys;print(".".join(map(str,sys.version_info[:2])))')"
@@ -156,7 +183,7 @@ say "5. The MCP servers start for a host that knows nothing about us"
 # §1.1: they used to crash during import, so the host saw no tools at all and
 # no error anywhere. Starting with zero config is the whole point — the agent
 # needs to be able to call a tool and be *told* what is missing.
-for server in drunken-jira-mcp drunken-discord-mcp; do
+for server in drunken-jira-mcp; do
   # The server logs to its own stderr, which the client inherits, so only the
   # last line is ours.
   count="$(clean_run "$BIN/python" - "$BIN/$server" <<'PY' | tail -n1

@@ -32,7 +32,7 @@ Use a Markdown Table to list all changes. The table must have 3 columns:
 | :--- | :--- | :--- |
 | 🚀 Feature | Added Mina AI Router for Natural Language task delegation | #13 |
 | 🐞 Bug Fix | Resolved UI state synchronization bug on the Web Dashboard | #12 |
-| 🔄 Update | Refactored `discord_listener.py` to use asynchronous polling | #10 |
+| 🔄 Update | Refactored `sync_worker.py` to use asynchronous polling | #10 |
 | 🗑️ Deprecate | Removed the strict `<who> <context> <goal>` string parsing | #13 |
 
 ### 4. Breaking Changes & Migration Guide (If Applicable)

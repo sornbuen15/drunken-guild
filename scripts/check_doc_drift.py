@@ -102,6 +102,29 @@ RETIRED = (
     Retired("test-report-generator", "DG-353", "the `audit` skill (/audit)"),
     Retired("core-engineering", "DG-353", "the `build` skill (/build)"),
     Retired("anti-regression", "DG-353", "the `build` skill (/build)"),
+    # The Discord approval machinery, away mode, and the scripts that only the
+    # daemon reached (DG-355). The slash commands go in here at last: the
+    # comment above `spec-to-backlog` said to add them "when the Discord lane
+    # goes", because a guard that fires on a live command is a guard that gets
+    # switched off. This is that change.
+    Retired("drunken-listen", "DG-355", "nothing; there is no daemon to run"),
+    Retired("drunken-away", "DG-355", "nothing; the terminal prompt is the only one"),
+    Retired("drunken-discord-mcp", "DG-355", "core.notify, sent from hooks and CI"),
+    Retired("drunken-approval-hook", "DG-355", "drunken-hook"),
+    Retired("request_boss_approval", "DG-355", "ask the Boss in the conversation"),
+    Retired("check_approvals", "DG-355", "nothing; no approval is submitted now"),
+    Retired("discord_listener.py", "DG-355", "nothing; the daemon is retired"),
+    Retired("discord_router.py", "DG-355", "nothing; the daemon is retired"),
+    Retired("approval_manager.py", "DG-355", "nothing; the daemon is retired"),
+    Retired("jira_bridge.py", "DG-355", "the drunken-jira-mcp tools"),
+    Retired("qa_automation.py", "DG-355", "the /audit step"),
+    Retired("setup_daemon_service.py", "DG-355", "nothing; there is no daemon"),
+    Retired("check_pending_approval.py", "DG-355", "nothing; no approval can be open"),
+    Retired("away mode", "DG-355", "nothing; the harness prompt is the only layer"),
+    Retired("Away mode", "DG-355", "nothing; the harness prompt is the only layer"),
+    Retired("/refine", "DG-355", "the `breakdown` skill (/breakdown)"),
+    Retired("/next", "DG-355", "the `breakdown` skill (/breakdown)"),
+    Retired("/qa", "DG-355", "the `build` and `audit` steps"),
 )
 
 #: Documents whose job is to record what changed. They have to be able to name

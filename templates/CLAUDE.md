@@ -29,8 +29,8 @@
        Most need no MCP server at all.
     2. **Agents** — installed to `~/.claude/agents/` by `install_agents.sh`.
     3. **MCP servers** — NOT installed by either script. They are declared in **this project's
-       own `.mcp.json`** and ship with the toolkit as commands (`drunken-jira-mcp`,
-       `drunken-discord-mcp`), put on PATH by `uv tool install`. Generate the config with
+       own `.mcp.json`** and ship with the toolkit as a command (`drunken-jira-mcp`), put on PATH
+       by `uv tool install`. Generate the config with
        `install_mcp.sh` rather than writing it by hand.
     4. **Project instructions** — this file.
 

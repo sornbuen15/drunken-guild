@@ -26,13 +26,6 @@ repos:
 
   - repo: local
     hooks:
-      - id: check-pending-approval
-        name: Block commits with an unresolved Discord approval
-        entry: python scripts/check_pending_approval.py
-        language: system
-        pass_filenames: false
-        always_run: true
-
       # DG-259. .gitignore's `*token*` once swallowed a whole test file: the
       # commit succeeded, this hook chain passed, and the suite stayed green
       # because the file was still on disk. Nothing said the commit was
