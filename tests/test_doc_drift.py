@@ -89,12 +89,30 @@ def test_worktrees_and_vendored_copies_are_not_scanned(drift) -> None:
     suite can itself run from inside a linked worktree under
     `.claude/worktrees/<name>`, which puts `.claude` in every path's
     *absolute* parts regardless of whether documents() filtered correctly.
+
+    DG-360 narrowed this from "nothing under `.claude`" to the worktrees
+    themselves. The whole directory was skipped only because everything in it
+    was history; `.claude/rules/` is instructions, and the test below says so.
     """
     assert not [
         p
         for p in drift.documents()
-        if ".claude" in p.relative_to(drift.REPO_ROOT).parts
+        if "worktrees" in p.relative_to(drift.REPO_ROOT).parts
     ]
+
+
+def test_the_project_rules_are_scanned(drift) -> None:
+    """`.claude/rules/*.md` are instructions that load when Claude reads a
+    matching file. An instruction naming something retired is exactly the bug
+    this check exists for, and its parent directory being skipped for the
+    worktrees would have hidden it."""
+    scanned = {p.relative_to(drift.REPO_ROOT).as_posix() for p in drift.documents()}
+    rules = {
+        p.relative_to(drift.REPO_ROOT).as_posix()
+        for p in (drift.REPO_ROOT / ".claude" / "rules").rglob("*.md")
+    }
+    assert rules, "no rules to scan means this guard proves nothing"
+    assert rules <= scanned, f"unscanned instruction files: {sorted(rules - scanned)}"
 
 
 def test_the_templates_we_hand_out_are_scanned(drift) -> None:

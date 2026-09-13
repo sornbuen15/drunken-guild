@@ -185,6 +185,11 @@ secrets.json
 # settings.local.json, which stays ignored.
 .claude/*
 !.claude/settings.json
+# And the project rules, for the same reason: `.claude/rules/*.md` are shared
+# instructions, path-scoped so each loads only when Claude reads a file it
+# applies to (DG-360). They are the half of CLAUDE.md that would otherwise be
+# paid for on every turn, so they have to ship with the repo like settings.json.
+!.claude/rules/
 
 # Local scratch. Dockerfile used to be listed here as "simulation config, do
 # not commit" -- DG-228 made it a deliverable (it is how the pinned install is

@@ -152,6 +152,11 @@ RETIRED = (
         "install_mcp.sh for the config; drunken-doctor --requirements for the pins",
     ),
     Retired("drunken-status", "DG-356", "the /audit step"),
+    # Retired with the Discord lane but missed by this list until DG-360 found
+    # CLAUDE.md still explaining how to call it, five sessions later. A rule
+    # about a function nobody can call is worse than no rule: it is read as
+    # current.
+    Retired("require_discord", "DG-355", "nothing; no Discord credential is resolved"),
     Retired("--kind install", "DG-356", "drunken-doctor --requirements"),
     Retired("--kind host", "DG-356", "onboard_project.py --merge-mcp-config"),
 )
@@ -222,6 +227,14 @@ def documents() -> list[Path]:
         for path in (REPO_ROOT / "templates").glob("*")
         if path.is_file() and path.suffix != ".md"
     ]
+    # `.claude` is skipped above because linked worktrees live under it, holding
+    # whole copies of this repository at older commits -- scanning those reports
+    # drift that is simply the past. `.claude/rules/` is the opposite: it is
+    # instructions, moved out of CLAUDE.md in DG-360 precisely so they load only
+    # where they apply, and an instruction naming something retired is the bug
+    # this check exists for. Named explicitly rather than by unskipping the
+    # parent, so the worktrees stay out.
+    found += sorted((REPO_ROOT / ".claude" / "rules").rglob("*.md"))
     return sorted(found)
 
 
