@@ -18,7 +18,9 @@ volume and points ``DRUNKEN_HOME`` at it; nothing else in the system has to know
 
 from __future__ import annotations
 
+import getpass
 import os
+import shlex
 import stat
 from dataclasses import dataclass
 from pathlib import Path
@@ -34,6 +36,14 @@ DEFAULT_HOME: Final = "~/.drunken"
 HOME_MODE: Final = 0o700
 #: Anything inside it that may carry a secret.
 SECRET_FILE_MODE: Final = 0o600
+
+#: The NTFS equivalent of :data:`HOME_MODE`: full control for the owner, and the
+#: same for everything created inside the directory later. ``OI`` is object
+#: inherit, ``CI`` container inherit.
+ICACLS_DIR_RIGHTS: Final = "(OI)(CI)F"
+#: The same for a single file. Nothing is created inside a file, so the inherit
+#: flags would be noise in a line an operator has to read and trust.
+ICACLS_FILE_RIGHTS: Final = "F"
 
 
 @dataclass(frozen=True)
@@ -118,6 +128,33 @@ def is_group_or_world_accessible(path: Path) -> bool:
         return False
     mode = path.stat().st_mode
     return bool(mode & (stat.S_IRWXG | stat.S_IRWXO))
+
+
+def is_windows() -> bool:
+    """One named seam for the platform question, rather than the test scattered.
+
+    :mod:`core.doctor` asks it about what to print; the tests patch it to report
+    about the other platform without pretending to be it.
+    """
+    return os.name == "nt"
+
+
+def secure_command(path: Path) -> str:
+    """The command that restricts *path* to its owner, for *this* machine.
+
+    ``drunken-doctor`` prints this under the warning and an operator pastes it
+    as printed. DG-372: on Windows it printed ``chmod``, which does not exist
+    there — the warning was correct and the only actionable line under it could
+    not be followed. Printing both platforms' commands would leave the reader
+    to work out which one is theirs, so the platform is detected instead.
+    """
+    if is_windows():
+        rights = ICACLS_DIR_RIGHTS if path.is_dir() else ICACLS_FILE_RIGHTS
+        # Quoted unconditionally: the default home sits under C:\Users\<name>,
+        # and a Windows account name is allowed to contain spaces.
+        return f'icacls "{path}" /inheritance:r /grant:r "{getpass.getuser()}:{rights}"'
+    mode = HOME_MODE if path.is_dir() else SECRET_FILE_MODE
+    return f"chmod {oct(mode)[2:]} {shlex.quote(str(path))}"
 
 
 def describe() -> dict[str, dict[str, str]]:

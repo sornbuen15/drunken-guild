@@ -3,6 +3,7 @@
 print a credential."""
 
 import json
+import shlex
 import urllib.error
 from unittest import mock
 
@@ -143,6 +144,58 @@ class TestReportsWhichRuleChoseEachPath:
             doctor.run_doctor(registry=registry, offline=True), "registry.file"
         ).detail
         assert "schema v2" in detail
+
+
+class TestThePermissionsRemedyMatchesThePlatform:
+    """DG-372: the warning was correct and the fix under it was unrunnable."""
+
+    def _loose_home(self, tmp_path):
+        home = tmp_path / "home"
+        home.mkdir(parents=True, exist_ok=True)
+        home.chmod(0o777)
+        return home
+
+    def test_on_windows_the_home_remedy_does_not_say_chmod(
+        self, monkeypatch, registry, tmp_path
+    ) -> None:
+        self._loose_home(tmp_path)
+        monkeypatch.setattr(paths, "is_windows", lambda: True)
+
+        report = doctor.run_doctor(registry=registry, offline=True)
+
+        remediation = find(report, "paths.home.permissions").remediation
+        assert "chmod" not in remediation, (
+            "there is no chmod on Windows, so this line cannot be followed"
+        )
+        assert remediation.startswith("icacls "), remediation
+
+    def test_on_windows_the_auth_db_remedy_does_not_say_chmod(
+        self, monkeypatch, registry, tmp_path
+    ) -> None:
+        """The same line one check further down, reported the same way."""
+        home = self._loose_home(tmp_path)
+        auth_db = home / "auth.json"
+        auth_db.write_text("{}", encoding="utf-8")
+        auth_db.chmod(0o666)
+        monkeypatch.setenv(paths.ENV_AUTH_DB, str(auth_db))
+        monkeypatch.setattr(paths, "is_windows", lambda: True)
+
+        report = doctor.run_doctor(registry=registry, offline=True)
+
+        remediation = find(report, "paths.auth_db.permissions").remediation
+        assert "chmod" not in remediation, remediation
+        assert remediation.startswith("icacls "), remediation
+
+    def test_on_posix_the_home_remedy_is_unchanged(
+        self, monkeypatch, registry, tmp_path
+    ) -> None:
+        home = self._loose_home(tmp_path)
+        monkeypatch.setattr(paths, "is_windows", lambda: False)
+
+        report = doctor.run_doctor(registry=registry, offline=True)
+
+        remediation = find(report, "paths.home.permissions").remediation
+        assert shlex.split(remediation) == ["chmod", "700", str(home)], remediation
 
 
 class TestJiraVerification:

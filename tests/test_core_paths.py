@@ -3,7 +3,9 @@
 happens to be installed or which directory it was launched from."""
 
 import ast
+import getpass
 import os
+import shlex
 import stat
 from pathlib import Path
 
@@ -146,3 +148,82 @@ class TestDescribe:
         assert set(described) == {"home", "registry", "auth_db"}
         assert described["registry"]["source"] == f"${paths.ENV_REGISTRY}"
         assert described["home"]["source"] == f"${paths.ENV_HOME}"
+
+
+class TestSecureCommand:
+    """The remedy `drunken-doctor` prints has to run on the machine reading it.
+
+    DG-372: on Windows it printed a `chmod 700` over the state directory. The
+    warning was right — that directory holds the Jira credential — but Windows
+    has no chmod, so the one actionable line in the report could not be acted
+    on.
+    """
+
+    def test_a_directory_on_windows_gets_icacls_and_never_chmod(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        monkeypatch.setattr(os, "name", "nt")
+        monkeypatch.setattr(getpass, "getuser", lambda: "argig")
+        target = tmp_path / "state"
+        target.mkdir()
+
+        command = paths.secure_command(target)
+
+        assert "chmod" not in command, "there is no chmod on Windows"
+        assert command.startswith("icacls "), command
+        assert "/inheritance:r" in command, (
+            "inherited ACEs are how everyone else got access in the first place"
+        )
+        assert '"argig:(OI)(CI)F"' in command, (
+            "a directory grants the owner full control over what it will contain"
+        )
+        assert f'"{target}"' in command, "a Windows home path can contain spaces"
+
+    def test_a_file_on_windows_grants_no_inheritance(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        """(OI)(CI) on a file is meaningless — nothing is created inside one."""
+        monkeypatch.setattr(os, "name", "nt")
+        monkeypatch.setattr(getpass, "getuser", lambda: "argig")
+        target = tmp_path / "auth.json"
+        target.write_text("{}")
+
+        command = paths.secure_command(target)
+
+        assert '"argig:F"' in command, command
+        assert "(OI)" not in command
+
+    def test_a_directory_on_posix_still_gets_chmod_700(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        monkeypatch.setattr(os, "name", "posix")
+        target = tmp_path / "state"
+        target.mkdir()
+
+        assert shlex.split(paths.secure_command(target)) == [
+            "chmod",
+            "700",
+            str(target),
+        ]
+
+    def test_a_file_on_posix_still_gets_chmod_600(self, monkeypatch, tmp_path) -> None:
+        monkeypatch.setattr(os, "name", "posix")
+        target = tmp_path / "auth.json"
+        target.write_text("{}")
+
+        assert shlex.split(paths.secure_command(target)) == [
+            "chmod",
+            "600",
+            str(target),
+        ]
+
+    def test_a_posix_path_with_a_space_is_quoted(self, monkeypatch, tmp_path) -> None:
+        monkeypatch.setattr(os, "name", "posix")
+        target = tmp_path / "two words"
+        target.mkdir()
+
+        command = paths.secure_command(target)
+
+        assert shlex.split(command) == ["chmod", "700", str(target)], (
+            "the operator pastes this line as printed"
+        )
