@@ -281,7 +281,7 @@ def _check_paths(report: Report) -> None:
                     "paths.home.permissions",
                     "warn",
                     f"{path} is readable by other users on this machine.",
-                    remediation=f"chmod {oct(paths.HOME_MODE)[2:]} {path}",
+                    remediation=paths.secure_command(path),
                 )
             continue
 
@@ -296,7 +296,7 @@ def _check_paths(report: Report) -> None:
                 "paths.auth_db.permissions",
                 "fail",
                 f"{path} holds credentials and is readable by other users.",
-                remediation=f"chmod 600 {path}",
+                remediation=paths.secure_command(path),
             )
 
 
