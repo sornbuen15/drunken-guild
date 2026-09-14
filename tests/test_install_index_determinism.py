@@ -21,6 +21,7 @@ construction.
 
 from __future__ import annotations
 
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -28,6 +29,11 @@ from pathlib import Path
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
+
+#: DG-378 is a Windows defect, and CI runs on Linux only. The behavioural test
+#: below therefore skips in CI and runs on the workstation the bug was found
+#: on, which is the point of DG-371.
+POWERSHELL = shutil.which("pwsh") or shutil.which("powershell")
 TRUNCATE = REPO_ROOT / "scripts" / "install" / "_truncate.py"
 INSTALLERS = (
     REPO_ROOT / "scripts" / "install" / "install_skills.sh",
@@ -153,3 +159,120 @@ class TestTheGeneratorEmitsWhatACommitAccepts:
         """`printf \"%s \"` joins folded YAML lines, so a description ends in a
         space and a mid-sentence cut lands on one."""
         assert _truncate("word ", 5, "C").decode("utf-8") == "word"
+
+
+class TestThePowerShellInstallerReadsTheShapeSkillsActuallyUse:
+    """DG-378. `install_skills.ps1` read the trigger from a `Trigger/Keywords:**`
+    line and the description from a `**Description:**` body line. Neither shape
+    survived the move to YAML frontmatter: the first appears in *none* of the
+    eleven `SKILL.md` files, so every row the Windows installer wrote lost its
+    slash command, and `jira-tickets` — the one skill carrying no legacy body
+    line either — lost its description as well.
+
+    `install_skills.sh` was fixed for both and the `.ps1` was not, so the two
+    installers published different indexes from the same tree. That is the same
+    disease as the locale bug above: a generated *and* committed file whose
+    content depends on which machine regenerated it.
+    """
+
+    def test_the_shape_it_used_to_look_for_is_really_gone(self) -> None:
+        """The premise, asserted rather than assumed. If a skill ever
+        reintroduces the line, the fallback stops being the only live path and
+        this test is where that shows up."""
+        carriers = [
+            path.relative_to(REPO_ROOT).as_posix()
+            for path in sorted((REPO_ROOT / "skills").rglob("SKILL.md"))
+            if "Trigger/Keywords:" in path.read_text(encoding="utf-8")
+        ]
+        assert not carriers, (
+            f"{carriers} carry a `Trigger/Keywords:` line again — the "
+            "installers' primary extractor is live, not dead code"
+        )
+
+    def test_it_reads_the_frontmatter_description(self) -> None:
+        powershell = (
+            REPO_ROOT / "scripts" / "install" / "install_skills.ps1"
+        ).read_text(encoding="utf-8")
+        assert "^description:" in powershell, (
+            "install_skills.ps1 does not read the YAML frontmatter "
+            "`description:`, which is the only place ten of the eleven skills "
+            "state one"
+        )
+
+    def test_it_falls_back_to_the_trigger_on_phrase(self) -> None:
+        powershell = (
+            REPO_ROOT / "scripts" / "install" / "install_skills.ps1"
+        ).read_text(encoding="utf-8")
+        assert "Trigger on" in powershell, (
+            "install_skills.ps1 has no `Trigger on` fallback, so no row it "
+            "writes can name a slash command"
+        )
+
+    @pytest.mark.skipif(POWERSHELL is None, reason="no PowerShell host on this machine")
+    def test_the_powershell_installer_reproduces_the_committed_index(
+        self, tmp_path: Path
+    ) -> None:
+        """The acceptance line of DG-378, and the only one that reads the
+        script by running it rather than by grepping it.
+
+        Both of the installer's write targets are redirected into the sandbox.
+        It installs into `$HOME/.claude/skills` and then mirrors the index back
+        over `skills/INDEX.md`, so a test that ran it in place would write to
+        the operator's profile and leave a tracked file rewritten whether it
+        passed or failed.
+        """
+        sandbox = tmp_path / "repo"
+        (sandbox / "scripts").mkdir(parents=True)
+        shutil.copytree(REPO_ROOT / "skills", sandbox / "skills")
+        shutil.copytree(
+            REPO_ROOT / "scripts" / "install", sandbox / "scripts" / "install"
+        )
+        home = tmp_path / "home"
+        home.mkdir()
+
+        script = sandbox / "scripts" / "install" / "install_skills.ps1"
+        assert POWERSHELL is not None
+        result = subprocess.run(
+            [
+                POWERSHELL,
+                "-NoProfile",
+                "-NonInteractive",
+                "-Command",
+                f"Set-Variable -Name HOME -Value '{home}' -Force -Scope Global; "
+                f"& '{script}'",
+            ],
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode == 0, (
+            f"the installer exited {result.returncode}\n"
+            f"{result.stdout}\n{result.stderr}"
+        )
+
+        produced = (home / ".claude" / "skills" / "INDEX.md").read_bytes()
+
+        assert not produced.startswith(b"\xef\xbb\xbf"), (
+            "the index starts with a UTF-8 BOM, which is what "
+            "`Set-Content -Encoding UTF8` adds on Windows PowerShell 5.1 and "
+            "the bash installer never writes"
+        )
+        assert b"\r\n" not in produced, (
+            "the index has CRLF line endings; the bash installer writes LF, "
+            "and this file is committed"
+        )
+
+        # Against the blob rather than the checked-out file: core.autocrlf is on
+        # for this clone, so skills/INDEX.md is CRLF on disk here and LF in git.
+        # What has to match is what git stores -- that is the copy the macOS
+        # installer wrote.
+        committed = subprocess.run(
+            ["git", "show", "HEAD:skills/INDEX.md"],
+            capture_output=True,
+            check=True,
+            cwd=REPO_ROOT,
+        ).stdout
+        assert produced == committed, (
+            "the PowerShell installer and the bash one disagree about the "
+            "bytes of a file that is in git. The Windows copy is at\n"
+            f"  {home / '.claude' / 'skills' / 'INDEX.md'}"
+        )
