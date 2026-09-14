@@ -186,6 +186,21 @@ class TestThePermissionsRemedyMatchesThePlatform:
         assert "chmod" not in remediation, remediation
         assert remediation.startswith("icacls "), remediation
 
+    def test_a_machine_with_no_username_still_gets_a_whole_report(
+        self, monkeypatch, registry, tmp_path
+    ) -> None:
+        """The remedy is one line of a diagnostic. Failing to name the user is
+        not a reason for the other twenty checks to go unanswered."""
+        self._loose_home(tmp_path)
+        for name in ("LOGNAME", "USER", "LNAME", "USERNAME"):
+            monkeypatch.delenv(name, raising=False)
+        monkeypatch.setattr(paths, "is_windows", lambda: True)
+
+        report = doctor.run_doctor(registry=registry, offline=True)
+
+        assert len(report.checks) > 1
+        assert find(report, "paths.home.permissions").remediation.startswith("icacls ")
+
     def test_on_posix_the_home_remedy_is_unchanged(
         self, monkeypatch, registry, tmp_path
     ) -> None:

@@ -3,7 +3,6 @@
 happens to be installed or which directory it was launched from."""
 
 import ast
-import getpass
 import os
 import shlex
 import stat
@@ -159,11 +158,26 @@ class TestSecureCommand:
     on.
     """
 
+    @staticmethod
+    def _on_windows_as(monkeypatch, username: str | None) -> None:
+        """Pin both inputs the Windows branch reads, on any host.
+
+        The username is set through the environment rather than by patching
+        `getpass.getuser`, because *which* variable is consulted is part of what
+        these tests are about: `getuser` reads LOGNAME, USER and LNAME before
+        USERNAME, and only the last of those is the Windows account icacls can
+        resolve.
+        """
+        monkeypatch.setattr(os, "name", "nt")
+        for name in ("LOGNAME", "USER", "LNAME", "USERNAME"):
+            monkeypatch.delenv(name, raising=False)
+        if username is not None:
+            monkeypatch.setenv("USERNAME", username)
+
     def test_a_directory_on_windows_gets_icacls_and_never_chmod(
         self, monkeypatch, tmp_path
     ) -> None:
-        monkeypatch.setattr(os, "name", "nt")
-        monkeypatch.setattr(getpass, "getuser", lambda: "argig")
+        self._on_windows_as(monkeypatch, "argig")
         target = tmp_path / "state"
         target.mkdir()
 
@@ -183,8 +197,7 @@ class TestSecureCommand:
         self, monkeypatch, tmp_path
     ) -> None:
         """(OI)(CI) on a file is meaningless — nothing is created inside one."""
-        monkeypatch.setattr(os, "name", "nt")
-        monkeypatch.setattr(getpass, "getuser", lambda: "argig")
+        self._on_windows_as(monkeypatch, "argig")
         target = tmp_path / "auth.json"
         target.write_text("{}")
 
@@ -192,6 +205,42 @@ class TestSecureCommand:
 
         assert '"argig:F"' in command, command
         assert "(OI)" not in command
+
+    def test_a_posix_shells_username_never_reaches_icacls(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        """Git Bash, MSYS and a Docker image all set USER on Windows, and
+        `getpass.getuser` returns that in preference to USERNAME. icacls
+        resolves Windows accounts, so it is USERNAME or nothing."""
+        self._on_windows_as(monkeypatch, "argig")
+        monkeypatch.setenv("USER", "root")
+        monkeypatch.setenv("LOGNAME", "root")
+        target = tmp_path / "state"
+        target.mkdir()
+
+        command = paths.secure_command(target)
+
+        assert "root" not in command, (
+            "icacls would answer 'No mapping between account names and "
+            "security IDs was done'"
+        )
+        assert '"argig:(OI)(CI)F"' in command, command
+
+    def test_no_username_at_all_still_yields_a_runnable_command(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        """`getpass.getuser` raises OSError when nothing in the environment
+        names a user — a service account, a scheduled task, a container. The
+        diagnostic has to keep printing a report, so it falls back to the
+        well-known OWNER RIGHTS SID, which needs no name lookup."""
+        self._on_windows_as(monkeypatch, None)
+        target = tmp_path / "state"
+        target.mkdir()
+
+        command = paths.secure_command(target)
+
+        assert paths.ICACLS_OWNER_SID in command, command
+        assert command.startswith("icacls "), command
 
     def test_a_directory_on_posix_still_gets_chmod_700(
         self, monkeypatch, tmp_path

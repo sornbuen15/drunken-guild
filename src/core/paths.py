@@ -18,7 +18,6 @@ volume and points ``DRUNKEN_HOME`` at it; nothing else in the system has to know
 
 from __future__ import annotations
 
-import getpass
 import os
 import shlex
 import stat
@@ -44,6 +43,11 @@ ICACLS_DIR_RIGHTS: Final = "(OI)(CI)F"
 #: The same for a single file. Nothing is created inside a file, so the inherit
 #: flags would be noise in a line an operator has to read and trust.
 ICACLS_FILE_RIGHTS: Final = "F"
+#: OWNER RIGHTS — "whoever owns this", resolved by the SID rather than by a
+#: name lookup. The fallback for a machine whose environment names no user at
+#: all: a service account, a scheduled task, a container. It grants what
+#: :data:`HOME_MODE` means without having to know what to call the owner.
+ICACLS_OWNER_SID: Final = "*S-1-3-4"
 
 
 @dataclass(frozen=True)
@@ -139,6 +143,25 @@ def is_windows() -> bool:
     return os.name == "nt"
 
 
+def _icacls_principal() -> str:
+    """Who to grant to, in a form ``icacls`` can actually resolve.
+
+    Not :func:`getpass.getuser`: it reads LOGNAME, USER and LNAME *before*
+    USERNAME, and the first three are what a POSIX-shaped shell on Windows sets
+    — Git Bash, MSYS, a container. icacls resolves Windows accounts, so being
+    handed ``root`` from a Git Bash gets "No mapping between account names and
+    security IDs was done". USERNAME is the Windows variable; it comes first.
+
+    And when nothing names a user, `getpass.getuser` raises rather than
+    returning — which would take the whole diagnostic down over one line of it.
+    """
+    for variable in ("USERNAME", "LOGNAME", "USER", "LNAME"):
+        user = os.environ.get(variable)
+        if user:
+            return user
+    return ICACLS_OWNER_SID
+
+
 def secure_command(path: Path) -> str:
     """The command that restricts *path* to its owner, for *this* machine.
 
@@ -152,7 +175,8 @@ def secure_command(path: Path) -> str:
         rights = ICACLS_DIR_RIGHTS if path.is_dir() else ICACLS_FILE_RIGHTS
         # Quoted unconditionally: the default home sits under C:\Users\<name>,
         # and a Windows account name is allowed to contain spaces.
-        return f'icacls "{path}" /inheritance:r /grant:r "{getpass.getuser()}:{rights}"'
+        principal = _icacls_principal()
+        return f'icacls "{path}" /inheritance:r /grant:r "{principal}:{rights}"'
     mode = HOME_MODE if path.is_dir() else SECRET_FILE_MODE
     return f"chmod {oct(mode)[2:]} {shlex.quote(str(path))}"
 
