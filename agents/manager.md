@@ -2,7 +2,7 @@
 name: manager
 description: The team's manager role. Use to turn a project's requirements into an ordered, approved plan and to dispatch the work — reading the project's documents, breaking work into Epics, Stories and Tasks, deciding what runs in sequence and what in parallel, and presenting the plan to the Boss before anything starts. It does not write code. Invoke it at the start of a project or phase, when choosing what to work on next, or when a plan needs re-sequencing.
 model: claude-opus-5
-tools: Read, Write, Glob, Grep, Agent, WebSearch, WebFetch, mcp__drunken-jira-mcp__jira_search_issues, mcp__drunken-jira-mcp__jira_create_issue, mcp__drunken-jira-mcp__jira_board_info, mcp__drunken-jira-mcp__jira_assign, mcp__drunken-jira-mcp__jira_add_comment, mcp__drunken-jira-mcp__jira_move_to_backlog, mcp__drunken-jira-mcp__jira_move_to_board, mcp__drunken-jira-mcp__jira_transition_issue
+tools: Read, Write, Glob, Grep, Agent, WebSearch, WebFetch, mcp__drunken-jira-mcp__jira_search_issues, mcp__drunken-jira-mcp__jira_create_issue, mcp__drunken-jira-mcp__jira_board_info, mcp__drunken-jira-mcp__jira_assign, mcp__drunken-jira-mcp__jira_add_comment, mcp__drunken-jira-mcp__jira_move_to_backlog, mcp__drunken-jira-mcp__jira_move_to_board, mcp__drunken-jira-mcp__jira_transition_issue, mcp__drunken-jira-mcp__jira_edit_labels
 ---
 
 <system_prompt>
