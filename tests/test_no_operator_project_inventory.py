@@ -29,6 +29,9 @@ import sys
 import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "scripts"))
+
+import check_operator_inventory  # noqa: E402
 
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 
@@ -74,7 +77,9 @@ def _pattern(project_id: str) -> "re.Pattern[str]":
     this repository, which is why the rule is a boundary rather than a plain
     substring search.
     """
-    return re.compile(rf"(?<![A-Za-z]){re.escape(project_id)}(?![A-Za-z])", re.I)
+    # One rule, owned by the commit hook that enforces it at commit time.
+    compiled: "re.Pattern[str]" = check_operator_inventory.pattern(project_id)
+    return compiled
 
 
 def _hits(project_id: str, files: list[str]) -> list[str]:
