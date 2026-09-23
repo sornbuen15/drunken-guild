@@ -1,0 +1,59 @@
+{
+  "about": "REQ-002 / DG-397. Plain-language requests and the one route each must produce. Agent-neutral: the runners (DG-398, DG-399, DG-400) send each request to an agent three times and pass it at 2 of 3. kind is skill, role, tool or none; a 'none' request must trigger no skill, role or tool.",
+  "scenarios": [
+    {"request": "We're starting a new project for clinic appointments. Help me write down what we're building.", "expect": {"kind": "skill", "name": "prd"}},
+    {"request": "Add a requirement: patients must be able to cancel up to 24 hours before.", "expect": {"kind": "skill", "name": "prd"}},
+    {"request": "ช่วยเขียน requirement ของระบบจองคิวให้หน่อย", "expect": {"kind": "skill", "name": "prd"}},
+
+    {"request": "Before we model anything, what in the requirements is still undecided?", "expect": {"kind": "skill", "name": "clarify"}},
+    {"request": "REQ-004 says 'fast' — ask me whatever you need to pin it down.", "expect": {"kind": "skill", "name": "clarify"}},
+
+    {"request": "The PRD is agreed. Work out the bounded contexts and the words we should all use.", "expect": {"kind": "skill", "name": "ddd"}},
+    {"request": "We keep calling the same thing 'booking' and 'appointment'. Settle the vocabulary.", "expect": {"kind": "skill", "name": "ddd"}},
+
+    {"request": "Turn the PRD and the domain model into Jira tickets.", "expect": {"kind": "skill", "name": "breakdown"}},
+    {"request": "Cut the backlog for the payments context, a day per task.", "expect": {"kind": "skill", "name": "breakdown"}},
+
+    {"request": "Pick up DG-412 and implement it.", "expect": {"kind": "skill", "name": "build"}},
+    {"request": "Fix the bug in ticket ISAC-157 and open a PR.", "expect": {"kind": "skill", "name": "build"}},
+    {"request": "ทำการ์ดถัดไปใน backlog ต่อเลย", "expect": {"kind": "skill", "name": "build"}},
+
+    {"request": "What actually shipped today, requirement by requirement?", "expect": {"kind": "skill", "name": "audit"}},
+    {"request": "Check whether every Must requirement has a passing test on develop.", "expect": {"kind": "skill", "name": "audit"}},
+
+    {"request": "Where does this project keep its PRD?", "expect": {"kind": "skill", "name": "project-docs"}},
+    {"request": "There's a PRD.md in the root and another in .ai — which one do we use?", "expect": {"kind": "skill", "name": "project-docs"}},
+
+    {"request": "I'm stepping away for the afternoon — you need my OK before force-pushing, so how do you ask?", "expect": {"kind": "skill", "name": "ask-boss"}},
+    {"request": "You need my approval to drop the staging database. Get it without blocking your other work.", "expect": {"kind": "skill", "name": "ask-boss"}},
+
+    {"request": "What should I name the branch for DG-501?", "expect": {"kind": "skill", "name": "git-workflow"}},
+    {"request": "How should I commit this and which merge strategy goes into main?", "expect": {"kind": "skill", "name": "git-workflow"}},
+
+    {"request": "What sections does a Bug ticket need here?", "expect": {"kind": "skill", "name": "jira-tickets"}},
+    {"request": "Can I mark DG-377 Done now that the PR is open?", "expect": {"kind": "skill", "name": "jira-tickets"}},
+
+    {"request": "The server says it's running but every request times out. Figure out why.", "expect": {"kind": "skill", "name": "think-analyze-isolate"}},
+    {"request": "The e2e run failed the same way twice after my fix. Stop and find the real cause.", "expect": {"kind": "skill", "name": "think-analyze-isolate"}},
+
+    {"request": "Plan the work for this project's next phase and tell me what runs in parallel.", "expect": {"kind": "role", "name": "manager"}},
+    {"request": "Which Epic should we tackle next, and in what order should the tasks go?", "expect": {"kind": "role", "name": "manager"}},
+
+    {"request": "Hand DG-398 to someone to build end to end in its own worktree.", "expect": {"kind": "role", "name": "worker"}},
+    {"request": "Get the approved task DG-402 implemented and a PR opened, while we keep planning here.", "expect": {"kind": "role", "name": "worker"}},
+
+    {"request": "Review PR #89 before I merge it — security included.", "expect": {"kind": "role", "name": "reviewer"}},
+    {"request": "Have someone check the worker's tests for DG-400 can actually fail.", "expect": {"kind": "role", "name": "reviewer"}},
+
+    {"request": "Leave a note on DG-311 that core/status.py is gone.", "expect": {"kind": "tool", "name": "jira_add_comment"}},
+    {"request": "Is anything still open under the Routing epic?", "expect": {"kind": "tool", "name": "jira_search_issues"}},
+    {"request": "Park DG-405 in the backlog for now.", "expect": {"kind": "tool", "name": "jira_move_to_backlog"}},
+
+    {"request": "What does git rebase --onto do?", "expect": {"kind": "none"}},
+    {"request": "Rename the variable tmp to buffer in utils.py.", "expect": {"kind": "none"}},
+    {"request": "Thanks, that's all for today.", "expect": {"kind": "none"}},
+    {"request": "Explain what a bounded context is, in two sentences.", "expect": {"kind": "none"}},
+    {"request": "What time zone is UTC+7?", "expect": {"kind": "none"}},
+    {"request": "อธิบาย MoSCoW แบบสั้นๆ", "expect": {"kind": "none"}}
+  ]
+}
