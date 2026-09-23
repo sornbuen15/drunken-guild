@@ -54,7 +54,8 @@ dependencies = [
     # `mcp.server.mcpserver.MCPServer`), so an unpinned resolve crashes every
     # server at import time. 1.28+ is the floor because that is where
     # `streamable_http`, `auth` and `transport_security` all land — the pieces
-    # the HTTP transport mode needs. Migrating to 2.x is tracked separately.
+    # the HTTP transport mode needs. Migrating to 2.x is not tracked yet: no
+    # ticket exists (checked 2026-09-23, DG-312).
     "mcp>=1.28.0,<2",
 ]
 
