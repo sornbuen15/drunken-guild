@@ -25,6 +25,11 @@ description: >
     The brief and the requirements are one file because two files drifted: a `PROJECT_BRIEF.md` that
     said one thing beside a `REQUIREMENTS.md` that said another gave every reader a defensible
     answer and no correct one. One surface is the answer; do not recreate a second.
+
+    **The Brief is the project's constitution.** Spec-driven tools open a project with one —
+    mission, tech stack, roadmap, each in its own file. Here that agreement is the Brief at the top
+    of `PRD.md`, and the roadmap is Jira. Do not create a constitution, mission or roadmap file
+    beside it; when someone asks for one, point them at the Brief.
   </why_one_file>
 
   <execution_rules>
