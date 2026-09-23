@@ -4,10 +4,11 @@ from typing import Optional
 from mcp.server.fastmcp import FastMCP
 
 from core.context import ProjectContext
-from core.errors import ConfigError, as_tool_result
+from core.errors import ConfigError, ValidationError, as_tool_result
 from core.registry import ProjectRegistry
 
 from . import assign, backlog
+from . import labels as label_ops
 from .jira_client import BoardProfile, JiraClient
 from .jql import scope_to_project
 
@@ -335,6 +336,29 @@ async def jira_add_comment(project: str, issue_key: str, comment: str) -> str:
     client = get_client(project)
     res = await client.add_comment(issue_key, comment)
     return json.dumps(res, indent=2)
+
+
+# DG-368. Operations, not a replacement set, so two agents labelling one ticket
+# cannot drop each other's label — see label_ops (labels.py).
+@mcp.tool()  # type: ignore[misc]
+@as_tool_result
+async def jira_edit_labels(
+    project: str, issue_key: str, add: str = "", remove: str = ""
+) -> str:
+    """
+    Add and/or remove labels on one issue in `project`, comma-separated. Other
+    labels are left as they are.
+    """
+    client = get_client(project)
+    keys = backlog.scope_keys(issue_key, client.project_key)
+    if len(keys) != 1:
+        raise ValidationError(
+            f"One issue per call, got {len(keys)}.",
+            remediation="Call once per issue key.",
+        )
+    (key,) = keys
+    payload = label_ops.update_payload(add, remove)
+    return json.dumps(await client.edit_labels(key, payload), indent=2)
 
 
 # Both resource URIs carry the project, for the same reason every tool takes

@@ -843,6 +843,16 @@ class JiraClient:
         )
         return {"ok": True, "issue": issue_key, "account_id": account_id}
 
+    async def edit_labels(
+        self, issue_key: str, payload: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Apply a ``labels.update_payload`` body. Jira answers 204, no body."""
+        url = f"{self.base_url}/rest/api/3/issue/{issue_key}"
+        await make_request(
+            url, method="PUT", payload=payload, email=self.email, token=self.token
+        )
+        return {"ok": True, "issue": issue_key}
+
     async def add_comment(self, issue_key: str, comment: str) -> Dict[str, Any]:
         payload = {"body": to_adf(comment)}
         url = f"{self.base_url}/rest/api/3/issue/{issue_key}/comment"
