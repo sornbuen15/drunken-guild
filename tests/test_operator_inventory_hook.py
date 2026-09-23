@@ -111,3 +111,67 @@ def test_both_hooks_are_wired() -> None:
     config = (ROOT / ".pre-commit-config.yaml").read_text(encoding="utf-8")
     assert "check_operator_inventory.py" in config
     assert "commit-msg" in config
+
+
+class TestTheCIGate:
+    """CI has no registry, so the ids come from a repository secret
+    (OPERATOR_PROJECT_IDS). There the check reads every tracked file and every
+    commit message in the pushed range — a commit made without the local hook
+    (another machine, GitHub's "Update branch") still meets it."""
+
+    @pytest.fixture
+    def ci(self, repo: Path, monkeypatch) -> Path:
+        monkeypatch.delenv("DRUNKEN_REGISTRY_PATH", raising=False)
+        monkeypatch.setenv("OPERATOR_PROJECT_IDS", f"{FAKE}, other-one")
+        _git(repo, "config", "user.email", "t@example.invalid")
+        _git(repo, "config", "user.name", "t")
+        (repo / "a.txt").write_text("clean\n", encoding="utf-8")
+        _git(repo, "add", "a.txt")
+        _git(repo, "commit", "-q", "-m", "base")
+        return repo
+
+    def test_a_tracked_file_naming_a_project_fails_the_tree_check(
+        self, ci: Path
+    ) -> None:
+        (ci / "b.txt").write_text(f"{FAKE.upper()}-9\n", encoding="utf-8")
+        _git(ci, "add", "b.txt")
+        _git(ci, "commit", "-q", "-m", "add b")
+
+        result = _run(ci, "--tree")
+
+        assert result.returncode == 1
+        assert "b.txt:1" in result.stdout
+
+    def test_a_clean_tree_passes(self, ci: Path) -> None:
+        assert _run(ci, "--tree").returncode == 0
+
+    def test_a_message_in_the_range_fails(self, ci: Path) -> None:
+        (ci / "c.txt").write_text("fine\n", encoding="utf-8")
+        _git(ci, "add", "c.txt")
+        _git(ci, "commit", "-q", "-m", f"fix the {FAKE} board")
+
+        result = _run(ci, "--messages", "HEAD~1..HEAD")
+
+        assert result.returncode == 1
+        assert FAKE not in result.stdout.lower()
+
+    def test_a_missing_secret_fails_rather_than_passing(
+        self, ci: Path, monkeypatch
+    ) -> None:
+        """--require-ids is what CI passes. An unset secret must not read as clean."""
+        monkeypatch.delenv("OPERATOR_PROJECT_IDS")
+        monkeypatch.setenv("DRUNKEN_REGISTRY_PATH", str(ci / "absent.json"))
+
+        result = _run(ci, "--tree", "--require-ids")
+
+        assert result.returncode == 1
+        assert "OPERATOR_PROJECT_IDS" in result.stdout
+
+    def test_ci_runs_it_in_the_required_security_job(self) -> None:
+        workflow = (ROOT / ".github" / "workflows" / "test.yml").read_text(
+            encoding="utf-8"
+        )
+        security = workflow.split("  security:", 1)[1].split("\n  clean-install:", 1)[0]
+        assert "check_operator_inventory.py --tree" in security
+        assert "secrets.OPERATOR_PROJECT_IDS" in security
+        assert "--require-ids" in security

@@ -217,6 +217,23 @@ jobs:
         if: always()
         run: python scripts/check_doc_drift.py
 
+      # The operator's project ids stay out of this public repository (DG-317).
+      # The local commit hooks cover commits made on a machine with the
+      # registry; this covers every other way in — another machine, GitHub's
+      # "Update branch". The ids come from a secret because the repository must
+      # not hold them, and --require-ids fails an unset secret rather than
+      # reporting an unchecked run as clean. Output names places, never ids.
+      - name: Operator project inventory
+        if: always()
+        env:
+          OPERATOR_PROJECT_IDS: ${{ secrets.OPERATOR_PROJECT_IDS }}
+          RANGE: ${{ github.event_name == 'pull_request' && format('{0}..{1}', github.event.pull_request.base.sha, github.event.pull_request.head.sha) || format('{0}..{1}', github.event.before, github.sha) }}
+        run: |
+          # A new branch reports an all-zero `before`; then the tree is checked
+          # and the messages of the tip commit alone.
+          case "$RANGE" in 0000000000000000000000000000000000000000..*) RANGE="${RANGE#*..}~1..${RANGE#*..}" ;; esac
+          python scripts/check_operator_inventory.py --tree --messages "$RANGE" --require-ids
+
   clean-install:
     name: clean install
     runs-on: ubuntu-latest
