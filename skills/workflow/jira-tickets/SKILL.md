@@ -81,7 +81,8 @@ not inherit** — a child issue gets its own, every time.
 - **`agent:<name>`** — the agent doing the typing: `agent:claude`, or another
   agent's own name. **Assignee is the accountable human.** Assignee can only
   hold a real email, so it cannot say which agent is on a ticket; do not
-  repurpose it for one (DG-293).
+  repurpose it for one (DG-293). Set and clear it with `jira_edit_labels`,
+  which adds and removes without touching the other labels.
 - **`type:<kind>`** — `epic`, `story`, `task`, `subtask`, `bug`. It mirrors the
   issue type so a search can filter on it without depending on what this
   instance calls its types.
