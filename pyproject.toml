@@ -117,13 +117,15 @@ max-complexity = 10
 [tool.pytest.ini_options]
 asyncio_mode = "strict"
 markers = [
-    "e2e: mark test as end-to-end"
+    "e2e: mark test as end-to-end",
+    "routing: sends the routing scenarios to a live agent and spends tokens (DG-398)"
 ]
 # `-m "not e2e"` is what the e2e marker always meant -- its own comment says
 # "so it doesn't run on standard unit test runs unless requested", but nothing
 # ever deselected it, so every plain `pytest` filed two real tickets into the
 # live Jira project. Run them on purpose with `pytest -m e2e`.
-addopts = "--cov=src --cov-report=term-missing -v -m 'not e2e'"
+# `routing` spends tokens the same way; run it with `pytest -m routing`.
+addopts = "--cov=src --cov-report=term-missing -v -m 'not e2e and not routing'"
 testpaths = ["tests"]
 
 [tool.mypy]
