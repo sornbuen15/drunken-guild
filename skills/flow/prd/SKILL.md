@@ -1,11 +1,11 @@
 ---
 name: prd
 description: >
-  The first step of the flow: write or update the project's PRD — the brief and the numbered
-  requirements in one file, each requirement carrying an id REQ-xxx and a MoSCoW class. Apply when
-  a project is starting, when the Boss describes something to build, when requirements change, or
-  when an older split brief/requirements/spec set needs consolidating. Writes no Jira ticket and
-  hands off to /clarify. Trigger on /prd.
+  Use when a project is starting, when the Boss describes something to build, or when a
+  requirement is added before any backlog exists — "help me write down what we're building", "add
+  a requirement: …". The first step of the flow: writes or updates PRD.md, the brief and the
+  numbered REQ-xxx requirements with a MoSCoW class, in one file, and consolidates an older split
+  brief/spec set on a yes. Writes no ticket; hands off to /clarify. Trigger on /prd.
 ---
 
 # Skill: PRD

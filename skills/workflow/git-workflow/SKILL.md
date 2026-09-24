@@ -1,10 +1,10 @@
 ---
 name: git-workflow
 description: >
-  Best-practice Git discipline — branch naming, commit conventions, PR lifecycle, which merge
-  strategy belongs to which target, and release hygiene. Apply whenever the user is creating a branch, writing a commit, opening
-  a PR, or asking about Git workflow — even if they just say "how should I commit this?".
-  Trigger on /git-workflow.
+  Use when creating a branch, writing a commit, opening a PR, merging or releasing — "what should
+  I name this branch?", "how should I commit this?", "which merge strategy goes into main?".
+  Branch naming, commit conventions, the PR lifecycle, which merge strategy belongs to which
+  target, and release hygiene. Trigger on /git-workflow.
 ---
 
 # Skill: Git Workflow & Branching Strategy

@@ -1,10 +1,10 @@
 ---
 name: replan
 description: >
-  The step for when a requirement is added, cut or changed after the backlog exists: amend PRD.md
-  by /prd's rules, then show which tickets to add, amend and close, and apply them only after the
-  Boss says yes. Apply when the Boss says "we also need…", "drop REQ-…", "that changed", or when
-  /clarify surfaces a requirement nobody wrote down. Never orders work. Trigger on /replan.
+  Use when a requirement is added, cut or changed after the backlog exists — "we also need…",
+  "drop REQ-… and the tickets under it", "the customer changed their mind, carry it through".
+  Amends PRD.md by /prd's rules, then shows which tickets to add, amend and close, and applies
+  them only after the Boss says yes. Never orders work. Trigger on /replan.
 ---
 
 # Skill: Replan

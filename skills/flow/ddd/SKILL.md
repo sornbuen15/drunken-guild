@@ -1,10 +1,11 @@
 ---
 name: ddd
 description: >
-  Produces the project's DOMAIN.md from a clarified PRD.md — the bounded contexts that become
-  Epics, the shared vocabulary the whole team spells the same way, and the core entities with the
-  rules that must hold about them. Apply after /clarify and before /breakdown, or whenever the
-  team needs one agreed name for a concept that is currently called two things. Trigger on /ddd.
+  Use when a clarified PRD needs its domain modelled before /breakdown, or when one concept goes
+  by two names — "work out the bounded contexts for this project", "we call it booking and
+  appointment, pick one". Produces DOMAIN.md: the bounded contexts that become Epics, one
+  vocabulary the whole team spells the same way, and the core entities with the rules that must
+  hold about them. Trigger on /ddd.
 ---
 
 # Skill: Domain Model
