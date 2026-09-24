@@ -23,6 +23,9 @@ Map task keywords to their absolute skill file paths. Load ONLY the relevant ski
 - `prd` (`/prd`) — The first step of the flow: write or update the project's PRD — the brief and the numbered requirements in one file, each requirement carrying an id REQ-xxx and
   Path: $HOME/.claude/skills/prd/SKILL.md
 
+- `replan` (`/replan`) — The step for when a requirement is added, cut or changed after the backlog exists: amend PRD.md by /prd's rules, then show which tickets to add, amend and close
+  Path: $HOME/.claude/skills/replan/SKILL.md
+
 - `ask-boss` — Ask the Boss for permission without stopping: ask in the conversation when they are reading it, otherwise send one notification, park the task, and keep working
   Path: $HOME/.claude/skills/ask-boss/SKILL.md
 

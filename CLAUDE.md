@@ -12,8 +12,8 @@ to work; that file says where things stand.
 repository (DG-349) — with its own name in the commit author and the `agent:` label.
 
 **The repository is being re-scoped to 2.0.0** (Epic DG-348). The target and every decision so far
-are in `SESSION_CHECKPOINT.md` §0 — judge any change against it, and do not start work the
-inventory has not approved.
+are in `.ai/PRD.md`, and its vocabulary in `.ai/DOMAIN.md` — judge any change against them, and
+do not start work the inventory has not approved.
 
 ---
 
