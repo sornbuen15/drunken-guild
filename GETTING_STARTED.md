@@ -57,7 +57,7 @@ Verify — you should see the skill directories and an index:
 ls ~/.claude/skills/
 ```
 
-### 7 of the 11 skills need nothing else
+### 7 of the 12 skills need nothing else
 
 `/prd`, `/clarify` and `/ddd` write markdown and ask you questions; `project-docs`, `git-workflow`
 and `/isolate` are standards that read files and nothing else; `jira-tickets` is the reference for
@@ -65,7 +65,7 @@ the shape of a ticket, and it reads as documentation whether or not a server is 
 install and work standalone. The general engineering standards — architecture, security, UI/UX,
 testing and the rest — are in the optional `drunken-extras` plugin, and need nothing else either.
 
-The other 4 coordinate work. `/breakdown`, `/build` and `/audit` call `jira_*` tools and name
+The other 5 coordinate work. `/breakdown`, `/replan`, `/build` and `/audit` call `jira_*` tools and name
 `drunken-jira-mcp` in their own constraints — without the runtime declared they will **say so and
 stop** rather than silently falling back to a file or a shell script. `ask-boss` needs
 a notification webhook only for the case where the Boss is not reading the conversation; when they
