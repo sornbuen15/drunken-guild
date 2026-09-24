@@ -31,10 +31,11 @@ places with 26 duplicated by name; `git-workflow` silently diverged to 73 lines 
 just-merged PR told one repo to defer to the other's copy. **One surface is the answer.** Do not
 recreate a second one — including by restating a rule in two files.
 
-**The flow is six commands**: `/prd` → `/clarify` → `/ddd` → `/breakdown` → `/build` → `/audit`, one
-skill each, in `skills/flow/`. They are the product. **Read the skill rather than reasoning from this
+**The flow is seven commands**: `/prd` → `/clarify` → `/ddd` → `/breakdown` → `/build` → `/audit`,
+plus `/replan` when a requirement moves after the backlog exists — one skill each, in `skills/flow/`,
+each owning one stage of the standard (README maps them). They are the product. **Read the skill rather than reasoning from this
 line** — it is a map, not the rule. Anything that does not serve a step of that flow does not belong
-in `skills/` (DG-353).
+in `skills/` (DG-353, amended by DG-386).
 
 **The AI layer stays in git, deliberately.** DG-250 keeps a project's wrapper directory out of git;
 here the AI layer *is* the product, so applying that rule literally would move the deliverable out of

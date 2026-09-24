@@ -156,7 +156,20 @@ before these roles — fintech, insurance, mobile, desktop, voice, AI systems an
 generalists — live on unchanged as the optional `drunken-extras` plugin in
 [`plugins/drunken-extras/`](./plugins/drunken-extras/).
 
-### The flow — six commands, in order
+### The flow — seven commands
+
+Six run in order; `/replan` runs whenever a requirement is added, cut or changed after the backlog
+exists. Each owns one stage of the standard spec-driven sequence:
+
+| stage | step |
+|---|---|
+| requirement | `/prd` |
+| clarify | `/clarify` |
+| spec | `/ddd` |
+| plan and tasks | `/breakdown` |
+| implement | `/build` |
+| validate | `/audit` |
+| replan | `/replan` |
 
 ```
 /prd        →  PRD.md: the brief and the requirements in one file, every requirement
@@ -171,6 +184,8 @@ generalists — live on unchanged as the optional `drunken-extras` plugin in
                and is seen failing first. The Boss merges
 /audit      →  every requirement traced to a task and to a test that passes on the merged
                tree. Gaps become tickets; the day's report is written
+/replan     →  a requirement moved after the backlog exists: PRD.md first, then only the
+               tickets whose req: label names it. Never orders the work — the Boss does
 ```
 
 A Task is a vertical slice finishable in a day. Where a project's documents live is the
