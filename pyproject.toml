@@ -98,6 +98,10 @@ drunken-jira-mcp = "jira_mcp.server:main"
 packages = ["scripts", "core", "route", "jira_mcp"]
 package-dir = {"core" = "src/core", "route" = "src/route", "jira_mcp" = "src/jira_mcp"}
 
+# DG-392: drunken-init reads the AGENTS.md template from the installed package.
+[tool.setuptools.package-data]
+core = ["templates/*.md"]
+
 [tool.ruff.lint]
 select = ["E", "F", "B", "C90", "I"]
 ignore = ["E501"]

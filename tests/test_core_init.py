@@ -225,3 +225,68 @@ class TestOutput:
         assert "jira_token" not in options
         assert "discord_token" not in options
         assert "jira_credential" in options
+
+
+class TestItGivesTheProjectAnInstructionFile:
+    """DG-392 (REQ-007, REQ-015). Skills, the jira-mcp error and the docs all
+    point a project's agents at its AGENTS.md, and nothing created one — so the
+    map every skill reads never existed. With --path, init writes it, plus the
+    one-line CLAUDE.md that makes Claude Code read it, and never overwrites."""
+
+    def test_an_empty_checkout_gets_both_files(self, tmp_path) -> None:
+        checkout = tmp_path / "app"
+        checkout.mkdir()
+
+        assert run("--project", "app", "--path", str(checkout)) == 0
+
+        agents = (checkout / "AGENTS.md").read_text(encoding="utf-8")
+        assert "## Documents" in agents, "project-docs reads the map from here"
+        assert "`app`" in agents, "the registry id the Jira tools need"
+        assert (checkout / "CLAUDE.md").read_bytes() == b"@AGENTS.md\n"
+
+    def test_an_existing_agents_md_is_left_byte_identical(self, tmp_path) -> None:
+        checkout = tmp_path / "app"
+        checkout.mkdir()
+        mine = b"# ours\r\nhand-written, keep me\n"
+        (checkout / "AGENTS.md").write_bytes(mine)
+
+        assert run("--project", "app", "--path", str(checkout)) == 0
+
+        assert (checkout / "AGENTS.md").read_bytes() == mine
+
+    def test_it_says_it_kept_the_existing_file(self, tmp_path, capsys) -> None:
+        checkout = tmp_path / "app"
+        checkout.mkdir()
+        (checkout / "AGENTS.md").write_text("# ours\n", encoding="utf-8")
+
+        run("--project", "app", "--path", str(checkout))
+
+        out = capsys.readouterr().out
+        assert "AGENTS.md" in out and "kept" in out
+
+    def test_an_existing_claude_md_is_kept_and_a_missing_import_is_named(
+        self, tmp_path, capsys
+    ) -> None:
+        checkout = tmp_path / "app"
+        checkout.mkdir()
+        (checkout / "CLAUDE.md").write_text("# old rules\n", encoding="utf-8")
+
+        run("--project", "app", "--path", str(checkout))
+
+        assert (checkout / "CLAUDE.md").read_text(encoding="utf-8") == "# old rules\n"
+        assert "@AGENTS.md" in capsys.readouterr().out
+
+    def test_rerunning_changes_nothing(self, tmp_path) -> None:
+        checkout = tmp_path / "app"
+        checkout.mkdir()
+        run("--project", "app", "--path", str(checkout))
+        first = (checkout / "AGENTS.md").read_bytes()
+
+        run("--project", "app", "--path", str(checkout), "--description", "x")
+
+        assert (checkout / "AGENTS.md").read_bytes() == first
+
+    def test_without_a_path_no_file_is_written_anywhere(self, tmp_path) -> None:
+        run("--project", "remote-only")
+
+        assert not list(tmp_path.rglob("AGENTS.md"))

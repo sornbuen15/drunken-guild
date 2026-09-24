@@ -28,9 +28,10 @@ from __future__ import annotations
 import argparse
 import json
 import os
+from pathlib import Path
 from typing import Any, Optional
 
-from . import paths, secrets
+from . import paths, scaffold, secrets
 from .errors import DrunkenError, ValidationError
 from .registry import SCHEMA_VERSION, validate_project_id
 
@@ -188,6 +189,15 @@ def main() -> int:
         document = _ensure_registry_document(registry_file)
         project_id = _apply_project(document, args) if args.project else None
         _write(registry_file, document)
+        written = (
+            scaffold.instruction_files(
+                Path(document["projects"][project_id]["path"]),
+                project_id,
+                document["projects"][project_id].get("jira", {}).get("project_key"),
+            )
+            if project_id and args.path
+            else []
+        )
     except DrunkenError as exc:
         print(f"error: {exc}")
         if exc.remediation:
@@ -201,6 +211,8 @@ def main() -> int:
     print(f"registry        : {registry_file}  (schema v{document['version']})")
     if project_id:
         print(f"registered      : {project_id}")
+    for line in written:
+        print(line)
     print(
         f"projects        : {', '.join(sorted(document['projects'])) or '(none yet)'}"
     )

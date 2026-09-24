@@ -1,3 +1,10 @@
+# commit-msg is listed so a plain `pre-commit install` wires the message check
+# too; without it only the pre-commit stage would be installed.
+default_install_hook_types: [pre-commit, commit-msg]
+# Every other hook runs at the pre-commit stage only, as before; without this
+# they would also be handed the commit-message file at commit-msg.
+default_stages: [pre-commit]
+
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v4.5.0
@@ -36,6 +43,23 @@ repos:
         language: system
         pass_filenames: false
         always_run: true
+
+      # The operator's project ids stay out of this public repository (DG-317).
+      # The test guarding it skips on CI and reads only tracked files, and a
+      # real key got in twice on 2026-09-23 because of both. This checks what
+      # is being committed, and the message, against this machine's registry.
+      - id: check-operator-inventory
+        name: Refuse staged content that names a registered project
+        entry: python scripts/check_operator_inventory.py
+        language: system
+        pass_filenames: false
+        always_run: true
+
+      - id: check-operator-inventory-message
+        name: Refuse a commit message that names a registered project
+        entry: python scripts/check_operator_inventory.py --message
+        language: system
+        stages: [commit-msg]
 
       - id: check-settings-lint
         name: Reject bare Tool(*) wildcard allow rules in settings

@@ -24,8 +24,10 @@ import pytest
 
 SERVER = Path(__file__).resolve().parent.parent / "src" / "jira_mcp" / "server.py"
 
-#: Total across every tool description. 3.7K when this was written.
-TOTAL_BUDGET = 1800
+#: Total across every tool description. 3.7K when this was written, cut to 1800.
+#: Raised to 1900 by DG-368 for one new capability (jira_edit_labels, ~100
+#: characters) — a tool, not process text, so it cannot move to the skill.
+TOTAL_BUDGET = 1900
 
 #: No single tool should need more than this. The longest was 869.
 PER_TOOL_BUDGET = 320

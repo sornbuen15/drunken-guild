@@ -488,6 +488,10 @@ class JiraClient:
                 return False
             return None
         except Exception:
+            # A timeout, a refused connection, a body that is not JSON: the
+            # probe failed, which says nothing about the board. None, not
+            # False — "could not ask" must not be reported as "no backlog",
+            # or callers refuse work that would have succeeded (docstring).
             return None
         return True
 
@@ -842,6 +846,16 @@ class JiraClient:
             token=self.token,
         )
         return {"ok": True, "issue": issue_key, "account_id": account_id}
+
+    async def edit_labels(
+        self, issue_key: str, payload: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Apply a ``labels.update_payload`` body. Jira answers 204, no body."""
+        url = f"{self.base_url}/rest/api/3/issue/{issue_key}"
+        await make_request(
+            url, method="PUT", payload=payload, email=self.email, token=self.token
+        )
+        return {"ok": True, "issue": issue_key}
 
     async def add_comment(self, issue_key: str, comment: str) -> Dict[str, Any]:
         payload = {"body": to_adf(comment)}
