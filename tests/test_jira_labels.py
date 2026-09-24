@@ -103,9 +103,9 @@ async def test_the_tool_refuses_a_key_from_another_project() -> None:
     fake.project_key = "DG"
     fake.edit_labels = AsyncMock()
     with patch.object(server, "get_client", return_value=fake):
-        out = await server.jira_edit_labels("drunken-guild", "ISAC-1", add="high")
+        out = await server.jira_edit_labels("drunken-guild", "BETA-1", add="high")
 
-    assert "ISAC-1" in out
+    assert "BETA-1" in out
     fake.edit_labels.assert_not_called()
 
 
