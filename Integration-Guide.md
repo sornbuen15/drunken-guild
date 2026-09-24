@@ -9,7 +9,7 @@ This guide is for connecting a local AI coding tool (Claude Code, Cursor, Aider)
 Drunken-Guild exposes two separate MCP servers -- there is no single combined server or `drunken-mcp` binary.
 
 ### `drunken-jira-mcp` -- Jira operations
-- **Tools:** `jira_search_issues`, `jira_create_issue`, `jira_assign`, `jira_board_info`, `jira_transition_issue`, `jira_add_comment`, `jira_start_task` (transition to In Progress + the git branch command to run), `jira_submit_for_review` (transition to In Review + comment the PR link), `jira_move_to_backlog`, `jira_move_to_board`, `jira_edit_labels` (add/remove labels without replacing the set).
+- **Tools:** `jira_search_issues`, `jira_create_issue`, `jira_assign`, `jira_board_info`, `jira_transition_issue`, `jira_add_comment`, `jira_start_task` (transition to In Progress + the git branch command to run), `jira_submit_for_review` (transition to In Review + comment the PR link), `jira_move_to_backlog`, `jira_move_to_board`, `jira_edit_labels` (add/remove labels without replacing the set), `jira_edit_issue` (correct a summary or description; an empty argument is left unchanged).
 - **Resources:** `jira://board`, `jira://issue/{issue_key}`, `jira://project/{project_key}/board`.
 - **Prompts:** `jira_daily_standup`, `init_project`, `refinement`, `sprint_planning`, `review_retro` — each names the skill that owns that process, and says to stop if the skill is not installed.
 - How to write and run a ticket is the `jira-tickets` skill, not this list.

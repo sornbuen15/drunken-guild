@@ -82,6 +82,7 @@ Once connected, the AI Agent will automatically discover the following capabilit
 - `jira_transition_issue`: Move a ticket's status (e.g., 'To Do' -> 'In Progress').
 - `jira_add_comment`: Add a comment to an existing ticket.
 - `jira_edit_labels`: Add and/or remove labels on one ticket, leaving the others. Sent as add/remove operations, never as a replacement set, so two agents cannot drop each other's label (DG-368).
+- `jira_edit_issue`: Correct the summary and/or description of one ticket. Only the fields passed are sent; an empty argument is left unchanged, never cleared (DG-367).
 - `jira_start_task`: Pick up an issue and transition it to 'In Progress' in one call.
 - `jira_submit_for_review`: Transition an issue to 'In Review' and attach a PR link.
 - `jira_assign`: Set or clear an issue's assignee. With the local board retired (DG-250), this is how an agent says "this one is mine".
