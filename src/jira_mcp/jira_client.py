@@ -488,6 +488,10 @@ class JiraClient:
                 return False
             return None
         except Exception:
+            # A timeout, a refused connection, a body that is not JSON: the
+            # probe failed, which says nothing about the board. None, not
+            # False — "could not ask" must not be reported as "no backlog",
+            # or callers refuse work that would have succeeded (docstring).
             return None
         return True
 
