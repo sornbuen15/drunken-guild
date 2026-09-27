@@ -27,7 +27,9 @@ SERVER = Path(__file__).resolve().parent.parent / "src" / "jira_mcp" / "server.p
 #: Total across every tool description. 3.7K when this was written, cut to 1800.
 #: Raised to 1900 by DG-368 for one new capability (jira_edit_labels, ~100
 #: characters) — a tool, not process text, so it cannot move to the skill.
-TOTAL_BUDGET = 1900
+#: Raised to 2000 by DG-367 for the other half of that capability
+#: (jira_edit_issue, ~100 characters), for the same reason.
+TOTAL_BUDGET = 2000
 
 #: No single tool should need more than this. The longest was 869.
 PER_TOOL_BUDGET = 320

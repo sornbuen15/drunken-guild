@@ -48,7 +48,7 @@ Reference output for the flow, using a fictional app called **TaskFlow**.
 - [`00-setup/`](./00-setup/) — filled project context files for TaskFlow
 - [`contributing/`](./contributing/) — how to write a new skill or agent, annotated
 
-Recorded output for each of the six commands is not here yet. The three stage directories that
+Recorded output for each of the flow commands is not here yet. The three stage directories that
 used to sit alongside `00-setup/` were the output of `/init-project`, `/refine` and `/estimate` — <!-- drift-ok: naming the retired commands is what this sentence is for -->
 skills retired with the old flow — and a recorded walkthrough of commands that no longer exist is
 worse than none. `RETIRED.md` names the commit they are recoverable from.
