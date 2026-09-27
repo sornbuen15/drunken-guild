@@ -1,11 +1,11 @@
 ---
 name: breakdown
 description: >
-  Turns PRD.md and DOMAIN.md into the Jira hierarchy — one Epic per bounded context, Stories from
-  the requirements it serves, Tasks sized to a day — with every level labelled `req:REQ-xxx` so the
-  work can be traced back. Apply after /ddd, when a backlog must be cut from agreed requirements,
-  or when a bug arriving mid-flight needs a ticket against the requirement it breaks.
-  Trigger on /breakdown.
+  Use when agreed requirements need a backlog, or a bug found mid-flight needs a ticket — "turn
+  the PRD into Jira tickets", "cut the backlog, a day per task", "file a bug against REQ-…". Turns
+  PRD.md and DOMAIN.md into the Jira hierarchy — one Epic per bounded context, Stories, Tasks
+  sized to a day — every level labelled `req:REQ-xxx`, and creates nothing until the Boss approves
+  the plan. Trigger on /breakdown.
 ---
 
 # Skill: Breakdown

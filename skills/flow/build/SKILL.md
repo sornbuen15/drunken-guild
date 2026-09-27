@@ -1,10 +1,10 @@
 ---
 name: build
 description: >
-  The flow step that executes one task: read the ticket, check its plan still holds against the
-  code, write the test from its ACCEPTANCE and watch it fail, implement, open the PR. Apply when a
-  Task or Bug ticket is picked up for work, when the user asks to build, implement or fix the next
-  ticket, and after /breakdown has approved a backlog. Trigger on /build.
+  Use when a Task or Bug ticket is picked up for work — "pick up DG-… and implement it", "fix the
+  bug in this ticket and open a PR", "take the next card". Executes one task: checks its plan
+  still holds against the code, writes the test from its ACCEPTANCE and watches it fail, makes the
+  smallest change that passes, and opens the PR for the Boss to merge. Trigger on /build.
 ---
 
 # Skill: Build

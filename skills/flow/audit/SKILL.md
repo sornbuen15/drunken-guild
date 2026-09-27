@@ -1,10 +1,11 @@
 ---
 name: audit
 description: >
-  The last step of the flow: trace every requirement in PRD.md through to a ticket, a test, and a
-  green run on the merged tree, turn each gap into a ticket, and write the dated report the Boss
-  and the customer read. Apply at the end of a day's work, after tasks merge, before anyone says a
-  requirement is done, or whenever the Boss asks what actually shipped. Trigger on /audit.
+  Use when a day's work ends, after tasks merge, or before anyone calls a requirement done — "what
+  actually shipped today?", "does every Must have a passing test on develop?". The last step of
+  the flow: traces every requirement in PRD.md to a ticket, a test and a green run on the merged
+  tree, turns each gap into a ticket, and writes the dated report the Boss and the customer read.
+  Trigger on /audit.
 ---
 
 # Skill: Audit
