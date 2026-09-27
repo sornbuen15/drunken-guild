@@ -1,10 +1,10 @@
 ---
 name: clarify
 description: >
-  The second step of the flow: read the PRD and put a short, ranked list of decisions to the Boss —
-  each one naming its REQ-xxx, the ambiguity, and two or three concrete options with what each
-  costs. Writes the answers back into PRD.md. Apply after /prd, before /ddd, or whenever a
-  requirement reads cleanly but is not actually decided. Trigger on /clarify.
+  Use when a PRD reads cleanly but is not actually decided, after /prd and before /ddd — "what in
+  the requirements is still undecided?", "ask me whatever you need to pin it down". Puts a short,
+  ranked list of decisions to the Boss, each naming its REQ-xxx, the ambiguity and two or three
+  options with what each costs, and writes the answers back into PRD.md. Trigger on /clarify.
 ---
 
 # Skill: Clarify

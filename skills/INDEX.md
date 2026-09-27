@@ -2,38 +2,38 @@
 
 Map task keywords to their absolute skill file paths. Load ONLY the relevant skill before executing.
 
-- `project-docs` — The one contract for finding a project's own documents: the map in AGENTS.md, the defaults when there is no map, what two copies of one document mean, and what
+- `project-docs` — Use when a step has to find, create or reconcile a project's own documents — "where does this project keep its PRD?", "there are two PRD.md files, which one win
   Path: $HOME/.claude/skills/project-docs/SKILL.md
 
-- `audit` (`/audit`) — The last step of the flow: trace every requirement in PRD.md through to a ticket, a test, and a green run on the merged tree, turn each gap into a ticket, and w
+- `audit` (`/audit`) — Use when a day's work ends, after tasks merge, or before anyone calls a requirement done — "what actually shipped today?", "does every Must have a passing test
   Path: $HOME/.claude/skills/audit/SKILL.md
 
-- `breakdown` (`/breakdown`) — Turns PRD.md and DOMAIN.md into the Jira hierarchy — one Epic per bounded context, Stories from the requirements it serves, Tasks sized to a day — with every le
+- `breakdown` (`/breakdown`) — Use when agreed requirements need a backlog, or a bug found mid-flight needs a ticket — "turn the PRD into Jira tickets", "cut the backlog, a day per task", "fi
   Path: $HOME/.claude/skills/breakdown/SKILL.md
 
-- `build` (`/build`) — The flow step that executes one task: read the ticket, check its plan still holds against the code, write the test from its ACCEPTANCE and watch it fail, implem
+- `build` (`/build`) — Use when a Task or Bug ticket is picked up for work — "pick up DG-… and implement it", "fix the bug in this ticket and open a PR", "take the next card". Execute
   Path: $HOME/.claude/skills/build/SKILL.md
 
-- `clarify` (`/clarify`) — The second step of the flow: read the PRD and put a short, ranked list of decisions to the Boss — each one naming its REQ-xxx, the ambiguity, and two or three c
+- `clarify` (`/clarify`) — Use when a PRD reads cleanly but is not actually decided, after /prd and before /ddd — "what in the requirements is still undecided?", "ask me whatever you need
   Path: $HOME/.claude/skills/clarify/SKILL.md
 
-- `ddd` (`/ddd`) — Produces the project's DOMAIN.md from a clarified PRD.md — the bounded contexts that become Epics, the shared vocabulary the whole team spells the same way, and
+- `ddd` (`/ddd`) — Use when a clarified PRD needs its domain modelled before /breakdown, or when one concept goes by two names — "work out the bounded contexts for this project",
   Path: $HOME/.claude/skills/ddd/SKILL.md
 
-- `prd` (`/prd`) — The first step of the flow: write or update the project's PRD — the brief and the numbered requirements in one file, each requirement carrying an id REQ-xxx and
+- `prd` (`/prd`) — Use when a project is starting, when the Boss describes something to build, or when a requirement is added before any backlog exists — "help me write down what
   Path: $HOME/.claude/skills/prd/SKILL.md
 
-- `replan` (`/replan`) — The step for when a requirement is added, cut or changed after the backlog exists: amend PRD.md by /prd's rules, then show which tickets to add, amend and close
+- `replan` (`/replan`) — Use when a requirement is added, cut or changed after the backlog exists — "we also need…", "drop REQ-… and the tickets under it", "the customer changed their m
   Path: $HOME/.claude/skills/replan/SKILL.md
 
-- `ask-boss` — Ask the Boss for permission without stopping: ask in the conversation when they are reading it, otherwise send one notification, park the task, and keep working
+- `ask-boss` — Use when an action is destructive, irreversible or merge-worthy and needs the Boss's OK — "you need my approval before dropping that database", "I'm away this a
   Path: $HOME/.claude/skills/ask-boss/SKILL.md
 
-- `git-workflow` (`/git-workflow`) — Best-practice Git discipline — branch naming, commit conventions, PR lifecycle, which merge strategy belongs to which target, and release hygiene. Apply wheneve
+- `git-workflow` (`/git-workflow`) — Use when creating a branch, writing a commit, opening a PR, merging or releasing — "what should I name this branch?", "how should I commit this?", "which merge
   Path: $HOME/.claude/skills/git-workflow/SKILL.md
 
-- `jira-tickets` — How to write and run a ticket in this project: the hierarchy a ticket sits in, the five shapes — Epic, Story, Task, Subtask, Bug — the labels that make work tra
+- `jira-tickets` — Use when writing, labelling, moving or closing a Jira ticket in this project — "what sections does a Bug ticket need?", "can I mark this Done now the PR is open
   Path: $HOME/.claude/skills/jira-tickets/SKILL.md
 
-- `think-analyze-isolate` (`/isolate`) — Discipline against blind execution during end-to-end runs, server startup, deployment, and integration work — check the prerequisites, verify the thing is actua
+- `think-analyze-isolate` (`/isolate`) — Use when running, starting, deploying or integrating something, when a backgrounded command is reported working without evidence, or when a fix fails the same w
   Path: $HOME/.claude/skills/think-analyze-isolate/SKILL.md

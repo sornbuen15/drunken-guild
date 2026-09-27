@@ -1,11 +1,11 @@
 ---
 name: think-analyze-isolate
 description: >
-  Discipline against blind execution during end-to-end runs, server startup, deployment, and
-  integration work — check the prerequisites, verify the thing is actually serving, and isolate
-  a root cause instead of retrying. Apply whenever the user asks to run, start, deploy, or
-  integrate something, whenever a command has been backgrounded and reported as working without
-  evidence, and the moment a fix produces the identical failure twice. Trigger on /isolate.
+  Use when running, starting, deploying or integrating something, when a backgrounded command is
+  reported working without evidence, or when a fix fails the same way twice — "it says it's
+  running but every request times out", "same failure again after my fix". Check the
+  prerequisites, verify the thing actually serves, and isolate the root cause instead of retrying.
+  Trigger on /isolate.
 ---
 
 # Skill: Think, Analyze, Isolate

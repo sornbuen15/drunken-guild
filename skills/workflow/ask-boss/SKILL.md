@@ -1,6 +1,10 @@
 ---
 name: "ask-boss"
-description: "Ask the Boss for permission without stopping: ask in the conversation when they are reading it, otherwise send one notification, park the task, and keep working on what isn't blocked. Apply before any destructive or merge-worthy action."
+description: >
+  Use when an action is destructive, irreversible or merge-worthy and needs the Boss's OK — "you
+  need my approval before dropping that database", "I'm away this afternoon, how will you ask
+  me?". Asks in the conversation when the Boss is reading it; otherwise sends one notification,
+  parks the task, and keeps working on what is not blocked.
 ---
 
 # Skill: Ask the Boss for Permission

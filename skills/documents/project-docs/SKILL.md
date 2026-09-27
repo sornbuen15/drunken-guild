@@ -1,10 +1,11 @@
 ---
 name: project-docs
 description: >
-  The one contract for finding a project's own documents: the map in AGENTS.md, the defaults when
-  there is no map, what two copies of one document mean, and what an absent one means. Apply before
-  any step that reads or writes PRD.md, DOMAIN.md, an audit report or an ADR — /prd, /clarify,
-  /ddd, /breakdown, /build and /audit all start here.
+  Use when a step has to find, create or reconcile a project's own documents — "where does this
+  project keep its PRD?", "there are two PRD.md files, which one wins?". The one contract for
+  locating PRD.md, DOMAIN.md, audit reports and ADRs: the map in AGENTS.md, the defaults without
+  one, and what a duplicate or an absent file means. /prd, /clarify, /ddd, /breakdown, /build and
+  /audit all start here.
 ---
 
 # Skill: Project Documents
