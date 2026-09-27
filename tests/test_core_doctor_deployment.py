@@ -23,6 +23,8 @@ sat one directory deeper — were exactly what it did not say.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from core import doctor
@@ -283,3 +285,110 @@ class TestSeeingThatTheDeployedCodeIsStale:
         assert check.status in ("ok", "skip"), (
             f"no source tree must not manufacture a drift report. Got {check.status}"
         )
+
+
+class TestFindingUvsToolDirectory:
+    """DG-373. The tool root was `~/.local/share/uv/tools` on every platform,
+    and uv on Windows keeps it under `%APPDATA%`. So on Windows the check looked
+    somewhere nothing is ever installed, said SKIP, and the gap it exists to
+    catch — merged but not deployed — was never reported there.
+
+    Resolved in uv's own order of precedence rather than reconstructed from one
+    platform's convention: `UV_TOOL_DIR`, then uv itself, then the default.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _no_overrides(self, monkeypatch) -> None:
+        monkeypatch.delenv("UV_TOOL_DIR", raising=False)
+        monkeypatch.delenv(doctor.ENV_TOOL_ROOT, raising=False)
+
+    @staticmethod
+    def _no_uv(monkeypatch) -> None:
+        monkeypatch.setattr(doctor.shutil, "which", lambda name: None)
+
+    @staticmethod
+    def _uv_says(monkeypatch, stdout: str, returncode: int = 0) -> list:
+        calls: list = []
+
+        def run(argv, **kwargs):
+            calls.append(argv)
+            return doctor.subprocess.CompletedProcess(argv, returncode, stdout, "")
+
+        monkeypatch.setattr(doctor.shutil, "which", lambda name: "/bin/uv")
+        monkeypatch.setattr(doctor.subprocess, "run", run)
+        return calls
+
+    def test_uv_tool_dir_env_wins_without_asking_uv(
+        self, tmp_path, monkeypatch
+    ) -> None:
+        monkeypatch.setenv("UV_TOOL_DIR", str(tmp_path / "custom"))
+        calls = self._uv_says(monkeypatch, str(tmp_path / "elsewhere"))
+
+        assert doctor.uv_tool_dir() == tmp_path / "custom"
+        assert calls == [], "an explicit setting needs no subprocess"
+
+    def test_uv_on_path_is_asked(self, tmp_path, monkeypatch) -> None:
+        calls = self._uv_says(monkeypatch, f"{tmp_path / 'from-uv'}\n")
+
+        assert doctor.uv_tool_dir() == tmp_path / "from-uv"
+        assert calls == [["/bin/uv", "tool", "dir"]]
+
+    def test_a_uv_that_fails_falls_back_to_the_default(self, monkeypatch) -> None:
+        self._uv_says(monkeypatch, "", returncode=2)
+
+        assert doctor.uv_tool_dir() == doctor.default_uv_tool_dir()
+
+    def test_windows_default_is_under_appdata(self, tmp_path, monkeypatch) -> None:
+        """The case the ticket is about: the path uv really uses on Windows."""
+        monkeypatch.setenv("APPDATA", str(tmp_path / "Roaming"))
+
+        assert (
+            doctor.default_uv_tool_dir("win32") == tmp_path / "Roaming" / "uv" / "tools"
+        )
+
+    def test_posix_default_is_unchanged(self) -> None:
+        expected = Path("~/.local/share/uv/tools").expanduser()
+
+        assert doctor.default_uv_tool_dir("linux") == expected
+        assert doctor.default_uv_tool_dir("darwin") == expected
+
+    def test_the_tool_env_is_named_after_the_package_inside_that_dir(
+        self, tmp_path, monkeypatch
+    ) -> None:
+        monkeypatch.setenv("UV_TOOL_DIR", str(tmp_path))
+
+        assert doctor.tool_env_root() == tmp_path / "drunken-guild"
+
+    def test_the_explicit_override_still_outranks_uv(
+        self, tmp_path, monkeypatch
+    ) -> None:
+        monkeypatch.setenv("UV_TOOL_DIR", str(tmp_path / "uv"))
+        monkeypatch.setenv(doctor.ENV_TOOL_ROOT, str(tmp_path / "pinned"))
+
+        assert doctor.tool_env_root() == tmp_path / "pinned"
+
+    def test_the_legacy_install_is_looked_for_in_the_same_dir(
+        self, tmp_path, monkeypatch
+    ) -> None:
+        """The pre-rename root was hardcoded to the same POSIX path, so on
+        Windows it was just as blind."""
+        monkeypatch.setenv("UV_TOOL_DIR", str(tmp_path))
+        (tmp_path / "drunken-team").mkdir()
+
+        report = doctor.Report()
+        doctor._check_deployment(report)
+
+        check = _named(report, "deployment.tool_env")
+        assert check.status == "warn"
+        assert "previous package name" in check.detail
+
+    def test_a_windows_venv_layout_is_read(self, tmp_path) -> None:
+        """A Windows venv has `Lib/site-packages`, with no python-version
+        directory between them. Finding the root and then reading none of it
+        would turn a false SKIP into a false "everything missing"."""
+        env = tmp_path / "drunken-guild"
+        site = env / "Lib" / "site-packages"
+        (site / "core").mkdir(parents=True)
+        (site / "core" / "usage.py").write_text("", encoding="utf-8")
+
+        assert doctor.compare_deployment(env, ["core.usage"])["missing"] == []

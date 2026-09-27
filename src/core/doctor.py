@@ -305,7 +305,11 @@ def _check_paths(report: Report) -> None:
 #: container or another machine puts it elsewhere, and a test must be able to
 #: point it at a fixture.
 ENV_TOOL_ROOT: Final = "DRUNKEN_TOOL_ENV"
-DEFAULT_TOOL_ROOT: Final = "~/.local/share/uv/tools/drunken-guild"
+TOOL_PACKAGE: Final = "drunken-guild"
+
+#: uv's own setting for where tool environments live. Read before asking uv,
+#: which honours it too, so an explicit answer costs no subprocess.
+ENV_UV_TOOL_DIR: Final = "UV_TOOL_DIR"
 
 #: Where the *previous* package name installed to. `uv tool` names the
 #: directory after the distribution, so DG-264's rename moved it — and a
@@ -314,7 +318,9 @@ DEFAULT_TOOL_ROOT: Final = "~/.local/share/uv/tools/drunken-guild"
 #: an installation under the old name is a real thing to know about, and the
 #: honest report is "you are running a pre-rename install", not silence and not
 #: a green line about the wrong directory.
-LEGACY_TOOL_ROOTS: Final = ("~/.local/share/uv/tools/drunken-team",)
+#: Names, not paths: they live beside the current one, in whatever directory
+#: uv uses on this machine (so, uv/tools/drunken-team on POSIX).
+LEGACY_TOOL_PACKAGES: Final = ("drunken-team",)  # uv/tools/drunken-team
 
 #: Modules whose absence from the deployment has actually mattered. Not every
 #: module — a list that tries to be exhaustive goes stale silently, and the
@@ -330,9 +336,60 @@ DEPLOYED_MODULES: Final = (
 )
 
 
-def tool_env_root() -> Path:
-    raw = os.environ.get(ENV_TOOL_ROOT) or DEFAULT_TOOL_ROOT
-    return Path(os.path.expandvars(raw)).expanduser()
+def default_uv_tool_dir(platform: Optional[str] = None) -> Path:
+    """Where uv puts tool environments when nothing says otherwise.
+
+    The POSIX path was once the only answer, on every platform — so on Windows
+    this check looked where nothing is ever installed and said SKIP (DG-373).
+    """
+    if (platform or sys.platform) == "win32":
+        appdata = os.environ.get("APPDATA")
+        base = Path(appdata) if appdata else Path.home() / "AppData" / "Roaming"
+        return base / "uv" / "tools"
+    return Path("~/.local/share/uv/tools").expanduser()
+
+
+def uv_tool_dir() -> Path:
+    """uv's tool directory, in uv's own order: the setting, uv, the default.
+
+    Asking uv beats reconstructing its answer, because uv is what decided where
+    the install went. A uv that is absent or fails is not an error here — the
+    default is still the best guess, and the check that follows says whether
+    anything is there.
+    """
+    if raw := os.environ.get(ENV_UV_TOOL_DIR):
+        return Path(os.path.expandvars(raw)).expanduser()
+    uv = shutil.which("uv")
+    if uv:
+        try:
+            result = subprocess.run(  # nosec B603 - fixed argv, uv from PATH
+                [uv, "tool", "dir"],
+                capture_output=True,
+                text=True,
+                timeout=10,
+                check=False,
+            )
+        except (OSError, subprocess.SubprocessError):
+            result = None
+        if result is not None and result.returncode == 0 and result.stdout.strip():
+            return Path(result.stdout.strip())
+    return default_uv_tool_dir()
+
+
+def tool_env_root(tool_dir: Optional[Path] = None) -> Path:
+    if raw := os.environ.get(ENV_TOOL_ROOT):
+        return Path(os.path.expandvars(raw)).expanduser()
+    return (tool_dir if tool_dir is not None else uv_tool_dir()) / TOOL_PACKAGE
+
+
+def _site_dirs(env_root: Path) -> list[Path]:
+    """Every site-packages in a venv: `lib/pythonX.Y/…` on POSIX, `Lib/…` on
+    Windows, where there is no version directory between the two."""
+    found = set(env_root.glob("lib/*/site-packages"))
+    windows = env_root / "Lib" / "site-packages"
+    if windows.is_dir():
+        found.add(windows)
+    return sorted(found)
 
 
 def compare_deployment(env_root: Path, modules: Sequence[str]) -> dict[str, list[str]]:
@@ -344,7 +401,7 @@ def compare_deployment(env_root: Path, modules: Sequence[str]) -> dict[str, list
     A package directory counts, so a module that grows into a package does not
     read as a false gap.
     """
-    site_dirs = sorted(env_root.glob("lib/*/site-packages"))
+    site_dirs = _site_dirs(env_root)
     present: list[str] = []
     missing: list[str] = []
 
@@ -406,7 +463,7 @@ def compare_deployed_content(
     deployed at all. Files only in the deployment are ignored — a stale build
     artefact left behind is not evidence about what merged.
     """
-    site_dirs = sorted(env_root.glob("lib/*/site-packages"))
+    site_dirs = _site_dirs(env_root)
     stale: list[str] = []
     absent: list[str] = []
 
@@ -445,7 +502,7 @@ def deployed_version(env_root: Path, package: str) -> Optional[str]:
     ``None`` when it cannot be determined, which is deliberately different from
     a version that disagrees — see :func:`compare_pin`.
     """
-    for site in sorted(env_root.glob("lib/*/site-packages")):
+    for site in _site_dirs(env_root):
         for dist in site.glob(f"{package}-*.dist-info"):
             name = dist.name[: -len(".dist-info")]
             if "-" in name:
@@ -817,12 +874,16 @@ def _check_deployment(
     yellow one, and the remedy is an install — the operator's to run, never
     this tool's.
     """
-    env_root = env_root if env_root is not None else tool_env_root()
+    # `legacy_roots` is injectable for the same reason as `env_root`: otherwise
+    # this check reads the developer's own machine, and a test asserting "no
+    # install is a skip" passes or fails depending on whose laptop runs it.
+    if env_root is None or legacy_roots is None:
+        # Asked once: it can be a subprocess, and both roots live in its answer.
+        tool_dir = uv_tool_dir()
+        env_root = env_root if env_root is not None else tool_env_root(tool_dir)
+        if legacy_roots is None:
+            legacy_roots = tuple(str(tool_dir / name) for name in LEGACY_TOOL_PACKAGES)
     modules = modules if modules is not None else DEPLOYED_MODULES
-    # Injectable for the same reason as `env_root`: otherwise this check reads
-    # the developer's own machine, and a test asserting "no install is a skip"
-    # passes or fails depending on whose laptop runs it.
-    legacy_roots = legacy_roots if legacy_roots is not None else LEGACY_TOOL_ROOTS
 
     if not env_root.is_dir():
         stale = [
