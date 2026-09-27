@@ -91,7 +91,7 @@ RETIRED = (
     # The local pre-push hook duplicated a server-side ruleset that cannot be
     # bypassed, with one that can -- by not being installed (DG-354).
     Retired("setup_git_hooks.py", "DG-354", "the GitHub rulesets on main and develop"),
-    # The ten skills the six flow commands replace (DG-353). Only the skill
+    # The ten skills the flow commands replace (DG-353). Only the skill
     # names are listed, not their slash commands: `/refine` and `/next` are
     # also Discord commands that still exist, and a guard that fires on a live
     # command is a guard that gets switched off. Add the slash commands when
