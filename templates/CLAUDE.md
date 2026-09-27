@@ -80,7 +80,7 @@
         jira_create_issue      jira_search_issues     jira_start_task
         jira_transition_issue  jira_submit_for_review jira_assign
         jira_add_comment       jira_board_info        jira_move_to_backlog
-        jira_move_to_board     jira_edit_labels
+        jira_move_to_board     jira_edit_labels       jira_edit_issue
 
       The server also offers prompts (`init_project`, `refinement`, `sprint_planning`,
       `review_retro`, `jira_daily_standup`). Each only names the skill that owns that process.

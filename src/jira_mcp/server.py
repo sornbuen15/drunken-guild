@@ -7,7 +7,7 @@ from core.context import ProjectContext
 from core.errors import ConfigError, ValidationError, as_tool_result
 from core.registry import ProjectRegistry
 
-from . import assign, backlog
+from . import assign, backlog, edits
 from . import labels as label_ops
 from .jira_client import BoardProfile, JiraClient
 from .jql import scope_to_project
@@ -359,6 +359,29 @@ async def jira_edit_labels(
     (key,) = keys
     payload = label_ops.update_payload(add, remove)
     return json.dumps(await client.edit_labels(key, payload), indent=2)
+
+
+# DG-367. Only the fields passed are sent, so one correction cannot clear
+# another field — see edits.py. Labels stay with jira_edit_labels.
+@mcp.tool()  # type: ignore[misc]
+@as_tool_result
+async def jira_edit_issue(
+    project: str, issue_key: str, summary: str = "", description: str = ""
+) -> str:
+    """
+    Correct the summary and/or description of one issue in `project`. An empty
+    argument is left unchanged.
+    """
+    client = get_client(project)
+    keys = backlog.scope_keys(issue_key, client.project_key)
+    if len(keys) != 1:
+        raise ValidationError(
+            f"One issue per call, got {len(keys)}.",
+            remediation="Call once per issue key.",
+        )
+    (key,) = keys
+    payload = edits.fields_payload(summary, description)
+    return json.dumps(await client.edit_issue(key, payload), indent=2)
 
 
 # Both resource URIs carry the project, for the same reason every tool takes

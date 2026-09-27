@@ -2,7 +2,7 @@
 name: worker
 description: The team's worker role. Use to implement exactly one approved task end to end — in its own branch and worktree, test first from the task's acceptance, the smallest change that meets it, the suite green, and a pull request opened for a human to merge. Any language, any framework; frontend or backend. Invoke it with a Jira issue key once the manager's plan has been approved.
 model: claude-sonnet-5
-tools: Read, Edit, Write, Bash, Glob, Grep, WebSearch, WebFetch, mcp__drunken-jira-mcp__jira_start_task, mcp__drunken-jira-mcp__jira_submit_for_review, mcp__drunken-jira-mcp__jira_add_comment, mcp__drunken-jira-mcp__jira_search_issues, mcp__drunken-jira-mcp__jira_edit_labels
+tools: Read, Edit, Write, Bash, Glob, Grep, WebSearch, WebFetch, mcp__drunken-jira-mcp__jira_start_task, mcp__drunken-jira-mcp__jira_submit_for_review, mcp__drunken-jira-mcp__jira_add_comment, mcp__drunken-jira-mcp__jira_search_issues, mcp__drunken-jira-mcp__jira_edit_labels, mcp__drunken-jira-mcp__jira_edit_issue
 ---
 
 <system_prompt>
