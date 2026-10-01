@@ -48,21 +48,29 @@ _MAX_LENGTH: Final = 10_000
 def _split_order_by(jql: str) -> tuple[str, str]:
     """Split *jql* into (condition, trailing ORDER BY clause).
 
-    Quote-aware: `summary ~ "order by total"` is a search term, not a sort, and
-    hoisting it would corrupt the query rather than scope it.
+    Quote- and escape-aware, using the same rule and the same
+    :func:`_skip_string_literal` as :func:`_check_balanced`: a backslash
+    inside a string literal escapes whatever follows it, so an escaped quote
+    does not end the literal early. DG-428 follow-up — an adversarial review
+    of this ticket's first PR found that this function and
+    ``_check_balanced`` used to disagree about where a string ends (this one
+    was blind to the escape, that one was not), which could leave a real,
+    top-level ``ORDER BY`` sitting *inside* the ``AND (...)`` wrap because
+    this function thought it was still inside a string that the escaped
+    quote had, in fact, already closed. Both are the same rule now, so there
+    is nothing left for the two to disagree about.
     """
-    quote: str | None = None
-    for index, char in enumerate(jql):
-        if quote is not None:
-            if char == quote:
-                quote = None
-            continue
+    index = 0
+    length = len(jql)
+    while index < length:
+        char = jql[index]
         if char in ("'", '"'):
-            quote = char
+            index, _closed = _skip_string_literal(jql, index + 1, char)
             continue
         match = _ORDER_BY.match(jql, index)
         if match:
             return jql[:index].strip(), jql[index:].strip()
+        index += 1
     return jql.strip(), ""
 
 
