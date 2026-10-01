@@ -7,8 +7,11 @@ Reads the guild block and the skills structurally: the block is parsed into
 its table rows (not grepped as a blob), and each skill's frontmatter is
 parsed with `yaml.safe_load` (not grepped either), so a row that merely
 *mentions* a word, or a description that merely *mentions* a skill's own
-name, cannot pass. Only an exact `Trigger on /<name>.` sentence inside the
-owning skill's parsed description counts.
+name, cannot pass. The parsed description's own text (stripped) must END
+with the exact sentence `Trigger on /<name>.` -- an anchored check, not a
+bare substring one, so a description like "does not auto-fire. Trigger on
+/ask-boss. only applies when..." does not pass: the sentence is there, but
+it is not how the description ends.
 """
 
 import re
@@ -57,7 +60,8 @@ def _skill_declaring(name: str, skills_root: Path) -> Path | None:
 def _missing_trigger_declarations(block: str, skills_root: Path) -> list[str]:
     """One problem string per command the block names that either has no
     skill declaring that `name`, or whose skill's description does not
-    carry an exact `Trigger on /<name>.` sentence."""
+    END with an exact `Trigger on /<name>.` sentence -- anchored, so the
+    sentence merely appearing mid-description does not count."""
     problems = []
     for command in sorted(_slash_commands_in_block(block)):
         skill_path = _skill_declaring(command, skills_root)
@@ -65,7 +69,7 @@ def _missing_trigger_declarations(block: str, skills_root: Path) -> list[str]:
             problems.append(f"/{command}: no skill's frontmatter name matches it")
             continue
         description = _skill_frontmatter(skill_path).get("description", "")
-        if f"Trigger on /{command}." not in description:
+        if not description.strip().endswith(f"Trigger on /{command}."):
             try:
                 shown = skill_path.relative_to(REPO_ROOT).as_posix()
             except ValueError:
@@ -94,6 +98,31 @@ def test_check_catches_a_guild_block_command_no_skill_declares() -> None:
     block = "| **situation** | run `/no-such-skill` |\n"
     problems = _missing_trigger_declarations(block, SKILLS_ROOT)
     assert problems == ["/no-such-skill: no skill's frontmatter name matches it"]
+
+
+def test_check_catches_a_trigger_sentence_that_is_not_the_ending(
+    tmp_path: Path,
+) -> None:
+    """Reviewer catch on PR #128: `f"Trigger on /{command}." not in description`
+    was a bare substring match, so a description that uses the exact sentence
+    mid-paragraph -- then qualifies it further -- still passed. The sentence
+    must be how the description ENDS, matching the shape all eleven real
+    skills already use."""
+    skills_root = tmp_path / "skills"
+    skill_dir = skills_root / "workflow" / "ask-boss"
+    skill_dir.mkdir(parents=True)
+    (skill_dir / "SKILL.md").write_text(
+        '---\nname: "ask-boss"\ndescription: "Does not auto-fire. '
+        'Trigger on /ask-boss. only applies when the Boss is away."\n---\n\n'
+        "# Skill\n",
+        encoding="utf-8",
+    )
+    block = "| **situation** | `/ask-boss` |\n"
+    problems = _missing_trigger_declarations(block, skills_root)
+    assert problems == [
+        f"/ask-boss: {(skill_dir / 'SKILL.md').as_posix()} does not declare "
+        "'Trigger on /ask-boss.' in its description"
+    ]
 
 
 def test_check_catches_a_skill_whose_trigger_line_is_removed(tmp_path: Path) -> None:
