@@ -1,0 +1,171 @@
+name: Dependency Audit
+
+# A scheduled audit across whatever ecosystems a project actually uses --
+# Python, PHP and Node -- plus the repository's own Dependabot alerts when
+# they are switched on. DG-415: on 2026-10-01 two sources disagreed about the
+# same lockfile -- pip-audit reported nothing while Dependabot held two open
+# alerts -- and in a sibling project Dependabot alerts are off, so nothing
+# there reports at all. One tool is not enough, so this consults several and
+# says plainly which it could reach.
+#
+# No auto-merge, no auto-upgrade: a finding here is a decision for a person,
+# not a bot. Every step that finds something fails the run; nothing here
+# changes a dependency or merges anything.
+#
+# `templates/ci/dependency-audit.md`, next to this file, is the doc: what to
+# copy, what a copying project has to bring with it (scripts/
+# detect_dependency_manifests.py), and the one setting only a person can
+# change (turning Dependabot alerts on).
+on:
+  schedule:
+    # Mondays, 06:00 UTC -- a weekly cadence catches an advisory published
+    # mid-week without waiting for the next dependency bump to notice it.
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# Read-only by default. `contents: read` is all every audit step needs --
+# none of them writes to the repository and none should. The one step that
+# needs more is the Dependabot-alerts job, which calls
+# `GET /repos/{owner}/{repo}/dependabot/alerts` and that endpoint requires
+# `security-events: read`; that grant is declared on the one job that uses
+# it, not here, so the extra scope is visible next to the step that needs it
+# rather than handed to every job whether it asks or not.
+permissions:
+  contents: read
+
+jobs:
+  # Which manifests exist decides which audits run below. Kept out of inline
+  # shell and in `scripts/detect_dependency_manifests.py` on purpose -- that
+  # is what tests/test_detect_dependency_manifests.py exercises against
+  # fixture directories, so "only composer.lock present -> only the composer
+  # job runs" is proven without a real workflow run.
+  detect:
+    name: detect manifests
+    runs-on: ubuntu-latest
+    outputs:
+      pip: ${{ steps.detect.outputs.pip }}
+      composer: ${{ steps.detect.outputs.composer }}
+      npm: ${{ steps.detect.outputs.npm }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: detect
+        name: Which manifests exist
+        run: python3 scripts/detect_dependency_manifests.py "$GITHUB_WORKSPACE"
+
+  pip-audit:
+    name: pip-audit
+    needs: detect
+    if: needs.detect.outputs.pip == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      - uses: astral-sh/setup-uv@v5
+
+      # Same approach as .github/workflows/test.yml's security job, and
+      # deliberately not weakened: audit what a user installs (uv.lock), not
+      # a hand-maintained requirements file that can drift from it (DG-289).
+      - name: Export and audit uv.lock
+        if: hashFiles('uv.lock') != ''
+        run: |
+          python -m pip install --upgrade pip
+          pip install pip-audit uv
+          uv export --format requirements-txt --no-emit-project --no-dev \
+            > /tmp/shipped-requirements.txt
+          pip-audit --strict --progress-spinner off -r /tmp/shipped-requirements.txt
+
+      # A project with a requirements*.txt and no uv.lock has nothing to
+      # export -- audit the file(s) it actually has, directly.
+      - name: Audit requirements*.txt
+        if: hashFiles('uv.lock') == '' && hashFiles('requirements*.txt') != ''
+        run: |
+          python -m pip install --upgrade pip
+          pip install pip-audit
+          for f in requirements*.txt; do
+            echo "::group::pip-audit -r $f"
+            pip-audit --strict --progress-spinner off -r "$f"
+            echo "::endgroup::"
+          done
+
+  # composer and PHP ship on the `ubuntu-latest` image already, so this does
+  # not add a third-party setup action just to call one command.
+  composer-audit:
+    name: composer audit
+    needs: detect
+    if: needs.detect.outputs.composer == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: composer audit
+        run: composer audit
+
+  npm-audit:
+    name: npm audit
+    needs: detect
+    if: needs.detect.outputs.npm == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: npm ci
+        run: npm ci --omit=dev
+
+      - name: npm audit
+        run: npm audit --omit=dev
+
+  # Always runs, independent of which manifests exist: whether Dependabot
+  # alerts are on is a repository setting, not a function of what is
+  # checked out. A 403 or 404 from the API means "not enabled" (or no
+  # access) -- reported plainly, not treated as the run failing to run.
+  dependabot-alerts:
+    name: Dependabot alerts
+    needs: detect
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: read
+    steps:
+      - name: Read open Dependabot alerts
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          set +e
+          alerts_json=$(gh api -H "Accept: application/vnd.github+json" \
+            "/repos/$REPO/dependabot/alerts?state=open&per_page=100" \
+            --paginate 2> /tmp/gh-api-stderr)
+          status=$?
+          set -e
+
+          if [ "$status" -ne 0 ]; then
+            if grep -qE 'HTTP (403|404)' /tmp/gh-api-stderr; then
+              echo "skipped:   dependabot-alerts (not enabled or no access)"
+              cat /tmp/gh-api-stderr
+              exit 0
+            fi
+            echo "::error::could not reach the Dependabot alerts API"
+            cat /tmp/gh-api-stderr
+            exit 1
+          fi
+
+          count=$(echo "$alerts_json" | jq -s 'add | length')
+          if [ "$count" -gt 0 ]; then
+            echo "consulted: dependabot-alerts ($count open)"
+            echo "$alerts_json" | jq -s 'add'
+            exit 1
+          fi
+          echo "consulted: dependabot-alerts (0 open)"

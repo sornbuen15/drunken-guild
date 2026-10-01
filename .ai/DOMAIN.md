@@ -6,7 +6,7 @@ Accepted by the Boss, 2026-09-23. Built from `.ai/PRD.md` (REQ-001–018; REQ-00
 
 | context | requirements served | what it owns |
 |---|---|---|
-| **Flow** | REQ-001, REQ-004, REQ-012, REQ-016, REQ-017, REQ-018 | The ordered steps from requirement to validation, and how each step hands to the next |
+| **Flow** | REQ-001, REQ-004, REQ-012, REQ-016, REQ-017, REQ-018 | The ordered steps from requirement to validation, how each step hands to the next, and the checks — including a schedule independent of any step, such as a dependency audit — that keep the work trustworthy |
 | **Routing** | REQ-002, REQ-010, REQ-011, REQ-013 | How an agent decides, unprompted, which skill, role or MCP tool a situation needs, and proof that it does |
 | **Instructions** | REQ-006, REQ-007, REQ-015 | The one instruction file every agent reads, and the adapters that lead each agent to it |
 | **Distribution** | REQ-003, REQ-008, REQ-009, REQ-014 | The one source of skills and roles, and installing it into each supported agent its own way |
