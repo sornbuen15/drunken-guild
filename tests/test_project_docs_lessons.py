@@ -12,6 +12,8 @@ scratch space — never a second lessons source.
 import re
 from pathlib import Path
 
+import pytest
+
 from core.scaffold import agents_md
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -60,32 +62,67 @@ def test_lessons_row_is_outside_the_guild_block() -> None:
     )
 
 
-#: The scrub clause itself, read out of the skill rather than restated here.
-SCRUB_PATTERN = re.compile(
-    r"[Ss]crubbed.{0,120}secrets.{0,120}personal data.{0,120}private filesystem path",
-    re.S,
+def _collapsed(text: str) -> str:
+    """Markdown wraps prose across lines, so a phrase spanning a line break
+    reads with a newline and indent where the sentence has a single space.
+    Collapse runs of whitespace before matching a multi-word phrase."""
+    return re.sub(r"\s+", " ", text)
+
+
+#: The five categories a second review named explicitly (DG-418): the first
+#: pass's "secrets, personal data and private filesystem paths" left room
+#: for a name, a phone number, an internal hostname, or another project's
+#: own ticket key or name to slip through unnamed.
+SCRUB_CATEGORIES = (
+    "secrets and credentials",
+    "personal data (names, emails, phone numbers, ids)",
+    "home-directory and drive paths",
+    "internal hostnames and URLs",
+    "ticket keys or names of other projects",
 )
 
+#: Anchored on the three words a second review's own mutation test found
+#: missing from the first pass: "before", "shown to the Boss" and "written"
+#: must appear together, in that order — not just "scrubbed ... secrets
+#: ... personal data ... private filesystem path" regardless of when.
+BEFORE_SHOWN_WRITTEN_PATTERN = re.compile(
+    r"before.{0,150}shown to the Boss.{0,150}written", re.I | re.S
+)
 
-def test_the_lessons_row_names_the_scrub_requirement() -> None:
-    """DG-418 review (HIGH). LESSONS.md is a tracked file in a project that
-    may be public, and an agent's own memory can hold a name, an email, an
-    id or a secret. The map's own row must say so, matching the audit
-    skill's retro step."""
-    the_map = _the_map(PROJECT_DOCS.read_text(encoding="utf-8"))
-    assert SCRUB_PATTERN.search(the_map), (
-        "the LESSONS.md row must name the scrub requirement — secrets, "
-        "personal data and private filesystem paths — before anything is "
-        "written there"
+#: Targets only the "before" immediately ahead of "shown to the Boss" in the
+#: row, so the mutation test below changes exactly the word the anchor
+#: depends on.
+_BEFORE_NEAR_SHOWN = re.compile(r"\bbefore\b(?=.{0,150}shown to the Boss)", re.I | re.S)
+
+
+def test_the_lessons_row_anchors_the_scrub_on_before_shown_and_written() -> None:
+    """DG-418 second review. `scrubbed ... secrets ... personal data ...
+    private filesystem path` alone does not say *when* the scrub happens;
+    the row must say "before" it is shown to the Boss or written."""
+    the_map = _collapsed(_the_map(PROJECT_DOCS.read_text(encoding="utf-8")))
+    assert BEFORE_SHOWN_WRITTEN_PATTERN.search(the_map), (
+        "the LESSONS.md row must say the scrub happens before either "
+        "showing a lesson to the Boss or writing it to LESSONS.md"
     )
 
 
-def test_removing_the_scrub_clause_leaves_the_row_silent() -> None:
-    """Proves the test above is not a tautology: with the scrub clause
-    stripped from a scratch copy, the same check now fails."""
-    the_map = _the_map(PROJECT_DOCS.read_text(encoding="utf-8"))
-    stripped = SCRUB_PATTERN.sub("REMOVED", the_map)
-    assert not SCRUB_PATTERN.search(stripped)
+@pytest.mark.parametrize("category", SCRUB_CATEGORIES)
+def test_each_scrub_category_is_named_in_the_lessons_row(category: str) -> None:
+    the_map = _collapsed(_the_map(PROJECT_DOCS.read_text(encoding="utf-8")))
+    assert category in the_map, (
+        f"the LESSONS.md row must name {category!r} explicitly, not fold "
+        "it into a shorter, less specific list"
+    )
+
+
+def test_flipping_before_to_after_breaks_the_anchor() -> None:
+    """Proves the anchor test above is not a tautology: a second review
+    found the first pass's pattern still matched after the reviewer changed
+    only 'before' to 'after' in a scratch copy. This one fails unless the
+    mutation does."""
+    the_map = _collapsed(_the_map(PROJECT_DOCS.read_text(encoding="utf-8")))
+    mutated = _BEFORE_NEAR_SHOWN.sub("after", the_map)
+    assert not BEFORE_SHOWN_WRITTEN_PATTERN.search(mutated)
 
 
 def test_template_still_renders_through_scaffold_with_project_and_jira_key() -> None:

@@ -123,11 +123,13 @@ description: >
     report it in the audit report and do not propose it.
 
     **Scrub before anyone sees it.** `LESSONS.md` is a tracked file in a project that may be
-    public, and an agent's own memory can hold a name, an email, an id, a secret or a private
-    filesystem path. Scrub a lesson and its quoted evidence of secrets, personal data (names,
-    emails, ids) and private filesystem paths **before** either is shown to the Boss or written to
-    `LESSONS.md` — the Boss approves only text that is safe to commit, never the raw original. A
-    lesson that cannot be stated without one of these stays local: report it, never propose it.
+    public, and an agent's own memory can hold detail that must never land there. Scrub a lesson
+    and its quoted evidence of secrets and credentials, personal data (names, emails, phone
+    numbers, ids), home-directory and drive paths and other private filesystem paths, internal
+    hostnames and URLs, and ticket keys or names of other projects — **before** either is shown
+    to the Boss or written to `LESSONS.md`. The Boss approves only text that is safe to commit,
+    never the raw original. A lesson that cannot be stated without one of these stays local:
+    report it, never propose it.
 
     **Name the shape of the fix, never write it.** For each guild-wide lesson, say whether it is a
     skill, a rule (`.claude/rules/` or `CLAUDE.md`) or a template change, and quote the scrubbed
@@ -190,7 +192,7 @@ description: >
     <constraint priority="FATAL">Never create or write to `.claude/board/` or `.agents/board/`. The `board_*` tools are retired.</constraint>
     <constraint priority="FATAL">The retro step never authors or edits a skill, a rule or a template, and never files a local lesson as a ticket. It proposes guild-wide lessons only, and only after the Boss approves the list.</constraint>
     <constraint priority="FATAL">The retro step may read its own agent's memory for evidence, but never another agent's own memory or other private state.</constraint>
-    <constraint priority="FATAL">A lesson and its quoted evidence are scrubbed of secrets, personal data (names, emails, ids) and private filesystem paths before either is shown to the Boss or written to `LESSONS.md`; the Boss approves only the scrubbed text. A lesson that cannot be stated without one of these is reported as local, never proposed.</constraint>
+    <constraint priority="FATAL">A lesson and its quoted evidence are scrubbed of secrets and credentials, personal data (names, emails, phone numbers, ids), home-directory and drive paths and other private filesystem paths, internal hostnames and URLs, and ticket keys or names of other projects — before either is shown to the Boss or written to `LESSONS.md`; the Boss approves only the scrubbed text. A lesson that cannot be stated without one of these is reported as local, never proposed.</constraint>
     <constraint priority="HIGH">The ticket shape, the field limits and the word budget live in the `jira-tickets` skill — including the rule that a post-mortem or a security finding is exempt from that budget. Read it; do not restate it here.</constraint>
     <constraint priority="HIGH">Never set `priority` and never invent story points. Neither exists here.</constraint>
     <constraint priority="HIGH">All output must be in English.</constraint>

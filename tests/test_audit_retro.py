@@ -14,6 +14,8 @@ rather than simulating an agent reading it.
 import re
 from pathlib import Path
 
+import pytest
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SKILL = REPO_ROOT / "skills" / "flow" / "audit" / "SKILL.md"
 TEXT = SKILL.read_text(encoding="utf-8")
@@ -81,12 +83,44 @@ def _action_sequence(text: str) -> str:
     return text.split("<action_sequence>")[1].split("</action_sequence>")[0]
 
 
-#: The scrub rule itself, read out of the skill rather than restated here —
-#: covers both the prose in `<the_retro>` and the matching constraint.
-SCRUB_PATTERN = re.compile(
-    r"scrub(?:bed)?.{0,250}secrets.{0,150}personal data.{0,150}private filesystem path",
-    re.I | re.S,
+def _the_retro(text: str) -> str:
+    return text.split("<the_retro>")[1].split("</the_retro>")[0]
+
+
+def _collapsed(text: str) -> str:
+    """Markdown wraps prose across lines, so a phrase spanning a line break
+    reads with a newline and indent where the sentence has a single space.
+    Collapse runs of whitespace before matching a multi-word phrase."""
+    return re.sub(r"\s+", " ", text)
+
+
+#: The five categories a second review named explicitly (DG-418): the first
+#: pass's "secrets, personal data and private filesystem paths" left room for
+#: a name, a phone number, an internal hostname, or another project's own
+#: ticket key or name to slip through unnamed.
+SCRUB_CATEGORIES = (
+    "secrets and credentials",
+    "personal data (names, emails, phone numbers, ids)",
+    "home-directory and drive paths",
+    "internal hostnames and URLs",
+    "ticket keys or names of other projects",
 )
+
+#: Anchored on the three words a second review's own mutation test found
+#: missing: the first pass's pattern matched "scrub ... secrets ... personal
+#: data ... private filesystem path" regardless of whether the sentence said
+#: "before" or "after" either was shown or written — changing just that one
+#: word left all 15 tests passing. "before", "shown to the Boss" and
+#: "written" must appear together, in that order.
+BEFORE_SHOWN_WRITTEN_PATTERN = re.compile(
+    r"before.{0,120}shown to the Boss.{0,120}written", re.I | re.S
+)
+
+#: Targets only the "before" immediately ahead of "shown to the Boss" — not
+#: every other "before" in the skill (step 8's "before reporting it as
+#: created", for one) — so the mutation test below changes exactly the word
+#: the anchor depends on.
+_BEFORE_NEAR_SHOWN = re.compile(r"\bbefore\b(?=.{0,120}shown to the Boss)", re.I | re.S)
 
 #: Step 10's hand-off: who writes an approved lesson into `LESSONS.md`, and how.
 PULL_REQUEST_PATTERN = re.compile(
@@ -96,16 +130,14 @@ PULL_REQUEST_PATTERN = re.compile(
 )
 
 
-def test_the_retro_scrubs_secrets_and_personal_data_before_anyone_sees_it() -> None:
-    """DG-418 review (HIGH). `LESSONS.md` is tracked and may be public, and an
-    agent's own memory can hold a name, an email, a secret or a private path.
-    Scrubbing happens before the Boss or LESSONS.md ever sees either the
-    lesson or its quoted evidence."""
-    retro = TEXT.split("<the_retro>")[1].split("</the_retro>")[0]
-    assert SCRUB_PATTERN.search(retro), (
-        "the retro step must scrub secrets, personal data and private "
-        "filesystem paths out of a lesson and its evidence before showing "
-        "either to the Boss or writing to LESSONS.md"
+def test_the_retro_anchors_the_scrub_on_before_shown_and_written() -> None:
+    """DG-418 second review. `scrub ... secrets ... personal data ...
+    private filesystem path` alone does not say *when* the scrub happens;
+    the sentence must say "before" it is shown to the Boss or written."""
+    retro = _collapsed(_the_retro(TEXT))
+    assert BEFORE_SHOWN_WRITTEN_PATTERN.search(retro), (
+        "the retro step must say the scrub happens before either showing "
+        "the lesson to the Boss or writing it to LESSONS.md"
     )
     assert re.search(r"stays local: report it, never propose it", retro, re.I), (
         "a lesson that cannot be stated without private detail must stay "
@@ -113,27 +145,36 @@ def test_the_retro_scrubs_secrets_and_personal_data_before_anyone_sees_it() -> N
     )
 
 
-def test_the_constraints_also_require_the_same_scrub() -> None:
-    assert SCRUB_PATTERN.search(_constraints(TEXT)), (
-        "<constraints> must carry a matching FATAL rule, not just prose in <the_retro>"
+def test_the_constraints_anchor_the_same_scrub_timing() -> None:
+    assert BEFORE_SHOWN_WRITTEN_PATTERN.search(_collapsed(_constraints(TEXT))), (
+        "<constraints> must carry the same before-shown-written timing, not "
+        "just prose in <the_retro>"
     )
 
 
-def test_removing_the_scrub_sentences_leaves_nothing_to_find() -> None:
-    """Proves the two tests above are not tautologies: strip the scrub
-    sentences from a scratch copy and both checks now fail."""
-    stripped = SCRUB_PATTERN.sub("REMOVED", TEXT)
-    assert not SCRUB_PATTERN.search(
-        stripped.split("<the_retro>")[1].split("</the_retro>")[0]
+@pytest.mark.parametrize("category", SCRUB_CATEGORIES)
+def test_each_scrub_category_is_named_in_the_retro(category: str) -> None:
+    assert category in _collapsed(_the_retro(TEXT)), (
+        f"the retro step must name {category!r} explicitly, not fold it "
+        "into a shorter, less specific list"
     )
-    assert not SCRUB_PATTERN.search(_constraints(stripped))
 
 
-def _collapsed(text: str) -> str:
-    """Markdown wraps prose across lines, so a phrase spanning a line break
-    reads with a newline and indent where the sentence has a single space.
-    Collapse runs of whitespace before matching a multi-word phrase."""
-    return re.sub(r"\s+", " ", text)
+@pytest.mark.parametrize("category", SCRUB_CATEGORIES)
+def test_each_scrub_category_is_named_in_the_constraints(category: str) -> None:
+    assert category in _collapsed(_constraints(TEXT)), (
+        f"<constraints> must name {category!r} too, matching <the_retro>"
+    )
+
+
+def test_flipping_before_to_after_breaks_the_anchor() -> None:
+    """Proves the two anchor tests above are not tautologies: a second
+    review found the first pass's pattern still matched after the reviewer
+    changed only 'before' to 'after' in a scratch copy, and all 15 tests
+    still passed. This one fails unless the mutation does."""
+    mutated = _BEFORE_NEAR_SHOWN.sub("after", _collapsed(TEXT))
+    assert not BEFORE_SHOWN_WRITTEN_PATTERN.search(_the_retro(mutated))
+    assert not BEFORE_SHOWN_WRITTEN_PATTERN.search(_constraints(mutated))
 
 
 def test_step_10_names_the_pull_request_mechanism() -> None:
