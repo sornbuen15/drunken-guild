@@ -148,6 +148,24 @@ def test_nothing_cites_session_checkpoint_section_0_as_the_2_0_0_source() -> Non
         )
 
 
+def _guild_block(text: str) -> str:
+    return text.split("<!-- guild-block:start -->", 1)[1].split(
+        "<!-- guild-block:end -->", 1
+    )[0]
+
+
+def test_template_guild_block_matches_root_verbatim() -> None:
+    """DG-407. `src/core/templates/AGENTS.md` is what `drunken-init` hands a
+    new project; its pointer table must be the same table this repo's own
+    AGENTS.md carries, or the two drift the moment either is edited alone."""
+    root = (REPO_ROOT / "AGENTS.md").read_text(encoding="utf-8")
+    template = (REPO_ROOT / "src" / "core" / "templates" / "AGENTS.md").read_text(
+        encoding="utf-8"
+    )
+
+    assert _guild_block(template) == _guild_block(root)
+
+
 def test_retired_md_records_agents_md_reintroduced() -> None:
     retired = (REPO_ROOT / "RETIRED.md").read_text(encoding="utf-8")
     assert "AGENTS.md" in retired
