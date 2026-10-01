@@ -1,21 +1,35 @@
 # Install skills from this repo to %USERPROFILE%\.claude\skills\
-# Usage: .\scripts\install\install_skills.ps1
+# Usage: .\scripts\install\install_skills.ps1 [-IndexOnly]
 #
-# KNOWN GAP -- this does less than install_skills.sh, and the difference is
-# stated rather than hidden. The shell version also accepts --index-only
-# to rebuild skills/INDEX.md without installing anything. That is not
-# implemented here.
+# -IndexOnly rebuilds the repository's skills/INDEX.md and writes nothing
+# else -- not to ~/.claude, not to any target. It is the switch safe for an
+# agent: AGENTS.md says an agent does not install, so this is the only mode
+# an agent may run unattended. Without it, this script performs a real
+# install into the operator's ~/.claude/skills and must not be run by an
+# agent (DG-423 -- an agent on Windows ran this without the switch, because
+# it did not exist yet, and overwrote the Boss's ~/.claude/skills with
+# unmerged branch content).
 #
-# Not an oversight and not a TODO left lying around: --index-only has never
-# been run on Windows, and shipping an untested install script that writes to
-# a shared config directory is worse than shipping one that does less and
-# says so.
-#
-# The rest of this script is no longer in that position. DG-371 gave the
-# project a Windows workstation, and DG-378 is what the first real run found:
-# the index this wrote had no slash commands in it at all.
+# DG-371 gave the project a Windows workstation, and DG-378 is what the
+# first real run found: the index this wrote had no slash commands in it at
+# all.
 #
 # Requirements: PowerShell 5.1+ or PowerShell Core 7+ (Windows / macOS / Linux)
+#
+# [CmdletBinding()] is load-bearing, not boilerplate: a "simple" param block
+# (no CmdletBinding) lets PowerShell silently swallow a misspelled switch
+# (`-IndexOnlyy`) or a stray positional argument, bind $IndexOnly = $false
+# either way, and fall straight through to a real install -- the exact
+# incident this switch exists to prevent, reproduced against this script
+# before the attribute was added: a typo and a stray argument both ran a
+# full install, exit 0, nothing refused. CmdletBinding turns both into a
+# terminating "parameter cannot be found" / "positional parameter cannot be
+# found" error instead.
+
+[CmdletBinding()]
+param(
+    [switch]$IndexOnly
+)
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
@@ -24,6 +38,7 @@ $ScriptDir       = $PSScriptRoot
 $LocalSkillsDir  = Resolve-Path (Join-Path $ScriptDir "..\..\skills")
 $GlobalSkillsDir = Join-Path $HOME ".claude\skills"
 $IndexFile       = Join-Path $GlobalSkillsDir "INDEX.md"
+$LocalIndex      = Join-Path $LocalSkillsDir "INDEX.md"
 
 Write-Host "=================================================" -ForegroundColor Blue
 Write-Host "   Claude Agentic Skills Synchronizer           " -ForegroundColor Blue
@@ -34,7 +49,15 @@ if (-not (Test-Path $LocalSkillsDir)) {
     exit 1
 }
 
-New-Item -ItemType Directory -Force -Path $GlobalSkillsDir | Out-Null
+# Everything below this point that writes or creates anything outside the
+# repository is gated on $IndexOnly being false. $GlobalSkillsDir is the
+# target's root and the first thing a real install creates -- -IndexOnly
+# never reaches that call.
+if ($IndexOnly) {
+    Write-Host "  -IndexOnly: rebuilding skills/INDEX.md, installing nothing" -ForegroundColor Yellow
+} else {
+    New-Item -ItemType Directory -Force -Path $GlobalSkillsDir | Out-Null
+}
 
 Write-Host ""
 Write-Host "Source: $LocalSkillsDir"
@@ -62,38 +85,44 @@ foreach ($SkillFile in $SkillFiles) {
 
     if ($SkillName -eq "skills") { continue }
 
-    $TargetDir = Join-Path $GlobalSkillsDir $SkillName
-    $IsNew     = -not (Test-Path $TargetDir)
+    # -IndexOnly never creates, reads or writes anything under
+    # $GlobalSkillsDir -- not even the Test-Path below that decides whether a
+    # skill is "new". That decision only matters for the install messages,
+    # which -IndexOnly does not print.
+    if (-not $IndexOnly) {
+        $TargetDir = Join-Path $GlobalSkillsDir $SkillName
+        $IsNew     = -not (Test-Path $TargetDir)
 
-    New-Item -ItemType Directory -Force -Path $TargetDir | Out-Null
+        New-Item -ItemType Directory -Force -Path $TargetDir | Out-Null
 
-    # Copy files, skipping identical ones (checksum comparison)
-    $SrcFiles = Get-ChildItem -Path $SkillDir -Recurse -File
-    foreach ($SrcFile in $SrcFiles) {
-        $Relative = $SrcFile.FullName.Substring($SkillDir.Length).TrimStart('\', '/')
-        $DestPath = Join-Path $TargetDir $Relative
-        $DestDir  = Split-Path -Parent $DestPath
+        # Copy files, skipping identical ones (checksum comparison)
+        $SrcFiles = Get-ChildItem -Path $SkillDir -Recurse -File
+        foreach ($SrcFile in $SrcFiles) {
+            $Relative = $SrcFile.FullName.Substring($SkillDir.Length).TrimStart('\', '/')
+            $DestPath = Join-Path $TargetDir $Relative
+            $DestDir  = Split-Path -Parent $DestPath
 
-        New-Item -ItemType Directory -Force -Path $DestDir | Out-Null
+            New-Item -ItemType Directory -Force -Path $DestDir | Out-Null
 
-        $ShouldCopy = $true
-        if (Test-Path $DestPath) {
-            $SrcHash  = (Get-FileHash $SrcFile.FullName -Algorithm MD5).Hash
-            $DestHash = (Get-FileHash $DestPath         -Algorithm MD5).Hash
-            $ShouldCopy = ($SrcHash -ne $DestHash)
+            $ShouldCopy = $true
+            if (Test-Path $DestPath) {
+                $SrcHash  = (Get-FileHash $SrcFile.FullName -Algorithm MD5).Hash
+                $DestHash = (Get-FileHash $DestPath         -Algorithm MD5).Hash
+                $ShouldCopy = ($SrcHash -ne $DestHash)
+            }
+
+            if ($ShouldCopy) {
+                Copy-Item -Path $SrcFile.FullName -Destination $DestPath -Force
+            }
         }
 
-        if ($ShouldCopy) {
-            Copy-Item -Path $SrcFile.FullName -Destination $DestPath -Force
+        if ($IsNew) {
+            Write-Host "  [+] Installed: $SkillName" -ForegroundColor Green
+            $NewCount++
+        } else {
+            Write-Host "  [*] Updated:   $SkillName"
+            $UpdatedCount++
         }
-    }
-
-    if ($IsNew) {
-        Write-Host "  [+] Installed: $SkillName" -ForegroundColor Green
-        $NewCount++
-    } else {
-        Write-Host "  [*] Updated:   $SkillName"
-        $UpdatedCount++
     }
 
     # Trigger and description for INDEX.md, ported from install_skills.sh
@@ -204,13 +233,25 @@ foreach ($SkillFile in $SkillFiles) {
 $IndexText = ($IndexLines -join "`n").TrimEnd("`n") + "`n"
 $Utf8NoBom = New-Object System.Text.UTF8Encoding $false
 
+# -IndexOnly writes only the repository's own skills/INDEX.md and returns
+# here -- before $IndexFile (under $GlobalSkillsDir) is ever touched.
+if ($IndexOnly) {
+    $TempIndex = [System.IO.Path]::GetTempFileName()
+    [System.IO.File]::WriteAllText($TempIndex, $IndexText, $Utf8NoBom)
+    Move-Item -Path $TempIndex -Destination $LocalIndex -Force
+
+    Write-Host ""
+    Write-Host "Done." -ForegroundColor Green -NoNewline
+    Write-Host " Rebuilt $LocalIndex. Nothing was installed."
+    exit 0
+}
+
 # Atomic write: write to temp then move
 $TempIndex = [System.IO.Path]::GetTempFileName()
 [System.IO.File]::WriteAllText($TempIndex, $IndexText, $Utf8NoBom)
 Move-Item -Path $TempIndex -Destination $IndexFile -Force
 
 # Mirror local copy for AGENTS.md skill_routing
-$LocalIndex = Join-Path $LocalSkillsDir "INDEX.md"
 Copy-Item -Path $IndexFile -Destination $LocalIndex -Force
 
 Write-Host ""
