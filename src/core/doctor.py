@@ -919,6 +919,23 @@ def _route_target_resolves(
     return target in tools
 
 
+def _resolves_under_repo(repo_root: Path, target: str) -> bool:
+    """Whether a ``.md`` route target is both an existing file and still
+    inside the repository, once ``..`` is resolved away.
+
+    A target like ``../../etc/passwd`` reads as a file on disk the same way
+    a real one does; this check's job is to say the route named something
+    real, not to resolve a path that walks outside the tree it names.
+    """
+    try:
+        resolved_root = repo_root.resolve()
+        candidate = (repo_root / target).resolve()
+        candidate.relative_to(resolved_root)
+    except (OSError, ValueError):
+        return False
+    return candidate.is_file()
+
+
 def unresolved_routes(
     targets: Sequence[str],
     skills_root: Path,
@@ -930,9 +947,11 @@ def unresolved_routes(
     A slash command (``/build``) resolves to a skill folder of that name,
     wherever under ``skills/`` it sits. A bare role name resolves to
     ``agents/<role>.md``. A path ending ``.md`` is checked directly, relative
-    to the repository root ``skills_root``'s parent holds. ``jira_*`` is a
-    wildcard over the registered tool names, matched by prefix — the wildcard
-    itself is never "missing", only unmatched by anything registered.
+    to the repository root ``skills_root``'s parent holds, and must resolve
+    to a file inside that root — a ``..`` that walks outside it is reported
+    as missing rather than followed. ``jira_*`` is a wildcard over the
+    registered tool names, matched by prefix — the wildcard itself is never
+    "missing", only unmatched by anything registered.
     """
     skills = _skill_dirs(skills_root)
     tools = set(mcp_tools)
@@ -941,7 +960,7 @@ def unresolved_routes(
     missing: list[str] = []
     for target in targets:
         if target.endswith(".md"):
-            if not (repo_root / target).is_file():
+            if not _resolves_under_repo(repo_root, target):
                 missing.append(target)
             continue
         if not _route_target_resolves(target, skills, agents_root, tools):
@@ -992,33 +1011,53 @@ def skill_description(skill_md: Path) -> str:
     return " ".join(collected)
 
 
-def unreachable_skills(skills_root: Path, routed_text: str) -> list[str]:
-    """Skills with no description, named by no route and by no other skill.
+#: A name, optionally slash-prefixed, as a whole word — not a substring of a
+#: longer hyphenated one. ``\b`` alone is not enough: ``\bbuild\b`` still
+#: matches inside ``build-step`` (a word/non-word boundary sits at the
+#: hyphen), so the boundary here treats a hyphen as part of the word too,
+#: the same way a skill's own folder name uses it.
+def _mentions(text: str, name: str) -> bool:
+    pattern = re.compile(rf"(?<![\w-])/?{re.escape(name)}(?![\w-])")
+    return bool(pattern.search(text))
 
-    REQ-010 is how a skill is found with no route at all: its description is
-    the activation trigger an agent matches against. A skill with nothing
-    there, that *also* appears in no route and in no other skill's own
-    text — a "next step" line included — cannot be reached any way an agent
-    actually works. *routed_text* is the guild block; a skill's own content
-    is excluded from the texts checked against it, so a skill cannot make
-    itself reachable by naming itself.
+
+def unreachable_skills(
+    skills_root: Path, agents_root: Path, guild_block_text: str
+) -> list[str]:
+    """Skills named by nothing: not the guild block, not an agent file, and
+    not another skill's own text (a "next step" line included).
+
+    A skill's own description is deliberately not asked here (REQ-013, as
+    the Boss approved it): being a good match for an agent picking by
+    description is a separate fact from being *routed* to, and the literal
+    requirement is that every skill is reached one of those ways — not that
+    it merely has a description that reads well. Matched whole-word, slash
+    form included, so a skill named ``build`` is not satisfied by another
+    skill's prose saying ``rebuild``. A skill's own file is excluded from the
+    texts checked against it, so a skill cannot make itself reachable by
+    naming itself.
     """
     skills = _skill_dirs(skills_root)
     texts = {
         name: (path / "SKILL.md").read_text(encoding="utf-8")
         for name, path in skills.items()
     }
+    agent_texts = (
+        [p.read_text(encoding="utf-8") for p in sorted(agents_root.glob("*.md"))]
+        if agents_root.is_dir()
+        else []
+    )
 
     unreachable: list[str] = []
-    for name, path in sorted(skills.items()):
-        if skill_description(path / "SKILL.md"):
-            continue
+    for name in sorted(skills):
         others = (
-            routed_text
+            guild_block_text
+            + "\n"
+            + "\n".join(agent_texts)
             + "\n"
             + "\n".join(text for other, text in texts.items() if other != name)
         )
-        if f"/{name}" in others or name in others:
+        if _mentions(others, name):
             continue
         unreachable.append(name)
     return unreachable
@@ -1029,10 +1068,13 @@ def _check_routes(report: Report, repo_root: Optional[Path] = None) -> None:
     by nothing at all.
 
     The routes are the guild block's pointer table in ``AGENTS.md`` (REQ-011)
-    and each skill's own description (REQ-010/REQ-012) — not a second,
+    and each flow skill's own "next step" hand-off (REQ-012) — not a second,
     separate check of whether every pointer anywhere in the repository's
     prose resolves to a file. That is DG-393's job, scoped deliberately
-    narrower, and run later.
+    narrower, and run later. A skill's own description (REQ-010) is not
+    asked here: it is how an agent *picks* a skill, a different fact from
+    whether anything *routes* to it, and the literal requirement is reached
+    by one of the guild block, an agent file, or another skill's text.
 
     An absent source tree, or an ``AGENTS.md`` with no guild block, is a
     **skip**: an installed package has neither, and a check that cries wolf
@@ -1085,23 +1127,24 @@ def _check_routes(report: Report, repo_root: Optional[Path] = None) -> None:
             f"all {len(set(targets))} route target(s) in {agents_md.name} resolve",
         )
 
-    unreachable = unreachable_skills(skills_root, text)
+    unreachable = unreachable_skills(skills_root, agents_root, block)
     if unreachable:
         report.add(
             "routes.reachable",
             "fail",
-            f"{len(unreachable)} skill(s) have no description and no route "
-            "names them, so nothing can ever pick them up: " + ", ".join(unreachable),
+            f"{len(unreachable)} skill(s) are named by no route in "
+            f"{agents_md.name}, no agent file and no other skill: "
+            + ", ".join(unreachable),
             remediation=(
-                "Give the skill a description an agent can match on (REQ-010), "
-                "or name it in a route."
+                "Name the skill in a guild-block route, in an agent file, or "
+                "in another skill's own text."
             ),
         )
     else:
         report.add(
             "routes.reachable",
             "ok",
-            "every skill is reached by its description or a route",
+            "every skill is reached by a route, an agent file or another skill",
         )
 
 

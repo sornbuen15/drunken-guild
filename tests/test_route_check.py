@@ -3,8 +3,12 @@
 exist, or a skill is reachable from nowhere.
 
 REQ-013: a check that every route resolves. The routes are the guild block's
-pointer table in AGENTS.md (REQ-011) and each skill's own description, which is
-how an agent finds it with no route at all (REQ-010/REQ-012).
+pointer table in AGENTS.md (REQ-011) and each skill's own "next step"
+hand-off (REQ-012). A skill's own description (REQ-010) is a separate fact —
+it is how an agent *picks* a skill, not whether anything routes to it — so it
+is deliberately not asked here: the Boss's approved wording is that a skill
+is reachable only via the guild block, an agent file, or another skill's
+text.
 """
 
 from pathlib import Path
@@ -36,11 +40,13 @@ def _skill(root: Path, category: str, name: str, description: str = "") -> Path:
     return skill_dir
 
 
-def _agent(root: Path, name: str) -> Path:
+def _agent(root: Path, name: str, body: str = "") -> Path:
     agents_dir = root / "agents"
     agents_dir.mkdir(exist_ok=True)
     path = agents_dir / f"{name}.md"
-    path.write_text(f"---\nname: {name}\ndescription: role\n---\n", encoding="utf-8")
+    path.write_text(
+        f"---\nname: {name}\ndescription: role\n---\n{body}", encoding="utf-8"
+    )
     return path
 
 
@@ -164,6 +170,26 @@ class TestUnresolvedRoutes:
 
         assert missing == ["jira_*"]
 
+    def test_a_dotdot_escaping_the_repo_root_is_reported_even_if_the_file_exists(
+        self, tmp_path
+    ):
+        """A `.md` route target is resolved, not just read as a string — a
+        path that climbs out of the repository with `..` and happens to hit
+        a real file elsewhere on disk is reported exactly like a missing
+        one, never followed there."""
+        skills_root = tmp_path / "repo" / "skills"
+        skills_root.mkdir(parents=True)
+        agents_root = tmp_path / "repo" / "agents"
+        agents_root.mkdir()
+        outside = tmp_path / "outside.md"
+        outside.write_text("not part of this repository", encoding="utf-8")
+
+        missing = doctor.unresolved_routes(
+            ["../outside.md"], skills_root, agents_root, []
+        )
+
+        assert missing == ["../outside.md"]
+
 
 class TestRegisteredMcpTools:
     def test_reads_the_name_following_mcp_tool(self, tmp_path):
@@ -175,6 +201,32 @@ class TestRegisteredMcpTools:
 
     def test_an_absent_server_file_reads_as_no_tools(self, tmp_path):
         assert doctor.registered_mcp_tools(tmp_path / "nope.py") == []
+
+    def test_pinned_against_the_real_server_module(self):
+        """A decorator-shape change in `src/jira_mcp/server.py` — a renamed
+        tool, one added or dropped, `@mcp.tool()` written differently — must
+        fail this test loudly rather than silently stop being read by
+        :func:`registered_mcp_tools`."""
+        repo_root = Path(__file__).resolve().parent.parent
+        server_path = repo_root / "src" / "jira_mcp" / "server.py"
+
+        names = doctor.registered_mcp_tools(server_path)
+
+        assert names == [
+            "jira_search_issues",
+            "jira_assign",
+            "jira_create_issue",
+            "jira_board_info",
+            "jira_move_to_backlog",
+            "jira_move_to_board",
+            "jira_transition_issue",
+            "jira_add_comment",
+            "jira_edit_labels",
+            "jira_edit_issue",
+            "jira_start_task",
+            "jira_submit_for_review",
+        ]
+        assert len(names) == 12
 
 
 class TestSkillDescription:
@@ -204,37 +256,109 @@ class TestSkillDescription:
 
 
 class TestUnreachableSkills:
-    def test_a_skill_with_no_description_and_no_route_is_unreachable(self, tmp_path):
+    def test_a_skill_with_no_route_is_unreachable(self, tmp_path):
         _skill(tmp_path, "flow", "orphan")
-        agents_md_text = doctor.guild_block(
+        agents_root = tmp_path / "agents"
+        agents_root.mkdir()
+        block = doctor.guild_block(
             _agents_md(tmp_path, ["| **x** | `/prd` |"]).read_text(encoding="utf-8")
         )
 
-        unreachable = doctor.unreachable_skills(tmp_path / "skills", agents_md_text)
+        unreachable = doctor.unreachable_skills(tmp_path / "skills", agents_root, block)
 
         assert unreachable == ["orphan"]
 
-    def test_a_skill_with_a_description_is_reachable_on_its_own(self, tmp_path):
-        _skill(tmp_path, "flow", "prd", "Use for a new project.")
+    def test_a_real_description_does_not_save_an_unrouted_skill(self, tmp_path):
+        """HIGH finding from review: a skill with a well-formed, genuine
+        description but no route, no agent-file mention and no mention in
+        any other skill's text must still fail. Being a good match for an
+        agent picking by description is not the same as being routed to."""
+        _skill(
+            tmp_path,
+            "flow",
+            "scratch-orphan",
+            "Use when running a one-off scratch task that nothing else covers.",
+        )
+        agents_root = tmp_path / "agents"
+        agents_root.mkdir()
 
-        unreachable = doctor.unreachable_skills(tmp_path / "skills", "")
+        unreachable = doctor.unreachable_skills(tmp_path / "skills", agents_root, "")
 
-        assert unreachable == []
+        assert unreachable == ["scratch-orphan"]
 
-    def test_a_skill_with_no_description_but_a_route_is_reachable(self, tmp_path):
+    def test_a_skill_named_in_the_guild_block_is_reachable(self, tmp_path):
         _skill(tmp_path, "flow", "orphan")
+        agents_root = tmp_path / "agents"
+        agents_root.mkdir()
 
-        unreachable = doctor.unreachable_skills(tmp_path / "skills", "`/orphan`")
+        unreachable = doctor.unreachable_skills(
+            tmp_path / "skills", agents_root, "`/orphan`"
+        )
 
         assert unreachable == []
 
-    def test_a_skill_with_no_description_named_by_another_skills_next_step_is_reachable(
-        self, tmp_path
-    ):
+    def test_a_skill_named_by_an_agent_file_is_reachable(self, tmp_path):
+        _skill(tmp_path, "flow", "orphan")
+        _agent(tmp_path, "worker", body="Delegates to `/orphan` when needed.\n")
+
+        unreachable = doctor.unreachable_skills(
+            tmp_path / "skills", tmp_path / "agents", ""
+        )
+
+        assert unreachable == []
+
+    def test_a_skill_named_by_another_skills_next_step_is_reachable(self, tmp_path):
         _skill(tmp_path, "flow", "orphan")
         _skill(tmp_path, "flow", "upstream", "Use upstream. Next step: /orphan.")
+        agents_root = tmp_path / "agents"
+        agents_root.mkdir()
+        # `upstream` is routed directly, so only `orphan`'s reachability via
+        # the other skill's "next step" line is under test here.
+        block = "`/upstream`"
 
-        unreachable = doctor.unreachable_skills(tmp_path / "skills", "")
+        unreachable = doctor.unreachable_skills(tmp_path / "skills", agents_root, block)
+
+        assert "orphan" not in unreachable
+
+    def test_a_short_name_is_not_satisfied_by_a_longer_hyphenated_mention(
+        self, tmp_path
+    ):
+        """MEDIUM finding from review: a skill named `build` must not count
+        as named because another skill's prose says `rebuild` — a raw
+        substring match would wrongly call that a mention."""
+        _skill(tmp_path, "flow", "build")
+        _skill(
+            tmp_path,
+            "flow",
+            "upstream",
+            "This step may need to rebuild the index before continuing.",
+        )
+        agents_root = tmp_path / "agents"
+        agents_root.mkdir()
+        # `upstream` is routed directly, so only whether `rebuild` satisfies
+        # `build` is under test here.
+        block = "`/upstream`"
+
+        unreachable = doctor.unreachable_skills(tmp_path / "skills", agents_root, block)
+
+        assert unreachable == ["build"]
+
+    def test_a_short_name_matches_as_its_own_whole_word(self, tmp_path):
+        """The companion positive case: an actual mention of the whole word
+        does count, so the boundary fix does not become a check nothing can
+        ever pass."""
+        _skill(tmp_path, "flow", "build")
+        _skill(
+            tmp_path,
+            "flow",
+            "upstream",
+            "This step hands off to /build once the plan is approved.",
+        )
+        agents_root = tmp_path / "agents"
+        agents_root.mkdir()
+        block = "`/upstream`"
+
+        unreachable = doctor.unreachable_skills(tmp_path / "skills", agents_root, block)
 
         assert unreachable == []
 
@@ -262,13 +386,20 @@ class TestCheckRoutesIntegration:
         assert entry.status == "fail"
         assert "/nonexistent-skill" in entry.detail
 
-    def test_a_skill_reachable_from_nowhere_is_reported(self, tmp_path):
+    def test_a_skill_reachable_from_nowhere_is_reported_even_with_a_description(
+        self, tmp_path
+    ):
         self._fixture(
             tmp_path,
             rows=["| **x** | `/prd` |"],
             skills=[
                 ("flow", "prd", "Use for a new project."),
-                ("flow", "orphan", ""),
+                (
+                    "flow",
+                    "orphan",
+                    "Use when a well-formed description exists but no route "
+                    "and no other skill ever names this one.",
+                ),
             ],
         )
 
@@ -305,17 +436,65 @@ class TestCheckRoutesIntegration:
         entry = next(c for c in report.checks if c.name == "routes.guild_block")
         assert entry.status == "skip"
 
+    def test_an_installed_package_with_no_source_tree_is_a_skip(
+        self, tmp_path, monkeypatch
+    ):
+        """LOW finding from review: `source_tree_root()` returning `None` —
+        the ordinary shape of an installed package, with no `AGENTS.md` or
+        `skills/` beside it — must be a skip, not a crash or a failure, when
+        no `repo_root` is passed in either."""
+        monkeypatch.setattr(doctor, "source_tree_root", lambda: None)
+
+        report = doctor.Report()
+        doctor._check_routes(report)
+
+        entry = next(c for c in report.checks if c.name == "routes.guild_block")
+        assert entry.status == "skip"
+        assert "installed package" in entry.detail
+
 
 class TestTheRealRepoPasses:
-    """The actual repository's AGENTS.md and skills/, run through the check
-    with no fixture at all -- the check must not fail on real content."""
+    """The actual repository's AGENTS.md, skills/ and agents/, run through
+    the check with no fixture at all.
 
-    def test_the_real_repo_resolves_every_route_and_reaches_every_skill(self):
+    Under the stricter, Boss-approved rule — a skill's own description no
+    longer counts, only the guild block, an agent file, or another skill's
+    own text — the real repository is *not* entirely clean. This test
+    pins that down explicitly rather than hiding it: `routes.targets` must
+    stay green (nothing names a target that doesn't exist), but
+    `routes.reachable` is allowed to fail on exactly this known list, and
+    on nothing else. If the list below ever needs to grow or shrink, that is
+    a routing decision for the Boss, not something this test should quietly
+    wave through — hence the exact equality rather than a `<=` or `in`.
+    """
+
+    def test_every_route_target_resolves(self):
         repo_root = Path(__file__).resolve().parent.parent
 
         report = doctor.Report()
         doctor._check_routes(report, repo_root=repo_root)
 
-        for name in ("routes.targets", "routes.reachable"):
-            entry = next(c for c in report.checks if c.name == name)
-            assert entry.status == "ok", entry.detail
+        entry = next(c for c in report.checks if c.name == "routes.targets")
+        assert entry.status == "ok", entry.detail
+
+    def test_the_known_unrouted_skills_are_exactly_this_list(self):
+        """`ask-boss` is named only in AGENTS.md's prose outside the guild
+        block (under "Approvals"), never inside the block itself, by no
+        agent file, and by no other skill's own text — so under the literal
+        rule it is unreachable. Flagged here for the Boss to decide: add a
+        guild-block route for it, or accept that it is reached only by an
+        agent reading AGENTS.md in full rather than the pointer table.
+        """
+        repo_root = Path(__file__).resolve().parent.parent
+
+        report = doctor.Report()
+        doctor._check_routes(report, repo_root=repo_root)
+
+        entry = next(c for c in report.checks if c.name == "routes.reachable")
+        assert entry.status == "fail", (
+            "expected exactly the known unrouted skill(s) below; if this "
+            "now passes, the list has shrunk and should be updated, not "
+            "silently dropped"
+        )
+        assert entry.detail.startswith("1 skill(s)"), entry.detail
+        assert entry.detail.rsplit(":", 1)[1].strip() == "ask-boss"
