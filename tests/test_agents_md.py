@@ -135,39 +135,96 @@ def _table_rows(block: str) -> list[tuple[str, str]]:
     return rows
 
 
-_AMBIGUOUS_OR = re.compile(r"`/[\w-]+`\s+or\s+`/[\w-]+`")
-_AMBIGUOUS_ROLE_OR = re.compile(r"\*\*\w+\*\*\s+or\s+\*\*\w+\*\*")
+_BACKTICK_SPAN = re.compile(r"`[^`]+`")
+_BOLD_SPAN = re.compile(r"\*\*[^*]+\*\*")
+_OR_OR_SLASH = re.compile(r"\bor\b|\s/\s", re.IGNORECASE)
 
 
-def _routes_with_more_than_one_target(rows: list[tuple[str, str]]) -> list[str]:
-    """A route is ambiguous when its 'pick up' cell offers two commands or
-    two roles joined by a bare 'or', rather than one target (or none)."""
+def _clauses(cell: str) -> list[str]:
+    """Split a pick-up cell on sentence-ending periods. A chain --
+    '`/prd` -> `/clarify` -> ..., in that order' -- is one clause naming one
+    route; an alternative is named *within* a single clause, whatever words
+    carry it.
+
+    A period inside a backtick span (`skills/INDEX.md`, `SKILL.md`) is not a
+    sentence boundary, so backtick spans are masked before splitting and
+    restored after -- otherwise a path's own '.' would cut a target in half
+    and hide it from the distinct-target count on either side.
+    """
+    masked_spans: list[str] = []
+
+    def _mask(match: re.Match[str]) -> str:
+        masked_spans.append(match.group(0))
+        return f"\0{len(masked_spans) - 1}\0"
+
+    masked = _BACKTICK_SPAN.sub(_mask, cell)
+
+    def _unmask(clause: str) -> str:
+        for index, span in enumerate(masked_spans):
+            clause = clause.replace(f"\0{index}\0", span)
+        return clause
+
+    return [_unmask(c.strip()) for c in masked.split(".") if c.strip()]
+
+
+def _distinct_targets(clause: str) -> set[str]:
+    """A target is a backtick span (a command or a path) or a bold span (a
+    role). Counting *distinct* mentions, not occurrences, so a clause that
+    names the same target twice does not look like two targets."""
+    return set(_BACKTICK_SPAN.findall(clause)) | set(_BOLD_SPAN.findall(clause))
+
+
+def _routes_naming_more_than_one_target(rows: list[tuple[str, str]]) -> list[str]:
+    """A route names more than one target when a single clause of its
+    'pick up' cell names two or more distinct targets *and* joins them with
+    a bare 'or' or a ' / ' alternative -- no matter how that is worded, so
+    rewording a route as 'the **manager** role or the **worker** role',
+    '`skills/INDEX.md` or ask the **manager**', or a comma-led
+    '`/git-workflow`, or ask the **manager**' cannot dodge it.
+
+    A chain naming several targets in order ('`/prd`, `/clarify`, ..., in
+    that order', '... via ...') is not flagged: it never joins them with
+    'or' or '/'. A clause enumerating *conditions* for one target ('`/replan`
+    when a requirement is added, cut or changed') is not flagged either: its
+    'or' sits in a clause with exactly one target.
+    """
     violations = []
     for situation, pickup in rows:
-        if _AMBIGUOUS_OR.search(pickup) or _AMBIGUOUS_ROLE_OR.search(pickup):
-            violations.append(situation)
+        for clause in _clauses(pickup):
+            if _OR_OR_SLASH.search(clause) and len(_distinct_targets(clause)) >= 2:
+                violations.append(situation)
+                break
     return violations
 
 
-def test_guild_block_check_catches_a_route_naming_two_targets() -> None:
-    """Prove the checker used below actually detects the violation it
-    claims to -- a route written as '`/foo` or `/bar`' is exactly the
-    second-surface ambiguity ACCEPTANCE forbids."""
-    bad_block = (
-        "| situation | pick up |\n|---|---|\n| **ambiguous** | `/foo` or `/bar` |\n"
-    )
-    assert _routes_with_more_than_one_target(_table_rows(bad_block)) == [
-        "**ambiguous**"
-    ]
+def test_guild_block_check_catches_two_roles_joined_by_bare_or() -> None:
+    """Fed through the real checker, not a bespoke fixture: rewording the
+    old 'role or role' attack as full phrases must still be caught."""
+    rows = [("**situation**", "the **manager** role or the **worker** role")]
+    assert _routes_naming_more_than_one_target(rows) == ["**situation**"]
+
+
+def test_guild_block_check_catches_a_path_and_a_role_joined_by_or() -> None:
+    """A mixed path/role alternative -- the kind of wording that slipped
+    past a narrower, backtick-only pattern -- must still be caught."""
+    rows = [("**situation**", "`skills/INDEX.md` or ask the **manager**")]
+    assert _routes_naming_more_than_one_target(rows) == ["**situation**"]
+
+
+def test_guild_block_check_catches_a_comma_led_alternative() -> None:
+    """A comma-led alternative ('X, or Y') is the same ambiguity with a
+    comma in front of the 'or'; it must still be caught."""
+    rows = [("**situation**", "`/git-workflow`, or ask the **manager**")]
+    assert _routes_naming_more_than_one_target(rows) == ["**situation**"]
 
 
 def test_every_route_names_exactly_one_target_or_none() -> None:
     text = (REPO_ROOT / "AGENTS.md").read_text(encoding="utf-8")
     rows = _table_rows(_guild_block(text))
     assert rows, "guild block has no data rows to check"
-    violations = _routes_with_more_than_one_target(rows)
+    violations = _routes_naming_more_than_one_target(rows)
     assert not violations, (
-        f"route(s) name two targets joined by 'or' instead of one or none: {violations}"
+        f"route(s) name an alternative instead of one target or none: {violations}"
     )
 
 
@@ -191,56 +248,78 @@ def test_guild_block_check_catches_a_role_reached_by_no_route() -> None:
     assert "**reviewer**" not in pickups
 
 
-def test_no_situation_row_outside_the_block_differs_in_wording_from_inside_it() -> None:
-    """DG-396. A second 'situation -> pick up' table, or a lone row copying
-    one of the block's situations with different wording, is the exact
-    second-surface problem the guild block exists to cure."""
-    text = (REPO_ROOT / "AGENTS.md").read_text(encoding="utf-8")
-    block = _guild_block(text)
-    inside = dict(_table_rows(block))
-
+def _outside_block_text(text: str) -> str:
     before, _, after = text.partition("<!-- guild-block:start -->")
     _, _, after = after.partition("<!-- guild-block:end -->")
-    outside_text = before + after
+    return before + after
 
+
+def _duplicate_situation_mismatches(text: str) -> list[str]:
+    """Rows outside a file's guild block that repeat a situation from
+    inside it with different wording, plus a second full routing table
+    (its own header), are both the second-surface problem the block exists
+    to cure. Returns the offending situations; `'<second table header>'`
+    stands in for a second table found with no individually colliding
+    situation string."""
+    inside = dict(_table_rows(_guild_block(text)))
+    outside_text = _outside_block_text(text)
     outside_rows = _table_rows(outside_text)
-    for situation, pickup in outside_rows:
-        if situation in inside:
-            assert pickup == inside[situation], (
-                f"{situation!r} is worded differently outside the guild block "
-                f"than inside it:\n  inside:  {inside[situation]!r}\n"
-                f"  outside: {pickup!r}"
-            )
 
-    # A second full routing table (its own header) is the same problem even
-    # if no individual situation string happens to collide.
-    assert outside_text.count("| situation | pick up |") == 0
-
-
-def test_guild_block_check_catches_a_duplicated_situation_with_different_wording() -> (
-    None
-):
-    """Proof for the check above: the same situation, reworded outside the
-    block, must be flagged rather than silently accepted as a second table."""
-    inside = dict(
-        _table_rows(
-            _guild_block(
-                (
-                    "<!-- guild-block:start -->\n"
-                    "| situation | pick up |\n"
-                    "|---|---|\n"
-                    "| **end of day / closing a session** | `/audit`. |\n"
-                    "<!-- guild-block:end -->\n"
-                )
-            )
-        )
-    )
-    outside_rows = _table_rows(
-        "| **end of day / closing a session** | run `/audit` whenever you feel like it |\n"
-    )
     mismatches = [
         situation
         for situation, pickup in outside_rows
         if situation in inside and pickup != inside[situation]
     ]
-    assert mismatches == ["**end of day / closing a session**"]
+    if "| situation | pick up |" in outside_text:
+        mismatches.append("<second table header>")
+    return mismatches
+
+
+def test_no_situation_row_outside_the_root_block_differs_in_wording_from_inside_it() -> (
+    None
+):
+    """DG-396. A second 'situation -> pick up' table, or a lone row copying
+    one of the root block's situations with different wording, is the exact
+    second-surface problem the guild block exists to cure."""
+    text = (REPO_ROOT / "AGENTS.md").read_text(encoding="utf-8")
+    assert _duplicate_situation_mismatches(text) == []
+
+
+def test_no_situation_row_outside_the_template_block_differs_in_wording_from_inside_it() -> (
+    None
+):
+    """Same guarantee for `src/core/templates/AGENTS.md` (DG-407): the
+    template is what `drunken-init` hands a new project, so it is just as
+    able to grow a second, drifting table as the root file is."""
+    template = (REPO_ROOT / "src" / "core" / "templates" / "AGENTS.md").read_text(
+        encoding="utf-8"
+    )
+    assert _duplicate_situation_mismatches(template) == []
+
+
+def test_guild_block_check_catches_a_duplicated_situation_with_different_wording() -> (
+    None
+):
+    """Proof for the checks above, fed through the real checker: splice a
+    reworded duplicate of a real situation into a scratch copy of the
+    template, outside the markers, and confirm it is flagged."""
+    template = (REPO_ROOT / "src" / "core" / "templates" / "AGENTS.md").read_text(
+        encoding="utf-8"
+    )
+    mutated = template + (
+        "\n\n| **end of day / closing a session** |"
+        " run `/audit` whenever you feel like it |\n"
+    )
+    assert _duplicate_situation_mismatches(mutated) == [
+        "**end of day / closing a session**"
+    ]
+
+
+def test_guild_block_check_catches_a_second_routing_table() -> None:
+    """Same proof, for a second table that introduces no colliding
+    situation string at all -- still a second surface, still flagged."""
+    template = (REPO_ROOT / "src" / "core" / "templates" / "AGENTS.md").read_text(
+        encoding="utf-8"
+    )
+    mutated = template + "\n\n| situation | pick up |\n|---|---|\n| **x** | `/y` |\n"
+    assert _duplicate_situation_mismatches(mutated) == ["<second table header>"]
