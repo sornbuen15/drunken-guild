@@ -12,6 +12,7 @@ from jira_mcp.server import jira_start_task, jira_submit_for_review
 @patch("jira_mcp.server.get_client", autospec=True)
 async def test_jira_start_task(mock_get_client: AsyncMock) -> None:
     mock_client = AsyncMock()
+    mock_client.project_key = "DAGY"
     mock_get_client.return_value = mock_client
 
     result_json = await jira_start_task("dg", "DAGY-29")
@@ -26,6 +27,7 @@ async def test_jira_start_task(mock_get_client: AsyncMock) -> None:
 @patch("jira_mcp.server.get_client", autospec=True)
 async def test_jira_submit_for_review(mock_get_client: AsyncMock) -> None:
     mock_client = AsyncMock()
+    mock_client.project_key = "DAGY"
     mock_get_client.return_value = mock_client
 
     result_json = await jira_submit_for_review(
