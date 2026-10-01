@@ -43,13 +43,34 @@ def test_a_local_lesson_is_reported_not_proposed() -> None:
     )
 
 
-def test_lessons_sources_come_from_project_docs_or_the_step_stops() -> None:
+def test_lessons_sources_come_from_project_docs() -> None:
     assert "project-docs" in TEXT.split("<the_retro>")[1].split("</the_retro>")[0], (
         "the retro step must ask project-docs where lessons live, not guess a path"
     )
-    assert re.search(r"does not name a lessons source.{0,40}stop", TEXT, re.I), (
-        "with no source named, the step must say so and stop — never invent one"
+
+
+def test_retro_no_longer_stops_on_a_missing_source() -> None:
+    """DG-418. project-docs now always names a lessons location
+    (`.ai/LESSONS.md` by default), so the retro step no longer describes
+    stopping because none was named."""
+    retro = TEXT.split("<the_retro>")[1].split("</the_retro>")[0]
+    assert "LESSONS.md" in retro, (
+        "the retro step must read the lessons file project-docs names"
     )
+    assert "does not name a lessons source" not in retro, (
+        "the old stop-on-missing-source wording must be gone now that "
+        "project-docs always names a default"
+    )
+
+
+def test_retro_may_read_its_own_memory_never_anothers() -> None:
+    """DG-418 (Boss decision, 2026-10-01). An agent's own memory is its
+    scratch space: the retro may read its own when it exists, and promotes
+    lessons with evidence into LESSONS.md as a proposal — it never reads
+    another agent's private state."""
+    retro = TEXT.split("<the_retro>")[1].split("</the_retro>")[0]
+    assert re.search(r"own memory", retro, re.I)
+    assert re.search(r"never read another agent", retro, re.I)
 
 
 def test_skill_body_stays_under_the_500_line_budget() -> None:

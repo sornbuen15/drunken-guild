@@ -107,10 +107,15 @@ description: >
     never reaches the guild: nine sat in one project's own memory and none of them did, which is why
     this step exists (DG-409, REQ-017).
 
-    **Find the sources.** `project-docs` names where a project's documents live; ask it for where
-    this project keeps its lessons. If it does not name a lessons source, say exactly that —
-    "project-docs does not name a lessons source" — and stop. Never guess a path a project never told
-    you, and never read another project's own memory to fill the gap.
+    **Find the sources.** `project-docs` names where a project's documents live, lessons
+    included — `LESSONS.md`, `.ai/LESSONS.md` by default, tracked. Read it if it exists; an
+    absent file is a fact to report, not a gap to guess at.
+
+    **Read this instance's own memory too, when it has one.** An agent's own memory is its
+    scratch space, never a second lessons source to invent a path for — read it only to find
+    evidence for a promotion. Promote what has evidence into `LESSONS.md` as a proposal the Boss
+    approves; the retro never writes it there itself, and never read another agent's own memory
+    or other private state to fill the gap.
 
     **Classify each lesson.** Evidence of a repeatable rule — stated more than once, stated as
     holding beyond this project, or the Boss saying it applies to every project — is guild-wide:
@@ -174,6 +179,7 @@ description: >
     <constraint priority="FATAL">Never invent a requirement, an id, or a deploy target. An absent one is reported, not filled.</constraint>
     <constraint priority="FATAL">Never create or write to `.claude/board/` or `.agents/board/`. The `board_*` tools are retired.</constraint>
     <constraint priority="FATAL">The retro step never authors or edits a skill, a rule or a template, and never files a local lesson as a ticket. It proposes guild-wide lessons only, and only after the Boss approves the list.</constraint>
+    <constraint priority="FATAL">The retro step may read its own agent's memory for evidence, but never another agent's own memory or other private state.</constraint>
     <constraint priority="HIGH">The ticket shape, the field limits and the word budget live in the `jira-tickets` skill — including the rule that a post-mortem or a security finding is exempt from that budget. Read it; do not restate it here.</constraint>
     <constraint priority="HIGH">Never set `priority` and never invent story points. Neither exists here.</constraint>
     <constraint priority="HIGH">All output must be in English.</constraint>
