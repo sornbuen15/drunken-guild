@@ -73,6 +73,84 @@ def test_retro_may_read_its_own_memory_never_anothers() -> None:
     assert re.search(r"never read another agent", retro, re.I)
 
 
+def _constraints(text: str) -> str:
+    return text.split("<constraints>")[1].split("</constraints>")[0]
+
+
+def _action_sequence(text: str) -> str:
+    return text.split("<action_sequence>")[1].split("</action_sequence>")[0]
+
+
+#: The scrub rule itself, read out of the skill rather than restated here —
+#: covers both the prose in `<the_retro>` and the matching constraint.
+SCRUB_PATTERN = re.compile(
+    r"scrub(?:bed)?.{0,250}secrets.{0,150}personal data.{0,150}private filesystem path",
+    re.I | re.S,
+)
+
+#: Step 10's hand-off: who writes an approved lesson into `LESSONS.md`, and how.
+PULL_REQUEST_PATTERN = re.compile(
+    r"approve.{0,60}exact scrubbed text.{0,150}pull request.{0,150}"
+    r"never a direct commit.{0,150}never the retro writing it there itself",
+    re.I | re.S,
+)
+
+
+def test_the_retro_scrubs_secrets_and_personal_data_before_anyone_sees_it() -> None:
+    """DG-418 review (HIGH). `LESSONS.md` is tracked and may be public, and an
+    agent's own memory can hold a name, an email, a secret or a private path.
+    Scrubbing happens before the Boss or LESSONS.md ever sees either the
+    lesson or its quoted evidence."""
+    retro = TEXT.split("<the_retro>")[1].split("</the_retro>")[0]
+    assert SCRUB_PATTERN.search(retro), (
+        "the retro step must scrub secrets, personal data and private "
+        "filesystem paths out of a lesson and its evidence before showing "
+        "either to the Boss or writing to LESSONS.md"
+    )
+    assert re.search(r"stays local: report it, never propose it", retro, re.I), (
+        "a lesson that cannot be stated without private detail must stay "
+        "local, never be proposed"
+    )
+
+
+def test_the_constraints_also_require_the_same_scrub() -> None:
+    assert SCRUB_PATTERN.search(_constraints(TEXT)), (
+        "<constraints> must carry a matching FATAL rule, not just prose in <the_retro>"
+    )
+
+
+def test_removing_the_scrub_sentences_leaves_nothing_to_find() -> None:
+    """Proves the two tests above are not tautologies: strip the scrub
+    sentences from a scratch copy and both checks now fail."""
+    stripped = SCRUB_PATTERN.sub("REMOVED", TEXT)
+    assert not SCRUB_PATTERN.search(
+        stripped.split("<the_retro>")[1].split("</the_retro>")[0]
+    )
+    assert not SCRUB_PATTERN.search(_constraints(stripped))
+
+
+def _collapsed(text: str) -> str:
+    """Markdown wraps prose across lines, so a phrase spanning a line break
+    reads with a newline and indent where the sentence has a single space.
+    Collapse runs of whitespace before matching a multi-word phrase."""
+    return re.sub(r"\s+", " ", text)
+
+
+def test_step_10_names_the_pull_request_mechanism() -> None:
+    """DG-418 review (MEDIUM). 'the retro never writes it there itself' needs
+    a defined next actor: the Boss approves the exact scrubbed text, then a
+    human or /build adds it to LESSONS.md in a pull request."""
+    assert PULL_REQUEST_PATTERN.search(_collapsed(_action_sequence(TEXT))), (
+        "step 10 must name the pull-request mechanism that writes an "
+        "approved, scrubbed lesson into LESSONS.md"
+    )
+
+
+def test_removing_the_pull_request_clause_leaves_step_10_silent() -> None:
+    stripped = PULL_REQUEST_PATTERN.sub("REMOVED", _collapsed(TEXT))
+    assert not PULL_REQUEST_PATTERN.search(_collapsed(_action_sequence(stripped)))
+
+
 def test_skill_body_stays_under_the_500_line_budget() -> None:
     lines = TEXT.splitlines()
     assert len(lines) < 500, (

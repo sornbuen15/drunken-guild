@@ -9,6 +9,7 @@ by default, named in `project-docs`'s map and carried as a row in the
 scratch space — never a second lessons source.
 """
 
+import re
 from pathlib import Path
 
 from core.scaffold import agents_md
@@ -57,6 +58,34 @@ def test_lessons_row_is_outside_the_guild_block() -> None:
         "the Documents table, including the lessons row, lives outside the "
         "guild block — only the pointer table lives inside it"
     )
+
+
+#: The scrub clause itself, read out of the skill rather than restated here.
+SCRUB_PATTERN = re.compile(
+    r"[Ss]crubbed.{0,120}secrets.{0,120}personal data.{0,120}private filesystem path",
+    re.S,
+)
+
+
+def test_the_lessons_row_names_the_scrub_requirement() -> None:
+    """DG-418 review (HIGH). LESSONS.md is a tracked file in a project that
+    may be public, and an agent's own memory can hold a name, an email, an
+    id or a secret. The map's own row must say so, matching the audit
+    skill's retro step."""
+    the_map = _the_map(PROJECT_DOCS.read_text(encoding="utf-8"))
+    assert SCRUB_PATTERN.search(the_map), (
+        "the LESSONS.md row must name the scrub requirement — secrets, "
+        "personal data and private filesystem paths — before anything is "
+        "written there"
+    )
+
+
+def test_removing_the_scrub_clause_leaves_the_row_silent() -> None:
+    """Proves the test above is not a tautology: with the scrub clause
+    stripped from a scratch copy, the same check now fails."""
+    the_map = _the_map(PROJECT_DOCS.read_text(encoding="utf-8"))
+    stripped = SCRUB_PATTERN.sub("REMOVED", the_map)
+    assert not SCRUB_PATTERN.search(stripped)
 
 
 def test_template_still_renders_through_scaffold_with_project_and_jira_key() -> None:
