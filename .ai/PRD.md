@@ -127,6 +127,15 @@ cannot load AGENTS.md directly (https://code.claude.com/docs/en/memory).
 **Acceptance:** The project-level agreement — what, who for, stack, constraints — is the PRD's
 Brief; no separate constitution file exists. The roadmap is Jira.
 
+### REQ-017 — A project's lessons flow back into the guild
+**Class:** Should
+**Acceptance:** At the end of a run, the lessons a project has recorded are proposed back to the
+guild as tickets — each naming whether it is a skill, a rule or a template change — for the Boss
+to approve. Nothing authors a skill or rule by itself, and nothing is proposed without evidence
+from the project's own work.
+**Decided:** 2026-10-01 — the Boss approved a retro step at the end of `/audit` (DG-409). Found
+in a project run under the guild: nine lessons in its own memory, none of which reached the guild.
+
 ## Inferred — not yet accepted
 - (none — all accepted by the Boss, 2026-09-23)
 
