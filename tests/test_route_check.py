@@ -11,6 +11,8 @@ is reachable only via the guild block, an agent file, or another skill's
 text.
 """
 
+import ast
+import re
 from pathlib import Path
 
 from core import doctor
@@ -67,6 +69,34 @@ def _agents_md(root: Path, rows: list[str]) -> Path:
     path = root / "AGENTS.md"
     path.write_text(AGENTS_MD_TEMPLATE.format(rows="\n".join(rows)), encoding="utf-8")
     return path
+
+
+def _is_mcp_tool_decorator(node: ast.expr) -> bool:
+    """Whether *node* is `mcp.tool` or `mcp.tool(...)`, any arguments."""
+    target = node.func if isinstance(node, ast.Call) else node
+    return (
+        isinstance(target, ast.Attribute)
+        and target.attr == "tool"
+        and isinstance(target.value, ast.Name)
+        and target.value.id == "mcp"
+    )
+
+
+def _ast_tool_names(server_path: Path) -> set[str]:
+    """Every function decorated with `@mcp.tool` or `@mcp.tool(...)`, async
+    or not, read by parsing the module with `ast` — independent of the
+    regex :func:`doctor.registered_mcp_tools` uses, so the two readings must
+    agree. This is the oracle a hard-coded list cannot be: a 13th tool needs
+    no edit here, and a regex that stops recognising a real decorator still
+    disagrees with it."""
+    tree = ast.parse(server_path.read_text(encoding="utf-8"))
+    names: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and any(
+            _is_mcp_tool_decorator(d) for d in node.decorator_list
+        ):
+            names.add(node.name)
+    return names
 
 
 class TestGuildBlock:
@@ -202,31 +232,62 @@ class TestRegisteredMcpTools:
     def test_an_absent_server_file_reads_as_no_tools(self, tmp_path):
         assert doctor.registered_mcp_tools(tmp_path / "nope.py") == []
 
-    def test_pinned_against_the_real_server_module(self):
-        """A decorator-shape change in `src/jira_mcp/server.py` — a renamed
-        tool, one added or dropped, `@mcp.tool()` written differently — must
-        fail this test loudly rather than silently stop being read by
-        :func:`registered_mcp_tools`."""
+    def test_matches_an_independent_ast_reading_of_the_real_server_module(self):
+        """Not a hard-coded list — a 13th tool lands with no edit needed
+        here, but a decorator-shape change the regex stops recognising still
+        fails loudly, because :func:`_ast_tool_names`'s independent reading
+        of the same file would then disagree with
+        :func:`doctor.registered_mcp_tools`."""
         repo_root = Path(__file__).resolve().parent.parent
         server_path = repo_root / "src" / "jira_mcp" / "server.py"
 
-        names = doctor.registered_mcp_tools(server_path)
+        regex_names = set(doctor.registered_mcp_tools(server_path))
+        ast_names = _ast_tool_names(server_path)
 
-        assert names == [
-            "jira_search_issues",
-            "jira_assign",
-            "jira_create_issue",
-            "jira_board_info",
-            "jira_move_to_backlog",
-            "jira_move_to_board",
-            "jira_transition_issue",
-            "jira_add_comment",
-            "jira_edit_labels",
-            "jira_edit_issue",
-            "jira_start_task",
-            "jira_submit_for_review",
-        ]
-        assert len(names) == 12
+        assert ast_names, "the ast walk found no @mcp.tool-decorated function at all"
+        assert all(name.startswith("jira_") for name in ast_names)
+        assert regex_names == ast_names
+
+    def test_a_stricter_regex_would_silently_miss_every_real_tool(self, monkeypatch):
+        """Proves the ast cross-check has teeth. Every real decorator in
+        `server.py` is written `@mcp.tool()  # type: ignore[misc]` — tighten
+        `_MCP_TOOL_DEF` to accept no trailing whitespace or comment at all,
+        a plausible "simplify the pattern" regression, and
+        `registered_mcp_tools()` silently stops finding every single tool.
+        The independent ast reading is not fooled, so the equality this
+        class asserts above would have caught it."""
+        too_strict = re.compile(
+            r"@mcp\.tool\(\)\n(?:@[^\n]*\n)*(?:async\s+)?def\s+(\w+)"
+        )
+        monkeypatch.setattr(doctor, "_MCP_TOOL_DEF", too_strict)
+
+        repo_root = Path(__file__).resolve().parent.parent
+        server_path = repo_root / "src" / "jira_mcp" / "server.py"
+        ast_names = _ast_tool_names(server_path)
+
+        assert ast_names, "the ast walk itself must still find the real tools"
+        assert doctor.registered_mcp_tools(server_path) == []
+        assert set(doctor.registered_mcp_tools(server_path)) != ast_names
+
+    def test_ast_reading_handles_a_bare_decorator_and_one_called_with_args(
+        self, tmp_path
+    ):
+        """REQ: every function whose decorator is `mcp.tool` or
+        `mcp.tool(...)`, async or not, any decorator arguments."""
+        server = tmp_path / "server.py"
+        server.write_text(
+            "@mcp.tool\n"
+            "def jira_bare(project: str) -> str:\n"
+            "    return ''\n\n"
+            '@mcp.tool(name="renamed", description="x")\n'
+            "async def jira_with_args(project: str) -> str:\n"
+            "    return ''\n\n"
+            "def jira_not_a_tool() -> str:\n"
+            "    return ''\n",
+            encoding="utf-8",
+        )
+
+        assert _ast_tool_names(server) == {"jira_bare", "jira_with_args"}
 
 
 class TestSkillDescription:
