@@ -66,6 +66,44 @@ requires it; that grant sits on the one job that calls the endpoint, not on
 the workflow as a whole, so a reviewer can see exactly which job needs the
 extra scope without it being handed to the audits that do not.
 
+## A red run here is not a ticket
+
+REQ-018 says a finding "fails visibly and becomes a ticket." This workflow
+delivers the first half and not the second, and the gap is wider than it
+looks:
+
+- **GitHub emails a failed scheduled run to whoever last edited the cron
+  expression** — not to every maintainer, not to whoever is on call, and not
+  at all if that person has notifications for Actions turned off. Nobody
+  else learns about it from GitHub.
+- **GitHub disables a scheduled workflow after 60 days with no repository
+  activity**, silently — no email, no banner, nothing in the Actions tab
+  beyond the schedule quietly not firing again. A quiet repository is
+  exactly the one most likely to need the next advisory caught.
+- **A red run sitting in the Actions tab is not a ticket.** Nothing here
+  files one, assigns one, or pages anyone. It is a list of runs a person has
+  to go and read.
+
+So: **do not treat a scheduled run as self-reporting.** A person or an
+agent starting a session on a project that uses this workflow checks its
+latest run first, every time:
+
+```
+gh run list --workflow dependency-audit.yml --limit 1
+```
+
+A failed run found this way is filed as a ticket by hand — the same ticket
+shape as any other finding (`jira-tickets`'s FINDING/SCOPE/ACCEPTANCE, if
+the project uses it). There is no script here that does that filing
+automatically.
+
+**An automatic "open an issue on failure" step was considered and left
+out.** It would need `issues: write` on top of the read-only `permissions:`
+this workflow already asks for — a wider grant than "read the checkout and
+read Dependabot alerts," and the Boss has not decided whether that scope is
+worth adding. Until that decision is made, do not add it; the manual `gh
+run list` check above is the whole mitigation this template ships with.
+
 ## Dispatching it
 
 A workflow only becomes dispatchable from the GitHub UI once it exists on
