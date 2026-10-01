@@ -290,3 +290,17 @@ class TestItGivesTheProjectAnInstructionFile:
         run("--project", "remote-only")
 
         assert not list(tmp_path.rglob("AGENTS.md"))
+
+    def test_a_fresh_agents_md_opens_with_the_guild_block(self, tmp_path) -> None:
+        """DG-407. The template ships the same pointer table as the root
+        AGENTS.md, so a freshly initialised project is routed the same way."""
+        checkout = tmp_path / "app"
+        checkout.mkdir()
+
+        assert run("--project", "app", "--path", str(checkout)) == 0
+
+        agents = (checkout / "AGENTS.md").read_text(encoding="utf-8")
+        assert "<!-- guild-block:start -->" in agents
+        assert "<!-- guild-block:end -->" in agents
+        assert "/build" in agents
+        assert "jira-tickets" in agents
