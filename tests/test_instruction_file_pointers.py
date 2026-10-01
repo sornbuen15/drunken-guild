@@ -33,6 +33,18 @@ Round 2 narrowed the scan further, on the same proof-by-planting pattern:
   -- none of them is produced by anything, so any reference to one fails
   unless a future template or init step starts producing it.
 
+Round 3 found the location check itself could be walked around: it tested
+`_ALLOWED_PREFIXES` with a plain string `startswith` *before* `..` was ever
+resolved, then let `Path.is_file()` walk straight out through it -- a token
+like `templates/../tests/fixtures/stray/CLAUDE.md` starts with `templates/`
+textually, so it passed the prefix check, and then resolved against a real
+file sitting outside every accepted location. `_resolves()` now collapses
+`.`/`..` with `posixpath.normpath` before any prefix is trusted, rejects
+whatever still climbs out of the repository after that, rejects an absolute
+path outright, and -- belt and braces -- checks the fully resolved
+`Path` is still inside an allowed directory before ever calling
+`is_file()`.
+
 This module finds the reference *structurally*, instead of listing the
 sentences that currently make one: any path-ish token ending in a name that
 looks like a per-agent instruction file, found anywhere across the tracked
@@ -56,6 +68,7 @@ explicit ALLOWLIST below carries, each entry with its reason.
 
 from __future__ import annotations
 
+import posixpath
 import re
 from pathlib import Path
 
@@ -147,24 +160,59 @@ def _resolves(token: str, produced: set[str]) -> bool:
         return token.lower() in produced
 
     normalized = token.replace("\\", "/")
-    if normalized.startswith("./"):
-        normalized = normalized[2:]
-    elif normalized.startswith("/"):
-        normalized = normalized[1:]
     if normalized.startswith("~/"):
         # Never a repository-relative path -- the reader's own home
         # directory. Only reached for a token not already in ALLOWLIST.
         return False
+    if normalized.startswith("/"):
+        # An absolute path is never a location drunken-init or a template
+        # writes at. Round 1 used to treat a leading "/" as repo-root --
+        # dropped rather than kept, since round 3 needs every path-ish
+        # token to go through the same ".." check below, and "absolute" is
+        # not a shape that check should have to reason about at all.
+        return False
+    if normalized.startswith("./"):
+        normalized = normalized[2:]
+
     if "/" not in normalized:
         return normalized.lower() in produced
 
-    if not normalized.lower().startswith(_ALLOWED_PREFIXES):
+    # Collapse `.`/`..` segments *before* anything is trusted about the
+    # path's shape -- `_ALLOWED_PREFIXES` is a textual prefix check, and
+    # `templates/../tests/fixtures/x` starts with `templates/` right up
+    # until normalisation says it actually means `tests/fixtures/x`. A
+    # token that still climbs above the repo root after collapsing, or
+    # that collapses to a bare name, is handled the same way a token
+    # written that way from the start would be.
+    collapsed = posixpath.normpath(normalized)
+    if collapsed == "." or collapsed == ".." or collapsed.startswith("../"):
+        return False
+    if "/" not in collapsed:
+        return collapsed.lower() in produced
+
+    if not collapsed.lower().startswith(_ALLOWED_PREFIXES):
         # Real or not, a path outside the project root, templates/ and
         # src/core/templates/ is not a location drunken-init or a template
         # conventionally produces an instruction file at -- a stray file
         # placed and linked anywhere else does not get to count.
         return False
-    return (REPO_ROOT / normalized).is_file()
+
+    candidate = (REPO_ROOT / collapsed).resolve()
+    allowed_roots = [(REPO_ROOT / prefix).resolve() for prefix in _ALLOWED_PREFIXES]
+    if not any(_is_within(candidate, root) for root in allowed_roots):
+        # Belt and braces alongside the textual check above: a symlink or
+        # another filesystem-level trick that `posixpath.normpath` cannot
+        # see does not get to resolve either.
+        return False
+    return candidate.is_file()
+
+
+def _is_within(path: Path, root: Path) -> bool:
+    try:
+        path.relative_to(root)
+    except ValueError:
+        return False
+    return True
 
 
 def scan(tmp_path: Path) -> list[str]:
@@ -344,6 +392,76 @@ def test_does_not_accept_a_stray_file_outside_the_conventional_locations(
     assert problems == [
         "README.md:1: references 'tests/fixtures/stray/CLAUDE.md'",
     ]
+
+
+#: A real, permanent, tracked file sitting outside every accepted location
+#: (`tests/fixtures/` is not in `_scan_files()`, so it is never itself
+#: scanned as a live reference). Round 3's bug let a `templates/../...`
+#: token resolve against a real file exactly like this one; proving the fix
+#: needs a real target at the far end of the traversal, not a path that
+#: merely fails to exist, which the pre-round-3 code would also have
+#: rejected -- for the wrong reason.
+_REAL_STRAY_FILE = REPO_ROOT / "tests" / "fixtures" / "stray" / "CLAUDE.md"
+
+
+def test_the_traversal_fixture_is_real() -> None:
+    """Guards the proof below: if this ever stops being true, the next test
+    would pass for the wrong reason -- nothing at the target, not the
+    traversal being rejected."""
+    assert _REAL_STRAY_FILE.is_file()
+
+
+def test_rejects_the_reviewers_traversal_past_templates(tmp_path: Path) -> None:
+    """Round 3: `_ALLOWED_PREFIXES` used to be checked with a plain string
+    `startswith` before `..` was resolved, so `templates/../tests/fixtures/
+    stray/CLAUDE.md` passed the prefix check textually and then resolved
+    against the real file above, which sits outside every accepted
+    location. Checked two ways: `_resolves()` directly, against the file
+    that is actually there, and through the full scan with a planted
+    reference, which must report the exact file and line."""
+    produced = _produced_filenames(tmp_path)
+    token = "templates/../tests/fixtures/stray/CLAUDE.md"
+    assert not _resolves(token, produced), (
+        "the traversal resolved -- it walked out of templates/ to a real "
+        "file outside every accepted location"
+    )
+
+    mutated = f"See `{token}` for an example adapter.\n"
+    problems = _scan_text(tmp_path, "README.md", mutated)
+    assert problems == [f"README.md:1: references {token!r}"]
+
+
+def test_rejects_a_templates_path_that_does_not_exist(tmp_path: Path) -> None:
+    """Round 3 proof 2: being inside `templates/` is necessary, not
+    sufficient -- the file still has to be real. Confirms the `.is_file()`
+    call survived the rewrite of `_resolves()`'s path-ish branch."""
+    produced = _produced_filenames(tmp_path)
+    token = "templates/NOPE_RULES.md"
+    assert not (REPO_ROOT / "templates" / "NOPE_RULES.md").exists(), (
+        "test fixture assumption broken: this file exists for real"
+    )
+    assert not _resolves(token, produced)
+
+    mutated = f"See `{token}` for an example adapter.\n"
+    problems = _scan_text(tmp_path, "README.md", mutated)
+    assert problems == [f"README.md:1: references {token!r}"]
+
+
+def test_rejects_a_dot_slash_name_that_exists_nowhere(tmp_path: Path) -> None:
+    """Round 3 proof 3: `./` stripped down to a bare name still has to
+    resolve against something `drunken-init` or a template actually
+    produces -- stripping the prefix is not itself a pass. `INSTRUCTIONS.md`
+    matches the recognised-name pattern (round 2) but nothing produces it,
+    so this is also a second, independent proof that the recognised-but-
+    unproduced vendor names stay rejected once a `./` prefix is involved."""
+    produced = _produced_filenames(tmp_path)
+    token = "./INSTRUCTIONS.md"
+    assert "instructions.md" not in produced
+    assert not _resolves(token, produced)
+
+    mutated = f"See `{token}` for an example adapter.\n"
+    problems = _scan_text(tmp_path, "README.md", mutated)
+    assert problems == [f"README.md:1: references {token!r}"]
 
 
 def test_catches_a_lowercase_bogus_filename(tmp_path: Path) -> None:
