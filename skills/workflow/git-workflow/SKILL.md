@@ -171,8 +171,8 @@ description: >
       - [ ] Branch name follows the convention above
       - [ ] All commits follow Conventional Commits
       - [ ] No unrelated file changes included
-      - [ ] Skill files follow canonical SKILL.md structure (see CLAUDE.md)
-      - [ ] Agent files follow canonical agent `.md` structure (see CLAUDE.md)
+      - [ ] Skill files follow canonical SKILL.md structure (see AGENTS.md)
+      - [ ] Agent files follow canonical agent `.md` structure (see AGENTS.md)
       - [ ] Sync scripts have NOT been run — installation is always a manual user step
     </rule>
 

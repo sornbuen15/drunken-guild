@@ -3,7 +3,7 @@
 
 A tool's docstring *is* its description, and every description is sent to the
 model in every session that declares this server. Ten of them came to 3.7K: the
-third largest always-on cost in this project, behind CLAUDE.md and the skill
+third largest always-on cost in this project, behind AGENTS.md and the skill
 listing, and the only one nobody had looked at.
 
 The line this file draws is not "shorter is better". A description has one job —

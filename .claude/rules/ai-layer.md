@@ -14,7 +14,8 @@ This half has no compiler, so its structure is the only thing keeping it consist
 <!-- Moved out of CLAUDE.md in DG-360. It applies only while a skill, agent or
      template is being written, which is what `paths:` above says, so it costs
      nothing on every other turn. The floor that must hold whatever is being
-     touched stayed in CLAUDE.md. -->
+     touched stayed in AGENTS.md (CLAUDE.md is only the `@AGENTS.md` adapter,
+     since DG-391). -->
 
 ## Skill files
 
@@ -66,7 +67,7 @@ Every agent is `agents/<agent-name>.md` with frontmatter carrying `name`, `descr
 
 ## Installing is the operator's job
 
-The prohibition is in `CLAUDE.md` because it has to hold whatever you are touching. What belongs
+The prohibition is in `AGENTS.md` because it has to hold whatever you are touching. What belongs
 here is the detail:
 
 ```
@@ -107,6 +108,6 @@ A skill that does not say which layer it needs gets installed into a project tha
 **Layers 1 and 2 stand on their own.** Most skills need no MCP server at all. Only the coordination
 skills do.
 
-`templates/CLAUDE.md` is a different document from this repository's own: it is the file **other
-projects copy**. This one adds the authoring rules, which apply nowhere else. When a coordination
-rule changes, change it in both.
+`templates/CLAUDE.md` is a different document from this repository's own `AGENTS.md`: it is the
+file **other projects copy**. This one adds the authoring rules, which apply nowhere else. When a
+coordination rule changes, change it in both.
