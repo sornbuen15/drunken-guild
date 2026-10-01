@@ -14,6 +14,8 @@ rather than simulating an agent reading it.
 import re
 from pathlib import Path
 
+import pytest
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SKILL = REPO_ROOT / "skills" / "flow" / "audit" / "SKILL.md"
 TEXT = SKILL.read_text(encoding="utf-8")
@@ -43,13 +45,205 @@ def test_a_local_lesson_is_reported_not_proposed() -> None:
     )
 
 
-def test_lessons_sources_come_from_project_docs_or_the_step_stops() -> None:
+def test_lessons_sources_come_from_project_docs() -> None:
     assert "project-docs" in TEXT.split("<the_retro>")[1].split("</the_retro>")[0], (
         "the retro step must ask project-docs where lessons live, not guess a path"
     )
-    assert re.search(r"does not name a lessons source.{0,40}stop", TEXT, re.I), (
-        "with no source named, the step must say so and stop — never invent one"
+
+
+def test_retro_no_longer_stops_on_a_missing_source() -> None:
+    """DG-418. project-docs now always names a lessons location
+    (`.ai/LESSONS.md` by default), so the retro step no longer describes
+    stopping because none was named."""
+    retro = TEXT.split("<the_retro>")[1].split("</the_retro>")[0]
+    assert "LESSONS.md" in retro, (
+        "the retro step must read the lessons file project-docs names"
     )
+    assert "does not name a lessons source" not in retro, (
+        "the old stop-on-missing-source wording must be gone now that "
+        "project-docs always names a default"
+    )
+
+
+def test_retro_may_read_its_own_memory_never_anothers() -> None:
+    """DG-418 (Boss decision, 2026-10-01). An agent's own memory is its
+    scratch space: the retro may read its own when it exists, and promotes
+    lessons with evidence into LESSONS.md as a proposal — it never reads
+    another agent's private state."""
+    retro = TEXT.split("<the_retro>")[1].split("</the_retro>")[0]
+    assert re.search(r"own memory", retro, re.I)
+    assert re.search(r"never read another agent", retro, re.I)
+
+
+def _constraints(text: str) -> str:
+    return text.split("<constraints>")[1].split("</constraints>")[0]
+
+
+def _action_sequence(text: str) -> str:
+    return text.split("<action_sequence>")[1].split("</action_sequence>")[0]
+
+
+def _the_retro(text: str) -> str:
+    return text.split("<the_retro>")[1].split("</the_retro>")[0]
+
+
+def _collapsed(text: str) -> str:
+    """Markdown wraps prose across lines, so a phrase spanning a line break
+    reads with a newline and indent where the sentence has a single space.
+    Collapse runs of whitespace before matching a multi-word phrase."""
+    return re.sub(r"\s+", " ", text)
+
+
+#: The five categories a second review named explicitly (DG-418): the first
+#: pass's "secrets, personal data and private filesystem paths" left room for
+#: a name, a phone number, an internal hostname, or another project's own
+#: ticket key or name to slip through unnamed.
+SCRUB_CATEGORIES = (
+    "secrets and credentials",
+    "personal data (names, emails, phone numbers, ids)",
+    "home-directory and drive paths",
+    "internal hostnames and URLs",
+    "ticket keys or names of other projects",
+)
+
+#: Anchored on the three words a second review's own mutation test found
+#: missing: the first pass's pattern matched "scrub ... secrets ... personal
+#: data ... private filesystem path" regardless of whether the sentence said
+#: "before" or "after" either was shown or written — changing just that one
+#: word left all 15 tests passing. "before", "shown to the Boss" and
+#: "written" must appear together, in that order.
+BEFORE_SHOWN_WRITTEN_PATTERN = re.compile(
+    r"before.{0,120}shown to the Boss.{0,120}written", re.I | re.S
+)
+
+#: Targets only the "before" immediately ahead of "shown to the Boss" — not
+#: every other "before" in the skill (step 8's "before reporting it as
+#: created", for one) — so the mutation test below changes exactly the word
+#: the anchor depends on.
+_BEFORE_NEAR_SHOWN = re.compile(r"\bbefore\b(?=.{0,120}shown to the Boss)", re.I | re.S)
+
+#: Step 10's hand-off: who writes an approved lesson into `LESSONS.md`, and how.
+PULL_REQUEST_PATTERN = re.compile(
+    r"approve.{0,60}exact scrubbed text.{0,150}pull request.{0,150}"
+    r"never a direct commit.{0,150}never the retro writing it there itself",
+    re.I | re.S,
+)
+
+
+def test_the_retro_anchors_the_scrub_on_before_shown_and_written() -> None:
+    """DG-418 second review. `scrub ... secrets ... personal data ...
+    private filesystem path` alone does not say *when* the scrub happens;
+    the sentence must say "before" it is shown to the Boss or written."""
+    retro = _collapsed(_the_retro(TEXT))
+    assert BEFORE_SHOWN_WRITTEN_PATTERN.search(retro), (
+        "the retro step must say the scrub happens before either showing "
+        "the lesson to the Boss or writing it to LESSONS.md"
+    )
+    assert re.search(r"stays local: report it, never propose it", retro, re.I), (
+        "a lesson that cannot be stated without private detail must stay "
+        "local, never be proposed"
+    )
+
+
+def test_the_constraints_anchor_the_same_scrub_timing() -> None:
+    assert BEFORE_SHOWN_WRITTEN_PATTERN.search(_collapsed(_constraints(TEXT))), (
+        "<constraints> must carry the same before-shown-written timing, not "
+        "just prose in <the_retro>"
+    )
+
+
+#: The constraints' own wording of the stays-local rule — separate from
+#: <the_retro>'s "stays local: report it, never propose it" — so a weakened
+#: or deleted constraint sentence would otherwise slip past unnoticed: a
+#: third review found it had no test at all, and weakening it to "... may be
+#: proposed anyway", or deleting it outright, left all 37 tests passing.
+STAYS_LOCAL_CONSTRAINT_PATTERN = re.compile(
+    r"cannot be stated without one of these.{0,60}reported as local.{0,60}never proposed",
+    re.I | re.S,
+)
+
+#: The constraint's exact sentence, so the mutation tests below change only
+#: this sentence and nothing else in <constraints>.
+_STAYS_LOCAL_SENTENCE = (
+    "A lesson that cannot be stated without one of these is reported as "
+    "local, never proposed."
+)
+
+
+def test_the_constraints_require_an_unstatable_lesson_to_stay_local() -> None:
+    """DG-418 third review. The FATAL constraint's own sentence had no
+    test: weakening it to '... may be proposed anyway', or deleting it,
+    left every other test in this file passing."""
+    constraints = _collapsed(_constraints(TEXT))
+    assert _STAYS_LOCAL_SENTENCE in constraints, (
+        "<constraints> must carry this exact sentence verbatim"
+    )
+    assert STAYS_LOCAL_CONSTRAINT_PATTERN.search(constraints), (
+        "<constraints> must say an unstatable lesson is reported as local "
+        "and never proposed"
+    )
+
+
+def test_weakening_the_stays_local_clause_breaks_the_check() -> None:
+    """Proves the test above is not a tautology: replacing just 'never
+    proposed' with a permissive clause — the exact weakening the third
+    review named — must fail the check."""
+    constraints = _collapsed(_constraints(TEXT))
+    weakened = constraints.replace(
+        _STAYS_LOCAL_SENTENCE,
+        "A lesson that cannot be stated without one of these may be proposed anyway.",
+    )
+    assert _STAYS_LOCAL_SENTENCE not in weakened, "the mutation did not apply"
+    assert not STAYS_LOCAL_CONSTRAINT_PATTERN.search(weakened)
+
+
+def test_removing_the_stays_local_sentence_breaks_the_check() -> None:
+    """Proves the test above is not a tautology a second way: deleting the
+    sentence outright must also fail the check."""
+    constraints = _collapsed(_constraints(TEXT))
+    removed = constraints.replace(_STAYS_LOCAL_SENTENCE, "")
+    assert _STAYS_LOCAL_SENTENCE not in removed, "the mutation did not apply"
+    assert not STAYS_LOCAL_CONSTRAINT_PATTERN.search(removed)
+
+
+@pytest.mark.parametrize("category", SCRUB_CATEGORIES)
+def test_each_scrub_category_is_named_in_the_retro(category: str) -> None:
+    assert category in _collapsed(_the_retro(TEXT)), (
+        f"the retro step must name {category!r} explicitly, not fold it "
+        "into a shorter, less specific list"
+    )
+
+
+@pytest.mark.parametrize("category", SCRUB_CATEGORIES)
+def test_each_scrub_category_is_named_in_the_constraints(category: str) -> None:
+    assert category in _collapsed(_constraints(TEXT)), (
+        f"<constraints> must name {category!r} too, matching <the_retro>"
+    )
+
+
+def test_flipping_before_to_after_breaks_the_anchor() -> None:
+    """Proves the two anchor tests above are not tautologies: a second
+    review found the first pass's pattern still matched after the reviewer
+    changed only 'before' to 'after' in a scratch copy, and all 15 tests
+    still passed. This one fails unless the mutation does."""
+    mutated = _BEFORE_NEAR_SHOWN.sub("after", _collapsed(TEXT))
+    assert not BEFORE_SHOWN_WRITTEN_PATTERN.search(_the_retro(mutated))
+    assert not BEFORE_SHOWN_WRITTEN_PATTERN.search(_constraints(mutated))
+
+
+def test_step_10_names_the_pull_request_mechanism() -> None:
+    """DG-418 review (MEDIUM). 'the retro never writes it there itself' needs
+    a defined next actor: the Boss approves the exact scrubbed text, then a
+    human or /build adds it to LESSONS.md in a pull request."""
+    assert PULL_REQUEST_PATTERN.search(_collapsed(_action_sequence(TEXT))), (
+        "step 10 must name the pull-request mechanism that writes an "
+        "approved, scrubbed lesson into LESSONS.md"
+    )
+
+
+def test_removing_the_pull_request_clause_leaves_step_10_silent() -> None:
+    stripped = PULL_REQUEST_PATTERN.sub("REMOVED", _collapsed(TEXT))
+    assert not PULL_REQUEST_PATTERN.search(_collapsed(_action_sequence(stripped)))
 
 
 def test_skill_body_stays_under_the_500_line_budget() -> None:

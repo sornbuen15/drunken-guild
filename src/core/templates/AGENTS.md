@@ -33,6 +33,7 @@ this table; change a path here and every step follows it.
 | audit reports | `.ai/audit/` |
 | guides and reference | `docs/` |
 | decisions (ADRs) | `docs/decisions/` |
+| LESSONS — this project's own recorded lessons | `.ai/LESSONS.md` |
 
 ## Jira
 

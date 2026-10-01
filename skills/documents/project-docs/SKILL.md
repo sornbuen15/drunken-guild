@@ -35,9 +35,10 @@ description: >
     | `audit/` | one report per audit run: what traced, what did not |
     | `docs/` | what people read — guides and API reference |
     | `docs/decisions/` | ADRs: decisions already made, each with its reasoning |
+    | `LESSONS.md` | this project's own recorded lessons — tracked, so every agent and a fresh clone can read it. Scrubbed, before anything is shown to the Boss or written here, of secrets and credentials, personal data (names, emails, phone numbers, ids), home-directory and drive paths and other private filesystem paths, internal hostnames and URLs, and ticket keys or names of other projects; `/audit`'s retro step reads it and proposes, with scrubbed evidence, what belongs here |
 
     **When there is no map, these are the defaults**, and a skill that uses them says so:
-    `.ai/PRD.md`, `.ai/DOMAIN.md`, `.ai/audit/`, `docs/`, `docs/decisions/`.
+    `.ai/PRD.md`, `.ai/DOMAIN.md`, `.ai/audit/`, `docs/`, `docs/decisions/`, `.ai/LESSONS.md`.
 
     An older project may still have its requirements split across `PROJECT_BRIEF.md`,
     `REQUIREMENTS.md` and `PROJECT_SPEC.md`. Read them where the map says they are; `/prd`

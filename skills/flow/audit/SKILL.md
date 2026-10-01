@@ -107,19 +107,34 @@ description: >
     never reaches the guild: nine sat in one project's own memory and none of them did, which is why
     this step exists (DG-409, REQ-017).
 
-    **Find the sources.** `project-docs` names where a project's documents live; ask it for where
-    this project keeps its lessons. If it does not name a lessons source, say exactly that —
-    "project-docs does not name a lessons source" — and stop. Never guess a path a project never told
-    you, and never read another project's own memory to fill the gap.
+    **Find the sources.** `project-docs` names where a project's documents live, lessons
+    included — `LESSONS.md`, `.ai/LESSONS.md` by default, tracked. Read it if it exists; an
+    absent file is a fact to report, not a gap to guess at.
+
+    **Read this instance's own memory too, when it has one.** An agent's own memory is its
+    scratch space, never a second lessons source to invent a path for — read it only to find
+    evidence for a promotion. Promote what has evidence into `LESSONS.md` as a proposal the Boss
+    approves; the retro never writes it there itself, and never read another agent's own memory
+    or other private state to fill the gap.
 
     **Classify each lesson.** Evidence of a repeatable rule — stated more than once, stated as
     holding beyond this project, or the Boss saying it applies to every project — is guild-wide:
     propose it. A lesson that is this project's own path, port, person or one-off mistake is local:
     report it in the audit report and do not propose it.
 
+    **Scrub before anyone sees it.** `LESSONS.md` is a tracked file in a project that may be
+    public, and an agent's own memory can hold detail that must never land there. Scrub a lesson
+    and its quoted evidence of secrets and credentials, personal data (names, emails, phone
+    numbers, ids), home-directory and drive paths and other private filesystem paths, internal
+    hostnames and URLs, and ticket keys or names of other projects — **before** either is shown
+    to the Boss or written to `LESSONS.md`. The Boss approves only text that is safe to commit,
+    never the raw original. A lesson that cannot be stated without one of these stays local:
+    report it, never propose it.
+
     **Name the shape of the fix, never write it.** For each guild-wide lesson, say whether it is a
-    skill, a rule (`.claude/rules/` or `CLAUDE.md`) or a template change, and quote the evidence it
-    rests on — the lesson's own words, not a paraphrase.
+    skill, a rule (`.claude/rules/` or `CLAUDE.md`) or a template change, and quote the scrubbed
+    evidence it rests on — the lesson's own words, not a paraphrase, and never the unscrubbed
+    original.
   </the_retro>
 
   <the_two_reports>
@@ -160,9 +175,11 @@ description: >
     9. CREATE: only the approved rows, through `/breakdown`. Confirm each with
        `jira_search_issues` before reporting it as created. Leave them off the board.
     10. RETRO: read this project's lessons sources (`the_retro` above), classify each as guild-wide
-        or local, and propose the guild-wide ones as tickets — one per lesson, naming skill, rule or
-        template and quoting the evidence. Halt for the Boss; file only what they approve. This is
-        the flow's last step.
+        or local, scrub secrets, personal data and private paths out of each lesson and its
+        evidence, and propose the guild-wide ones as tickets — one per lesson, naming skill, rule
+        or template and quoting the scrubbed evidence. Halt for the Boss; once they approve the
+        exact scrubbed text, a human or `/build` adds it to `LESSONS.md` in a pull request — never
+        a direct commit, and never the retro writing it there itself. This is the flow's last step.
   </action_sequence>
 
   <constraints>
@@ -174,6 +191,8 @@ description: >
     <constraint priority="FATAL">Never invent a requirement, an id, or a deploy target. An absent one is reported, not filled.</constraint>
     <constraint priority="FATAL">Never create or write to `.claude/board/` or `.agents/board/`. The `board_*` tools are retired.</constraint>
     <constraint priority="FATAL">The retro step never authors or edits a skill, a rule or a template, and never files a local lesson as a ticket. It proposes guild-wide lessons only, and only after the Boss approves the list.</constraint>
+    <constraint priority="FATAL">The retro step may read its own agent's memory for evidence, but never another agent's own memory or other private state.</constraint>
+    <constraint priority="FATAL">A lesson and its quoted evidence are scrubbed of secrets and credentials, personal data (names, emails, phone numbers, ids), home-directory and drive paths and other private filesystem paths, internal hostnames and URLs, and ticket keys or names of other projects — before either is shown to the Boss or written to `LESSONS.md`; the Boss approves only the scrubbed text. A lesson that cannot be stated without one of these is reported as local, never proposed.</constraint>
     <constraint priority="HIGH">The ticket shape, the field limits and the word budget live in the `jira-tickets` skill — including the rule that a post-mortem or a security finding is exempt from that budget. Read it; do not restate it here.</constraint>
     <constraint priority="HIGH">Never set `priority` and never invent story points. Neither exists here.</constraint>
     <constraint priority="HIGH">All output must be in English.</constraint>
