@@ -173,6 +173,16 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--board-dir", help="Board directory relative to the checkout.")
     parser.add_argument(
+        "--guild-block",
+        action="store_true",
+        help=(
+            "Merge the guild block into an EXISTING AGENTS.md (requires --path). "
+            "No block yet: inserted after the first heading. An older block: only "
+            "the text between its markers is replaced; everything else is "
+            "untouched. Idempotent — a second run changes nothing."
+        ),
+    )
+    parser.add_argument(
         "--registry", help="Registry file to write instead of the resolved default."
     )
     return parser
@@ -189,15 +199,38 @@ def main() -> int:
         document = _ensure_registry_document(registry_file)
         project_id = _apply_project(document, args) if args.project else None
         _write(registry_file, document)
+
+        project_root = (
+            Path(document["projects"][project_id]["path"])
+            if project_id and args.path
+            else None
+        )
+        agents_path = project_root / "AGENTS.md" if project_root else None
+        existed_before = bool(agents_path and agents_path.exists())
+
         written = (
             scaffold.instruction_files(
-                Path(document["projects"][project_id]["path"]),
+                project_root,
                 project_id,
                 document["projects"][project_id].get("jira", {}).get("project_key"),
             )
-            if project_id and args.path
+            if project_id and args.path and project_root is not None
             else []
         )
+
+        if args.guild_block and project_root and agents_path:
+            if existed_before:
+                status = scaffold.merge_guild_block(agents_path)
+                written.append(f"guild block     : {status}, {agents_path}")
+            else:
+                # instruction_files() just wrote a fresh AGENTS.md from the
+                # template, which already opens with the current block —
+                # nothing to merge, but say so rather than letting it read
+                # as "unchanged" next to a file that did not exist a moment
+                # ago.
+                written.append(
+                    f"guild block     : created with the block, {agents_path}"
+                )
     except DrunkenError as exc:
         print(f"error: {exc}")
         if exc.remediation:
