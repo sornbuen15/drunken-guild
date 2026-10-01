@@ -1,16 +1,19 @@
 # Install agents from this repo to %USERPROFILE%\.claude\agents\
-# Usage: .\scripts\install\install_agents.ps1
+# Usage: .\scripts\install\install_agents.ps1 [-IndexOnly]
 #
-# KNOWN GAP -- this does less than install_agents.sh, and the difference is
-# stated rather than hidden. The shell version also accepts --index-only
-# to rebuild agents/INDEX.md without installing anything. That is not
-# implemented here.
-#
-# Not an oversight: this project has no Windows machine to run PowerShell
-# against, and an untested installer that writes into a shared config
-# directory is worse than one that does less and says so.
+# -IndexOnly rebuilds the repository's agents/INDEX.md and writes nothing
+# else -- not to ~/.claude, not to any target. It is the switch safe for an
+# agent: AGENTS.md says an agent does not install, so this is the only mode
+# an agent may run unattended. Without it, this script performs a real
+# install into the operator's ~/.claude/agents and must not be run by an
+# agent (DG-423, the same incident that added -IndexOnly to
+# install_skills.ps1).
 #
 # Requirements: PowerShell 5.1+ or PowerShell Core 7+ (Windows / macOS / Linux)
+
+param(
+    [switch]$IndexOnly
+)
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
@@ -18,6 +21,7 @@ $ErrorActionPreference = "Stop"
 $ScriptDir       = $PSScriptRoot
 $LocalAgentsDir  = Resolve-Path (Join-Path $ScriptDir "..\..\agents")
 $GlobalAgentsDir = Join-Path $HOME ".claude\agents"
+$LocalIndex      = Join-Path $LocalAgentsDir "INDEX.md"
 
 Write-Host "=================================================" -ForegroundColor Blue
 Write-Host "   Claude Agents Synchronizer                   " -ForegroundColor Blue
@@ -28,7 +32,15 @@ if (-not (Test-Path $LocalAgentsDir)) {
     exit 1
 }
 
-New-Item -ItemType Directory -Force -Path $GlobalAgentsDir | Out-Null
+# Everything below this point that writes or creates anything outside the
+# repository is gated on $IndexOnly being false. $GlobalAgentsDir is the
+# target's root and the first thing a real install creates -- -IndexOnly
+# never reaches that call.
+if ($IndexOnly) {
+    Write-Host "  -IndexOnly: rebuilding agents/INDEX.md, installing nothing" -ForegroundColor Yellow
+} else {
+    New-Item -ItemType Directory -Force -Path $GlobalAgentsDir | Out-Null
+}
 
 Write-Host ""
 Write-Host "Source: $LocalAgentsDir"
@@ -60,26 +72,32 @@ $IndexLines.Add("")
 
 foreach ($AgentFile in $AgentFiles) {
     $AgentName  = [System.IO.Path]::GetFileNameWithoutExtension($AgentFile.Name)
-    $TargetFile = Join-Path $GlobalAgentsDir "$AgentName.md"
-    $IsNew      = -not (Test-Path $TargetFile)
 
-    $ShouldCopy = $true
-    if (Test-Path $TargetFile) {
-        $SrcHash  = (Get-FileHash $AgentFile.FullName -Algorithm MD5).Hash
-        $DestHash = (Get-FileHash $TargetFile         -Algorithm MD5).Hash
-        $ShouldCopy = ($SrcHash -ne $DestHash)
-    }
+    # -IndexOnly never creates, reads or writes anything under
+    # $GlobalAgentsDir. That decision only matters for the install messages,
+    # which -IndexOnly does not print.
+    if (-not $IndexOnly) {
+        $TargetFile = Join-Path $GlobalAgentsDir "$AgentName.md"
+        $IsNew      = -not (Test-Path $TargetFile)
 
-    if ($ShouldCopy) {
-        Copy-Item -Path $AgentFile.FullName -Destination $TargetFile -Force
-    }
+        $ShouldCopy = $true
+        if (Test-Path $TargetFile) {
+            $SrcHash  = (Get-FileHash $AgentFile.FullName -Algorithm MD5).Hash
+            $DestHash = (Get-FileHash $TargetFile         -Algorithm MD5).Hash
+            $ShouldCopy = ($SrcHash -ne $DestHash)
+        }
 
-    if ($IsNew) {
-        Write-Host "  [+] Installed: $AgentName" -ForegroundColor Green
-        $NewCount++
-    } else {
-        Write-Host "  [*] Updated:   $AgentName"
-        $UpdatedCount++
+        if ($ShouldCopy) {
+            Copy-Item -Path $AgentFile.FullName -Destination $TargetFile -Force
+        }
+
+        if ($IsNew) {
+            Write-Host "  [+] Installed: $AgentName" -ForegroundColor Green
+            $NewCount++
+        } else {
+            Write-Host "  [*] Updated:   $AgentName"
+            $UpdatedCount++
+        }
     }
 
     # Checked against DG-378 and clean: unlike install_skills.ps1, this reads
@@ -114,13 +132,27 @@ foreach ($AgentFile in $AgentFiles) {
 # The DG-378 write path, for the same reason: this index is committed, so it
 # must be the bytes install_agents.sh writes and a commit accepts -- no BOM, LF,
 # and no trailing blank line for end-of-file-fixer to strip.
-$IndexFile = Join-Path $GlobalAgentsDir "INDEX.md"
 $IndexText = ($IndexLines -join "`n").TrimEnd("`n") + "`n"
 $Utf8NoBom = New-Object System.Text.UTF8Encoding $false
+
+# -IndexOnly writes only the repository's own agents/INDEX.md and returns
+# here -- before $GlobalAgentsDir\INDEX.md is ever touched.
+if ($IndexOnly) {
+    $TempIndex = [System.IO.Path]::GetTempFileName()
+    [System.IO.File]::WriteAllText($TempIndex, $IndexText, $Utf8NoBom)
+    Move-Item -Path $TempIndex -Destination $LocalIndex -Force
+
+    Write-Host ""
+    Write-Host "Done." -ForegroundColor Green -NoNewline
+    Write-Host " Rebuilt $LocalIndex. Nothing was installed."
+    exit 0
+}
+
+$IndexFile = Join-Path $GlobalAgentsDir "INDEX.md"
 $TempIndex = [System.IO.Path]::GetTempFileName()
 [System.IO.File]::WriteAllText($TempIndex, $IndexText, $Utf8NoBom)
 Move-Item -Path $TempIndex -Destination $IndexFile -Force
-Copy-Item -Path $IndexFile -Destination (Join-Path $LocalAgentsDir "INDEX.md") -Force
+Copy-Item -Path $IndexFile -Destination $LocalIndex -Force
 
 Write-Host ""
 Write-Host "Sync complete." -ForegroundColor Green

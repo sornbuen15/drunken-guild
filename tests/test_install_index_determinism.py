@@ -347,3 +347,76 @@ class TestTheAgentInstallerWritesTheSameBytes:
             "install_agents.ps1 and install_agents.sh disagree about the bytes "
             f"of agents/INDEX.md. The Windows copy is at\n  {home / '.claude' / 'agents' / 'INDEX.md'}"
         )
+
+
+class TestTheIndexOnlySwitchTouchesNothingOutsideTheRepo:
+    """DG-423. install_skills.sh and install_agents.sh have had --index-only
+    all along: rebuild the repository's own INDEX.md and write nothing else.
+    The PowerShell scripts had no equivalent, so an agent on Windows that
+    needed to check whether INDEX.md was stale had no way to do it without a
+    real install -- and a real install overwrote the Boss's
+    ~/.claude/skills with unmerged branch content.
+
+    -IndexOnly must never create, read-to-decide-new, or write under the
+    target directory at all -- not even the directory itself -- and the
+    INDEX.md it rebuilds must be the same bytes install_skills.sh /
+    install_agents.sh produce.
+    """
+
+    @pytest.mark.skipif(POWERSHELL is None, reason="no PowerShell host on this machine")
+    @pytest.mark.parametrize(
+        "subdir,script_name,index_rel",
+        [
+            ("skills", "install_skills.ps1", "skills/INDEX.md"),
+            ("agents", "install_agents.ps1", "agents/INDEX.md"),
+        ],
+        ids=["install_skills.ps1", "install_agents.ps1"],
+    )
+    def test_index_only_leaves_the_target_directory_untouched(
+        self, tmp_path: Path, subdir: str, script_name: str, index_rel: str
+    ) -> None:
+        sandbox = tmp_path / "repo"
+        (sandbox / "scripts").mkdir(parents=True)
+        shutil.copytree(REPO_ROOT / subdir, sandbox / subdir)
+        shutil.copytree(
+            REPO_ROOT / "scripts" / "install", sandbox / "scripts" / "install"
+        )
+        home = tmp_path / "home"
+        home.mkdir()
+
+        script = sandbox / "scripts" / "install" / script_name
+        assert POWERSHELL is not None
+        result = subprocess.run(
+            [
+                POWERSHELL,
+                "-NoProfile",
+                "-NonInteractive",
+                "-Command",
+                f"Set-Variable -Name HOME -Value '{home}' -Force -Scope Global; "
+                f"& '{script}' -IndexOnly",
+            ],
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode == 0, (
+            f"the installer exited {result.returncode}\n"
+            f"{result.stdout}\n{result.stderr}"
+        )
+
+        target = home / ".claude" / subdir
+        assert not target.exists(), (
+            f"-IndexOnly created or wrote under {target}, the install "
+            "target; it must only rebuild the repository's own INDEX.md"
+        )
+
+        produced = (sandbox / index_rel).read_bytes()
+        committed = subprocess.run(
+            ["git", "show", f"HEAD:{index_rel}"],
+            capture_output=True,
+            check=True,
+            cwd=REPO_ROOT,
+        ).stdout
+        assert produced == committed, (
+            f"-IndexOnly rebuilt {index_rel}, but it does not match the "
+            "bytes install_skills.sh / install_agents.sh produce"
+        )
