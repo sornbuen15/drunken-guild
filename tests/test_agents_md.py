@@ -150,22 +150,36 @@ def _sentence_ending_period_indices(cell: str) -> list[int]:
 
 
 def _routes_naming_more_than_one_target(rows: list[tuple[str, str]]) -> list[str]:
-    """A pick-up cell may hold no alternative at all. Checked on the WHOLE
-    cell, with no clause splitting and no distinct-target counting, so it
-    cannot be dodged by moving the alternative across a sentence boundary
-    ('Run `/build`. Or ask the **manager**.'), by a semicolon, by
-    capitalisation ('OR'), or by any other punctuation trick:
+    """Flags a pick-up cell for exactly three literal things, checked on
+    the WHOLE cell with no clause splitting and no distinct-target
+    counting:
 
-    - no bare word 'or' anywhere in the cell, in any case;
-    - no ' / ' alternative anywhere in the cell;
-    - no sentence-ending period except the cell's own last character, so
-      there is exactly one sentence to read (zero periods is fine too --
+    - a bare word 'or' anywhere in the cell, in any case ('or', 'OR', 'Or');
+    - a ' / ' alternative (a slash with a plain space on each side);
+    - a sentence-ending period anywhere except the cell's own last
+      character, i.e. more than one sentence (zero periods is fine --
       nothing to end a second sentence with).
 
+    This catches the common shapes an alternative gets written in --
+    across a sentence boundary, a semicolon before 'or', 'OR' in caps, a
+    comma-led 'or', 'either X or Y', a bare ' / ' -- because all of them
+    still spell the literal word 'or' or ' / ', or still split the cell
+    into more than one sentence.
+
+    It is still a regex over prose, not a parser, and it does NOT catch
+    every way to write "pick one of these": a unicode slash ('／'), an
+    escaped pipe inside the table cell, a lone semicolon or dash standing
+    in for 'or' with no word there at all, a single-character ellipsis, or
+    a synonym ('Run `/build` otherwise ask the **manager**.') all read as
+    clean. Closing those needs either a much larger pattern or a markdown
+    parser, which is out of scope for this ticket; the Boss's own reading
+    of the table at review time remains the real guard against those, not
+    this function.
+
     A chain naming several targets in order ('`/prd` -> `/clarify` -> ...,
-    in that order') is not flagged: it is one sentence and never uses 'or'
-    or '/'. There is no carve-out for a legitimate 'or' -- a cell that
-    needs one is reworded instead (see AGENTS.md itself).
+    in that order') is not flagged: it is one sentence and never uses the
+    word 'or' or ' / '. There is no carve-out for a legitimate 'or' -- a
+    cell that needs one is reworded instead (see AGENTS.md itself).
     """
     violations = []
     for situation, pickup in rows:
