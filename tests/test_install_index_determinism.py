@@ -47,6 +47,54 @@ SAMPLE = (
 )
 
 
+def _run_ps_installer_with_canary(
+    script: Path, home: Path, extra_args: str = ""
+) -> subprocess.CompletedProcess[str]:
+    """Run a PowerShell installer in a child process with `$HOME` redirected
+    to `home`, guarded by a canary.
+
+    DG-423 (reviewer finding on the first version of this ticket's fix): every
+    test in this file that claims to run "sandboxed" relies on
+    `Set-Variable -Name HOME ...` actually taking effect inside the child
+    `powershell.exe` process. If that redirection ever silently stopped
+    working -- a PowerShell version difference, a typo, a future edit to this
+    helper -- every one of these tests would quietly start installing into
+    the operator's real `~/.claude` instead of failing loudly.
+
+    The canary prints `$HOME` from inside the *same* child process,
+    immediately after the same `Set-Variable` call the installer itself
+    reads, and exits before the installer is invoked at all if it does not
+    match. `;` sequencing in a `-Command` string stops at `exit`, so the `&
+    script` segment never runs when the canary trips.
+    """
+    assert POWERSHELL is not None
+    command = (
+        f"Set-Variable -Name HOME -Value '{home}' -Force -Scope Global; "
+        f"$canary = $HOME; "
+        f'Write-Host "CANARY:$canary"; '
+        f"if ($canary -ne '{home}') {{ "
+        f"Write-Host 'CANARY MISMATCH -- aborting, running nothing'; exit 97 "
+        f"}}; "
+        f"& '{script}' {extra_args}"
+    ).strip()
+    result = subprocess.run(
+        [POWERSHELL, "-NoProfile", "-NonInteractive", "-Command", command],
+        capture_output=True,
+        text=True,
+    )
+    assert f"CANARY:{home}" in result.stdout, (
+        "the canary never confirmed $HOME inside the child process -- this "
+        "test cannot trust that HOME redirection took effect, so it refuses "
+        f"to trust anything the run did\n{result.stdout}\n{result.stderr}"
+    )
+    assert result.returncode != 97, (
+        "HOME redirection did not take effect inside the child process; "
+        "aborted before the installer ran, to avoid touching the real "
+        f"~/.claude\n{result.stdout}\n{result.stderr}"
+    )
+    return result
+
+
 def _truncate(text: str, width: int, locale: str) -> bytes:
     return subprocess.run(
         [sys.executable, str(TRUNCATE), str(width)],
@@ -231,19 +279,7 @@ class TestThePowerShellInstallerReadsTheShapeSkillsActuallyUse:
         home.mkdir()
 
         script = sandbox / "scripts" / "install" / "install_skills.ps1"
-        assert POWERSHELL is not None
-        result = subprocess.run(
-            [
-                POWERSHELL,
-                "-NoProfile",
-                "-NonInteractive",
-                "-Command",
-                f"Set-Variable -Name HOME -Value '{home}' -Force -Scope Global; "
-                f"& '{script}'",
-            ],
-            capture_output=True,
-            text=True,
-        )
+        result = _run_ps_installer_with_canary(script, home)
         assert result.returncode == 0, (
             f"the installer exited {result.returncode}\n"
             f"{result.stdout}\n{result.stderr}"
@@ -315,19 +351,7 @@ class TestTheAgentInstallerWritesTheSameBytes:
         home.mkdir()
 
         script = sandbox / "scripts" / "install" / "install_agents.ps1"
-        assert POWERSHELL is not None
-        result = subprocess.run(
-            [
-                POWERSHELL,
-                "-NoProfile",
-                "-NonInteractive",
-                "-Command",
-                f"Set-Variable -Name HOME -Value '{home}' -Force -Scope Global; "
-                f"& '{script}'",
-            ],
-            capture_output=True,
-            text=True,
-        )
+        result = _run_ps_installer_with_canary(script, home)
         assert result.returncode == 0, (
             f"the installer exited {result.returncode}\n"
             f"{result.stdout}\n{result.stderr}"
@@ -346,4 +370,129 @@ class TestTheAgentInstallerWritesTheSameBytes:
         assert produced == committed, (
             "install_agents.ps1 and install_agents.sh disagree about the bytes "
             f"of agents/INDEX.md. The Windows copy is at\n  {home / '.claude' / 'agents' / 'INDEX.md'}"
+        )
+
+
+class TestTheIndexOnlySwitchTouchesNothingOutsideTheRepo:
+    """DG-423. install_skills.sh and install_agents.sh have had --index-only
+    all along: rebuild the repository's own INDEX.md and write nothing else.
+    The PowerShell scripts had no equivalent, so an agent on Windows that
+    needed to check whether INDEX.md was stale had no way to do it without a
+    real install -- and a real install overwrote the Boss's
+    ~/.claude/skills with unmerged branch content.
+
+    -IndexOnly must never create, read-to-decide-new, or write under the
+    target directory at all -- not even the directory itself -- and the
+    INDEX.md it rebuilds must be the same bytes install_skills.sh /
+    install_agents.sh produce.
+    """
+
+    @pytest.mark.skipif(POWERSHELL is None, reason="no PowerShell host on this machine")
+    @pytest.mark.parametrize(
+        "subdir,script_name,index_rel",
+        [
+            ("skills", "install_skills.ps1", "skills/INDEX.md"),
+            ("agents", "install_agents.ps1", "agents/INDEX.md"),
+        ],
+        ids=["install_skills.ps1", "install_agents.ps1"],
+    )
+    def test_index_only_leaves_the_target_directory_untouched(
+        self, tmp_path: Path, subdir: str, script_name: str, index_rel: str
+    ) -> None:
+        sandbox = tmp_path / "repo"
+        (sandbox / "scripts").mkdir(parents=True)
+        shutil.copytree(REPO_ROOT / subdir, sandbox / subdir)
+        shutil.copytree(
+            REPO_ROOT / "scripts" / "install", sandbox / "scripts" / "install"
+        )
+        home = tmp_path / "home"
+        home.mkdir()
+
+        script = sandbox / "scripts" / "install" / script_name
+        result = _run_ps_installer_with_canary(script, home, "-IndexOnly")
+        assert result.returncode == 0, (
+            f"the installer exited {result.returncode}\n"
+            f"{result.stdout}\n{result.stderr}"
+        )
+
+        target = home / ".claude" / subdir
+        assert not target.exists(), (
+            f"-IndexOnly created or wrote under {target}, the install "
+            "target; it must only rebuild the repository's own INDEX.md"
+        )
+
+        produced = (sandbox / index_rel).read_bytes()
+        committed = subprocess.run(
+            ["git", "show", f"HEAD:{index_rel}"],
+            capture_output=True,
+            check=True,
+            cwd=REPO_ROOT,
+        ).stdout
+        assert produced == committed, (
+            f"-IndexOnly rebuilt {index_rel}, but it does not match the "
+            "bytes install_skills.sh / install_agents.sh produce"
+        )
+
+
+class TestAnUnboundArgumentRefusesRatherThanInstalls:
+    """DG-423 reviewer finding. `param([switch]$IndexOnly)` with no
+    `[CmdletBinding()]` is a "simple" PowerShell parameter set, and a simple
+    parameter set does not reject what it cannot bind: a misspelled switch
+    (`-IndexOnlyy`) and a stray positional argument were both silently
+    dropped, `$IndexOnly` stayed `$false`, and the script ran a full install
+    -- exit 0, nothing refused. Reproduced against both scripts before
+    `[CmdletBinding()]` was added: every skill and every agent copied into a
+    sandboxed `$HOME` from a plain typo.
+
+    This is the exact incident DG-423 exists to prevent, one layer deeper:
+    `-IndexOnly` being correct does not matter if the parser silently
+    ignores an argument that was supposed to select it.
+    """
+
+    @pytest.mark.skipif(POWERSHELL is None, reason="no PowerShell host on this machine")
+    @pytest.mark.parametrize(
+        "subdir,script_name",
+        [
+            ("skills", "install_skills.ps1"),
+            ("agents", "install_agents.ps1"),
+        ],
+        ids=["install_skills.ps1", "install_agents.ps1"],
+    )
+    @pytest.mark.parametrize(
+        "bad_args,label",
+        [
+            ("-IndexOnlyy", "typo'd switch"),
+            ("stray-positional-argument", "stray positional argument"),
+        ],
+        ids=["typo", "stray-positional"],
+    )
+    def test_an_unbound_argument_exits_nonzero_and_installs_nothing(
+        self,
+        tmp_path: Path,
+        subdir: str,
+        script_name: str,
+        bad_args: str,
+        label: str,
+    ) -> None:
+        sandbox = tmp_path / "repo"
+        (sandbox / "scripts").mkdir(parents=True)
+        shutil.copytree(REPO_ROOT / subdir, sandbox / subdir)
+        shutil.copytree(
+            REPO_ROOT / "scripts" / "install", sandbox / "scripts" / "install"
+        )
+        home = tmp_path / "home"
+        home.mkdir()
+
+        script = sandbox / "scripts" / "install" / script_name
+        result = _run_ps_installer_with_canary(script, home, bad_args)
+
+        assert result.returncode != 0, (
+            f"a {label} ({bad_args!r}) exited 0 -- it was silently accepted "
+            f"and the script ran a real install\n{result.stdout}\n{result.stderr}"
+        )
+
+        target = home / ".claude" / subdir
+        assert not target.exists(), (
+            f"a {label} ({bad_args!r}) still installed into {target} before "
+            f"failing\n{result.stdout}\n{result.stderr}"
         )
