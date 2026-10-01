@@ -246,6 +246,31 @@ Full catalogue with triggers: [`skills/INDEX.md`](./skills/INDEX.md).
 
 ---
 
+## Repository map
+
+Which directory is whose, verified against the tree rather than reasoned from memory. Each row
+points at the file that owns the actual rule — this table says who touches the path and what
+checks it, not what it says.
+
+| path | for whom | hand-edited | generated / checked by |
+|---|---|---|---|
+| `.ai/` | this repository's own project documents — `PRD.md`, `DOMAIN.md` | yes | `scripts/check_doc_drift.py` scans it like any other doc |
+| `AGENTS.md` | agents and contributors working *in* this repo | yes | `tests/test_agents_md.py` — the guild block exists, routes every situation, and stays byte-identical to `src/core/templates/AGENTS.md`'s block (DG-407) |
+| `CLAUDE.md` | Claude Code specifically, as the `@AGENTS.md` adapter (REQ-015) | yes, but it must stay exactly that one line | `tests/test_agents_md.py::test_claude_md_holds_no_rule_agents_md_lacks` |
+| `skills/` | AI agents — installed to `~/.claude/skills/` | yes, each `SKILL.md` by hand | `skills/INDEX.md` inside it is generated, not hand-edited — `scripts/install/install_skills.sh --index-only`; checked by `tests/test_install_index_determinism.py` |
+| `agents/` | AI agents — installed to `~/.claude/agents/` | yes, each role file by hand | `agents/INDEX.md` inside it is generated the same way, by `scripts/install/install_agents.sh --index-only` |
+| `plugins/` | operators who opt into the extras bundle (specialist agents and general engineering skills, outside the core flow) | yes | its own `plugins/drunken-extras/.claude-plugin/plugin.json` manifest; no generator |
+| `src/core/templates/` | new projects — what `drunken-init` writes into them | yes | packaged into the wheel via `pyproject.toml`'s `[tool.setuptools.package-data]` (`core = ["templates/*.md"]`), because the installed tool carries only `src` (DG-392); `src/core/scaffold.py` reads it to write a project's `AGENTS.md` and `CLAUDE.md` |
+| `templates/` | copy-paste material a person copies into their own project by hand | yes | `scripts/check_doc_drift.py` scans it deliberately, suffix or not, because a stale instruction here propagates into every project it is copied into. **LEGACY:** `templates/CLAUDE.md` (211 lines) is a full rulebook that predates the 2.0.0 standard and contradicts REQ-015's one-line `CLAUDE.md` adapter — DG-427 retires it |
+| `examples/` | reference material — the flow and its filled-in setup documents, for a fictional app | yes | none; `examples/README.md` explains the set (who it's for, the flow walkthrough) |
+| `scripts/install/` | the operator installing skills and agents to `~/.claude/` | yes | `tests/test_install_index_determinism.py` checks what it generates (`skills/INDEX.md`, `agents/INDEX.md`) is reproducible |
+
+Why two template folders: `src/core/templates/` ships inside the installed package, because the
+installed tool carries only `src` (DG-392); `templates/` at the root is copy-paste material, and
+part of it is legacy (DG-427).
+
+---
+
 ## Documentation
 
 | | for whom |
