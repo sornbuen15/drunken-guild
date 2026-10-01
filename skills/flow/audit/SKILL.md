@@ -94,7 +94,33 @@ description: >
       number that rises steadily while the thing the Boss asked for is still missing — it is how a
       project reports 80% and ships nothing the Boss recognises.
     </rule>
+
+    <rule priority="FATAL" name="Propose, Never Author">
+      The retro step (below) never writes a skill, a rule or a template, and never edits one — not
+      even one the Boss has already approved. It names which of the three a lesson should become,
+      quotes the evidence, and files a ticket; a human or `/build` makes the change.
+    </rule>
   </execution_rules>
+
+  <the_retro>
+    The last step, after both reports are written. A lesson a project records and keeps to itself
+    never reaches the guild: nine sat in one project's own memory and none of them did, which is why
+    this step exists (DG-409, REQ-017).
+
+    **Find the sources.** `project-docs` names where a project's documents live; ask it for where
+    this project keeps its lessons. If it does not name a lessons source, say exactly that —
+    "project-docs does not name a lessons source" — and stop. Never guess a path a project never told
+    you, and never read another project's own memory to fill the gap.
+
+    **Classify each lesson.** Evidence of a repeatable rule — stated more than once, stated as
+    holding beyond this project, or the Boss saying it applies to every project — is guild-wide:
+    propose it. A lesson that is this project's own path, port, person or one-off mistake is local:
+    report it in the audit report and do not propose it.
+
+    **Name the shape of the fix, never write it.** For each guild-wide lesson, say whether it is a
+    skill, a rule (`.claude/rules/` or `CLAUDE.md`) or a template change, and quote the evidence it
+    rests on — the lesson's own words, not a paraphrase.
+  </the_retro>
 
   <the_two_reports>
     One run writes two files, both dated, under the project's audit directory — `project-docs` says where
@@ -133,6 +159,10 @@ description: >
        and halt for the Boss.
     9. CREATE: only the approved rows, through `/breakdown`. Confirm each with
        `jira_search_issues` before reporting it as created. Leave them off the board.
+    10. RETRO: read this project's lessons sources (`the_retro` above), classify each as guild-wide
+        or local, and propose the guild-wide ones as tickets — one per lesson, naming skill, rule or
+        template and quoting the evidence. Halt for the Boss; file only what they approve. This is
+        the flow's last step.
   </action_sequence>
 
   <constraints>
@@ -143,6 +173,7 @@ description: >
     <constraint priority="FATAL">Never create a ticket before the Boss approves the proposal table, and never move one onto the board without a second yes.</constraint>
     <constraint priority="FATAL">Never invent a requirement, an id, or a deploy target. An absent one is reported, not filled.</constraint>
     <constraint priority="FATAL">Never create or write to `.claude/board/` or `.agents/board/`. The `board_*` tools are retired.</constraint>
+    <constraint priority="FATAL">The retro step never authors or edits a skill, a rule or a template, and never files a local lesson as a ticket. It proposes guild-wide lessons only, and only after the Boss approves the list.</constraint>
     <constraint priority="HIGH">The ticket shape, the field limits and the word budget live in the `jira-tickets` skill — including the rule that a post-mortem or a security finding is exempt from that budget. Read it; do not restate it here.</constraint>
     <constraint priority="HIGH">Never set `priority` and never invent story points. Neither exists here.</constraint>
     <constraint priority="HIGH">All output must be in English.</constraint>
@@ -162,6 +193,7 @@ description: >
       preview:     behind the merge by 2 tasks (target from AGENTS.md)
       reports:     <audit path>  ·  <daily report path>
       tickets:     DG-401, DG-402 created, in the backlog, TODO, unassigned
+      retro:       2 lessons read · 1 proposed (pending Boss) · 1 local, not filed
     ```
 
     Then two sentences of plain summary and the path to the daily report. Never print a report
