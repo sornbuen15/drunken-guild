@@ -11,7 +11,7 @@ Pointers only — read the skill, role or tool named; do not reason from this ta
 | **a ticket ready to build** | `/build`, run by the **worker** role. The pull request it opens is read by the **reviewer** role before a human merges it. |
 | **planning or breaking work into tickets** | the **manager** role. |
 | **git — branch, commit, PR, merge strategy** | `/git-workflow` (`skills/workflow/git-workflow/SKILL.md`). |
-| **a Jira ticket — write it, read it, move it** | `/jira-tickets` (`skills/workflow/jira-tickets/SKILL.md`) plus the `jira_*` MCP tools. Never a shell script. |
+| **a Jira ticket — write it, read it, move it** | `/jira-tickets` (`skills/workflow/jira-tickets/SKILL.md`) plus the `jira_*` MCP tools. |
 | **end of day / closing a session** | `/audit`. |
 | **unsure which skill, role or tool fits** | `skills/INDEX.md` — read it rather than guessing a name from memory. |
 <!-- guild-block:end -->
@@ -49,13 +49,17 @@ recreate a second one — including by restating a rule in two files.
 
 **The flow is seven commands**: `/prd` → `/clarify` → `/ddd` → `/breakdown` → `/build` → `/audit`,
 plus `/replan` when a requirement moves after the backlog exists — one skill each, in
-`skills/flow/`. They are the product. **Read the skill rather than reasoning from this line** — it
-is a map, not the rule. Anything that does not serve a step of that flow does not belong in
-`skills/` (DG-353, amended by DG-386).
+`skills/flow/`, each owning one stage of the standard (README maps them). They are the product.
+**Read the skill rather than reasoning from this line** — it is a map, not the rule. Anything that
+does not serve a step of that flow does not belong in `skills/` (DG-353, amended by DG-386).
 
 **The AI layer stays in git, deliberately.** DG-250 keeps a project's wrapper directory out of git;
 here the AI layer *is* the product, so applying that rule literally would move the deliverable out
 of version control. Do not "fix" this repo by moving `skills/` or `agents/` out of git.
+
+*Drunken Programmer* is the pen name; `drunken-guild` is the product. The name says drunk and the
+contents are FATAL directives, blast-radius checks and post-mortems. That tension is the brand —
+do not soften either half.
 
 ---
 
