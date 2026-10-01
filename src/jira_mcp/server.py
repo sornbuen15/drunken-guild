@@ -155,11 +155,24 @@ async def jira_create_issue(
     (unsettable). Dates are ISO YYYY-MM-DD. Warns, never refuses.
     """
     client = get_client(project)
+    parent_key: Optional[str] = None
+    if parent:
+        # Unscoped, `parent` would attach a new issue to any Epic or Story the
+        # shared credential can reach, foreign projects included -- the same
+        # hole DG-422 closed on every tool that takes a key. Same helper, same
+        # refusal, applied before the request is built rather than after.
+        keys = backlog.scope_keys(parent, client.project_key)
+        if len(keys) != 1:
+            raise ValidationError(
+                f"One parent key, got {len(keys)}.",
+                remediation="Pass a single Epic or Story key.",
+            )
+        (parent_key,) = keys
     res = await client.create_issue(
         summary,
         description,
         issue_type,
-        parent=parent or None,
+        parent=parent_key,
         duedate=duedate or None,
         start_date=start_date or None,
         labels=[label.strip() for label in labels.split(",") if label.strip()] or None,
@@ -433,7 +446,16 @@ async def get_issue_details(project: str, issue_key: str) -> str:
     Get full JSON details of a specific Jira issue.
     """
     client = get_client(project)
-    res = await client.get_issue(issue_key)
+    # Same gap DG-422 closed on the tools: an unscoped key would read any
+    # issue the shared credential can reach, not just this project's.
+    keys = backlog.scope_keys(issue_key, client.project_key)
+    if len(keys) != 1:
+        raise ValidationError(
+            f"One issue per call, got {len(keys)}.",
+            remediation="Call once per issue key.",
+        )
+    (key,) = keys
+    res = await client.get_issue(key)
     return json.dumps(res, indent=2)
 
 
