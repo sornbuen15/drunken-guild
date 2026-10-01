@@ -46,7 +46,7 @@ $AgentFiles = Get-ChildItem -Path $LocalAgentsDir -Filter "*.md" -File |
               Where-Object { $_.Name -ne "INDEX.md" } |
               Sort-Object Name
 
-# CLAUDE.md routes all agent discovery through INDEX.md, so a run that installs
+# AGENTS.md routes all agent discovery through INDEX.md, so a run that installs
 # agents without refreshing it leaves a live dangling reference.
 $IndexLines = New-Object System.Collections.Generic.List[string]
 $IndexLines.Add("# Agent Index")

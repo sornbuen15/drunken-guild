@@ -65,7 +65,7 @@ RETIRED = (
     # not listed: the re-scope's vendor-neutral AGENTS.md template may reuse
     # the name, and a guard that fires on the replacement is a guard that gets
     # switched off.
-    Retired(".agents/AGENTS.md", "DG-349", "CLAUDE.md"),
+    Retired(".agents/AGENTS.md", "DG-349", "AGENTS.md"),
     Retired(".agents/hooks.json", "DG-349", ".claude/settings.json hooks"),
     Retired(
         "install_host_docs.sh", "DG-349", "nothing; the global file was Antigravity's"

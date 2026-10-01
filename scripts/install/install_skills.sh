@@ -150,7 +150,7 @@ while IFS= read -r skill_file; do
   fi
 
   # The description is what an agent reads to decide whether a skill is
-  # relevant at all, and CLAUDE.md routes every lookup through this index -- so
+  # relevant at all, and AGENTS.md routes every lookup through this index -- so
   # a blank one makes the skill effectively invisible. The previous extractor
   # understood only the folded `description: >` form, and nine of the skills
   # here write it on one line, so nine were published with no description.

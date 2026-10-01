@@ -285,7 +285,7 @@ class TestCostIsNeverInvented:
 
 class TestTheReportSaysWhatItCannotSee:
     def test_it_names_the_host_whose_records_it_read(self, tmp_path) -> None:
-        """Antigravity's usage lives under a directory CLAUDE.md forbids
+        """Antigravity's usage lives under a directory AGENTS.md forbids
         touching, so this counts one of the two agents working this repo. A
         total presented without that caveat would be read as the whole bill."""
         report = usage.build_report(tmp_path / "nope", "/tmp/proj", key="ticket")

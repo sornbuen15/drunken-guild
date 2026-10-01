@@ -3,7 +3,8 @@
 Why this repository is shaped the way it is.
 
 **The rules themselves live elsewhere. This file holds the reasons.**
-[`CLAUDE.md`](./CLAUDE.md) states how to work here, the skills state how to run a ticket and a
+[`AGENTS.md`](./AGENTS.md) states how to work here (`CLAUDE.md` is only the one-line adapter that
+imports it), the skills state how to run a ticket and a
 branch, `pyproject.toml` states what is pinned. Section 5 is the map. If you find a rule *stated in
 full* in this file, that is a defect in this file — a second copy of a rule is the failure this
 repository exists to cure, and a design document is not exempt.
@@ -50,7 +51,7 @@ have to name the pattern in prose to explain the ban, and a substring search can
 explanation from a call. The first draft of the DG-276 guard failed on its own docstring.
 
 > Precedence — env var, then registry, then the project's own `.agents/*.json` — and why a `.env`
-> arrived disguised as rule one: `CLAUDE.md`, *Things that will bite you*.
+> arrived disguised as rule one: `AGENTS.md`, *Things that will bite you anywhere*.
 
 ### 2.2 A check whose failure is indistinguishable from its success is not a check
 
@@ -106,10 +107,10 @@ These are stated in full where they are enforced. Here is only why they exist.
 
 | invariant | why | stated in |
 |---|---|---|
-| Import-time failure is never a failure mode | a caller reads a message instead of watching an MCP server vanish; every error carries a remediation because "unknown project 'alpha'" only tells an agent to give up | `CLAUDE.md`, `src/core/errors.py` |
-| An agent opens PRs, never merges; does not install; does not delete | the irreversible half of the work stays with a human. *Marking a thing unused beats removing it* — `requirements.txt` had drifted 113 lines with no reader and was retired with a note rather than deleted (DG-281) | `CLAUDE.md`, `skills/workflow/git-workflow/SKILL.md` |
+| Import-time failure is never a failure mode | a caller reads a message instead of watching an MCP server vanish; every error carries a remediation because "unknown project 'alpha'" only tells an agent to give up | `AGENTS.md`, `src/core/errors.py` |
+| An agent opens PRs, never merges; does not install; does not delete | the irreversible half of the work stays with a human. *Marking a thing unused beats removing it* — `requirements.txt` had drifted 113 lines with no reader and was retired with a note rather than deleted (DG-281) | `AGENTS.md`, `skills/workflow/git-workflow/SKILL.md` |
 | Retired code is kept, but **not published** | not deleting exists so work is not lost; it is not a rule to publish, and the two were conflated. `_not_used/` was tracked only because nothing excluded it. Publishing it shipped a 73-line `git-workflow` beside the live 196-line one — §1's founding disaster, on sale — and drew Dependabot alerts and a merged pull request against withdrawn code. Git history is the archive; a second one in the tree is §1 again (DG-291) | `RETIRED.md`, `.gitignore` |
-| A bug's test is seen failing first | a test written after the fix proves only that it compiles | `CLAUDE.md` |
+| A bug's test is seen failing first | a test written after the fix proves only that it compiles | `AGENTS.md` |
 | The formatter is pinned exactly; `mypy` and `pytest` keep floors | a formatter has no right answer independent of its version, so a range gives one tree two answers (DG-265, DG-270); a new `mypy` finding something new is a result worth having | `pyproject.toml`, at the pin |
 
 ---
@@ -176,7 +177,7 @@ Three places make the same trade, and it is the house style rather than three co
 The shared shape: when a tool cannot know something, it says so. An under-reported cost and a
 silently widened permission are both worse than a refusal.
 
-> The full hook resolution order, and the two-layer split the model cannot see: `CLAUDE.md`,
+> The full hook resolution order, and the two-layer split the model cannot see: `AGENTS.md`,
 > *The deny floor*.
 
 ---
@@ -201,11 +202,11 @@ silently widened permission are both worse than a refusal.
 
 | question | file |
 |---|---|
-| how to work in this repository | [`CLAUDE.md`](./CLAUDE.md) |
+| how to work in this repository | [`AGENTS.md`](./AGENTS.md) |
 | where things stand right now | [`SESSION_CHECKPOINT.md`](./SESSION_CHECKPOINT.md) |
 | how to write and run a ticket | `skills/workflow/jira-tickets/SKILL.md` |
 | branch, commit, PR and merge rules | `skills/workflow/git-workflow/SKILL.md` |
 | what each component does | [`Drunken-Guild-Guide.md`](./Drunken-Guild-Guide.md) |
 | wiring the MCP servers into a project | [`Integration-Guide.md`](./Integration-Guide.md) |
-| agent-facing rules for this repository | [`CLAUDE.md`](./CLAUDE.md) |
+| agent-facing rules for this repository | [`AGENTS.md`](./AGENTS.md) |
 | what is pinned, and why | `pyproject.toml`, at each pin |
