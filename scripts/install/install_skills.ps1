@@ -15,7 +15,18 @@
 # all.
 #
 # Requirements: PowerShell 5.1+ or PowerShell Core 7+ (Windows / macOS / Linux)
+#
+# [CmdletBinding()] is load-bearing, not boilerplate: a "simple" param block
+# (no CmdletBinding) lets PowerShell silently swallow a misspelled switch
+# (`-IndexOnlyy`) or a stray positional argument, bind $IndexOnly = $false
+# either way, and fall straight through to a real install -- the exact
+# incident this switch exists to prevent, reproduced against this script
+# before the attribute was added: a typo and a stray argument both ran a
+# full install, exit 0, nothing refused. CmdletBinding turns both into a
+# terminating "parameter cannot be found" / "positional parameter cannot be
+# found" error instead.
 
+[CmdletBinding()]
 param(
     [switch]$IndexOnly
 )
