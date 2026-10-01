@@ -13,12 +13,65 @@ one, and a CLAUDE.md that does not import AGENTS.md is reported, not edited.
 
 from __future__ import annotations
 
+import re
 from importlib import resources
 from pathlib import Path
 from typing import List
 
 #: The whole of the Claude adapter. Anything more would be a second surface.
 CLAUDE_ADAPTER = "@AGENTS.md\n"
+
+#: DG-408. These bracket the pointer table in the packaged template, and in
+#: any AGENTS.md that started life from it — the only text `--guild-block`
+#: is allowed to touch.
+GUILD_BLOCK_START = "<!-- guild-block:start -->"
+GUILD_BLOCK_END = "<!-- guild-block:end -->"
+
+
+def _guild_block_text() -> str:
+    """The current guild block, markers included, read from the packaged
+    template — the same source `agents_md()` uses for a fresh file."""
+    template = (
+        resources.files("core")
+        .joinpath("templates/AGENTS.md")
+        .read_text(encoding="utf-8")
+    )
+    start = template.index(GUILD_BLOCK_START)
+    end = template.index(GUILD_BLOCK_END, start) + len(GUILD_BLOCK_END)
+    return template[start:end]
+
+
+def merge_guild_block(agents_path: Path) -> str:
+    """Insert or refresh the guild block in an *existing* AGENTS.md.
+
+    No block yet: insert right after the first heading. An older block:
+    replace only the text between its markers. Everything else — every byte
+    outside the markers — is untouched, so a second run changes nothing.
+    """
+    # newline="" on read too: Path.read_text() translates CRLF to LF, which
+    # would make an untouched CRLF byte outside the markers look touched.
+    with open(agents_path, "r", encoding="utf-8", newline="") as handle:
+        text = handle.read()
+    block = _guild_block_text()
+
+    if GUILD_BLOCK_START in text and GUILD_BLOCK_END in text:
+        start = text.index(GUILD_BLOCK_START)
+        end = text.index(GUILD_BLOCK_END) + len(GUILD_BLOCK_END)
+        new_text = text[:start] + block + text[end:]
+    else:
+        heading = re.search(r"^#.*(?:\n|\Z)", text, re.MULTILINE)
+        insert_at = heading.end() if heading else 0
+        new_text = text[:insert_at] + "\n" + block + "\n" + text[insert_at:]
+
+    if new_text == text:
+        return "unchanged"
+
+    # newline="" keeps LF for what we write, same as the rest of init; any
+    # CRLF already in the untouched parts of the file is carried through
+    # verbatim because it was never decoded away.
+    with open(agents_path, "w", encoding="utf-8", newline="") as handle:
+        handle.write(new_text)
+    return "merged"
 
 
 def _write_new(path: Path, text: str) -> None:

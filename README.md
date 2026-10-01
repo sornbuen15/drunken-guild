@@ -101,6 +101,28 @@ You want `project.drunken-guild.jira` to come back naming *you*.
 > printed `OK … (project ALPHA)` while Jira answered *"No project could be found"*. Verify the key
 > against the API before trusting a green line.
 
+### Giving an existing AGENTS.md the guild block
+
+`--path` on a project with no `AGENTS.md` writes one that already opens with the guild block — the
+pointer table routing an agent to `/build`, `/git-workflow`, `/jira-tickets` and the rest. A project
+that already has its own `AGENTS.md` keeps it byte for byte and gets nothing added, by design — see
+"Quick start" above.
+
+Add `--guild-block` to merge the block into that existing file instead:
+
+```bash
+uv run drunken-init --project drunken-guild --path "$PWD" --guild-block
+```
+
+No block yet: it is inserted right after the file's first heading. An older block from a previous
+run: only the text between its `<!-- guild-block:start -->` / `<!-- guild-block:end -->` markers is
+replaced — everything else in the file is untouched, so running it again changes nothing. Nothing
+secret and no project id is ever written to the block itself.
+
+Not running the CLI here? Copy the block between those same markers out of
+[`src/core/templates/AGENTS.md`](./src/core/templates/AGENTS.md) and paste it into the target
+`AGENTS.md` by hand, replacing an older copy between the same markers if one is already there.
+
 ### Installing it as a command
 
 If a previous version is installed under the old package name, **uninstall it first**:

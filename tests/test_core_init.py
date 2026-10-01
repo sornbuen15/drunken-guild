@@ -304,3 +304,60 @@ class TestItGivesTheProjectAnInstructionFile:
         assert "<!-- guild-block:end -->" in agents
         assert "/build" in agents
         assert "jira-tickets" in agents
+
+
+class TestGuildBlockFlag:
+    """DG-408. `--guild-block` is opt-in and only touches an EXISTING
+    AGENTS.md; without it behaviour is exactly as today (see
+    test_an_existing_agents_md_is_left_byte_identical above)."""
+
+    def test_an_existing_file_without_a_block_gets_one_and_keeps_every_byte(
+        self, tmp_path
+    ) -> None:
+        checkout = tmp_path / "app"
+        checkout.mkdir()
+        original = "# ours\r\nhand-written, keep me\n"
+        (checkout / "AGENTS.md").write_bytes(original.encode("utf-8"))
+
+        assert run("--project", "app", "--path", str(checkout), "--guild-block") == 0
+
+        merged = (checkout / "AGENTS.md").read_text(encoding="utf-8")
+        assert "<!-- guild-block:start -->" in merged
+        assert "<!-- guild-block:end -->" in merged
+        assert "hand-written, keep me" in merged
+        for line in original.splitlines():
+            assert line in merged
+
+    def test_rerunning_with_the_flag_is_byte_identical(self, tmp_path) -> None:
+        checkout = tmp_path / "app"
+        checkout.mkdir()
+        (checkout / "AGENTS.md").write_text(
+            "# ours\nhand-written, keep me\n", encoding="utf-8"
+        )
+
+        run("--project", "app", "--path", str(checkout), "--guild-block")
+        first = (checkout / "AGENTS.md").read_bytes()
+
+        run("--project", "app", "--path", str(checkout), "--guild-block")
+
+        assert (checkout / "AGENTS.md").read_bytes() == first
+
+    def test_an_older_block_has_only_the_block_replaced(self, tmp_path) -> None:
+        checkout = tmp_path / "app"
+        checkout.mkdir()
+        before = "# ours\n\nbefore the block\n"
+        old_block = (
+            "<!-- guild-block:start -->\nSTALE CONTENT\n<!-- guild-block:end -->\n"
+        )
+        after = "\nafter the block\n"
+        (checkout / "AGENTS.md").write_text(
+            before + old_block + after, encoding="utf-8"
+        )
+
+        assert run("--project", "app", "--path", str(checkout), "--guild-block") == 0
+
+        merged = (checkout / "AGENTS.md").read_text(encoding="utf-8")
+        assert "STALE CONTENT" not in merged
+        assert "/build" in merged, "the current block replaced the stale one"
+        assert merged.startswith(before)
+        assert merged.endswith(after)

@@ -173,6 +173,16 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--board-dir", help="Board directory relative to the checkout.")
     parser.add_argument(
+        "--guild-block",
+        action="store_true",
+        help=(
+            "Merge the guild block into an EXISTING AGENTS.md (requires --path). "
+            "No block yet: inserted after the first heading. An older block: only "
+            "the text between its markers is replaced; everything else is "
+            "untouched. Idempotent — a second run changes nothing."
+        ),
+    )
+    parser.add_argument(
         "--registry", help="Registry file to write instead of the resolved default."
     )
     return parser
@@ -198,6 +208,11 @@ def main() -> int:
             if project_id and args.path
             else []
         )
+        if args.guild_block and project_id and args.path:
+            agents_path = Path(document["projects"][project_id]["path"]) / "AGENTS.md"
+            if agents_path.exists():
+                status = scaffold.merge_guild_block(agents_path)
+                written.append(f"guild block     : {status}, {agents_path}")
     except DrunkenError as exc:
         print(f"error: {exc}")
         if exc.remediation:
