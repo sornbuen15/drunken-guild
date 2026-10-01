@@ -114,10 +114,21 @@ Add `--guild-block` to merge the block into that existing file instead:
 uv run drunken-init --project drunken-guild --path "$PWD" --guild-block
 ```
 
-No block yet: it is inserted right after the file's first heading. An older block from a previous
-run: only the text between its `<!-- guild-block:start -->` / `<!-- guild-block:end -->` markers is
+No block yet: it is inserted right after the file's first heading — a leading UTF-8 BOM, if there is
+one, stays at byte 0 and the heading is still found after it. An older block from a previous run:
+only the text between its `<!-- guild-block:start -->` / `<!-- guild-block:end -->` markers is
 replaced — everything else in the file is untouched, so running it again changes nothing. Nothing
-secret and no project id is ever written to the block itself.
+secret and no project id is ever written to the block itself. A first-time `AGENTS.md` (no prior
+file) is reported as `created with the block`, not `unchanged`.
+
+It refuses rather than guessing, leaving the file untouched and exiting non-zero:
+
+- **`AGENTS.md` is a symlink, or resolves outside the project directory.** Merging through either
+  could write into a file the project does not own.
+- **The markers are malformed** — a `start` with no matching `end`, an `end` that appears before its
+  `start`, or more than one of either. Only zero markers (insert) or exactly one well-formed pair
+  (replace) is something the merge can act on without guessing; the error names the problem and the
+  line.
 
 Not running the CLI here? Copy the block between those same markers out of
 [`src/core/templates/AGENTS.md`](./src/core/templates/AGENTS.md) and paste it into the target

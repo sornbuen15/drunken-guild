@@ -199,20 +199,38 @@ def main() -> int:
         document = _ensure_registry_document(registry_file)
         project_id = _apply_project(document, args) if args.project else None
         _write(registry_file, document)
+
+        project_root = (
+            Path(document["projects"][project_id]["path"])
+            if project_id and args.path
+            else None
+        )
+        agents_path = project_root / "AGENTS.md" if project_root else None
+        existed_before = bool(agents_path and agents_path.exists())
+
         written = (
             scaffold.instruction_files(
-                Path(document["projects"][project_id]["path"]),
+                project_root,
                 project_id,
                 document["projects"][project_id].get("jira", {}).get("project_key"),
             )
-            if project_id and args.path
+            if project_id and args.path and project_root is not None
             else []
         )
-        if args.guild_block and project_id and args.path:
-            agents_path = Path(document["projects"][project_id]["path"]) / "AGENTS.md"
-            if agents_path.exists():
-                status = scaffold.merge_guild_block(agents_path)
+
+        if args.guild_block and project_root and agents_path:
+            if existed_before:
+                status = scaffold.merge_guild_block(agents_path, project_root)
                 written.append(f"guild block     : {status}, {agents_path}")
+            else:
+                # instruction_files() just wrote a fresh AGENTS.md from the
+                # template, which already opens with the current block —
+                # nothing to merge, but say so rather than letting it read
+                # as "unchanged" next to a file that did not exist a moment
+                # ago.
+                written.append(
+                    f"guild block     : created with the block, {agents_path}"
+                )
     except DrunkenError as exc:
         print(f"error: {exc}")
         if exc.remediation:
