@@ -85,6 +85,37 @@ async def test_resource_odd_shaped_keys_are_refused_before_any_request(
     fake.get_issue.assert_not_called(), f"resource accepted a {shape} key: {bad_key!r}"
 
 
+# A reviewer on PR #124 found that every test above uses the one fixture
+# project, "DG", so a check that compared against the hardcoded string "DG"
+# instead of `client.project_key` would read as correct: every "foreign" key
+# in ODD_FOREIGN_KEYS happens to not start with "DG", and the one "same
+# project" case happens to be a literal "DG" key. These two pin the project
+# key itself as a variable, with a second registered project ("ALPHA") whose
+# own key is accepted and whose look of "DG-1" is refused -- a hardcoded "DG"
+# constant fails both.
+@pytest.mark.asyncio
+async def test_resource_accepts_a_key_of_a_different_registered_project() -> None:
+    fake = _fake_client("ALPHA")
+    fake.get_issue.return_value = {"key": "ALPHA-1", "fields": {}}
+    with patch.object(server, "get_client", return_value=fake):
+        out = await server.get_issue_details("some-other-project", "ALPHA-1")
+
+    result = json.loads(out)
+    assert result["key"] == "ALPHA-1"
+    fake.get_issue.assert_awaited_once_with("ALPHA-1")
+
+
+@pytest.mark.asyncio
+async def test_resource_refuses_a_dg_prefixed_key_when_the_project_is_alpha() -> None:
+    fake = _fake_client("ALPHA")
+    with patch.object(server, "get_client", return_value=fake):
+        with pytest.raises(ValidationError) as exc_info:
+            await server.get_issue_details("some-other-project", "DG-1")
+
+    assert "DG-1" in str(exc_info.value)
+    fake.get_issue.assert_not_called()
+
+
 # --- jira_create_issue's `parent` -------------------------------------------
 
 
@@ -161,4 +192,42 @@ async def test_odd_shaped_parents_are_refused_before_any_request(
     assert result["ok"] is False, (
         f"jira_create_issue accepted a {shape} parent: {bad_key!r}"
     )
+    fake.create_issue.assert_not_called()
+
+
+# Same pin as the resource's: the fixture project varies, so a hardcoded "DG"
+# constant in the parent check fails both of these too.
+@pytest.mark.asyncio
+async def test_parent_of_a_different_registered_project_is_accepted() -> None:
+    fake = _fake_client("ALPHA")
+    fake.create_issue.return_value = {"ok": True, "key": "ALPHA-40"}
+    with patch.object(server, "get_client", return_value=fake):
+        out = await server.jira_create_issue(
+            "some-other-project", "summary", "description", parent="ALPHA-9"
+        )
+
+    result = json.loads(out)
+    assert result.get("ok") is True
+    fake.create_issue.assert_awaited_once_with(
+        "summary",
+        "description",
+        "Task",
+        parent="ALPHA-9",
+        duedate=None,
+        start_date=None,
+        labels=None,
+    )
+
+
+@pytest.mark.asyncio
+async def test_a_dg_prefixed_parent_is_refused_when_the_project_is_alpha() -> None:
+    fake = _fake_client("ALPHA")
+    with patch.object(server, "get_client", return_value=fake):
+        out = await server.jira_create_issue(
+            "some-other-project", "summary", "description", parent="DG-1"
+        )
+
+    result = json.loads(out)
+    assert result["ok"] is False
+    assert "DG-1" in json.dumps(result)
     fake.create_issue.assert_not_called()
