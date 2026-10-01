@@ -42,6 +42,12 @@ own `.claude/settings.json`, at the project root:
 file does not exist yet, create it with just this content; if it exists, merge the `hooks` key in
 rather than overwriting whatever else is already there.
 
+**`matcher` is deliberately omitted.** Leaving it out fires the hook on every `SessionStart`
+source — a fresh start, `resume`, and `compact` alike — which is the point: the habit this reminder
+exists to restore is exactly what a long session loses, and `compact` is where a long session is.
+
+
+
 ## The single-quote warning
 
 The `command` string wraps the reminder in single quotes for the shell (`printf '%s\n' '<json>'`).
