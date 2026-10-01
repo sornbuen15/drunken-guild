@@ -45,6 +45,14 @@ path outright, and -- belt and braces -- checks the fully resolved
 `Path` is still inside an allowed directory before ever calling
 `is_file()`.
 
+Round 3's own proof committed a real `tests/fixtures/stray/CLAUDE.md` so the
+traversal would have something real to resolve against -- which itself broke
+the invariant that `CLAUDE.md` only ever lives at the project root and under
+`templates/`, and left `check_doc_drift.py` silently counting a document that
+is not one. Round 4 builds that file fresh under `tmp_path` instead, with
+`REPO_ROOT` monkeypatched to a fake repository root for the one test that
+needs it, and nothing tracked carries it any more.
+
 This module finds the reference *structurally*, instead of listing the
 sentences that currently make one: any path-ish token ending in a name that
 looks like a per-agent instruction file, found anywhere across the tracked
@@ -70,7 +78,10 @@ from __future__ import annotations
 
 import posixpath
 import re
+import sys
 from pathlib import Path
+
+import pytest
 
 from core import scaffold
 
@@ -394,33 +405,77 @@ def test_does_not_accept_a_stray_file_outside_the_conventional_locations(
     ]
 
 
-#: A real, permanent, tracked file sitting outside every accepted location
-#: (`tests/fixtures/` is not in `_scan_files()`, so it is never itself
-#: scanned as a live reference). Round 3's bug let a `templates/../...`
-#: token resolve against a real file exactly like this one; proving the fix
-#: needs a real target at the far end of the traversal, not a path that
-#: merely fails to exist, which the pre-round-3 code would also have
-#: rejected -- for the wrong reason.
-_REAL_STRAY_FILE = REPO_ROOT / "tests" / "fixtures" / "stray" / "CLAUDE.md"
+def _old_buggy_resolves(token: str, produced: set[str], repo_root: Path) -> bool:
+    """The pre-round-3 shape of `_resolves()`'s path-ish branch, kept only
+    here as a standalone replica to prove the bug was real: `_ALLOWED_PREFIXES`
+    checked with a plain string `startswith` *before* `..` was ever resolved,
+    then `Path.is_file()` left to walk straight out through it. Never called
+    by `scan()` or `_scan_text()` -- only by the proof test below, against a
+    file built fresh under *repo_root* so nothing tracked has to carry it."""
+    if "/" not in token and "\\" not in token:
+        return token.lower() in produced
+    normalized = token.replace("\\", "/")
+    if normalized.startswith("./"):
+        normalized = normalized[2:]
+    elif normalized.startswith("/"):
+        normalized = normalized[1:]
+    if normalized.startswith("~/"):
+        return False
+    if "/" not in normalized:
+        return normalized.lower() in produced
+    if not normalized.lower().startswith(_ALLOWED_PREFIXES):
+        return False
+    return (repo_root / normalized).is_file()
 
 
-def test_the_traversal_fixture_is_real() -> None:
-    """Guards the proof below: if this ever stops being true, the next test
-    would pass for the wrong reason -- nothing at the target, not the
-    traversal being rejected."""
-    assert _REAL_STRAY_FILE.is_file()
+def _fake_repo_with_stray_file(tmp_path: Path) -> Path:
+    """A throwaway repository root, never the real one, with a real file at
+    `tests/fixtures/stray/CLAUDE.md` -- the exact shape the reviewer's
+    traversal token targets. Built fresh per test under *tmp_path* rather
+    than committed: a tracked `CLAUDE.md` outside the project root and
+    `templates/` would itself break this repository's own invariant that
+    `CLAUDE.md` only ever lives at those two places, and `check_doc_drift.py`
+    would start counting it as a live document for no reason of its own."""
+    root = tmp_path / "fake-repo"
+    stray = root / "tests" / "fixtures" / "stray"
+    stray.mkdir(parents=True)
+    target = stray / "CLAUDE.md"
+    target.write_text("not a real adapter\n", encoding="utf-8")
+    return root
 
 
-def test_rejects_the_reviewers_traversal_past_templates(tmp_path: Path) -> None:
+def test_rejects_the_reviewers_traversal_past_templates(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Round 3: `_ALLOWED_PREFIXES` used to be checked with a plain string
     `startswith` before `..` was resolved, so `templates/../tests/fixtures/
     stray/CLAUDE.md` passed the prefix check textually and then resolved
-    against the real file above, which sits outside every accepted
-    location. Checked two ways: `_resolves()` directly, against the file
-    that is actually there, and through the full scan with a planted
-    reference, which must report the exact file and line."""
-    produced = _produced_filenames(tmp_path)
+    against a real file outside every accepted location. Proven against a
+    fake repository root built under *tmp_path*, with `REPO_ROOT` patched
+    to it only for the body of this test, so the module's real `_resolves()`
+    and `_scan_text()` reason about *this* fake root the same way they
+    would about the real one -- no tracked fixture file required.
+
+    Checked three ways: the standalone pre-round-3 replica above resolves
+    the token (the bug, reproduced); the real, fixed `_resolves()` does not
+    (the fix); and the full scan, through a planted reference, reports the
+    exact file and line."""
+    fake_root = _fake_repo_with_stray_file(tmp_path)
+    target = fake_root / "tests" / "fixtures" / "stray" / "CLAUDE.md"
+    assert target.is_file(), "test setup is broken: no real file at the target"
+
     token = "templates/../tests/fixtures/stray/CLAUDE.md"
+    produced = {"agents.md", "claude.md"}
+
+    old_result = _old_buggy_resolves(token, produced, fake_root)
+    assert old_result is True, (
+        f"the pre-round-3 replica returned {old_result!r} for {token!r} "
+        "against a real file at the escaped target -- it should have "
+        "resolved (that was the bug) so this proof no longer demonstrates "
+        "what round 3 fixed"
+    )
+
+    monkeypatch.setattr(sys.modules[__name__], "REPO_ROOT", fake_root)
     assert not _resolves(token, produced), (
         "the traversal resolved -- it walked out of templates/ to a real "
         "file outside every accepted location"
