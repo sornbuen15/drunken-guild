@@ -13,6 +13,7 @@ Pointers only — read the skill, role or tool named; do not reason from this ta
 | **git — branch, commit, PR, merge strategy** | `/git-workflow` (`skills/workflow/git-workflow/SKILL.md`). |
 | **a Jira ticket — write it, read it, move it** | `/jira-tickets` (`skills/workflow/jira-tickets/SKILL.md`) plus the `jira_*` MCP tools. |
 | **end of day / closing a session** | `/audit`. |
+| **something destructive, irreversible or merge-worthy needs the Boss's approval** | `/ask-boss` (`skills/workflow/ask-boss/SKILL.md`). |
 | **unsure which skill, role or tool fits** | `skills/INDEX.md` — read it rather than guessing a name from memory. |
 <!-- guild-block:end -->
 
