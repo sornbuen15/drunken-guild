@@ -152,6 +152,60 @@ def test_the_constraints_anchor_the_same_scrub_timing() -> None:
     )
 
 
+#: The constraints' own wording of the stays-local rule — separate from
+#: <the_retro>'s "stays local: report it, never propose it" — so a weakened
+#: or deleted constraint sentence would otherwise slip past unnoticed: a
+#: third review found it had no test at all, and weakening it to "... may be
+#: proposed anyway", or deleting it outright, left all 37 tests passing.
+STAYS_LOCAL_CONSTRAINT_PATTERN = re.compile(
+    r"cannot be stated without one of these.{0,60}reported as local.{0,60}never proposed",
+    re.I | re.S,
+)
+
+#: The constraint's exact sentence, so the mutation tests below change only
+#: this sentence and nothing else in <constraints>.
+_STAYS_LOCAL_SENTENCE = (
+    "A lesson that cannot be stated without one of these is reported as "
+    "local, never proposed."
+)
+
+
+def test_the_constraints_require_an_unstatable_lesson_to_stay_local() -> None:
+    """DG-418 third review. The FATAL constraint's own sentence had no
+    test: weakening it to '... may be proposed anyway', or deleting it,
+    left every other test in this file passing."""
+    constraints = _collapsed(_constraints(TEXT))
+    assert _STAYS_LOCAL_SENTENCE in constraints, (
+        "<constraints> must carry this exact sentence verbatim"
+    )
+    assert STAYS_LOCAL_CONSTRAINT_PATTERN.search(constraints), (
+        "<constraints> must say an unstatable lesson is reported as local "
+        "and never proposed"
+    )
+
+
+def test_weakening_the_stays_local_clause_breaks_the_check() -> None:
+    """Proves the test above is not a tautology: replacing just 'never
+    proposed' with a permissive clause — the exact weakening the third
+    review named — must fail the check."""
+    constraints = _collapsed(_constraints(TEXT))
+    weakened = constraints.replace(
+        _STAYS_LOCAL_SENTENCE,
+        "A lesson that cannot be stated without one of these may be proposed anyway.",
+    )
+    assert _STAYS_LOCAL_SENTENCE not in weakened, "the mutation did not apply"
+    assert not STAYS_LOCAL_CONSTRAINT_PATTERN.search(weakened)
+
+
+def test_removing_the_stays_local_sentence_breaks_the_check() -> None:
+    """Proves the test above is not a tautology a second way: deleting the
+    sentence outright must also fail the check."""
+    constraints = _collapsed(_constraints(TEXT))
+    removed = constraints.replace(_STAYS_LOCAL_SENTENCE, "")
+    assert _STAYS_LOCAL_SENTENCE not in removed, "the mutation did not apply"
+    assert not STAYS_LOCAL_CONSTRAINT_PATTERN.search(removed)
+
+
 @pytest.mark.parametrize("category", SCRUB_CATEGORIES)
 def test_each_scrub_category_is_named_in_the_retro(category: str) -> None:
     assert category in _collapsed(_the_retro(TEXT)), (
