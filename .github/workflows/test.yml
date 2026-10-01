@@ -211,7 +211,7 @@ jobs:
       #
       # `if: always()` because these two are independent gates that happen to
       # share a job. When the secret scan crashed on 2026-09-07 this was skipped
-      # with it, and CLAUDE.md says both run on every push -- coupling them by
+      # with it, and AGENTS.md says both run on every push -- coupling them by
       # step order was an accident of ordering, not a decision.
       - name: Documentation drift
         if: always()

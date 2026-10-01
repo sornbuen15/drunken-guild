@@ -62,7 +62,7 @@ class TestTheGeneratedConfigCarriesNoPaths:
     def test_the_retired_board_server_is_not_wired_in(self) -> None:
         """DG-250 retired the local board and DG-251 wrote down why: a second
         coordination surface can disagree with Jira, which is the failure that
-        cost DG-248 and DG-249 whole sessions. CLAUDE.md says do not
+        cost DG-248 and DG-249 whole sessions. AGENTS.md says do not
         reintroduce it -- and onboarding was declaring it into every project.
 
         The test above cannot catch this. It asserts the config matches

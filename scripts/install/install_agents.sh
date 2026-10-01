@@ -76,7 +76,7 @@ _agent_list=$(mktemp)
 find "$LOCAL_AGENTS_DIR" -maxdepth 1 -type f -name "*.md" '!' -name "INDEX.md" \
   | sort > "$_agent_list"
 
-# Build INDEX.md in a temp file and replace atomically at the end. CLAUDE.md
+# Build INDEX.md in a temp file and replace atomically at the end. AGENTS.md
 # routes all agent discovery through this file, so a run that installs agents
 # without refreshing it leaves a live dangling reference.
 TEMP_INDEX=$(mktemp)

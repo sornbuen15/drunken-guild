@@ -136,7 +136,7 @@ foreach ($SkillFile in $SkillFiles) {
     }
 
     # The description is what an agent reads to decide whether a skill is
-    # relevant at all, and CLAUDE.md routes every lookup through this index -- so
+    # relevant at all, and AGENTS.md routes every lookup through this index -- so
     # a blank one makes the skill effectively invisible. Both frontmatter forms
     # are handled, quoted or not: the folded `description: >` block and the
     # inline one. The old `**Description:**` body line stays as a last resort for
@@ -209,7 +209,7 @@ $TempIndex = [System.IO.Path]::GetTempFileName()
 [System.IO.File]::WriteAllText($TempIndex, $IndexText, $Utf8NoBom)
 Move-Item -Path $TempIndex -Destination $IndexFile -Force
 
-# Mirror local copy for CLAUDE.md skill_routing
+# Mirror local copy for AGENTS.md skill_routing
 $LocalIndex = Join-Path $LocalSkillsDir "INDEX.md"
 Copy-Item -Path $IndexFile -Destination $LocalIndex -Force
 
