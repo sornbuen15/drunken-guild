@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import subprocess  # nosec B404 - git, invoked with a fixed argument list
 import sys
@@ -843,6 +844,310 @@ def _check_ai_layer(report: Report, root: Optional[Path] = None) -> None:
         )
 
 
+#: A code span (`/build`, `jira_*`, `skills/INDEX.md`) or a bold role name
+#: (**worker**) inside the guild block's pointer table.
+_ROUTE_CODE_SPAN: Final = re.compile(r"`([^`]+)`")
+_ROUTE_BOLD_ROLE: Final = re.compile(r"\*\*(manager|worker|reviewer)\*\*")
+
+#: `@mcp.tool()`, any number of other decorators, then the `def` it names.
+#: Read as source rather than imported -- importing the server module runs its
+#: own setup, and the only question here is what name follows the decorator.
+_MCP_TOOL_DEF: Final = re.compile(
+    r"@mcp\.tool\(\)[^\n]*\n(?:@[^\n]*\n)*(?:async\s+)?def\s+(\w+)"
+)
+
+#: The three roles a route can name. Each resolves to `agents/<role>.md`.
+ROUTE_ROLES: Final = ("manager", "worker", "reviewer")
+
+
+def guild_block(agents_md_text: str) -> str:
+    """The pointer table between the guild-block markers, or ``""``.
+
+    An absent marker is not an error here — :func:`_check_routes` is the one
+    that decides whether a missing block is worth reporting, and reports it as
+    a skip rather than inventing a table that is not there.
+    """
+    if "<!-- guild-block:start -->" not in agents_md_text:
+        return ""
+    try:
+        return agents_md_text.split("<!-- guild-block:start -->", 1)[1].split(
+            "<!-- guild-block:end -->", 1
+        )[0]
+    except IndexError:
+        return ""
+
+
+def route_targets(block: str) -> list[str]:
+    """Every pointer named in the guild block: code spans and bold role names.
+
+    A wildcard such as ``jira_*`` is kept exactly as written — resolving it
+    against the registered tool names is :func:`unresolved_routes`'s job, not
+    this one's.
+    """
+    return _ROUTE_CODE_SPAN.findall(block) + _ROUTE_BOLD_ROLE.findall(block)
+
+
+def _skill_dirs(skills_root: Path) -> dict[str, Path]:
+    """Every skill under *skills_root*, by its folder name."""
+    if not skills_root.is_dir():
+        return {}
+    return {
+        skill.parent.name: skill.parent
+        for skill in sorted(skills_root.glob("*/*/SKILL.md"))
+    }
+
+
+def _route_target_resolves(
+    target: str,
+    skills: dict[str, Path],
+    agents_root: Path,
+    tools: set[str],
+) -> bool:
+    """Whether one route target names something that actually exists.
+
+    A path ending ``.md`` is handled by the caller before this is reached —
+    it is checked against the repository root, which this function is not
+    given.
+    """
+    if target.endswith("*"):
+        prefix = target[:-1]
+        return any(tool.startswith(prefix) for tool in tools)
+    if target.startswith("/"):
+        return target[1:] in skills
+    if target in ROUTE_ROLES:
+        return (agents_root / f"{target}.md").is_file()
+    return target in tools
+
+
+def _resolves_under_repo(repo_root: Path, target: str) -> bool:
+    """Whether a ``.md`` route target is both an existing file and still
+    inside the repository, once ``..`` is resolved away.
+
+    A target like ``../../etc/passwd`` reads as a file on disk the same way
+    a real one does; this check's job is to say the route named something
+    real, not to resolve a path that walks outside the tree it names.
+    """
+    try:
+        resolved_root = repo_root.resolve()
+        candidate = (repo_root / target).resolve()
+        candidate.relative_to(resolved_root)
+    except (OSError, ValueError):
+        return False
+    return candidate.is_file()
+
+
+def unresolved_routes(
+    targets: Sequence[str],
+    skills_root: Path,
+    agents_root: Path,
+    mcp_tools: Sequence[str],
+) -> list[str]:
+    """Which of *targets* name a skill, role or MCP tool that does not exist.
+
+    A slash command (``/build``) resolves to a skill folder of that name,
+    wherever under ``skills/`` it sits. A bare role name resolves to
+    ``agents/<role>.md``. A path ending ``.md`` is checked directly, relative
+    to the repository root ``skills_root``'s parent holds, and must resolve
+    to a file inside that root — a ``..`` that walks outside it is reported
+    as missing rather than followed. ``jira_*`` is a wildcard over the
+    registered tool names, matched by prefix — the wildcard itself is never
+    "missing", only unmatched by anything registered.
+    """
+    skills = _skill_dirs(skills_root)
+    tools = set(mcp_tools)
+    repo_root = skills_root.parent
+
+    missing: list[str] = []
+    for target in targets:
+        if target.endswith(".md"):
+            if not _resolves_under_repo(repo_root, target):
+                missing.append(target)
+            continue
+        if not _route_target_resolves(target, skills, agents_root, tools):
+            missing.append(target)
+    return missing
+
+
+def registered_mcp_tools(server_path: Path) -> list[str]:
+    """The tool names ``src/jira_mcp/server.py`` registers, read as text."""
+    try:
+        text = server_path.read_text(encoding="utf-8")
+    except OSError:
+        return []
+    return _MCP_TOOL_DEF.findall(text)
+
+
+def skill_description(skill_md: Path) -> str:
+    """The frontmatter ``description:`` field of a ``SKILL.md``, or ``""``.
+
+    Handles both a plain value on the same line and a YAML block scalar
+    (``>`` or ``|``) indented on the lines that follow, which is how every
+    skill in this repository writes it.
+    """
+    try:
+        text = skill_md.read_text(encoding="utf-8")
+    except OSError:
+        return ""
+    if not text.startswith("---"):
+        return ""
+    parts = text.split("---", 2)
+    if len(parts) < 3:
+        return ""
+
+    collecting = False
+    collected: list[str] = []
+    for line in parts[1].splitlines():
+        if collecting:
+            if line.strip() and (line.startswith(" ") or line.startswith("\t")):
+                collected.append(line.strip())
+                continue
+            break
+        if line.strip().startswith("description:"):
+            value = line.split(":", 1)[1].strip()
+            if value in (">", "|", ""):
+                collecting = True
+                continue
+            return value
+    return " ".join(collected)
+
+
+#: A name, optionally slash-prefixed, as a whole word — not a substring of a
+#: longer hyphenated one. ``\b`` alone is not enough: ``\bbuild\b`` still
+#: matches inside ``build-step`` (a word/non-word boundary sits at the
+#: hyphen), so the boundary here treats a hyphen as part of the word too,
+#: the same way a skill's own folder name uses it.
+def _mentions(text: str, name: str) -> bool:
+    pattern = re.compile(rf"(?<![\w-])/?{re.escape(name)}(?![\w-])")
+    return bool(pattern.search(text))
+
+
+def unreachable_skills(
+    skills_root: Path, agents_root: Path, guild_block_text: str
+) -> list[str]:
+    """Skills named by nothing: not the guild block, not an agent file, and
+    not another skill's own text (a "next step" line included).
+
+    A skill's own description is deliberately not asked here (REQ-013, as
+    the Boss approved it): being a good match for an agent picking by
+    description is a separate fact from being *routed* to, and the literal
+    requirement is that every skill is reached one of those ways — not that
+    it merely has a description that reads well. Matched whole-word, slash
+    form included, so a skill named ``build`` is not satisfied by another
+    skill's prose saying ``rebuild``. A skill's own file is excluded from the
+    texts checked against it, so a skill cannot make itself reachable by
+    naming itself.
+    """
+    skills = _skill_dirs(skills_root)
+    texts = {
+        name: (path / "SKILL.md").read_text(encoding="utf-8")
+        for name, path in skills.items()
+    }
+    agent_texts = (
+        [p.read_text(encoding="utf-8") for p in sorted(agents_root.glob("*.md"))]
+        if agents_root.is_dir()
+        else []
+    )
+
+    unreachable: list[str] = []
+    for name in sorted(skills):
+        others = (
+            guild_block_text
+            + "\n"
+            + "\n".join(agent_texts)
+            + "\n"
+            + "\n".join(text for other, text in texts.items() if other != name)
+        )
+        if _mentions(others, name):
+            continue
+        unreachable.append(name)
+    return unreachable
+
+
+def _check_routes(report: Report, repo_root: Optional[Path] = None) -> None:
+    """REQ-013: fail when a route's target is missing, or a skill is reached
+    by nothing at all.
+
+    The routes are the guild block's pointer table in ``AGENTS.md`` (REQ-011)
+    and each flow skill's own "next step" hand-off (REQ-012) — not a second,
+    separate check of whether every pointer anywhere in the repository's
+    prose resolves to a file. That is DG-393's job, scoped deliberately
+    narrower, and run later. A skill's own description (REQ-010) is not
+    asked here: it is how an agent *picks* a skill, a different fact from
+    whether anything *routes* to it, and the literal requirement is reached
+    by one of the guild block, an agent file, or another skill's text.
+
+    An absent source tree, or an ``AGENTS.md`` with no guild block, is a
+    **skip**: an installed package has neither, and a check that cries wolf
+    there is one nobody reads.
+    """
+    repo_root = repo_root if repo_root is not None else source_tree_root()
+    if repo_root is None:
+        report.add(
+            "routes.guild_block",
+            "skip",
+            "Running from an installed package, so there is no AGENTS.md or "
+            "skills/ tree to check routes against.",
+        )
+        return
+
+    agents_md = repo_root / "AGENTS.md"
+    if not agents_md.is_file():
+        report.add("routes.guild_block", "skip", f"No AGENTS.md at {agents_md}.")
+        return
+
+    text = agents_md.read_text(encoding="utf-8")
+    block = guild_block(text)
+    if not block:
+        report.add(
+            "routes.guild_block",
+            "skip",
+            f"{agents_md} carries no guild block.",
+        )
+        return
+
+    skills_root = repo_root / "skills"
+    agents_root = repo_root / "agents"
+    server_path = repo_root / "src" / "jira_mcp" / "server.py"
+
+    targets = route_targets(block)
+    tools = registered_mcp_tools(server_path)
+    missing = sorted(set(unresolved_routes(targets, skills_root, agents_root, tools)))
+    if missing:
+        report.add(
+            "routes.targets",
+            "fail",
+            f"{len(missing)} route target(s) in {agents_md.name} name a skill, "
+            "role or tool that does not exist: " + ", ".join(missing),
+            remediation="Fix the route, or add the skill, role or tool it names.",
+        )
+    else:
+        report.add(
+            "routes.targets",
+            "ok",
+            f"all {len(set(targets))} route target(s) in {agents_md.name} resolve",
+        )
+
+    unreachable = unreachable_skills(skills_root, agents_root, block)
+    if unreachable:
+        report.add(
+            "routes.reachable",
+            "fail",
+            f"{len(unreachable)} skill(s) are named by no route in "
+            f"{agents_md.name}, no agent file and no other skill: "
+            + ", ".join(unreachable),
+            remediation=(
+                "Name the skill in a guild-block route, in an agent file, or "
+                "in another skill's own text."
+            ),
+        )
+    else:
+        report.add(
+            "routes.reachable",
+            "ok",
+            "every skill is reached by a route, an agent file or another skill",
+        )
+
+
 def _check_deployment(
     report: Report,
     env_root: Optional[Path] = None,
@@ -1226,6 +1531,7 @@ def run_doctor(
 
     _check_deployment(report, source_root=source_tree_root())
     _check_ai_layer(report)
+    _check_routes(report)
     _check_host_configs(report)
 
     if secrets.cached_refs():

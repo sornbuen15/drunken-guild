@@ -77,14 +77,22 @@ def find(report: doctor.Report, name: str) -> doctor.Check:
     )
 
 
-#: Checks that describe the machine, not what a test set up. They read the
-#: checkout's pyproject, its git tags and the installed tool env, so a test
-#: about a registry or a socket must not be red because this machine's
-#: deployment drifted. Checkpoint lesson 6: an assertion over a whole doctor
+#: Checks that describe the machine or the checkout, not what a test set up.
+#: They read the checkout's pyproject, its git tags, the installed tool env,
+#: and (DG-401) this same checkout's AGENTS.md and skills/ — so a test about
+#: a registry or a socket must not be red because this machine's deployment
+#: drifted, or because the checkout itself carries a routing gap these tests
+#: never asked about. Checkpoint lesson 6: an assertion over a whole doctor
 #: report is clean only where the machine happens to agree, and `develop` has
 #: gone red that way before.
 ENVIRONMENT_CHECKS = frozenset(
-    {"version.declared", "deployment.tool_env", "deployment.mcp_pin"}
+    {
+        "version.declared",
+        "deployment.tool_env",
+        "deployment.mcp_pin",
+        "routes.targets",
+        "routes.reachable",
+    }
 )
 
 
