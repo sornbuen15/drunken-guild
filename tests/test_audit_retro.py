@@ -59,32 +59,79 @@ def test_skill_body_stays_under_the_500_line_budget() -> None:
     )
 
 
-def _classify(lesson: str) -> str:
-    """A minimal proxy for the rule the skill states in `<the_retro>`: evidence
-    stated as holding beyond one project, or stated more than once, is
-    guild-wide; a fact about this project's own path, port or person is
-    local."""
-    markers = ("across projects", "beyond this project", "every project", "the guild")
+#: The classify sentence itself, read out of `<the_retro>` rather than
+#: restated here — so editing the skill's own wording changes what a lesson
+#: must say to be proposed.
+CLASSIFY_RULE = re.compile(
+    r"Evidence of a repeatable rule — (.*?) — is guild-wide:", re.S
+)
+_STRIP_PREFIX = re.compile(
+    r"^(stated as holding |stated as |the boss saying it applies to )", re.I
+)
+
+
+def _markers_from_skill(text: str) -> tuple[str, ...]:
+    """The guild-wide markers `<the_retro>` actually names, extracted from its
+    prose. Empty if the classify sentence is not there to read."""
+    match = CLASSIFY_RULE.search(text)
+    if not match:
+        return ()
+    clause = re.sub(r"\s+", " ", match.group(1))
+    markers = []
+    for phrase in re.split(r",| or ", clause):
+        phrase = _STRIP_PREFIX.sub("", phrase.strip().strip(",")).strip()
+        if len(phrase.split()) >= 2:
+            markers.append(phrase.lower())
+    return tuple(markers)
+
+
+def _classify(lesson: str, markers: tuple[str, ...]) -> str:
     return (
         "guild-wide" if any(marker in lesson.lower() for marker in markers) else "local"
     )
 
 
 #: The fixture the acceptance criterion names: one lesson that is evidence of
-#: a repeatable rule, one that is a fact about this project alone.
+#: a repeatable rule — in the skill's own words — one that is a fact about
+#: this project alone.
 FIXTURE_LESSONS = [
-    "Verify a PR's headRefOid after every push — this held across projects, "
-    "not just the one it was found in.",
+    "Verify a PR's headRefOid after every push — the Boss said this holds "
+    "beyond this project, not just the one it was found in.",
     "This project's own dev server always starts on :4173 — a fact about its "
     "own vite.config and nothing past it.",
 ]
 
 
+def test_markers_are_actually_parsed_out_of_the_skill_text() -> None:
+    assert _markers_from_skill(TEXT), (
+        "no guild-wide markers could be read out of <the_retro> — the extractor "
+        "is out of sync with the skill's own prose"
+    )
+
+
 def test_fixture_with_one_guild_wide_and_one_local_lesson_yields_one_proposal() -> None:
+    markers = _markers_from_skill(TEXT)
     proposals = [
-        lesson for lesson in FIXTURE_LESSONS if _classify(lesson) == "guild-wide"
+        lesson
+        for lesson in FIXTURE_LESSONS
+        if _classify(lesson, markers) == "guild-wide"
     ]
     assert len(proposals) == 1, (
         "a fixture lessons file with one guild-wide lesson and one local one "
         "must produce exactly one proposal (DG-409 acceptance)"
     )
+
+
+def test_removing_the_classify_rule_leaves_nothing_to_propose() -> None:
+    """Proves the test above is not a tautology: strip the classify sentence
+    from a scratch copy of the text and the same fixture now proposes
+    nothing, because there are no markers left to read."""
+    stripped = CLASSIFY_RULE.sub("REMOVED", TEXT)
+    markers = _markers_from_skill(stripped)
+    assert markers == (), "the classify sentence should leave no markers once removed"
+    proposals = [
+        lesson
+        for lesson in FIXTURE_LESSONS
+        if _classify(lesson, markers) == "guild-wide"
+    ]
+    assert proposals == [], "with the classify rule gone, nothing can be guild-wide"
