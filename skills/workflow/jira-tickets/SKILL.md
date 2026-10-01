@@ -5,6 +5,7 @@ description: >
   does a Bug ticket need?", "can I mark this Done now the PR is open?". The five ticket shapes
   (Epic, Story, Task, Subtask, Bug), the labels that make work traceable, the fields this Jira can
   actually set, the status lifecycle, and what must be verified before anything is called Done.
+  Trigger on /jira-tickets.
 ---
 
 # Skill: Tickets
