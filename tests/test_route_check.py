@@ -539,23 +539,26 @@ class TestTheRealRepoPasses:
         assert entry.status == "ok", entry.detail
 
     def test_the_known_unrouted_skills_are_exactly_this_list(self):
-        """`ask-boss` is named only in AGENTS.md's prose outside the guild
-        block (under "Approvals"), never inside the block itself, by no
-        agent file, and by no other skill's own text — so under the literal
-        rule it is unreachable. Flagged here for the Boss to decide: add a
-        guild-block route for it, or accept that it is reached only by an
-        agent reading AGENTS.md in full rather than the pointer table.
+        """DG-424. `ask-boss` now has a guild-block route (a situation that
+        needs the Boss's approval), so the known-unrouted pin from DG-401 is
+        empty: every skill is reached by a route, an agent file or another
+        skill. The list below must stay empty, and this test must fail the
+        moment it is not — a non-empty pin that is never asserted against is
+        exactly the stale-pin problem DG-424 closes, so this reads the real
+        report's status rather than only trusting the list.
         """
+        known_unrouted: list[str] = []
         repo_root = Path(__file__).resolve().parent.parent
 
         report = doctor.Report()
         doctor._check_routes(report, repo_root=repo_root)
 
         entry = next(c for c in report.checks if c.name == "routes.reachable")
-        assert entry.status == "fail", (
-            "expected exactly the known unrouted skill(s) below; if this "
-            "now passes, the list has shrunk and should be updated, not "
-            "silently dropped"
-        )
-        assert entry.detail.startswith("1 skill(s)"), entry.detail
-        assert entry.detail.rsplit(":", 1)[1].strip() == "ask-boss"
+        if known_unrouted:
+            assert entry.status == "fail", entry.detail
+            assert entry.detail.rsplit(":", 1)[1].strip() == ", ".join(known_unrouted)
+        else:
+            assert entry.status == "ok", (
+                f"known_unrouted is empty but routes.reachable did not pass: "
+                f"{entry.detail}"
+            )
