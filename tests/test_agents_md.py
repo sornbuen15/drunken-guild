@@ -136,85 +136,103 @@ def _table_rows(block: str) -> list[tuple[str, str]]:
 
 
 _BACKTICK_SPAN = re.compile(r"`[^`]+`")
-_BOLD_SPAN = re.compile(r"\*\*[^*]+\*\*")
-_OR_OR_SLASH = re.compile(r"\bor\b|\s/\s", re.IGNORECASE)
+_BARE_OR = re.compile(r"\bor\b", re.IGNORECASE)
+_SLASH_ALTERNATIVE = re.compile(r"\s/\s")
 
 
-def _clauses(cell: str) -> list[str]:
-    """Split a pick-up cell on sentence-ending periods. A chain --
-    '`/prd` -> `/clarify` -> ..., in that order' -- is one clause naming one
-    route; an alternative is named *within* a single clause, whatever words
-    carry it.
-
-    A period inside a backtick span (`skills/INDEX.md`, `SKILL.md`) is not a
-    sentence boundary, so backtick spans are masked before splitting and
-    restored after -- otherwise a path's own '.' would cut a target in half
-    and hide it from the distinct-target count on either side.
-    """
-    masked_spans: list[str] = []
-
-    def _mask(match: re.Match[str]) -> str:
-        masked_spans.append(match.group(0))
-        return f"\0{len(masked_spans) - 1}\0"
-
-    masked = _BACKTICK_SPAN.sub(_mask, cell)
-
-    def _unmask(clause: str) -> str:
-        for index, span in enumerate(masked_spans):
-            clause = clause.replace(f"\0{index}\0", span)
-        return clause
-
-    return [_unmask(c.strip()) for c in masked.split(".") if c.strip()]
-
-
-def _distinct_targets(clause: str) -> set[str]:
-    """A target is a backtick span (a command or a path) or a bold span (a
-    role). Counting *distinct* mentions, not occurrences, so a clause that
-    names the same target twice does not look like two targets."""
-    return set(_BACKTICK_SPAN.findall(clause)) | set(_BOLD_SPAN.findall(clause))
+def _sentence_ending_period_indices(cell: str) -> list[int]:
+    """Indices of '.' in the cell, ignoring a period inside a backtick span
+    (`skills/INDEX.md`, `SKILL.md`) -- that period ends a filename, not a
+    sentence. Masking preserves length and position so the indices line up
+    with the real cell."""
+    masked = _BACKTICK_SPAN.sub(lambda m: "x" * len(m.group(0)), cell)
+    return [i for i, ch in enumerate(masked) if ch == "."]
 
 
 def _routes_naming_more_than_one_target(rows: list[tuple[str, str]]) -> list[str]:
-    """A route names more than one target when a single clause of its
-    'pick up' cell names two or more distinct targets *and* joins them with
-    a bare 'or' or a ' / ' alternative -- no matter how that is worded, so
-    rewording a route as 'the **manager** role or the **worker** role',
-    '`skills/INDEX.md` or ask the **manager**', or a comma-led
-    '`/git-workflow`, or ask the **manager**' cannot dodge it.
+    """A pick-up cell may hold no alternative at all. Checked on the WHOLE
+    cell, with no clause splitting and no distinct-target counting, so it
+    cannot be dodged by moving the alternative across a sentence boundary
+    ('Run `/build`. Or ask the **manager**.'), by a semicolon, by
+    capitalisation ('OR'), or by any other punctuation trick:
 
-    A chain naming several targets in order ('`/prd`, `/clarify`, ..., in
-    that order', '... via ...') is not flagged: it never joins them with
-    'or' or '/'. A clause enumerating *conditions* for one target ('`/replan`
-    when a requirement is added, cut or changed') is not flagged either: its
-    'or' sits in a clause with exactly one target.
+    - no bare word 'or' anywhere in the cell, in any case;
+    - no ' / ' alternative anywhere in the cell;
+    - no sentence-ending period except the cell's own last character, so
+      there is exactly one sentence to read (zero periods is fine too --
+      nothing to end a second sentence with).
+
+    A chain naming several targets in order ('`/prd` -> `/clarify` -> ...,
+    in that order') is not flagged: it is one sentence and never uses 'or'
+    or '/'. There is no carve-out for a legitimate 'or' -- a cell that
+    needs one is reworded instead (see AGENTS.md itself).
     """
     violations = []
     for situation, pickup in rows:
-        for clause in _clauses(pickup):
-            if _OR_OR_SLASH.search(clause) and len(_distinct_targets(clause)) >= 2:
-                violations.append(situation)
-                break
+        cell = pickup.strip()
+        if _BARE_OR.search(cell):
+            violations.append(situation)
+            continue
+        if _SLASH_ALTERNATIVE.search(cell):
+            violations.append(situation)
+            continue
+        periods = _sentence_ending_period_indices(cell)
+        if periods and (len(periods) > 1 or periods[-1] != len(cell) - 1):
+            violations.append(situation)
     return violations
 
 
-def test_guild_block_check_catches_two_roles_joined_by_bare_or() -> None:
-    """Fed through the real checker, not a bespoke fixture: rewording the
-    old 'role or role' attack as full phrases must still be caught."""
-    rows = [("**situation**", "the **manager** role or the **worker** role")]
+def test_guild_block_check_catches_or_across_a_sentence_boundary() -> None:
+    """Fed through the real checker, not a bespoke fixture: moving the
+    alternative to its own sentence must still be caught."""
+    rows = [("**situation**", "Run `/build`. Or ask the **manager**.")]
+    assert _routes_naming_more_than_one_target(rows) == ["**situation**"]
+
+
+def test_guild_block_check_catches_or_between_two_role_sentences() -> None:
+    rows = [("**situation**", "Ask the **manager**. Or the **reviewer**.")]
+    assert _routes_naming_more_than_one_target(rows) == ["**situation**"]
+
+
+def test_guild_block_check_catches_or_at_the_end_of_a_clause() -> None:
+    rows = [("**situation**", "Run `/build` or. Ask the **manager**.")]
+    assert _routes_naming_more_than_one_target(rows) == ["**situation**"]
+
+
+def test_guild_block_check_catches_a_semicolon_led_alternative() -> None:
+    rows = [("**situation**", "Run `/build`; or ask the **manager**.")]
+    assert _routes_naming_more_than_one_target(rows) == ["**situation**"]
+
+
+def test_guild_block_check_catches_uppercase_or() -> None:
+    rows = [("**situation**", "Run `/build` OR ask the **manager**.")]
     assert _routes_naming_more_than_one_target(rows) == ["**situation**"]
 
 
 def test_guild_block_check_catches_a_path_and_a_role_joined_by_or() -> None:
-    """A mixed path/role alternative -- the kind of wording that slipped
-    past a narrower, backtick-only pattern -- must still be caught."""
-    rows = [("**situation**", "`skills/INDEX.md` or ask the **manager**")]
+    rows = [("**situation**", "`skills/INDEX.md` or ask the **manager**.")]
     assert _routes_naming_more_than_one_target(rows) == ["**situation**"]
 
 
 def test_guild_block_check_catches_a_comma_led_alternative() -> None:
-    """A comma-led alternative ('X, or Y') is the same ambiguity with a
-    comma in front of the 'or'; it must still be caught."""
-    rows = [("**situation**", "`/git-workflow`, or ask the **manager**")]
+    rows = [("**situation**", "`/git-workflow`, or ask the **manager**.")]
+    assert _routes_naming_more_than_one_target(rows) == ["**situation**"]
+
+
+def test_guild_block_check_catches_either_or() -> None:
+    rows = [("**situation**", "Run either `/prd` or `/clarify`.")]
+    assert _routes_naming_more_than_one_target(rows) == ["**situation**"]
+
+
+def test_guild_block_check_catches_a_slash_alternative() -> None:
+    rows = [("**situation**", "Run `/build` / `/replan`.")]
+    assert _routes_naming_more_than_one_target(rows) == ["**situation**"]
+
+
+def test_guild_block_check_catches_two_sentences_with_no_or_at_all() -> None:
+    """The period rule stands on its own: two sentences are two sentences
+    whether or not either one names an alternative."""
+    rows = [("**situation**", "Run `/build`. Then open the pull request.")]
     assert _routes_naming_more_than_one_target(rows) == ["**situation**"]
 
 
@@ -224,7 +242,8 @@ def test_every_route_names_exactly_one_target_or_none() -> None:
     assert rows, "guild block has no data rows to check"
     violations = _routes_naming_more_than_one_target(rows)
     assert not violations, (
-        f"route(s) name an alternative instead of one target or none: {violations}"
+        f"route(s) name an alternative, or more than one sentence, instead "
+        f"of one target or none: {violations}"
     )
 
 
