@@ -103,6 +103,16 @@ def test_every_row_path_exists_in_the_tree() -> None:
     assert not missing, f"Repository map names path(s) that do not exist: {missing}"
 
 
+def test_legacy_note_cites_the_retiring_ticket() -> None:
+    """DG-427 now retires templates/CLAUDE.md. The LEGACY note must name it,
+    not say no ticket exists -- this fails if the reference is dropped or
+    reverted to that older wording."""
+    section = _repository_map_section(README.read_text(encoding="utf-8"))
+    assert "LEGACY" in section
+    assert "DG-427" in section
+    assert "no open ticket" not in section.lower()
+
+
 def test_table_names_exactly_the_covered_set() -> None:
     """Catches a row silently added or a row silently dropped: the table's
     paths and this file's COVERED_PATHS constant must agree."""
