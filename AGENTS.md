@@ -20,10 +20,8 @@ Pointers only — read the skill, role or tool named; do not reason from this ta
 Loaded by every agent working in this repository — Claude Code, Antigravity, Aider, Gemini CLI,
 whichever is in the seat. No agent-specific plumbing lives here (DG-349): the same file, the same
 rules, whoever is typing — with that agent's own name in the commit author and the `agent:` label.
-
-**DG-349 is amended** (REQ-006, Q3-A): a generated one-line adapter that only points at this
-standard is allowed. A project's own `CLAUDE.md` is exactly that when it carries nothing beyond
-`@AGENTS.md`.
+**Amended** (REQ-006, Q3-A): a generated one-line adapter that only points at this standard is
+allowed — a project's own `CLAUDE.md` is exactly that when it carries nothing beyond `@AGENTS.md`.
 
 `SESSION_CHECKPOINT.md` is the other half: **read it at the start of a session.** This file says
 how to work; that file says where things stand.
@@ -36,31 +34,28 @@ not start work the inventory has not approved.
 
 ## What this repo is
 
-**One repository, two deliverables**, and almost every rule follows from that:
+**One repository, two deliverables**, and almost every rule follows from that: **the runtime** —
+a Python package, the `drunken-jira-mcp` server, the CLI (`drunken-doctor`, `drunken-init`,
+`drunken-usage`) and the `drunken-hook` permission floor, in `src/`, `tests/`, `scripts/` — and
+**the AI layer** — the skills and agents installed into each agent's own location, in `skills/`,
+`agents/`, `templates/`, `examples/`.
 
-| | what it is | where |
-|---|---|---|
-| **The runtime** | a Python package — the `drunken-jira-mcp` server, the CLI (`drunken-doctor`, `drunken-init`, `drunken-usage`) and the `drunken-hook` permission floor | `src/`, `tests/`, `scripts/` |
-| **The AI layer** | the skills and agents that get installed into each agent's own location | `skills/`, `agents/`, `templates/`, `examples/` |
-
-It exists because these two were separate repositories that drifted. Skills were authored in four
-places with 26 duplicated by name; `git-workflow` silently diverged to 73 lines against 196 while a
-just-merged PR told one repo to defer to the other's copy. **One surface is the answer.** Do not
-recreate a second one — including by restating a rule in two files.
+It exists because these two were separate repositories that drifted — skills authored in four
+places with 26 duplicated by name, `git-workflow` silently diverged to 73 lines against 196. **One
+surface is the answer.** Do not recreate a second one — including by restating a rule in two files.
 
 **The flow is seven commands**: `/prd` → `/clarify` → `/ddd` → `/breakdown` → `/build` → `/audit`,
 plus `/replan` when a requirement moves after the backlog exists — one skill each, in
-`skills/flow/`, each owning one stage of the standard (README maps them). They are the product.
-**Read the skill rather than reasoning from this line** — it is a map, not the rule. Anything that
-does not serve a step of that flow does not belong in `skills/` (DG-353, amended by DG-386).
+`skills/flow/` (README maps them). **Read the skill rather than reasoning from this line** — it is
+a map, not the rule. Anything that does not serve a step of that flow does not belong in `skills/`
+(DG-353, amended by DG-386).
 
-**The AI layer stays in git, deliberately.** DG-250 keeps a project's wrapper directory out of git;
-here the AI layer *is* the product, so applying that rule literally would move the deliverable out
-of version control. Do not "fix" this repo by moving `skills/` or `agents/` out of git.
+**The AI layer stays in git, deliberately** — DG-250 keeps a project's wrapper directory out of
+git, but here the AI layer *is* the product, so do not "fix" this repo by moving `skills/` or
+`agents/` out of version control.
 
-*Drunken Programmer* is the pen name; `drunken-guild` is the product. The name says drunk and the
-contents are FATAL directives, blast-radius checks and post-mortems. That tension is the brand —
-do not soften either half.
+*Drunken Programmer* is the pen name; `drunken-guild` is the product — the name says drunk and the
+contents are FATAL directives, blast-radius checks and post-mortems. That tension is the brand.
 
 ---
 
@@ -76,17 +71,15 @@ uvx bandit -ll -q -r src/           # with pip-audit --strict, also gates CI
 ./scripts/verify_clean_install.sh   # clean-room checks, touches nothing of yours
 ```
 
-`pytest -m e2e` talks to **live Jira and files real tickets**. Run it deliberately or not at all.
-It is deselected because for months it was not, and it filed 52 junk tickets before anyone noticed.
+`pytest -m e2e` talks to **live Jira and files real tickets**. Run it deliberately or not at all —
+it is deselected because for months it was not, and it filed 52 junk tickets before anyone noticed.
 
 `drunken-usage --project drunken-guild --by ticket` says what a run cost, read from the host's own
-transcripts — nothing is instrumented and nothing is sent anywhere. It knows no prices; rates are
-an operator input, and an unpriced model reports no cost rather than a smaller one. The `DG-` key
-in a branch name is its only source, so a branch without one reports as untracked cost, silently.
+transcripts. It knows no prices — rates are an operator input — and the `DG-` key in a branch name
+is its only source, so a branch without one reports as untracked cost, silently.
 
 **A test for a bug or a security finding is seen failing first.** A test written after the fix
-proves only that it compiles — say so in the PR, and quote what the failure said, the test id and
-the assertion. "Tests added" is not that.
+proves only that it compiles — say so in the PR, and quote the failure's test id and assertion.
 
 ---
 
@@ -97,36 +90,25 @@ work.
 
 **How to write and run a ticket is `skills/workflow/jira-tickets/SKILL.md`** — the
 FINDING/SCOPE/ACCEPTANCE shape, the fields this Jira can actually set, and what must be verified
-before anything is Done. Read it before opening or closing a ticket. It is the same file every
-agent is pointed at, so the rules cannot drift apart per agent.
-
-A ticket is scanned, not read: the story of how you found it belongs in the commit and the PR.
-
-Use the `drunken-jira-mcp` tools, each taking the project id as its first argument. There is no
-shell fallback: the bridge script that was one went with the Discord lane (DG-355), because two
-ways to write to Jira is two things that can disagree about what happened.
-
-One ticket per phase, and each phase must merge on its own without breaking the one before it.
+before anything is Done. Read it before opening or closing a ticket; it is the same file every
+agent is pointed at. Use the `drunken-jira-mcp` tools, each taking the project id as its first
+argument — there is no shell fallback (DG-355).
 
 **A ticket marked IN REVIEW is not merged code.** DG-225 sat in review for weeks while its branch
 was never merged and the trunk stayed vulnerable; every surface said it was done. Verify against
 `origin/develop` — by looking, with `git merge-base --is-ancestor` — before believing any claim
-that something is fixed. A pull request page is a surface too, and it lags (DG-358).
+that something is fixed (DG-358).
 
 **An action only a person can take at the end goes on the release-gate ticket**, as a comment, in
-the session that finds it. A note in a PR body is not read at tag time, and one was acted on in a
-state where it broke every Jira tool call.
+the session that finds it — a note in a PR body is not read at tag time.
 
-**There is no local board.** The `board_*` tools are retired and `drunken-board-mcp` is not
-packaged (DG-265). Do not create `.claude/board/` or `.agents/board/`, and do not author a skill
-that reads or writes one. A board beside Jira is a second surface that can disagree with the first.
-
-**The backlog is not a second status.** `jira_move_to_backlog` and `jira_move_to_board` change
-membership of the current working set and nothing else. A ticket parked in the backlog is still
-`IN PROGRESS` if that is what it was.
+**There is no local board** (DG-265): do not create or author a skill that reads or writes
+`.claude/board/` or `.agents/board/` — a board beside Jira is a second surface that can disagree
+with the first. **The backlog is not a second status**: `jira_move_to_backlog` and
+`jira_move_to_board` change membership of the current working set, nothing else.
 
 **Assignee is the accountable human; the agent doing the typing is a label.** A ticket an agent is
-actively working carries `agent:<name>` in `labels`. Set it; do not repurpose Assignee for it
+actively working carries `agent:<name>` in `labels` — set it; do not repurpose Assignee for it
 (DG-293).
 
 ---
@@ -139,20 +121,19 @@ memory, and do not restate it here.**
 
 Six things are unrecoverable if you get them wrong, so they are named here as pointers:
 
-- Never push to `main`.
+- Never push to `main`, and never `git merge` locally against `main` or `develop` and push the
+  result. Merge strategy is chosen by target, not preference.
 - **An agent opens pull requests; a human merges them.** No exception for your own PR, a one-line
   change, or a green CI.
-- Never `git merge` locally against `main` or `develop` and push the result.
-- Merge strategy is chosen by target, not preference.
 - **An agent commit passes `--author`**, so `git log` tells an agent's commit from the operator's:
-  `Claude Code <claude@drunken.local>`, or `<Agent> <agent@drunken.local>` for any other (DG-293).
-  The addresses are local-only and resolve nowhere — they exist to be visibly not a real account.
+  `Claude Code <claude@drunken.local>`, or `<Agent> <agent@drunken.local>` for any other (DG-293) —
+  local-only addresses that resolve nowhere, to be visibly not a real account.
 - **Two agents never share a checked-out working tree.** Each works from its own `git worktree`,
   on its own branch (DG-288). One task, one owner, one branch, one worktree, one PR.
 
-Pre-commit runs ruff, ruff-format, mypy and the repository's own guards. Do not bypass it.
-**Install it in a fresh clone** — a clone without `.git/hooks/pre-commit` runs no gates at all and
-says nothing.
+Pre-commit runs ruff, ruff-format, mypy and the repository's own guards; do not bypass it, and
+**install it in a fresh clone** — one without `.git/hooks/pre-commit` runs no gates and says
+nothing.
 
 ---
 
@@ -162,28 +143,24 @@ Full protocol in `skills/workflow/ask-boss/SKILL.md`; the short version:
 
 - The Boss is reading this conversation → **just ask them here.** That is the whole mechanism now.
 - Not reading it → send one notification carrying a link (`core.notify`), park the task, take the
-  next unblocked one, and pick the answer up when you next start a session. Asking must never stop
-  the rest of the work.
-- Nothing is killed for going unanswered, and nothing expires.
+  next unblocked one, and pick the answer up next session. Nothing is killed for going unanswered.
 - A force push, a hard reset, a recursive delete and reading `.env` are denied by
   `.claude/settings.json` and by the `drunken-hook` floor, **and no answer from anywhere can
   authorise one.** Do not route around it; raise it with the Boss.
 
-**The Boss reporting a problem is evidence that the problem exists.** Do not argue that it does
-not. Ask where it happened, which command, and what they saw — then go and look. Every claim you
-make carries its evidence or says it has none yet: "I have not measured that" is an answer; a
-confident guess is not.
+**The Boss reporting a problem is evidence that the problem exists.** Ask where it happened, which
+command, and what they saw — then go and look. Every claim carries its evidence or says it has
+none yet: "I have not measured that" is an answer; a confident guess is not.
 
 ## The deny floor — the layer that answers before the model runs
 
 The **harness** asks before the model runs at all, and the model never sees that one — which is
 why no sentence typed in chat has ever been able to redirect it. `drunken-hook` answers there:
 
-1. **On the deny list → denied**, whatever the mode. `bypassPermissions` turns off prompting; it
+1. **On the deny list → denied**, whatever the mode — `bypassPermissions` turns off prompting; it
    does not turn off the floor.
-2. **A call carrying no command and no path → denied.** An empty string matches no rule at all,
-   deny rules included, so a call nobody can read would otherwise fall past the floor it was meant
-   to hit (DG-321).
+2. **A call carrying no command and no path → denied**, so a call nobody can read cannot fall past
+   the floor it was meant to hit (DG-321).
 
 Everything else gets **silence** — no decision, so the harness prompts exactly as it would have.
 Silence is not `allow`: the floor can refuse and it can stand aside, and it never widens
@@ -193,39 +170,29 @@ permission.
 
 ## Things that will bite you anywhere
 
-- **No secret ever enters a commit.** A reference without a scheme is an error, not a literal.
-  Show `env://…` or `file://…#key`, never a token, channel id, workspace URL or account email
-  inline. gitleaks scans full history and `.env` is deliberately not allowlisted.
-- **An agent does not delete.** Retired things move to `_not_used/` with a note saying why and
-  what replaced them, and *marking a thing unused beats removing it*. **`_not_used/` is not
-  committed** (DG-291): the tracked record is `RETIRED.md` at the root, and that row is the only
-  part a fresh clone gets — add it in the same change. Anything needing a recursive force-delete
-  becomes a **list handed to the Boss to run**. An authorisation recorded in an earlier session is
-  not permission to delete today.
-- **An agent does not install and does not deploy.** Not the install scripts, not
+- **No secret ever enters a commit.** A reference without a scheme is an error, not a literal: show
+  `env://…` or `file://…#key`, never a token, channel id, workspace URL or account email inline.
+  gitleaks scans full history and `.env` is deliberately not allowlisted.
+- **An agent does not delete.** Retired things move to `_not_used/` (not committed, DG-291) with a
+  note saying why and what replaced them; the tracked record is `RETIRED.md` at the root, added in
+  the same change. A recursive force-delete becomes a **list handed to the Boss to run**.
+- **An agent does not install and does not deploy** — not the install scripts, not
   `uv tool install`, not a copy into an agent's own config directory. Say what to run and hand it
-  over. Merging is not deploying: the installed environment is a separate thing and
-  `drunken-doctor` reports the gap.
-- **Do not touch `~/Projects/drunken-team` or `~/Projects/ai-team-toolkit`.** They are the
-  fallback until this repo is released and verified.
-- **Do not touch another agent's own state** — `~/.gemini/` and anything under it included.
-  Editing a file there is an install.
+  over; merging is not deploying, and `drunken-doctor` reports the gap.
+- **Do not touch `~/Projects/drunken-team` or `~/Projects/ai-team-toolkit`** (the fallback until
+  this repo is released) **or another agent's own state** — `~/.gemini/` included; editing a file
+  there is an install.
 
 ---
 
 ## Editing this repository's own code and skills — Claude-only detail, same essentials for anyone
 
 `.claude/rules/` carries the full authoring detail for whoever is editing `skills/`, `agents/` or
-`src/` in this repository — `ai-layer.md` for the AI layer, `python.md` for the Python half. They
-load automatically for Claude Code via `paths:` frontmatter and stay a Claude-only extra (REQ-006,
-Q9-A); another agent working here still needs to hold to the essentials they carry:
-
-- A skill is `skills/<category>/<name>/SKILL.md`; an agent is `agents/<name>.md`. Both open with
-  YAML frontmatter and a `<system_prompt>` block. **The `description` is the only activation
-  trigger** — nothing matches keywords.
-- `uv sync --extra dev` first, always, in a fresh clone — without it `pytest` runs against
-  whatever interpreter is on PATH instead of this project's own.
-- The Python gates — `ruff`, `mypy`, `pytest`, `bandit`, `pip-audit` — cover `src/`, `tests/` and
-  `scripts/` only. `scripts/check_doc_drift.py` and review guard the AI layer, since markdown has
-  no type checker.
-- English only — every description, trigger, instruction, constraint and output format.
+`src/` here — `ai-layer.md` for the AI layer, `python.md` for the Python half — and loads
+automatically for Claude Code via `paths:` frontmatter, staying a Claude-only extra (REQ-006,
+Q9-A). Another agent working here still needs the essentials: a skill is
+`skills/<category>/<name>/SKILL.md`, an agent is `agents/<name>.md`, both opening with YAML
+frontmatter and a `<system_prompt>` block, and **`description` is the only activation trigger** —
+nothing matches keywords. `uv sync --extra dev` first, always, in a fresh clone. The Python gates
+(`ruff`, `mypy`, `pytest`, `bandit`, `pip-audit`) cover `src/`, `tests/` and `scripts/` only;
+`scripts/check_doc_drift.py` and review guard the AI layer, since markdown has no type checker.
