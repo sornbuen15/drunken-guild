@@ -114,17 +114,24 @@ async def jira_assign(project: str, issue_key: str, assignee: str) -> str:
     display name, "me", or "none". An ambiguous name is refused, not guessed.
     """
     client = get_client(project)
+    keys = backlog.scope_keys(issue_key, client.project_key)
+    if len(keys) != 1:
+        raise ValidationError(
+            f"One issue per call, got {len(keys)}.",
+            remediation="Call once per issue key.",
+        )
+    (key,) = keys
 
     if assign.is_unassign(assignee):
-        return json.dumps(await client.assign_issue(issue_key, None), indent=2)
+        return json.dumps(await client.assign_issue(key, None), indent=2)
 
     if assign.is_self_reference(assignee):
         account_id = await client.my_account_id()
-        return json.dumps(await client.assign_issue(issue_key, account_id), indent=2)
+        return json.dumps(await client.assign_issue(key, account_id), indent=2)
 
     candidates = await client.assignable_users(assignee)
     user = assign.pick_user(candidates, assignee)
-    result = await client.assign_issue(issue_key, str(user["accountId"]))
+    result = await client.assign_issue(key, str(user["accountId"]))
     result["assignee"] = user.get("displayName")
     return json.dumps(result, indent=2)
 
@@ -320,7 +327,14 @@ async def jira_transition_issue(
     `target_status` is the status name.
     """
     client = get_client(project)
-    res = await client.transition_issue(issue_key, target_status)
+    keys = backlog.scope_keys(issue_key, client.project_key)
+    if len(keys) != 1:
+        raise ValidationError(
+            f"One issue per call, got {len(keys)}.",
+            remediation="Call once per issue key.",
+        )
+    (key,) = keys
+    res = await client.transition_issue(key, target_status)
     return json.dumps(res, indent=2)
 
 
@@ -331,7 +345,14 @@ async def jira_add_comment(project: str, issue_key: str, comment: str) -> str:
     Add a comment to an issue in `project`.
     """
     client = get_client(project)
-    res = await client.add_comment(issue_key, comment)
+    keys = backlog.scope_keys(issue_key, client.project_key)
+    if len(keys) != 1:
+        raise ValidationError(
+            f"One issue per call, got {len(keys)}.",
+            remediation="Call once per issue key.",
+        )
+    (key,) = keys
+    res = await client.add_comment(key, comment)
     return json.dumps(res, indent=2)
 
 
@@ -518,8 +539,15 @@ async def jira_start_task(project: str, issue_key: str) -> str:
     run before coding.
     """
     client = get_client(project)
-    await client.transition_issue(issue_key, "In Progress")
-    git_command = f"git checkout -b feature/{issue_key}"
+    keys = backlog.scope_keys(issue_key, client.project_key)
+    if len(keys) != 1:
+        raise ValidationError(
+            f"One issue per call, got {len(keys)}.",
+            remediation="Call once per issue key.",
+        )
+    (key,) = keys
+    await client.transition_issue(key, "In Progress")
+    git_command = f"git checkout -b feature/{key}"
     return json.dumps(
         {
             "status": "In Progress",
@@ -539,10 +567,17 @@ async def jira_submit_for_review(
     argument is `pr_link`; `files_changed` is a one-line summary.
     """
     client = get_client(project)
-    await client.transition_issue(issue_key, "In Review")
+    keys = backlog.scope_keys(issue_key, client.project_key)
+    if len(keys) != 1:
+        raise ValidationError(
+            f"One issue per call, got {len(keys)}.",
+            remediation="Call once per issue key.",
+        )
+    (key,) = keys
+    await client.transition_issue(key, "In Review")
 
     comment = f"**Code Submitted for Review**\n\n*PR Link:* {pr_link}\n*Files Changed:* {files_changed}"
-    await client.add_comment(issue_key, comment)
+    await client.add_comment(key, comment)
 
     return json.dumps(
         {
