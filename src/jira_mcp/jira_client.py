@@ -874,3 +874,30 @@ class JiraClient:
             url, method="POST", payload=payload, email=self.email, token=self.token
         )
         return {"ok": True, "id": res.get("id")}
+
+    async def get_comments(
+        self, issue_key: str, limit: int = 5
+    ) -> List[Dict[str, Any]]:
+        """The newest *limit* comments on the issue, oldest first.
+
+        `orderBy=-created` with `maxResults=limit` asks Jira for the newest
+        page; the flip to oldest-first happens here, so a reader sees the
+        conversation in the order it happened rather than the order Jira
+        paginates it.
+        """
+        url = (
+            f"{self.base_url}/rest/api/3/issue/{issue_key}/comment"
+            f"?maxResults={int(limit)}&orderBy=-created"
+        )
+        res = await make_request(url, email=self.email, token=self.token)
+        comments = res.get("comments", []) if isinstance(res, dict) else []
+        out = [
+            {
+                "author": (c.get("author") or {}).get("displayName") or "Unknown",
+                "created": c.get("created"),
+                "body": from_adf(c.get("body")),
+            }
+            for c in comments
+        ]
+        out.reverse()
+        return out
