@@ -103,7 +103,7 @@ def _locate_markers(agents_path: Path, text: str) -> tuple[list[int], list[int]]
     return starts, ends
 
 
-def merge_guild_block(agents_path: Path, project_root: Path) -> str:
+def merge_guild_block(agents_path: Path) -> str:
     """Insert or refresh the guild block in an *existing* AGENTS.md.
 
     No block yet: insert right after the first heading, skipping a leading
@@ -112,8 +112,13 @@ def merge_guild_block(agents_path: Path, project_root: Path) -> str:
     markers, the BOM included — is untouched, so a second run changes
     nothing.
 
-    Refuses rather than guessing: a symlinked AGENTS.md, one that resolves
-    outside *project_root*, or one with markers it cannot make sense of.
+    Refuses rather than guessing: *agents_path itself* being a symlink, or
+    carrying markers it cannot make sense of. This does not catch every way
+    AGENTS.md could point somewhere unexpected — a hard link to a file
+    outside the project looks like an ordinary file and is written through
+    like one, and a `--path` that is itself a junction or sits under a
+    symlinked parent directory is the operator's own choice, not something
+    this function can second-guess from the leaf name alone.
     """
     if agents_path.is_symlink():
         raise ValidationError(
@@ -124,17 +129,6 @@ def merge_guild_block(agents_path: Path, project_root: Path) -> str:
                 "update, or replace the symlink with a regular file."
             ),
         )
-
-    resolved = agents_path.resolve(strict=True)
-    root = project_root.resolve(strict=True)
-    try:
-        resolved.relative_to(root)
-    except ValueError:
-        raise ValidationError(
-            f"{agents_path} resolves to {resolved}, outside the project "
-            f"directory {root}.",
-            remediation="Point --path at the project whose AGENTS.md this is.",
-        ) from None
 
     # newline="" on read too: Path.read_text() translates CRLF to LF, which
     # would make an untouched CRLF byte outside the markers look touched.

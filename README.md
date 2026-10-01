@@ -123,8 +123,14 @@ file) is reported as `created with the block`, not `unchanged`.
 
 It refuses rather than guessing, leaving the file untouched and exiting non-zero:
 
-- **`AGENTS.md` is a symlink, or resolves outside the project directory.** Merging through either
-  could write into a file the project does not own.
+- **`AGENTS.md` itself is a symlink.** Merging through it could write into a file outside the
+  project that the leaf name gives no hint of. This check is on the leaf only — it does not cover
+  `--path` itself being a junction or sitting under a symlinked parent directory, since that is the
+  operator's own choice of path, not something the merge can second-guess.
+- **A hard link is not detected at all.** A hard link to a file outside the project looks exactly
+  like an ordinary file — there is no "it's a link" bit to check — so the block is written through
+  to the other name just as it would be for a normal file. Do not point `--path` at a project whose
+  `AGENTS.md` is a hard link you do not own.
 - **The markers are malformed** — a `start` with no matching `end`, an `end` that appears before its
   `start`, or more than one of either. Only zero markers (insert) or exactly one well-formed pair
   (replace) is something the merge can act on without guessing; the error names the problem and the

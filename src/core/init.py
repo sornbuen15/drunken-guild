@@ -220,7 +220,7 @@ def main() -> int:
 
         if args.guild_block and project_root and agents_path:
             if existed_before:
-                status = scaffold.merge_guild_block(agents_path, project_root)
+                status = scaffold.merge_guild_block(agents_path)
                 written.append(f"guild block     : {status}, {agents_path}")
             else:
                 # instruction_files() just wrote a fresh AGENTS.md from the
