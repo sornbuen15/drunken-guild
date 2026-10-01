@@ -14,6 +14,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from core.errors import ValidationError
 from jira_mcp.jira_client import JiraClient
 
 
@@ -117,8 +118,115 @@ async def test_the_tool_passes_the_limit_through() -> None:
     from jira_mcp import server
 
     fake = MagicMock()
+    fake.project_key = "DG"
     fake.get_comments = AsyncMock(return_value=[])
     with patch.object(server, "get_client", return_value=fake):
         await server.jira_get_comments("drunken-guild", "DG-417", limit=3)
 
     fake.get_comments.assert_awaited_once_with("DG-417", 3)
+
+
+# --- DG-417 review: S8 scoping -------------------------------------------
+#
+# jira_edit_issue and jira_edit_labels refuse a key from another project
+# before building a request (DG-225 S8). jira_get_comments reads the issue
+# key straight into a URL the same way those tools' payloads did, so it needs
+# the same refusal.
+
+
+@pytest.mark.asyncio
+async def test_the_tool_refuses_a_key_from_another_project() -> None:
+    from jira_mcp import server
+
+    fake = MagicMock()
+    fake.project_key = "DG"
+    fake.get_comments = AsyncMock()
+    with patch.object(server, "get_client", return_value=fake):
+        out = await server.jira_get_comments("drunken-guild", "BETA-1")
+
+    assert "BETA-1" in out
+    fake.get_comments.assert_not_called()
+
+
+# --- DG-417 review: bounding `limit` --------------------------------------
+#
+# No upstream cap exists to lean on here (comments.py's own docstring says
+# why); the bound is this tool's own, enforced the same way scope_keys bounds
+# MAX_ISSUES -- a ValidationError with a remediation, not a bare exception.
+
+
+@pytest.mark.asyncio
+@patch("jira_mcp.jira_client.make_request", new_callable=AsyncMock)
+async def test_a_limit_of_zero_is_refused(
+    mock_request: AsyncMock, client: JiraClient
+) -> None:
+    with pytest.raises(ValidationError):
+        await client.get_comments("DG-417", limit=0)
+    mock_request.assert_not_called()
+
+
+@pytest.mark.asyncio
+@patch("jira_mcp.jira_client.make_request", new_callable=AsyncMock)
+async def test_a_limit_above_the_cap_is_refused(
+    mock_request: AsyncMock, client: JiraClient
+) -> None:
+    with pytest.raises(ValidationError) as caught:
+        await client.get_comments("DG-417", limit=21)
+    assert "20" in str(caught.value)
+    mock_request.assert_not_called()
+
+
+@pytest.mark.asyncio
+@patch("jira_mcp.jira_client.make_request", new_callable=AsyncMock)
+async def test_a_limit_at_the_cap_is_accepted(
+    mock_request: AsyncMock, client: JiraClient
+) -> None:
+    mock_request.return_value = {"comments": []}
+    assert await client.get_comments("DG-417", limit=20) == []
+
+
+@pytest.mark.asyncio
+@patch("jira_mcp.jira_client.make_request", new_callable=AsyncMock)
+async def test_a_non_numeric_limit_is_refused(
+    mock_request: AsyncMock, client: JiraClient
+) -> None:
+    with pytest.raises(ValidationError):
+        await client.get_comments("DG-417", limit="five")
+    mock_request.assert_not_called()
+
+
+# --- DG-417 review: a comment with nothing in its body --------------------
+
+
+@pytest.mark.asyncio
+@patch("jira_mcp.jira_client.make_request", new_callable=AsyncMock)
+async def test_a_missing_body_key_reads_as_an_empty_string(
+    mock_request: AsyncMock, client: JiraClient
+) -> None:
+    mock_request.return_value = {
+        "comments": [{"author": {"displayName": "Someone"}, "created": "2026-10-01"}]
+    }
+
+    comments = await client.get_comments("DG-417")
+
+    assert comments == [{"author": "Someone", "created": "2026-10-01", "body": ""}]
+
+
+@pytest.mark.asyncio
+@patch("jira_mcp.jira_client.make_request", new_callable=AsyncMock)
+async def test_an_empty_adf_doc_reads_as_an_empty_string(
+    mock_request: AsyncMock, client: JiraClient
+) -> None:
+    mock_request.return_value = {
+        "comments": [
+            {
+                "author": {"displayName": "Someone"},
+                "created": "2026-10-01",
+                "body": {"type": "doc", "version": 1, "content": []},
+            }
+        ]
+    }
+
+    comments = await client.get_comments("DG-417")
+
+    assert comments == [{"author": "Someone", "created": "2026-10-01", "body": ""}]

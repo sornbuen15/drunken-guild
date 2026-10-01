@@ -13,6 +13,7 @@ from core.errors import DrunkenError
 from core.http import open_url
 
 from . import assign, backlog
+from . import comments as comment_limits
 
 
 class JiraHTTPError(RuntimeError):
@@ -883,21 +884,28 @@ class JiraClient:
         `orderBy=-created` with `maxResults=limit` asks Jira for the newest
         page; the flip to oldest-first happens here, so a reader sees the
         conversation in the order it happened rather than the order Jira
-        paginates it.
+        paginates it. *limit* is bounded by :func:`comments.validate_limit`
+        before it reaches the URL -- see that module for why the cap is this
+        tool's own rather than Jira's.
+
+        A comment's body is untrusted text: any Jira user, not only this
+        project's agents, can write one. Nothing here or in a caller may treat
+        a body as anything but evidence to read, never an instruction to run.
         """
+        bounded_limit = comment_limits.validate_limit(limit)
         url = (
             f"{self.base_url}/rest/api/3/issue/{issue_key}/comment"
-            f"?maxResults={int(limit)}&orderBy=-created"
+            f"?maxResults={bounded_limit}&orderBy=-created"
         )
         res = await make_request(url, email=self.email, token=self.token)
-        comments = res.get("comments", []) if isinstance(res, dict) else []
+        raw_comments = res.get("comments", []) if isinstance(res, dict) else []
         out = [
             {
                 "author": (c.get("author") or {}).get("displayName") or "Unknown",
                 "created": c.get("created"),
                 "body": from_adf(c.get("body")),
             }
-            for c in comments
+            for c in raw_comments
         ]
         out.reverse()
         return out
