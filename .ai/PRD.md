@@ -136,9 +136,20 @@ from the project's own work.
 **Decided:** 2026-10-01 — the Boss approved a retro step at the end of `/audit` (DG-409). Found
 in a project run under the guild: nine lessons in its own memory, none of which reached the guild.
 
+### REQ-018 — Dependencies are audited on a schedule, in every language a project uses
+**Class:** Should
+**Acceptance:** Every project under the guild audits its dependencies on a schedule, independent
+of PRs, for each language it uses (Python, PHP/composer, Node/npm at least). A finding fails the
+run visibly and is turned into a ticket, raised by a person or agent. Nothing is auto-merged or
+auto-upgraded.
+**Decided:** 2026-10-01 — the Boss approved a scheduled, per-language audit after the pyjwt and
+virtualenv advisories failed CI on every branch at once (DG-413); CI only audits on a PR or push,
+so a quiet week hides a vulnerable tree.
+
 ## Inferred — not yet accepted
 - (none — all accepted by the Boss, 2026-09-23)
 
 ## Open — for /clarify
 - REQ-011 — result of the Antigravity run (Q4-A). Carry: changes one adapter.
 - REQ-014 — whether Antigravity has subagents: not yet checked. Carry: one adapter.
+- REQ-018 — which further languages (Go, Ruby) are in scope.
