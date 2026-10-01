@@ -44,18 +44,15 @@ It exists because these two were separate repositories that drifted — skills a
 places with 26 duplicated by name, `git-workflow` silently diverged to 73 lines against 196. **One
 surface is the answer.** Do not recreate a second one — including by restating a rule in two files.
 
-**The flow is seven commands**: `/prd` → `/clarify` → `/ddd` → `/breakdown` → `/build` → `/audit`,
-plus `/replan` when a requirement moves after the backlog exists — one skill each, in
-`skills/flow/` (README maps them). **Read the skill rather than reasoning from this line** — it is
-a map, not the rule. Anything that does not serve a step of that flow does not belong in `skills/`
-(DG-353, amended by DG-386).
+**The flow is seven commands** — `/prd` → `/clarify` → `/ddd` → `/breakdown` → `/build` → `/audit`,
+plus `/replan` when a requirement moves after the backlog exists — one skill each in `skills/flow/`
+(README maps them). **Read the skill rather than reasoning from this line.** Anything that does not
+serve a step of that flow does not belong in `skills/` (DG-353, amended by DG-386).
 
-**The AI layer stays in git, deliberately** — DG-250 keeps a project's wrapper directory out of
-git, but here the AI layer *is* the product, so do not "fix" this repo by moving `skills/` or
-`agents/` out of version control.
-
-*Drunken Programmer* is the pen name; `drunken-guild` is the product — the name says drunk and the
-contents are FATAL directives, blast-radius checks and post-mortems. That tension is the brand.
+**The AI layer stays in git, deliberately** (DG-250): here it *is* the product, so do not "fix"
+this repo by moving `skills/` or `agents/` out of version control. *Drunken Programmer* is the pen
+name; `drunken-guild` is the product — the tension between the name and FATAL directives is the
+brand.
 
 ---
 
@@ -75,8 +72,9 @@ uvx bandit -ll -q -r src/           # with pip-audit --strict, also gates CI
 it is deselected because for months it was not, and it filed 52 junk tickets before anyone noticed.
 
 `drunken-usage --project drunken-guild --by ticket` says what a run cost, read from the host's own
-transcripts. It knows no prices — rates are an operator input — and the `DG-` key in a branch name
-is its only source, so a branch without one reports as untracked cost, silently.
+transcripts — nothing is instrumented and nothing is sent anywhere. It knows no prices; rates are
+an operator input, and an unpriced model reports no cost rather than a smaller one. The `DG-` key
+in a branch name is its only source, so a branch without one reports as untracked cost, silently.
 
 **A test for a bug or a security finding is seen failing first.** A test written after the fix
 proves only that it compiles — say so in the PR, and quote the failure's test id and assertion.
@@ -97,7 +95,7 @@ argument — there is no shell fallback (DG-355).
 **A ticket marked IN REVIEW is not merged code.** DG-225 sat in review for weeks while its branch
 was never merged and the trunk stayed vulnerable; every surface said it was done. Verify against
 `origin/develop` — by looking, with `git merge-base --is-ancestor` — before believing any claim
-that something is fixed (DG-358).
+that something is fixed. A pull request page is a surface too, and it lags (DG-358).
 
 **An action only a person can take at the end goes on the release-gate ticket**, as a comment, in
 the session that finds it — a note in a PR body is not read at tag time.
@@ -170,12 +168,14 @@ permission.
 
 ## Things that will bite you anywhere
 
+- **English only** — every description, instruction, commit, comment and PR this repository sees.
 - **No secret ever enters a commit.** A reference without a scheme is an error, not a literal: show
   `env://…` or `file://…#key`, never a token, channel id, workspace URL or account email inline.
   gitleaks scans full history and `.env` is deliberately not allowlisted.
 - **An agent does not delete.** Retired things move to `_not_used/` (not committed, DG-291) with a
   note saying why and what replaced them; the tracked record is `RETIRED.md` at the root, added in
-  the same change. A recursive force-delete becomes a **list handed to the Boss to run**.
+  the same change. A recursive force-delete becomes a **list handed to the Boss to run** — an
+  authorisation recorded in an earlier session is not permission to delete today.
 - **An agent does not install and does not deploy** — not the install scripts, not
   `uv tool install`, not a copy into an agent's own config directory. Say what to run and hand it
   over; merging is not deploying, and `drunken-doctor` reports the gap.

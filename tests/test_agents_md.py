@@ -356,3 +356,47 @@ def test_guild_block_check_catches_a_second_routing_table() -> None:
     )
     mutated = template + "\n\n| situation | pick up |\n|---|---|\n| **x** | `/y` |\n"
     assert _duplicate_situation_mismatches(mutated) == ["<second table header>"]
+
+
+# --- DG-419 review follow-up. The first trim of AGENTS.md under the 200-line
+# budget dropped four rules along with the prose around them. Each is back; a
+# plain substring check is enough here because the realistic failure mode is
+# exactly what happened once already -- a future trim deleting the sentence
+# while chasing the line count, which each of these catches directly.
+
+
+def test_agents_md_still_guards_against_a_stale_delete_authorisation() -> None:
+    text = (REPO_ROOT / "AGENTS.md").read_text(encoding="utf-8")
+    assert "an earlier session is not permission to delete today" in text, (
+        "the stale-authorisation guard for deletes is missing from AGENTS.md "
+        "-- an agent could read an old approval as license to delete now"
+    )
+
+
+def test_agents_md_still_says_a_pull_request_page_lags() -> None:
+    text = (REPO_ROOT / "AGENTS.md").read_text(encoding="utf-8")
+    assert "A pull request page is a surface too, and it lags" in text, (
+        "AGENTS.md no longer warns that the PR page itself can be stale -- "
+        "DG-358, the reason 'merged' is verified against origin/develop"
+    )
+
+
+def test_agents_md_states_english_only() -> None:
+    text = (REPO_ROOT / "AGENTS.md").read_text(encoding="utf-8")
+    assert "English only" in text, (
+        "AGENTS.md carries no general English-only rule -- a non-Claude agent "
+        "loading only this file has nowhere else to read it (.claude/rules/ "
+        "is a Claude-only extra)"
+    )
+
+
+def test_agents_md_still_explains_drunken_usage_has_no_telemetry() -> None:
+    text = (REPO_ROOT / "AGENTS.md").read_text(encoding="utf-8")
+    assert "nothing is instrumented and nothing is sent anywhere" in text, (
+        "AGENTS.md no longer says drunken-usage reads local transcripts only "
+        "-- an agent could assume cost data leaves the machine"
+    )
+    assert "an unpriced model reports no cost rather than a smaller one" in text, (
+        "AGENTS.md no longer says an unpriced model reports no cost -- an "
+        "agent could read a 0-cost line as a cheap run instead of an unpriced one"
+    )
