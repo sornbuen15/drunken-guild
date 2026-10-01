@@ -9,7 +9,7 @@ from core.registry import ProjectRegistry
 
 from . import assign, backlog, edits
 from . import labels as label_ops
-from .jira_client import BoardProfile, JiraClient
+from .jira_client import BoardProfile, JiraClient, filter_foreign_issues
 from .jql import scope_to_project
 
 #: Said in every move result, because it is the thing an agent will otherwise
@@ -99,6 +99,25 @@ async def jira_search_issues(project: str, jql: str, detail: str = "brief") -> s
     issues = await client.search_issues(
         scope_to_project(jql, client.project_key), brief=detail != "full"
     )
+    # DG-428 defence in depth: a foreign key in the response means the scope
+    # above did not hold (or Jira did not honour it). Drop it and say so,
+    # rather than handing it to the agent as if it belonged here.
+    issues, dropped = filter_foreign_issues(issues, client.project_key)
+    if dropped:
+        return json.dumps(
+            {
+                "issues": issues,
+                "error": {
+                    "code": "scope_violation",
+                    "message": (
+                        f"{len(dropped)} result(s) outside project "
+                        f"{client.project_key!r} were dropped: "
+                        f"{', '.join(dropped)}."
+                    ),
+                },
+            },
+            indent=2,
+        )
     return json.dumps(issues, indent=2)
 
 

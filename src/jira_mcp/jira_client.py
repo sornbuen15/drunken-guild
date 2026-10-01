@@ -6,7 +6,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Final, List, Optional
 
 from core.context import ProjectContext
 from core.errors import DrunkenError
@@ -434,6 +434,36 @@ def minify_issues(
             row["description"] = from_adf(fields.get("description"))
         minified.append(row)
     return minified
+
+
+#: DG-428. ``PROJECT-123``, case-sensitive: Jira keys are always upper-case,
+#: and lower-casing either side here would make ``dg-1`` match ``DG`` by
+#: accident rather than by the caller actually naming it that way.
+_ISSUE_KEY: Final = re.compile(r"^([A-Za-z][A-Za-z0-9_]*)-\d+$")
+
+
+def filter_foreign_issues(
+    issues: List[Dict[str, Any]], project_key: str
+) -> tuple[List[Dict[str, Any]], List[str]]:
+    """Split *issues* into (ours, everyone else's), by key rather than trust.
+
+    Defence in depth for :mod:`jira_mcp.jql`: if a scoped query ever did reach
+    another project anyway — the wrap broken, or Jira itself misbehaving — the
+    foreign rows are dropped here rather than handed to the agent as if the
+    scope had held. Checked against the issue's own ``key`` field, not against
+    anything about how the query was built, so this still catches a leak the
+    wrap did not cause.
+    """
+    kept: List[Dict[str, Any]] = []
+    dropped: List[str] = []
+    for issue in issues:
+        key = issue.get("key")
+        match = _ISSUE_KEY.match(key) if isinstance(key, str) else None
+        if match and match.group(1) == project_key:
+            kept.append(issue)
+        else:
+            dropped.append(key if isinstance(key, str) and key else "<no key>")
+    return kept, dropped
 
 
 class JiraClient:
