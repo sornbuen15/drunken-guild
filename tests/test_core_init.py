@@ -2,6 +2,7 @@
 """Setup must be scriptable, idempotent, and incapable of storing a token."""
 
 import json
+import os
 import stat
 
 import pytest
@@ -304,3 +305,163 @@ class TestItGivesTheProjectAnInstructionFile:
         assert "<!-- guild-block:end -->" in agents
         assert "/build" in agents
         assert "jira-tickets" in agents
+
+
+class TestGuildBlockFlag:
+    """DG-408. `--guild-block` is opt-in and only touches an EXISTING
+    AGENTS.md; without it behaviour is exactly as today (see
+    test_an_existing_agents_md_is_left_byte_identical above)."""
+
+    def test_an_existing_file_without_a_block_gets_one_and_keeps_every_byte(
+        self, tmp_path
+    ) -> None:
+        checkout = tmp_path / "app"
+        checkout.mkdir()
+        original = "# ours\r\nhand-written, keep me\n"
+        (checkout / "AGENTS.md").write_bytes(original.encode("utf-8"))
+
+        assert run("--project", "app", "--path", str(checkout), "--guild-block") == 0
+
+        merged = (checkout / "AGENTS.md").read_text(encoding="utf-8")
+        assert "<!-- guild-block:start -->" in merged
+        assert "<!-- guild-block:end -->" in merged
+        assert "hand-written, keep me" in merged
+        for line in original.splitlines():
+            assert line in merged
+
+    def test_rerunning_with_the_flag_is_byte_identical(self, tmp_path) -> None:
+        checkout = tmp_path / "app"
+        checkout.mkdir()
+        (checkout / "AGENTS.md").write_text(
+            "# ours\nhand-written, keep me\n", encoding="utf-8"
+        )
+
+        run("--project", "app", "--path", str(checkout), "--guild-block")
+        first = (checkout / "AGENTS.md").read_bytes()
+
+        run("--project", "app", "--path", str(checkout), "--guild-block")
+
+        assert (checkout / "AGENTS.md").read_bytes() == first
+
+    def test_an_older_block_has_only_the_block_replaced(self, tmp_path) -> None:
+        checkout = tmp_path / "app"
+        checkout.mkdir()
+        before = "# ours\n\nbefore the block\n"
+        old_block = (
+            "<!-- guild-block:start -->\nSTALE CONTENT\n<!-- guild-block:end -->\n"
+        )
+        after = "\nafter the block\n"
+        (checkout / "AGENTS.md").write_text(
+            before + old_block + after, encoding="utf-8"
+        )
+
+        assert run("--project", "app", "--path", str(checkout), "--guild-block") == 0
+
+        merged = (checkout / "AGENTS.md").read_text(encoding="utf-8")
+        assert "STALE CONTENT" not in merged
+        assert "/build" in merged, "the current block replaced the stale one"
+        assert merged.startswith(before)
+        assert merged.endswith(after)
+
+
+class TestGuildBlockSafety:
+    """DG-408 review follow-up (BLOCK verdict on PR 116). merge_guild_block
+    must refuse rather than guess or splice on anything it cannot safely
+    reason about, and report a fresh file distinctly from an unchanged one."""
+
+    def test_a_symlinked_agents_md_is_refused_and_the_target_is_untouched(
+        self, tmp_path, capsys
+    ) -> None:
+        outside = tmp_path / "outside.md"
+        outside.write_text(
+            "OUTSIDE CONTENT, NOT PART OF THE PROJECT\n", encoding="utf-8"
+        )
+        checkout = tmp_path / "app"
+        checkout.mkdir()
+        link = checkout / "AGENTS.md"
+        os.symlink(outside, link)
+
+        assert run("--project", "app", "--path", str(checkout), "--guild-block") == 1
+
+        out = capsys.readouterr().out
+        assert "symlink" in out.lower()
+        assert (
+            outside.read_text(encoding="utf-8")
+            == "OUTSIDE CONTENT, NOT PART OF THE PROJECT\n"
+        )
+
+    def test_a_start_marker_with_no_matching_end_is_refused_file_untouched(
+        self, tmp_path, capsys
+    ) -> None:
+        checkout = tmp_path / "app"
+        checkout.mkdir()
+        broken = "# ours\n<!-- guild-block:start -->\nno end marker here\n"
+        (checkout / "AGENTS.md").write_text(broken, encoding="utf-8")
+
+        assert run("--project", "app", "--path", str(checkout), "--guild-block") == 1
+
+        out = capsys.readouterr().out
+        assert "guild-block:start" in out
+        assert "line 2" in out
+        assert (checkout / "AGENTS.md").read_text(encoding="utf-8") == broken
+
+    def test_an_end_marker_before_its_start_is_refused_file_untouched(
+        self, tmp_path, capsys
+    ) -> None:
+        checkout = tmp_path / "app"
+        checkout.mkdir()
+        broken = "# ours\n<!-- guild-block:end -->\nstuff\n<!-- guild-block:start -->\n"
+        (checkout / "AGENTS.md").write_text(broken, encoding="utf-8")
+
+        assert run("--project", "app", "--path", str(checkout), "--guild-block") == 1
+
+        out = capsys.readouterr().out
+        assert "guild-block" in out
+        assert (checkout / "AGENTS.md").read_text(encoding="utf-8") == broken
+
+    def test_two_start_markers_are_refused_file_untouched(
+        self, tmp_path, capsys
+    ) -> None:
+        checkout = tmp_path / "app"
+        checkout.mkdir()
+        broken = (
+            "# ours\n"
+            "<!-- guild-block:start -->\nA\n<!-- guild-block:end -->\n"
+            "<!-- guild-block:start -->\nB\n<!-- guild-block:end -->\n"
+        )
+        (checkout / "AGENTS.md").write_text(broken, encoding="utf-8")
+
+        assert run("--project", "app", "--path", str(checkout), "--guild-block") == 1
+
+        out = capsys.readouterr().out
+        assert "guild-block:start" in out
+        assert (checkout / "AGENTS.md").read_text(encoding="utf-8") == broken
+
+    def test_a_bom_file_keeps_the_bom_at_byte_0_and_inserts_after_the_heading(
+        self, tmp_path
+    ) -> None:
+        checkout = tmp_path / "app"
+        checkout.mkdir()
+        content = "﻿# ours\nhand-written, keep me\n"
+        (checkout / "AGENTS.md").write_bytes(content.encode("utf-8"))
+
+        assert run("--project", "app", "--path", str(checkout), "--guild-block") == 0
+
+        raw = (checkout / "AGENTS.md").read_bytes()
+        assert raw.startswith(b"\xef\xbb\xbf"), "the BOM must stay at byte 0"
+        merged = raw.decode("utf-8")
+        assert "<!-- guild-block:start -->" in merged
+        assert "hand-written, keep me" in merged
+        assert merged.index("# ours") < merged.index("<!-- guild-block:start -->")
+
+    def test_first_time_init_with_guild_block_is_reported_as_created_not_unchanged(
+        self, tmp_path, capsys
+    ) -> None:
+        checkout = tmp_path / "app"
+        checkout.mkdir()
+
+        assert run("--project", "app", "--path", str(checkout), "--guild-block") == 0
+
+        out = capsys.readouterr().out
+        assert "created with the block" in out
+        assert "unchanged" not in out
