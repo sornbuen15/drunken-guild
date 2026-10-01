@@ -195,6 +195,42 @@ async def test_a_non_numeric_limit_is_refused(
     mock_request.assert_not_called()
 
 
+# --- DG-417 second review: bool and non-integral float ---------------------
+#
+# int(limit) alone cannot be trusted with these: int(True) == 1 silently
+# accepts a bool as if it were a count, and int(3.7) == 3 silently truncates
+# a fraction rather than refusing it. Both must be refused explicitly, not
+# merely coerced.
+
+
+def test_a_limit_of_true_is_refused() -> None:
+    from jira_mcp import comments
+
+    with pytest.raises(ValidationError):
+        comments.validate_limit(True)
+
+
+def test_a_limit_of_false_is_refused() -> None:
+    from jira_mcp import comments
+
+    with pytest.raises(ValidationError):
+        comments.validate_limit(False)
+
+
+def test_a_fractional_float_limit_is_refused() -> None:
+    from jira_mcp import comments
+
+    with pytest.raises(ValidationError):
+        comments.validate_limit(3.7)
+
+
+def test_an_integral_float_limit_is_accepted() -> None:
+    """3.0 names a whole number exactly; it is accepted, as 3."""
+    from jira_mcp import comments
+
+    assert comments.validate_limit(3.0) == 3
+
+
 # --- DG-417 review: a comment with nothing in its body --------------------
 
 

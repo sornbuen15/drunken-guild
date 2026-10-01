@@ -25,7 +25,30 @@ MAX_COMMENTS: Final = 20
 def validate_limit(limit: Any) -> int:
     """*limit* as a whole number between 1 and :data:`MAX_COMMENTS`, or a
     :class:`ValidationError` naming what was wrong and what to pass instead.
+
+    ``bool`` is rejected even though Python's own ``int(True) == 1`` would
+    happily accept it: ``True`` is not a count, and ``int()`` on its own
+    cannot tell the two apart. A non-integral float is rejected the same
+    way -- ``int(3.7)`` silently truncates to 3, which is not what "3.7
+    comments" could have meant. An integral float such as ``3.0`` *is*
+    accepted: it names a whole number exactly, just spelled with a decimal
+    point, and asking for "3.0 comments" has only one sensible reading.
     """
+    if isinstance(limit, bool):
+        raise ValidationError(
+            f"{limit!r} is not a number.",
+            remediation=f"Pass an integer between 1 and {MAX_COMMENTS}.",
+        )
+
+    if isinstance(limit, float) and not limit.is_integer():
+        raise ValidationError(
+            f"{limit!r} is not a whole number.",
+            remediation=(
+                f"Pass a whole number between 1 and {MAX_COMMENTS} -- "
+                "comments cannot be read in fractions."
+            ),
+        )
+
     try:
         value = int(limit)
     except (TypeError, ValueError):
