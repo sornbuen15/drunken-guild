@@ -446,7 +446,7 @@ time, and a `reviewer` checks the tests and the PR. The roles are described in t
 | [`agents/INDEX.md`](./agents/INDEX.md) | every agent and when to invoke it |
 | [`Drunken-Guild-Guide.md`](./Drunken-Guild-Guide.md) | the Discord command reference and approval flow |
 | [`Integration-Guide.md`](./Integration-Guide.md) | bringing another project under this workflow |
-| [`CLAUDE.md`](./CLAUDE.md) | the rules, if you are going to contribute here |
+| [`AGENTS.md`](./AGENTS.md) | the rules, if you are going to contribute here (`CLAUDE.md` is its one-line adapter) |
 
 The commands, in one place:
 

@@ -29,7 +29,7 @@ What it deliberately does **not** do: there is no dashboard UI (Jira alone cover
 
 ### 2.1 AI behavior boundaries
 
-The detailed rules an AI agent must follow while working in this repo (when it can act immediately, when it must ask, what's forbidden outright) live in [`CLAUDE.md`](./CLAUDE.md) -- that file is the source of truth for agent-facing rules, whichever agent is reading it, kept separate here to avoid two documents drifting out of sync. In short: a destructive or merge-worthy action is asked about in the conversation, not simply executed.
+The detailed rules an AI agent must follow while working in this repo (when it can act immediately, when it must ask, what's forbidden outright) live in [`AGENTS.md`](./AGENTS.md) -- that file is the source of truth for agent-facing rules, whichever agent is reading it, kept separate here to avoid two documents drifting out of sync. `CLAUDE.md` is only the one-line adapter that imports it. In short: a destructive or merge-worthy action is asked about in the conversation, not simply executed.
 
 ---
 

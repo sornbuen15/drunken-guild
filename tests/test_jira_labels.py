@@ -1,7 +1,7 @@
 # mypy: ignore-errors
 """Changing labels after creation — DG-368.
 
-CLAUDE.md requires a ticket an agent is working to carry `agent:<name>`, and
+AGENTS.md requires a ticket an agent is working to carry `agent:<name>`, and
 DG-293 chose a label so Assignee could stay the accountable human. Until now no
 tool could add one: `jira_create_issue` accepted labels and nothing else touched
 them, so every `agent:` label was set at creation or by hand in the web UI.

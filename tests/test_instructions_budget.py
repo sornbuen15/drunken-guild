@@ -7,14 +7,16 @@ longer one both consumes more context and *reduces adherence* — which is the
 symptom rather than the cost: clearly written rules followed inconsistently.
 
 This file measures that, because a budget nobody measures is a budget that only
-grows. It was 350 lines when this was written.
+grows. It was 350 lines when this was written. Since DG-391, `CLAUDE.md` itself
+is the one-line `@AGENTS.md` adapter, so the budget this test enforces on it is
+met by construction; it stays as the floor that a rule never creeps back in.
 
 The mechanism that makes shrinking possible without losing a rule is
 `.claude/rules/*.md`: a rule file carrying `paths:` frontmatter loads **only when
 Claude reads a file matching the pattern**, so instructions for the AI layer cost
 nothing while working in `src/`, and vice versa. A rule file *without* `paths:`
-loads unconditionally — same as CLAUDE.md — so it saves nothing and belongs in
-CLAUDE.md instead, where a reader can find it.
+loads unconditionally — same as AGENTS.md, the file `CLAUDE.md` imports — so it
+saves nothing and belongs in AGENTS.md instead, where a reader can find it.
 """
 
 from __future__ import annotations
@@ -70,9 +72,9 @@ class TestTheAlwaysOnBudget:
 
 class TestEveryRuleIsScopedOrBelongsInClaudeMd:
     def test_each_rule_declares_paths(self) -> None:
-        """A rule without `paths:` loads on every turn exactly like CLAUDE.md,
+        """A rule without `paths:` loads on every turn exactly like AGENTS.md,
         so putting one here buys nothing and costs a reader the second place to
-        look. If a rule really must always apply, it belongs in CLAUDE.md."""
+        look. If a rule really must always apply, it belongs in AGENTS.md."""
         unscoped = [
             path.relative_to(REPO_ROOT)
             for path in rule_files()
@@ -80,8 +82,8 @@ class TestEveryRuleIsScopedOrBelongsInClaudeMd:
         ]
         assert not unscoped, (
             f"{unscoped} carry no `paths:` frontmatter, so they load "
-            "unconditionally — the same cost as CLAUDE.md, in a file nobody "
-            "thinks to read. Scope them, or move them into CLAUDE.md."
+            "unconditionally — the same cost as AGENTS.md, in a file nobody "
+            "thinks to read. Scope them, or move them into AGENTS.md."
         )
 
     @pytest.mark.parametrize("required", ["skills/", "src/"])
