@@ -83,13 +83,23 @@ file placed anywhere else fails even though the file itself is real.
 What is left over after both of those -- an illustrative example path, or a
 comment naming a path precisely because it does *not* exist -- is what the
 explicit ALLOWLIST below carries, each entry with its reason.
+
+Round 6 (DG-430) closes a gap review left open on purpose: `_ALLOWED_PREFIXES`
+above is hand-written, and nothing checked it against where `scaffold.py`
+itself reads its packaged template from -- the two could drift, silently,
+the same way the scan and the producing side drifted before round 1.
+`test_allowed_prefixes_cover_every_template_scaffold_py_reads` derives the
+directory from `scaffold.py`'s own source text and the real `core` package
+location, rather than restating `src/core/templates/` a second time.
 """
 
 from __future__ import annotations
 
+import inspect
 import posixpath
 import re
 import sys
+from importlib import resources
 from pathlib import Path
 
 import pytest
@@ -595,3 +605,61 @@ def test_does_not_false_positive_on_the_current_tree(tmp_path: Path) -> None:
     `test_every_instruction_file_reference_resolves` only so a failure here
     reads as "the scan itself is wrong", not "a document drifted"."""
     assert scan(tmp_path) == []
+
+
+# --- DG-430, gap 1: `_ALLOWED_PREFIXES` is a hardcoded list, pinned against
+# nothing. The helper below derives the directory a packaged-template read in
+# `scaffold.py` actually resolves to, from `scaffold.py`'s own source text and
+# the real `core` package location -- not by restating "src/core/templates/"
+# a second time, which is exactly how the two could drift apart unnoticed.
+
+
+def _template_dirs_read_by(source: str) -> set[str]:
+    """Every directory prefix (relative to REPO_ROOT, trailing slash) that a
+    `resources.files("core").joinpath("templates/...")` call in *source*
+    resolves a packaged template from. Reads the real `core` package
+    location on disk, the same thing `scaffold.py` reads at runtime, so a
+    directory moved on one side and not the other is caught here rather than
+    two literals quietly saying different things."""
+    core_dir = Path(str(resources.files("core"))).resolve()
+    prefixes: set[str] = set()
+    for rel in re.findall(r'joinpath\("(templates/[^"]+)"\)', source):
+        template_path = (core_dir / rel).resolve()
+        prefix = template_path.parent.relative_to(REPO_ROOT).as_posix() + "/"
+        prefixes.add(prefix)
+    return prefixes
+
+
+def test_allowed_prefixes_cover_every_template_scaffold_py_reads() -> None:
+    """The directory `scaffold.py` actually reads a packaged template from,
+    derived from its own source, must be one `_ALLOWED_PREFIXES` accepts --
+    otherwise a file this project genuinely produces would fail the scan
+    above for a reason with nothing to do with the reference being bogus."""
+    source = inspect.getsource(scaffold)
+    prefixes = _template_dirs_read_by(source)
+    assert prefixes, (
+        'no `joinpath("templates/...")` read found in scaffold.py -- '
+        "update this test and _template_dirs_read_by to match how it reads "
+        "its packaged template now"
+    )
+    missing = prefixes - set(_ALLOWED_PREFIXES)
+    assert not missing, (
+        f"scaffold.py reads a packaged template from {sorted(missing)!r}, "
+        f"which _ALLOWED_PREFIXES {_ALLOWED_PREFIXES!r} does not cover"
+    )
+
+
+def test_fails_when_scaffold_reads_from_an_unlisted_template_directory() -> None:
+    """Realistic mutation: `scaffold.py` gains a new packaged-template read
+    from a directory nobody added to `_ALLOWED_PREFIXES`. Proven against a
+    stand-in source string with the same shape, never the tracked file, so
+    the drift is demonstrated without actually introducing it."""
+    fake_source = (
+        'template = resources.files("core").joinpath("templates/other/BRAND_NEW.md")\n'
+    )
+    prefixes = _template_dirs_read_by(fake_source)
+    assert prefixes == {"src/core/templates/other/"}
+    assert prefixes - set(_ALLOWED_PREFIXES), (
+        "the drift this check exists to catch did not fire -- "
+        "'src/core/templates/other/' was already an allowed prefix"
+    )

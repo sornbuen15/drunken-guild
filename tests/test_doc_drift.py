@@ -152,3 +152,29 @@ def test_every_retired_entry_says_what_to_use_instead(drift) -> None:
     for retired in drift.RETIRED:
         assert retired.use_instead, f"{retired.name} has no replacement recorded."
         assert retired.removed_in, f"{retired.name} does not say when it went."
+
+
+def test_fixtures_under_tests_are_not_scanned(drift, tmp_path, monkeypatch) -> None:
+    """DG-430 gap 3: `documents()` did a blanket `rglob("*.md")`, so a
+    realistic-looking markdown fixture built under `tests/fixtures/` to prove
+    something about a *different* checker was silently counted here as a
+    repository document too. Built for real under a fake repository root
+    (never the tracked tree) alongside an ordinary document at the fake
+    root, which must still be found -- proving the exclusion is narrow, not
+    a blanket skip of everything under `tests/`."""
+    fake_root = tmp_path / "fake-repo"
+    fixtures = fake_root / "tests" / "fixtures"
+    fixtures.mkdir(parents=True)
+    (fixtures / "stray.md").write_text("Set it up by running `drunken-register`.\n")
+    (fake_root / "README.md").write_text("# Fake project\n")
+    monkeypatch.setattr(drift, "REPO_ROOT", fake_root)
+
+    found = {p.relative_to(fake_root).as_posix() for p in drift.documents()}
+
+    assert "tests/fixtures/stray.md" not in found, (
+        "a markdown fixture under tests/fixtures/ was counted as a document"
+    )
+    assert "README.md" in found, (
+        "the exclusion swallowed a real document too -- it must be narrower "
+        "than skipping all of tests/"
+    )
