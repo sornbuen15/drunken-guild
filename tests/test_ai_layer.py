@@ -21,6 +21,17 @@ class TestEveryListedPathIsRecognised:
     def test_aider_conf(self) -> None:
         assert ai_layer.is_ai_layer_path(".aider.conf.yml")
 
+    def test_conventions_md(self) -> None:
+        # Aider's own instruction file — templates/.aider.conf.yml loads it
+        # alongside CLAUDE.md; templates/CONVENTIONS.md describes itself as
+        # living in the project root, beside .aider.conf.yml.
+        assert ai_layer.is_ai_layer_path("CONVENTIONS.md")
+
+    def test_claude_local_md(self) -> None:
+        # Claude Code's personal override file. Not verified against live
+        # docs — included on the reviewer's instruction, said here plainly.
+        assert ai_layer.is_ai_layer_path("CLAUDE.local.md")
+
     def test_claude_dir_itself(self) -> None:
         assert ai_layer.is_ai_layer_path(".claude")
         assert ai_layer.is_ai_layer_path(".claude/")
@@ -46,6 +57,25 @@ class TestEveryListedPathIsRecognised:
         assert ai_layer.is_ai_layer_path("./AGENTS.md")
 
 
+class TestInstructionBasenamesMatchAtAnyDepth:
+    """A monorepo's instruction files are not only at the repository root —
+    Claude Code, Gemini CLI and Antigravity all read one next to the code it
+    describes. Matched on the file's own basename, any depth.
+    """
+
+    def test_nested_claude_md_one_level_down(self) -> None:
+        assert ai_layer.is_ai_layer_path("packages/x/CLAUDE.md")
+
+    def test_nested_agents_md_two_levels_down(self) -> None:
+        assert ai_layer.is_ai_layer_path("sub/dir/AGENTS.md")
+
+    def test_nested_gemini_md(self) -> None:
+        assert ai_layer.is_ai_layer_path("packages/y/GEMINI.md")
+
+    def test_backslash_nested_path_is_normalised(self) -> None:
+        assert ai_layer.is_ai_layer_path("packages\\x\\CLAUDE.md")
+
+
 class TestWorkIsNotTheAiLayer:
     def test_prd(self) -> None:
         assert not ai_layer.is_ai_layer_path(".ai/PRD.md")
@@ -63,9 +93,38 @@ class TestWorkIsNotTheAiLayer:
         assert not ai_layer.is_ai_layer_path("")
 
     def test_mcp_config_is_deliberately_excluded(self) -> None:
-        # Committed on purpose: vendor-neutral, names commands not paths
-        # (core/config_gen.py). REQ-019 does not reach it.
+        # Committed on purpose today: vendor-neutral, names commands not
+        # paths (core/config_gen.py). Whether REQ-019's "Jira configuration"
+        # wording should reach it is an open question for the Boss (see the
+        # module docstring and the DG-437 PR/comment) — nothing is built on
+        # an answer yet, so this stays excluded for now.
         assert not ai_layer.is_ai_layer_path(".mcp.json")
+
+
+class TestNoFalsePositives:
+    """A near-miss by name or by prefix must not match — a false positive
+    here is `drunken-doctor` refusing to look at a file that is actually the
+    project's own work.
+    """
+
+    def test_claude_notes_directory_is_not_dot_claude(self) -> None:
+        assert not ai_layer.is_ai_layer_path(".claude-notes/x")
+
+    def test_dot_claude_prefix_without_separator(self) -> None:
+        assert not ai_layer.is_ai_layer_path(".claudeX")
+
+    def test_lowercase_agents_md_is_a_different_file(self) -> None:
+        # Deliberate: this checks a path against a tracked git index, which
+        # is case-sensitive. "agents.md" and "AGENTS.md" are different blobs
+        # there, so not matching the lowercase variant is correct, not an
+        # oversight — nothing claims a project actually has one today.
+        assert not ai_layer.is_ai_layer_path("agents.md")
+
+    def test_backup_suffix_is_not_the_instruction_file(self) -> None:
+        assert not ai_layer.is_ai_layer_path("docs/CLAUDE.md.bak")
+
+    def test_prefixed_name_is_not_the_instruction_file(self) -> None:
+        assert not ai_layer.is_ai_layer_path("my-AGENTS.md")
 
 
 class TestScaffoldOutputStaysInsideTheList:
@@ -95,5 +154,5 @@ class TestScaffoldOutputStaysInsideTheList:
         assert not_recognised == [], (
             "scaffold.instruction_files() wrote a file not recognised by "
             f"ai_layer.is_ai_layer_path: {not_recognised}. Add it to "
-            "AI_LAYER_PATHS."
+            "AI_LAYER_BASENAMES, AI_LAYER_ROOT_FILES or AI_LAYER_ROOT_DIRS."
         )
