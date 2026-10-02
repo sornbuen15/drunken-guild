@@ -4,7 +4,7 @@ description: >
   Use when an action is destructive, irreversible or merge-worthy and needs the Boss's OK — "you
   need my approval before dropping that database", "I'm away this afternoon, how will you ask
   me?". Asks in the conversation when the Boss is reading it; otherwise sends one notification,
-  parks the task, and keeps working on what is not blocked.
+  parks the task, and keeps working on what is not blocked. Trigger on /ask-boss.
 ---
 
 # Skill: Ask the Boss for Permission

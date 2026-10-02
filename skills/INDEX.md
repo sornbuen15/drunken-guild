@@ -26,13 +26,13 @@ Map task keywords to their absolute skill file paths. Load ONLY the relevant ski
 - `replan` (`/replan`) — Use when a requirement is added, cut or changed after the backlog exists — "we also need…", "drop REQ-… and the tickets under it", "the customer changed their m
   Path: $HOME/.claude/skills/replan/SKILL.md
 
-- `ask-boss` — Use when an action is destructive, irreversible or merge-worthy and needs the Boss's OK — "you need my approval before dropping that database", "I'm away this a
+- `ask-boss` (`/ask-boss`) — Use when an action is destructive, irreversible or merge-worthy and needs the Boss's OK — "you need my approval before dropping that database", "I'm away this a
   Path: $HOME/.claude/skills/ask-boss/SKILL.md
 
 - `git-workflow` (`/git-workflow`) — Use when creating a branch, writing a commit, opening a PR, merging or releasing — "what should I name this branch?", "how should I commit this?", "which merge
   Path: $HOME/.claude/skills/git-workflow/SKILL.md
 
-- `jira-tickets` — Use when writing, labelling, moving or closing a Jira ticket in this project — "what sections does a Bug ticket need?", "can I mark this Done now the PR is open
+- `jira-tickets` (`/jira-tickets`) — Use when writing, labelling, moving or closing a Jira ticket in this project — "what sections does a Bug ticket need?", "can I mark this Done now the PR is open
   Path: $HOME/.claude/skills/jira-tickets/SKILL.md
 
 - `think-analyze-isolate` (`/isolate`) — Use when running, starting, deploying or integrating something, when a backgrounded command is reported working without evidence, or when a fix fails the same w
