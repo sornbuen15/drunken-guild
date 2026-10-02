@@ -5,12 +5,12 @@ from. REQ-019 and REQ-020, and the Layering context in `.ai/DOMAIN.md`, are the 
 term this page uses — read those first if a word here is unfamiliar.
 
 **This page defines the layout. It builds nothing.** The `.git/info/exclude` writer (DG-440) and
-init's copy-in (DG-441) are later Tasks, hung from this Task's Story (DG-436) — along with init no
-longer writing a tracked `AGENTS.md`/`CLAUDE.md` into a project (DG-442), init setting up the hooks
-and Jira configuration (DG-443), and the matching README/getting-started update (DG-444). Nothing
-here is built on the result of Spike DG-432 yet — that spike is about whether Claude Code loads a
-`.claude/settings.json` reached through `.git/info/exclude` at all, and this page's layout does not
-depend on its answer.
+init's copy-in (DG-441) are later Tasks of Story DG-436 (this Jira parents them to the Epic DG-434,
+not to the Story) — along with init no longer writing a tracked `AGENTS.md`/`CLAUDE.md` into a
+project (DG-442), init setting up the hooks and Jira configuration (DG-443), and the matching
+README/getting-started update (DG-444). Nothing here is built on the result of Spike DG-432 yet —
+that spike is about whether Claude Code loads a `.claude/settings.json` reached through
+`.git/info/exclude` at all, and this page's layout does not depend on its answer.
 
 ---
 
