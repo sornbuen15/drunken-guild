@@ -206,6 +206,20 @@ SKIPPED_DIRS = frozenset(
     {".venv", ".git", "node_modules", "build", "not_use", ".claude", ".mypy_cache"}
 )
 
+#: `tests/fixtures/` is not scanned as a document source (DG-430, gap 3): it
+#: holds realistic-looking markdown built on purpose to prove *other*
+#: checkers notice (or refuse) a stray file, never a document someone reads
+#: for instructions. `documents()` used a blanket `rglob("*.md")` with no
+#: exception for it, so any such fixture was silently counted here too --
+#: narrower than skipping all of `tests/`, which still carries a real
+#: document (`tests/test_jira_workflow.md`) that belongs in the scan.
+_FIXTURES_PREFIX = ("tests", "fixtures")
+
+
+def _under_fixtures(path: Path) -> bool:
+    parts = path.relative_to(REPO_ROOT).parts
+    return parts[: len(_FIXTURES_PREFIX)] == _FIXTURES_PREFIX
+
 
 def documents() -> list[Path]:
     """Markdown outside the records, plus the rulebooks we ship to others.
@@ -221,6 +235,7 @@ def documents() -> list[Path]:
         if not (SKIPPED_DIRS & set(path.relative_to(REPO_ROOT).parts))
         and path.name not in RECORDS
         and not (set(RECORD_DIRS) & set(path.relative_to(REPO_ROOT).parts))
+        and not _under_fixtures(path)
     ]
     found += [
         path
