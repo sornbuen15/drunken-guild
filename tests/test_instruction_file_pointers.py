@@ -53,6 +53,17 @@ is not one. Round 4 builds that file fresh under `tmp_path` instead, with
 `REPO_ROOT` monkeypatched to a fake repository root for the one test that
 needs it, and nothing tracked carries it any more.
 
+CI then failed round 4's own proof on Linux: `_old_buggy_resolves()` hands
+its raw, uncollapsed path straight to `Path.is_file()`, which asks the OS to
+walk `..` for real -- POSIX requires the `templates/` component it walks
+through to exist as a real directory, Windows' path handling does not, and
+the fake repository built under `tmp_path` had no `templates/` at all. Round
+5 creates `templates/` and `src/core/templates/` as real (empty) directories
+in that fake repository, mirroring the real one, so the proof reproduces the
+bug identically on every platform -- the *fixed* `_resolves()` never relied
+on this either way, since it collapses `..` lexically before ever touching
+the filesystem.
+
 This module finds the reference *structurally*, instead of listing the
 sentences that currently make one: any path-ish token ending in a name that
 looks like a per-agent instruction file, found anywhere across the tracked
@@ -435,12 +446,27 @@ def _fake_repo_with_stray_file(tmp_path: Path) -> Path:
     than committed: a tracked `CLAUDE.md` outside the project root and
     `templates/` would itself break this repository's own invariant that
     `CLAUDE.md` only ever lives at those two places, and `check_doc_drift.py`
-    would start counting it as a live document for no reason of its own."""
+    would start counting it as a live document for no reason of its own.
+
+    `templates/` and `src/core/templates/` are created too, as real empty
+    directories, mirroring the real repository's own layout -- not because
+    the fixed `_resolves()` needs them (it collapses `..` lexically with
+    `posixpath.normpath`, before ever touching the filesystem, so it does
+    not care whether `templates/` exists), but because `_old_buggy_resolves()`
+    below hands the raw, uncollapsed path straight to `Path.is_file()`, and
+    *that* walks `..` by asking the OS to traverse through `templates/` for
+    real. POSIX requires the intermediate directory to exist to do that;
+    Windows' path handling collapses `..` lexically even when it does not,
+    which is why the proof passed on Windows and failed on Linux CI without
+    this directory -- the pre-round-3 replica returned `False` instead of
+    `True`, proving nothing about the bug it exists to reproduce."""
     root = tmp_path / "fake-repo"
     stray = root / "tests" / "fixtures" / "stray"
     stray.mkdir(parents=True)
     target = stray / "CLAUDE.md"
     target.write_text("not a real adapter\n", encoding="utf-8")
+    (root / "templates").mkdir()
+    (root / "src" / "core" / "templates").mkdir(parents=True)
     return root
 
 
