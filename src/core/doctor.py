@@ -1531,13 +1531,23 @@ def tracked_ai_layer_paths(git_root: Path) -> Optional[list[str]]:
     (no binary, no repository, a timeout), which a caller must tell apart from
     "ran, and tracks nothing": the first is a question that was not answered,
     the second is a clean project.
+
+    Run with ``-z``, and read as bytes rather than ``text=True``. Without it,
+    ``git`` applies ``core.quotepath`` and C-quotes any path holding a
+    non-ASCII byte or a special character — a tracked
+    ``packages/\xe9/CLAUDE.md`` comes back as the *literal* quoted text, which
+    never equals the real path and so never matches
+    :func:`core.ai_layer.is_ai_layer_path`: a silent false negative on exactly
+    the files this check exists to catch. ``-z`` NUL-separates instead of
+    quoting, so splitting on ``b"\0"`` and decoding (``surrogateescape``, so a
+    byte sequence that is not valid UTF-8 becomes an odd ``str`` instead of
+    raising) recovers the real path whole.
     """
     try:
         result = subprocess.run(  # nosec B603 - fixed argv, no shell
-            ["git", "ls-files"],
+            ["git", "ls-files", "-z"],
             cwd=git_root,
             capture_output=True,
-            text=True,
             timeout=30,
             check=False,
         )
@@ -1545,9 +1555,12 @@ def tracked_ai_layer_paths(git_root: Path) -> Optional[list[str]]:
         return None
     if result.returncode != 0:
         return None
-    return sorted(
-        path for path in result.stdout.splitlines() if ai_layer.is_ai_layer_path(path)
+    tracked = (
+        raw.decode("utf-8", errors="surrogateescape")
+        for raw in result.stdout.split(b"\0")
+        if raw
     )
+    return sorted(path for path in tracked if ai_layer.is_ai_layer_path(path))
 
 
 def _check_project_layering(

@@ -10,10 +10,11 @@ mocked git would only prove the test author's own assumption about that.
 
 import json
 import subprocess
+import sys
 
 import pytest
 
-from core import doctor
+from core import ai_layer, doctor
 from core.registry import ProjectRegistry
 
 GIT_IDENTITY = ["-c", "user.name=test", "-c", "user.email=test@example.invalid"]
@@ -111,9 +112,11 @@ class TestATrackedAiLayerPathFails:
         assert "packages/x/CLAUDE.md" in check.detail
 
     def test_mutation_a_check_that_never_fails_is_caught(self, tmp_path, monkeypatch):
-        """Seen failing first: a stubbed `tracked_ai_layer_paths` that always
-        reports nothing would make the two tests above pass for the wrong
-        reason. Forcing that stub here is the mutation, and it must fail."""
+        """Wiring only: stubs `tracked_ai_layer_paths` itself, so this proves
+        the branch in `_check_project_layering` that turns a tracked path into
+        a "fail" actually runs. It says nothing about git or quoting — that is
+        `TestNonAsciiAndSpecialCharacterPaths` and the real-repo tests above,
+        which exercise the real subprocess call."""
         root = tmp_path / "proj"
         _init_repo(root)
         (root / "AGENTS.md").write_text("instructions", encoding="utf-8")
@@ -148,6 +151,10 @@ class TestACleanProjectPasses:
         assert check.status == "ok", check.detail
 
     def test_mutation_a_check_that_always_fails_is_caught(self, tmp_path, monkeypatch):
+        """Wiring only: stubs `tracked_ai_layer_paths` itself, so this proves
+        the branch that turns an empty result into "ok" actually runs. It
+        says nothing about git or quoting — see the note on the sibling
+        mutation test above."""
         root = tmp_path / "proj"
         _init_repo(root)
         (root / "main.py").write_text("print('hi')", encoding="utf-8")
@@ -183,29 +190,133 @@ class TestUntrackedAiLayerFilesPass:
         check = find(report, "layering.tracked.scratch")
         assert check.status == "ok", check.detail
 
-    def test_mutation_a_check_reading_the_worktree_instead_of_the_index_is_caught(
+
+class TestNonAsciiAndSpecialCharacterPaths:
+    """DG-438 review: plain `git ls-files` C-quotes a path holding a
+    non-ASCII byte or a special character, and the quoted text never equals
+    the real path — a silent false negative on exactly the files this check
+    exists to catch. `tracked_ai_layer_paths` must use `-z` and decode the
+    NUL-separated bytes instead.
+    """
+
+    def test_a_non_ascii_nested_directory_fails_with_the_real_path_named(
         self, tmp_path
     ):
-        """Seen failing first: a check that scanned the filesystem rather than
-        `git ls-files` would flag the untracked file above. That scan is the
-        mutation."""
         root = tmp_path / "proj"
         _init_repo(root)
+        nested = root / "packages" / "café"
+        nested.mkdir(parents=True)
+        (nested / "CLAUDE.md").write_text("instructions", encoding="utf-8")
         (root / "main.py").write_text("print('hi')", encoding="utf-8")
         _commit_all(root, "initial")
-        (root / "AGENTS.md").write_text("instructions", encoding="utf-8")
 
-        from core import ai_layer
+        report = doctor.run_doctor(
+            registry=_registry(tmp_path, "scratch", root), offline=True
+        )
 
-        worktree_scan = sorted(
-            str(p.relative_to(root)).replace("\\", "/")
-            for p in root.rglob("*")
-            if p.is_file() and ai_layer.is_ai_layer_path(p.relative_to(root))
+        check = find(report, "layering.tracked.scratch")
+        assert check.status == "fail", check.detail
+        assert "packages/café/CLAUDE.md" in check.detail, check.detail
+
+    def test_mutation_plain_ls_files_quotes_the_non_ascii_path_away(self, tmp_path):
+        """Seen failing first, against the pre-fix shape of the code: plain
+        `git ls-files` (no `-z`) quotes the non-ASCII path as the literal
+        text `"packages/caf\\303\\251/CLAUDE.md"` — quote marks and octal
+        escapes included — which never equals the real path, so
+        `core.ai_layer.is_ai_layer_path` never matches it. This is that call,
+        made directly, asserting the old behaviour is still exactly this bad.
+        """
+        root = tmp_path / "proj"
+        _init_repo(root)
+        nested = root / "packages" / "café"
+        nested.mkdir(parents=True)
+        (nested / "CLAUDE.md").write_text("instructions", encoding="utf-8")
+        (root / "main.py").write_text("print('hi')", encoding="utf-8")
+        _commit_all(root, "initial")
+
+        quoted = subprocess.run(
+            ["git", "ls-files"],
+            cwd=root,
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.splitlines()
+        matched = [path for path in quoted if ai_layer.is_ai_layer_path(path)]
+
+        assert matched == [], (
+            "plain `git ls-files` must still quote the non-ASCII path so it "
+            f"no longer matches — that is the bug `-z` fixes. ls-files said "
+            f"{quoted!r}, none of which matched"
         )
-        assert worktree_scan == ["AGENTS.md"], (
-            "a filesystem scan (the mutation) finds the untracked file, "
-            f"unlike git ls-files. Got {worktree_scan}"
+
+    def test_a_directory_name_with_a_space_still_matches(self, tmp_path):
+        root = tmp_path / "proj"
+        _init_repo(root)
+        nested = root / "packages" / "with space"
+        nested.mkdir(parents=True)
+        (nested / "CLAUDE.md").write_text("instructions", encoding="utf-8")
+        (root / "main.py").write_text("print('hi')", encoding="utf-8")
+        _commit_all(root, "initial")
+
+        report = doctor.run_doctor(
+            registry=_registry(tmp_path, "scratch", root), offline=True
         )
+
+        check = find(report, "layering.tracked.scratch")
+        assert check.status == "fail", check.detail
+        assert "packages/with space/CLAUDE.md" in check.detail, check.detail
+
+    def test_a_directory_name_with_a_double_quote_still_matches(self, tmp_path):
+        """A literal `"` is always quoted by git, regardless of
+        `core.quotepath`, whatever bytes it sits beside — the same class of
+        bug as the non-ASCII case above, triggered without a non-ASCII byte
+        at all. Not every filesystem under CI can hold one: NTFS rejects it
+        outright. Skip there, naming why; **never skip on Linux**, where the
+        real file is created and the real check must still catch it.
+        """
+        root = tmp_path / "proj"
+        _init_repo(root)
+        nested = root / "packages" / 'quo"te'
+        try:
+            nested.mkdir(parents=True)
+        except OSError as exc:
+            if sys.platform.startswith("linux"):
+                raise
+            pytest.skip(f"this filesystem cannot create a '\"' in a name: {exc}")
+        (nested / "CLAUDE.md").write_text("instructions", encoding="utf-8")
+        (root / "main.py").write_text("print('hi')", encoding="utf-8")
+        _commit_all(root, "initial")
+
+        report = doctor.run_doctor(
+            registry=_registry(tmp_path, "scratch", root), offline=True
+        )
+
+        check = find(report, "layering.tracked.scratch")
+        assert check.status == "fail", check.detail
+        assert 'packages/quo"te/CLAUDE.md' in check.detail, check.detail
+
+    @pytest.mark.skipif(
+        sys.platform == "win32",
+        reason="NTFS filenames reject control characters such as tab and newline",
+    )
+    def test_a_directory_name_with_a_tab_and_a_newline_still_matches(self, tmp_path):
+        root = tmp_path / "proj"
+        _init_repo(root)
+        nested = root / "packages" / "weird\tname\nhere"
+        nested.mkdir(parents=True)
+        (nested / "CLAUDE.md").write_text("instructions", encoding="utf-8")
+        (root / "main.py").write_text("print('hi')", encoding="utf-8")
+        _commit_all(root, "initial")
+
+        tracked = doctor.tracked_ai_layer_paths(root)
+        expected = "packages/weird\tname\nhere/CLAUDE.md"
+        assert tracked == [expected], tracked
+
+        report = doctor.run_doctor(
+            registry=_registry(tmp_path, "scratch", root), offline=True
+        )
+        check = find(report, "layering.tracked.scratch")
+        assert check.status == "fail", check.detail
 
 
 class TestNoCheckoutIsSkipNeverPass:
@@ -240,6 +351,68 @@ class TestNoCheckoutIsSkipNeverPass:
         assert check.status != "ok", (
             "a project with no checkout must never read as a clean pass — "
             "that is the whole point of 'skip, not a pass'."
+        )
+
+
+class TestGitFailingInsideARealCheckoutIsASkipNeverOkOrFail:
+    """DG-438 review: a project git could not actually be asked about must
+    never read the same as one that was asked and found clean."""
+
+    def test_a_corrupted_git_directory_is_a_skip(self, tmp_path):
+        root = tmp_path / "proj"
+        _init_repo(root)
+        (root / "AGENTS.md").write_text("instructions", encoding="utf-8")
+        _commit_all(root, "initial")
+        # Corrupt the repository rather than mock subprocess: `.git` still
+        # exists (so the earlier "not a git repo" skip does not fire first),
+        # but `git ls-files` itself now exits non-zero.
+        (root / ".git" / "HEAD").unlink()
+        broken = subprocess.run(
+            ["git", "ls-files"], cwd=root, capture_output=True, text=True
+        )
+        assert broken.returncode != 0, (
+            "the corruption must actually break git, or this test proves "
+            f"nothing. git said: {broken.stderr!r}"
+        )
+
+        report = doctor.run_doctor(
+            registry=_registry(tmp_path, "scratch", root), offline=True
+        )
+
+        check = find(report, "layering.tracked.scratch")
+        assert check.status == "skip", (
+            "git failing inside a real checkout must read as 'could not "
+            f"ask', never a pass or a failure. Got {check.status}: "
+            f"{check.detail}"
+        )
+
+    def test_mutation_treating_a_git_failure_as_a_clean_project_is_caught(
+        self, tmp_path, monkeypatch
+    ):
+        """Seen failing first: if `tracked_ai_layer_paths` reported `[]`
+        ("ran, found nothing") instead of `None` ("could not run") when git
+        itself fails, this same corrupted checkout would read as a clean
+        "ok" pass — indistinguishable from one that was actually inspected.
+        Forcing that wrong return value here is the mutation, and the
+        assertion below is its own (wrong) expectation, which the real
+        implementation must disagree with.
+        """
+        root = tmp_path / "proj"
+        _init_repo(root)
+        (root / "AGENTS.md").write_text("instructions", encoding="utf-8")
+        _commit_all(root, "initial")
+        (root / ".git" / "HEAD").unlink()
+        monkeypatch.setattr(doctor, "tracked_ai_layer_paths", lambda git_root: [])
+
+        report = doctor.run_doctor(
+            registry=_registry(tmp_path, "scratch", root), offline=True
+        )
+
+        check = find(report, "layering.tracked.scratch")
+        assert check.status == "ok", (
+            "this is the mutation's own wrong outcome — the real "
+            f"implementation must skip, never pass, when git fails. Got "
+            f"{check.status}: {check.detail}"
         )
 
 
