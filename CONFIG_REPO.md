@@ -4,9 +4,11 @@ What REQ-020 (`.ai/PRD.md`) names and does not yet build: the one place a projec
 from. REQ-019 and REQ-020, and the Layering context in `.ai/DOMAIN.md`, are the source of every
 term this page uses — read those first if a word here is unfamiliar.
 
-**This page defines the layout. It builds nothing.** Init's copy-in and the `.git/info/exclude`
-writer are later Tasks (DG-440, DG-441), hung from this Task's Story (DG-436). Nothing here is
-built on the result of Spike DG-432 yet — that spike is about whether Claude Code loads a
+**This page defines the layout. It builds nothing.** The `.git/info/exclude` writer (DG-440) and
+init's copy-in (DG-441) are later Tasks, hung from this Task's Story (DG-436) — along with init no
+longer writing a tracked `AGENTS.md`/`CLAUDE.md` into a project (DG-442), init setting up the hooks
+and Jira configuration (DG-443), and the matching README/getting-started update (DG-444). Nothing
+here is built on the result of Spike DG-432 yet — that spike is about whether Claude Code loads a
 `.claude/settings.json` reached through `.git/info/exclude` at all, and this page's layout does not
 depend on its answer.
 
@@ -37,8 +39,8 @@ config-repo/
 ```
 
 The exact filenames under `.claude/` and the hook/Jira configuration's own format are for DG-440
-and DG-441 to decide when they build the copy-in; this page fixes only what kind of file the
-folder may hold, not every name in it.
+and DG-441 to decide when they build the exclude writer and the copy-in; this page fixes only what
+kind of file the folder may hold, not every name in it.
 
 ---
 
@@ -53,6 +55,11 @@ project, never facts about what the project builds:
 - The hook configuration.
 - The Jira configuration (board, project key, field ids — not a credential; see below).
 - Any other agent's own instruction file (a `GEMINI.md`, for instance), on the same terms.
+
+**This list is provisional.** The canonical list of paths that make up a project's AI layer is the
+AI-layer list module DG-437 adds in `src/core` — once that merges, this page points at it instead
+of restating it, so the two cannot drift apart. The agreement test for that belongs with DG-437, or
+the Task that consumes it (DG-438), or a follow-up ticket — not this one.
 
 Facts about the work — requirements, the domain, the stack, what is built — stay in the project's
 own repository (`.ai/PRD.md`, `.ai/DOMAIN.md`, its README), never here. A config repo folder that
@@ -84,10 +91,12 @@ not in the config repo.
 
 ## Not built yet
 
-- **Init does not copy anything in yet.** The copy step, from the config repo into a project's
-  folder, is DG-440.
 - **Nothing writes `.git/info/exclude` yet.** Hiding the copied files from the project's own git is
-  DG-441.
+  DG-440.
+- **Init does not copy anything in yet.** The copy step, from the config repo into a project's
+  folder, is DG-441.
+- **The AI-layer list this page's "may hold" section restates by hand is not yet a module.**
+  DG-437 adds it in `src/core`; see above.
 - **Nothing here is built on DG-432's result.** That spike checks whether Claude Code reads a
   `.claude/settings.json` reached only through `.git/info/exclude`; until a recorded run answers
   that, this layout is a definition, not a working pipeline.
