@@ -56,21 +56,70 @@ class TestARepoConfigAndAHostConfigDifferOnPurpose:
 
         assert entry["command"] == str(bin_dir / "drunken-jira-mcp")
 
-    def test_no_server_carries_a_project(self) -> None:
+    def test_no_server_carries_a_project(self, tmp_path, monkeypatch) -> None:
         """The inverse of what this asserted before DG-341, and the reason.
 
         A config that named a project was the thing a user-scope entry could
         pin: one file then decided which Jira every session on the machine
         talked to. The project is an argument to every tool now, so this config
         is identical for every project and there is nothing to pin.
+
+        DG-430 gap 2: `host_config()` resolves each command to an absolute
+        path, and that path sits under whatever checkout this suite happens
+        to run from. A checkout named after this repository with a scratch
+        suffix like `drunken-guild.--project-scratch` made the resolved path
+        itself contain the literal substring `--project`, failing this
+        assertion for a reason having nothing to do with what it checks. The
+        resolution is pinned to a scratch `tmp_path` bin directory instead,
+        the same fixture `test_the_host_config_resolves_to_an_absolute_command`
+        above already uses, so the result no longer depends on where this
+        repository happens to be checked out.
         """
+        bin_dir = tmp_path / "bin"
+        bin_dir.mkdir()
+        for name in config_gen.MCP_SERVERS:
+            (bin_dir / name).write_text("#!/bin/sh\n")
+        monkeypatch.setenv("UV_TOOL_BIN_DIR", str(bin_dir))
+
         for shape in (config_gen.mcp_config("alpha"), config_gen.host_config("alpha")):
+            for name, entry in shape["mcpServers"].items():
+                assert set(entry) == {"command"}, (
+                    f"{name} carries more than a bare command: {entry!r} -- "
+                    "a project argument belongs in the tool call, not here"
+                )
             serialised = json.dumps(shape)
             assert "--project" not in serialised, (
                 "A project in the config is what user scope was able to pin "
                 "(DG-341). It belongs in the tool call."
             )
             assert "alpha" not in serialised
+
+    def test_the_whole_json_check_is_what_a_project_path_fools(
+        self, tmp_path, monkeypatch
+    ) -> None:
+        """DG-430 gap 2, proven rather than just asserted: a resolved command
+        path that happens to sit under a directory named with the literal
+        substring `--project` does make a blind `"--project" not in
+        json.dumps(...)` check fail, even though nothing about the config
+        actually carries a project. The structural check above --
+        `set(entry) == {"command"}` -- does not care what the path contains,
+        which is why it is what the real test asserts on."""
+        bin_dir = tmp_path / "scratch--project-checkout" / "bin"
+        bin_dir.mkdir(parents=True)
+        for name in config_gen.MCP_SERVERS:
+            (bin_dir / name).write_text("#!/bin/sh\n")
+        monkeypatch.setenv("UV_TOOL_BIN_DIR", str(bin_dir))
+
+        shape = config_gen.host_config("alpha")
+        serialised = json.dumps(shape)
+
+        assert "--project" in serialised, (
+            "setup is broken: the resolved command should sit under the "
+            "--project-named scratch directory, reproducing the 23rd "
+            "failure this gap is about"
+        )
+        for entry in shape["mcpServers"].values():
+            assert set(entry) == {"command"}
 
 
 class TestTheInstallCommandHonoursTheLock:
