@@ -1,22 +1,24 @@
 # mypy: ignore-errors
-"""What is paid for on every turn, and what is scoped to where it applies — DG-360.
+"""What is paid for on every turn, and what is scoped to where it applies — DG-360,
+DG-419.
 
-`CLAUDE.md` is loaded into every session, on every turn, before anything else.
-Claude Code's own documentation targets **under 200 lines per file** and says a
-longer one both consumes more context and *reduces adherence* — which is the
-symptom rather than the cost: clearly written rules followed inconsistently.
+`AGENTS.md` is loaded into every session, on every turn, before anything else —
+`CLAUDE.md` is now only the one-line `@AGENTS.md` adapter DG-391 made it, so from
+DG-391 to DG-419 this test measured a file that could never again grow past the
+target, while the file every agent actually loads went uncovered and reached 230
+lines. Claude Code's own documentation targets **under 200 lines per file** and
+says a longer one both consumes more context and *reduces adherence* — which is
+the symptom rather than the cost: clearly written rules followed inconsistently.
 
-This file measures that, because a budget nobody measures is a budget that only
-grows. It was 350 lines when this was written. Since DG-391, `CLAUDE.md` itself
-is the one-line `@AGENTS.md` adapter, so the budget this test enforces on it is
-met by construction; it stays as the floor that a rule never creeps back in.
+This file measures AGENTS.md against that target, because a budget nobody
+measures is a budget that only grows.
 
 The mechanism that makes shrinking possible without losing a rule is
 `.claude/rules/*.md`: a rule file carrying `paths:` frontmatter loads **only when
 Claude reads a file matching the pattern**, so instructions for the AI layer cost
 nothing while working in `src/`, and vice versa. A rule file *without* `paths:`
-loads unconditionally — same as AGENTS.md, the file `CLAUDE.md` imports — so it
-saves nothing and belongs in AGENTS.md instead, where a reader can find it.
+loads unconditionally — same as AGENTS.md itself — so it saves nothing and
+belongs in AGENTS.md instead, where a reader can find it.
 """
 
 from __future__ import annotations
@@ -29,7 +31,7 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
 #: Claude Code's documented target for a single instruction file.
-CLAUDE_MD_LINE_TARGET = 200
+AGENTS_MD_LINE_TARGET = 200
 
 RULES_DIR = REPO_ROOT / ".claude" / "rules"
 
@@ -45,7 +47,7 @@ def frontmatter(path: Path) -> str:
 
 
 class TestTheAlwaysOnBudget:
-    def test_claude_md_is_under_the_documented_target(self) -> None:
+    def test_agents_md_is_under_the_documented_target(self) -> None:
         """Not a style preference: the documentation ties length to adherence.
 
         If this fails, the fix is not to delete a rule. It is to move the ones
@@ -53,10 +55,10 @@ class TestTheAlwaysOnBudget:
         `paths:`, where they load when they are relevant and cost nothing when
         they are not.
         """
-        lines = len((REPO_ROOT / "CLAUDE.md").read_text(encoding="utf-8").splitlines())
-        assert lines < CLAUDE_MD_LINE_TARGET, (
-            f"CLAUDE.md is {lines} lines against a target of "
-            f"{CLAUDE_MD_LINE_TARGET}. Longer files consume more context on "
+        lines = len((REPO_ROOT / "AGENTS.md").read_text(encoding="utf-8").splitlines())
+        assert lines < AGENTS_MD_LINE_TARGET, (
+            f"AGENTS.md is {lines} lines against a target of "
+            f"{AGENTS_MD_LINE_TARGET}. Longer files consume more context on "
             "every turn and reduce adherence — move a path-specific section to "
             ".claude/rules/, do not delete a rule to fit."
         )
