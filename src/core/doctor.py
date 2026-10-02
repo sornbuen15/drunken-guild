@@ -29,7 +29,7 @@ from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from typing import Any, Final, Literal, Optional, Sequence
 
-from . import paths, secrets
+from . import ai_layer, paths, secrets
 from .config_gen import (
     count_pins,
     export_requirements,
@@ -1510,6 +1510,144 @@ def _check_notifications(
     )
 
 
+def _same_checkout(a: Path, b: Path) -> bool:
+    """Whether *a* and *b* name the same directory on disk.
+
+    ``resolve()`` rather than string equality: a registered path may carry a
+    trailing slash, a different case on a case-insensitive filesystem, or a
+    symlink hop, and none of those make it a different checkout.
+    """
+    try:
+        return a.resolve() == b.resolve()
+    except OSError:
+        return False
+
+
+def tracked_ai_layer_paths(git_root: Path) -> Optional[list[str]]:
+    """Every path git tracks under *git_root* that :mod:`core.ai_layer` names.
+
+    Read-only — ``git ls-files`` lists the index; nothing here ever writes to
+    the checkout it is pointed at. ``None`` means git could not be run at all
+    (no binary, no repository, a timeout), which a caller must tell apart from
+    "ran, and tracks nothing": the first is a question that was not answered,
+    the second is a clean project.
+    """
+    try:
+        result = subprocess.run(  # nosec B603 - fixed argv, no shell
+            ["git", "ls-files"],
+            cwd=git_root,
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if result.returncode != 0:
+        return None
+    return sorted(
+        path for path in result.stdout.splitlines() if ai_layer.is_ai_layer_path(path)
+    )
+
+
+def _check_project_layering(
+    report: Report,
+    project_id: str,
+    registry: ProjectRegistry,
+    repo_root: Optional[Path],
+) -> None:
+    """Whether *project_id*'s own git tracks any path its AI layer owns.
+
+    REQ-019: a project's AI layer stays out of its own repository. This never
+    writes to the project — it only lists what git already tracks and reads
+    the result, the same way :func:`_check_project_paths` only looks.
+
+    A missing checkout or one with no ``.git`` is a **skip**, never a pass:
+    the question "does it track AI-layer paths" was not answered, which is a
+    different fact from "it answered no". This repository's own checkout is
+    a skip too, exempt by rule — it is where the AI layer is *authored*, the
+    opposite situation from a project it must stay out of.
+    """
+    name = f"layering.tracked.{project_id}"
+    try:
+        config = registry.get_project_config(project_id)
+    except DrunkenError as exc:
+        report.add_error(name, exc)
+        return
+
+    if not config.path:
+        report.add(
+            name,
+            "skip",
+            "No path declared, so there is no checkout to inspect.",
+        )
+        return
+
+    root = Path(config.path)
+    git_root = root / config.git_root if config.git_root else root
+
+    if repo_root is not None and _same_checkout(git_root, repo_root):
+        report.add(
+            name,
+            "skip",
+            f"{git_root} is this repository's own checkout, exempt by rule.",
+        )
+        return
+
+    if not git_root.is_dir() or not (git_root / ".git").exists():
+        report.add(name, "skip", describe_missing_git_root(git_root))
+        return
+
+    tracked = tracked_ai_layer_paths(git_root)
+    if tracked is None:
+        report.add(name, "skip", f"`git ls-files` could not run in {git_root}.")
+        return
+
+    if tracked:
+        report.add(
+            name,
+            "fail",
+            f"{len(tracked)} AI-layer path(s) tracked in git: " + ", ".join(tracked),
+            remediation=(
+                "Untrack them (`git rm --cached <path>` for each) and exclude "
+                "them going forward — a project's AI layer stays out of its "
+                "own repository (REQ-019)."
+            ),
+        )
+        return
+
+    report.add(name, "ok", "no AI-layer paths tracked")
+
+
+def _check_layering(
+    report: Report,
+    project_ids: Sequence[str],
+    registry: ProjectRegistry,
+    repo_root: Optional[Path],
+) -> None:
+    """For each registered project, whether its own git tracks its AI layer.
+
+    A different concept from :data:`AI_LAYER_ROOTS` / :func:`compare_ai_layer`
+    above, which compare *this repository's* skill install on the host
+    against ``~/.claude`` — drift in an install, not a project's own
+    repository tracking files it should not. Keep the two apart; see
+    :mod:`core.ai_layer`'s own docstring on the same point.
+
+    Absent git entirely is one **skip** for the whole check, not one per
+    project: the question could not be asked of any of them.
+    """
+    if shutil.which("git") is None:
+        report.add(
+            "layering.tracked",
+            "skip",
+            "git is not on PATH, so tracked AI-layer paths cannot be listed.",
+        )
+        return
+
+    for project_id in project_ids:
+        _check_project_layering(report, project_id, registry, repo_root)
+
+
 def run_doctor(
     project: Optional[str] = None,
     registry: Optional[ProjectRegistry] = None,
@@ -1528,6 +1666,8 @@ def run_doctor(
 
     for project_id in project_ids:
         _check_project(report, project_id, registry, offline)
+
+    _check_layering(report, project_ids, registry, source_tree_root())
 
     _check_deployment(report, source_root=source_tree_root())
     _check_ai_layer(report)
