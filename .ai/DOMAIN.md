@@ -1,6 +1,6 @@
 # DOMAIN — drunken-guild
 
-Accepted by the Boss, 2026-09-23. Built from `.ai/PRD.md` (REQ-001–018; REQ-005 dropped).
+Accepted by the Boss, 2026-09-23. Built from `.ai/PRD.md` (REQ-001–020; REQ-005 dropped).
 
 ## Bounded contexts
 
@@ -9,6 +9,7 @@ Accepted by the Boss, 2026-09-23. Built from `.ai/PRD.md` (REQ-001–018; REQ-00
 | **Flow** | REQ-001, REQ-004, REQ-012, REQ-016, REQ-017, REQ-018 | The ordered steps from requirement to validation, how each step hands to the next, and the checks — including a schedule independent of any step, such as a dependency audit — that keep the work trustworthy |
 | **Routing** | REQ-002, REQ-010, REQ-011, REQ-013 | How an agent decides, unprompted, which skill, role or MCP tool a situation needs, and proof that it does |
 | **Instructions** | REQ-006, REQ-007, REQ-015 | The one instruction file every agent reads, and the adapters that lead each agent to it |
+| **Layering** | REQ-019, REQ-020 | Where a project's AI layer lives and how it gets there: kept out of the project's repository, held in one private config repo, put in place by init |
 | **Distribution** | REQ-003, REQ-008, REQ-009, REQ-014 | The one source of skills and roles, and installing it into each supported agent its own way |
 
 ## Shared vocabulary
@@ -31,6 +32,11 @@ Accepted by the Boss, 2026-09-23. Built from `.ai/PRD.md` (REQ-001–018; REQ-00
 | **Install** | Putting the source into a supported agent's own location; running it again is an update | "deploy", "update script" as a separate thing |
 | **Preload** | Loading the instruction file and every description at session start, for an agent with no skill discovery | — |
 | **Brief** | The project-level agreement: what, who for, stack, constraints | "constitution" |
+| **Project** | A body of work the Boss runs under the guild, in its own repository | — |
+| **Work** | What a project builds: its code, requirements, stack and domain. Lives in the project's repository and says nothing about how the AI works | "content", "the product" |
+| **AI layer** | Everything about how the AI works on a project rather than what is built: AGENTS.md, the CLAUDE.md adapter, `.claude/`, hooks, Jira configuration | "wrapper", "AI config", "setup" |
+| **Config repo** | The one private repository that holds the AI layer of every project | "AI repo", "settings repo" |
+| **Init** | The step that puts a project's AI layer into its folder from the config repo; not Install, which puts the guild's own source into an agent | "install" |
 
 ## Core entities
 
@@ -60,10 +66,24 @@ Accepted by the Boss, 2026-09-23. Built from `.ai/PRD.md` (REQ-001–018; REQ-00
 **Instruction file** — Instructions
 - Any project that points an agent at it has one.
 - A rule that must bind every agent lives here and nowhere else.
+- In a project under the guild it is part of the AI layer.
 
 **Adapter** — Instructions / Distribution
 - An adapter holds nothing that the instruction file or the role's skill does not.
-- An adapter is produced by install, never written by hand.
+- An adapter is produced by install or by init, never written by hand.
+
+**AI layer** — Layering
+- It belongs to exactly one project and comes from the config repo.
+- The project's own git never tracks any of it.
+- It holds instructions about how the AI works, never facts about what is built.
+- Exception: this repository, whose AI layer is the product, keeps it tracked.
+
+**Config repo** — Layering
+- There is one, private, for all projects.
+
+**Init** — Layering
+- Until init has run in a folder, the agent does not read AGENTS.md there.
+- After init, the project's git tracks none of the AI layer.
 
 **Role** — Distribution
 - A role is defined once, as a skill; any agent-specific definition only points at it.
