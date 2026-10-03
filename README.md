@@ -279,6 +279,7 @@ part of it is legacy (DG-427).
 | [`AGENTS.md`](./AGENTS.md) | agents and contributors working *in* this repo (`CLAUDE.md` is its one-line adapter) |
 | [`Drunken-Guild-Guide.md`](./Drunken-Guild-Guide.md) | architecture, the Jira workflow, the Discord command reference, the approval flow |
 | [`DESIGN.md`](./DESIGN.md) | why it is shaped this way — the decisions, and the failure behind each one |
+| [`CONFIG_REPO.md`](./CONFIG_REPO.md) | the one private repo a project's AI layer comes from — its layout, what a project's folder may hold, and what must never be in it (REQ-019, REQ-020) |
 | [`Integration-Guide.md`](./Integration-Guide.md) | connecting an external tool, or bringing another project under this workflow |
 | [`examples/`](./examples/) | the flow and its filled-in setup documents, for a fictional app |
 | [`SESSION_CHECKPOINT.md`](./SESSION_CHECKPOINT.md) | where the work currently stands |
