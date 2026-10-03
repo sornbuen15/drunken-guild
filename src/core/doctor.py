@@ -1402,8 +1402,7 @@ def _check_jira_live(report: Report, project_id: str, context: ProjectContext) -
 def _check_project_paths(
     report: Report, project_id: str, context: ProjectContext
 ) -> None:
-    declared = context.config.path
-    if declared is None:
+    if context.config.path is None:
         report.add(
             f"project.{project_id}.path",
             "skip",
@@ -1411,7 +1410,12 @@ def _check_project_paths(
         )
         return
 
-    root = Path(declared)
+    # DG-445: expanduser lives in one place, ProjectConfig.resolved_path —
+    # wrapping the raw registry string in Path() here used to leave a
+    # registered "~/checkout" as a literal directory named "~" that never
+    # exists, so this reported "does not exist" for a project that was
+    # actually there under the real home.
+    root = context.root_path()
     if not root.is_dir():
         report.add(
             f"project.{project_id}.path",
@@ -1596,7 +1600,12 @@ def _check_project_layering(
         )
         return
 
-    root = Path(config.path)
+    # DG-445: same expanduser as _check_project_paths and
+    # ProjectContext.root_path() — all three go through
+    # ProjectConfig.resolved_path() now, so a registered "~/checkout" is
+    # inspected rather than silently skipped as a checkout that "does not
+    # exist" under its literal "~" name.
+    root = config.resolved_path("this operation")
     git_root = root / config.git_root if config.git_root else root
 
     if repo_root is not None and _same_checkout(git_root, repo_root):
