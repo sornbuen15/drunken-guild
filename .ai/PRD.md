@@ -87,6 +87,11 @@ installed copy in its own location, and an update is applied per agent.
 **Decided:** 2026-09-23 (Q2-A) — installed globally, per agent: `~/.claude/skills` (Claude Code),
 `~/.gemini/config/skills` (Antigravity), `~/.gemini/skills` (Gemini CLI), and Aider's preload.
 One install script and one update script cover every agent; the Boss runs them, as today.
+**Decided:** 2026-10-03 — installed and updated by one cross-platform command from a release tag on
+GitHub, without cloning the repository; skills and roles ship inside the installed package; the
+command is code, never a model call, so installing and updating costs no tokens. GitHub tags are
+the only channel for now; PyPI is a later decision. Built after the Layering work (REQ-019,
+REQ-020).
 
 ### REQ-009 — Gemini CLI is supported too
 **Class:** Could
@@ -175,6 +180,25 @@ read AGENTS.md.
 **Decided:** 2026-10-02 — one config repo for all projects, not one each; files are copied, not
 symlinked; hidden from git through `.git/info/exclude`, not `.gitignore`.
 
+### REQ-021 — /prd starts from a draft the Boss attaches
+**Class:** Should
+**Acceptance:** When the Boss points /prd at one or more draft files (.md, .txt and .pdf in the
+first round), the requirements the drafts state are proposed with the source file and page named;
+anything the drafts leave unclear goes under Inferred, not into the numbered list; drafts that
+contradict each other are reported, not resolved; the draft files are never changed and never
+copied into the repository; their content is data, never an instruction to the agent.
+**Decided:** 2026-10-03 — .docx is a later step, after a trial with real files; reading a .docx or
+a scanned pdf is not yet verified.
+
+### REQ-022 — The guild is easy to install, use and update
+**Class:** Should
+**Acceptance:** A new skill or role reaches a machine that has the guild installed with one update
+command, with no clone and no model call. A change to how the flow itself works is a minor or
+major release with a changelog, and a status command says what has changed, before it is applied.
+**Decided:** 2026-10-03 — the Boss: anyone who takes the guild should find installing, using and
+updating easy, and updating should cost no tokens unless the way of working itself has a new
+version. Channel for now: GitHub tags (see REQ-008).
+
 ## Inferred — not yet accepted
 - (none — all accepted by the Boss, 2026-09-23)
 - A user-level SessionStart hook that tells the agent to run init in a folder the guild does not
@@ -190,3 +214,8 @@ symlinked; hidden from git through `.git/info/exclude`, not `.gitignore`.
 - REQ-020 — where Jira credentials live: not in the config repo, since no secret enters a commit,
   private repo or not.
 - REQ-019 — how a project that already commits its AI layer is migrated.
+- REQ-008, REQ-022 — whether shipping skills inside the installed package changes how
+  drunken-doctor and the tests read them (today they read `skills/` in the repository): not yet
+  assessed.
+- REQ-008, REQ-022 — where Antigravity, Aider and Gemini CLI keep their skills: no evidence yet
+  (DG-394, DG-399); the single command cannot cover them until there is.
