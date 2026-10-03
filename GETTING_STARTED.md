@@ -166,16 +166,15 @@ those survive, and prunes only the servers this project has retired.
 
 ### Step 1 — Set up the project's rules
 
-This is the one list of what to copy from `templates/`, and where. The **rules** go at the project
-root; the **project's documents** are not copied from anywhere — the flow writes them, in Steps 2
-to 4.
+`drunken-init`, run above, already wrote `~/Projects/my-project/AGENTS.md` and a one-line
+`CLAUDE.md` that imports it (REQ-015) — do not overwrite either by hand. What is left to copy from
+`templates/` is the session scratchpad and, if you use them, the Cursor/Aider pointer files:
 
 ```bash
-cp templates/CLAUDE.md              ~/Projects/my-project/CLAUDE.md
 cp templates/SESSION_CHECKPOINT.md  ~/Projects/my-project/    # then add /SESSION_CHECKPOINT.md to .gitignore
 ```
 
-Using Cursor or Aider as well? Add their files — both are thin and point at `CLAUDE.md`, so the rules
+Using Cursor or Aider as well? Add their files — both are thin and point at `AGENTS.md`, so the rules
 stay in one place:
 
 ```bash
@@ -183,12 +182,12 @@ cp templates/.cursorrules                          ~/Projects/my-project/   # Cu
 cp templates/CONVENTIONS.md templates/.aider.conf.yml ~/Projects/my-project/   # Aider
 ```
 
-`CLAUDE.md` is the one that carries the **rules**: which Jira project this is, that Jira is the only
+`AGENTS.md` is the one that carries the **rules**: which Jira project this is, that Jira is the only
 coordination surface, the `TODO → IN PROGRESS → IN REVIEW → DONE` ladder that must never skip
 review, the MCP tools available, and your build and test commands.
 
-Fill in every `<angle-bracket>` placeholder and delete what does not apply. Skills and agents read
-this file every session — **a placeholder left in reads as an instruction.**
+Fill in its `## Commands` section and anything else it leaves open for this project. Skills and
+agents read this file every session — **a placeholder left in reads as an instruction.**
 
 **The project's documents** are located the same way by every skill that reads them — the
 `project-docs` skill is the contract, and every flow step prints its block before doing anything

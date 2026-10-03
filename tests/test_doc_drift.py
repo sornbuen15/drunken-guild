@@ -144,8 +144,13 @@ def test_the_retired_template_set_cannot_come_back(drift, tmp_path, monkeypatch)
 
     problems = drift.scan()
 
-    assert len(problems) == 1
-    assert "templates/" in problems[0].split("Use", 1)[1]
+    # Not `len(problems) == 1`: the fixture line also happens to contain the
+    # substring DG-427's own retired-name check looks for (".guild_templates"
+    # ends in "templates/CLAUDE.md"), so a second, equally correct problem is
+    # expected to show up here too -- this test is about the DG-337 one.
+    guild_templates_problems = [p for p in problems if ".guild_templates" in p]
+    assert len(guild_templates_problems) == 1
+    assert "templates/" in guild_templates_problems[0].split("Use", 1)[1]
 
 
 def test_every_retired_entry_says_what_to_use_instead(drift) -> None:

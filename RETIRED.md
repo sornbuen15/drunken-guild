@@ -49,6 +49,8 @@ repository, and it cost more than disk:
 | `.claude-plugin/plugin.json` — the repository's own plugin manifest | **0 bytes from the commit that created it** (`9b4aca6`, 2026-08-22) and never edited since, with no `marketplace.json` anywhere in the tree: the plugin route was never built, not broken (DG-379). Nothing referenced it — no document, script, test or CI job — and no document ever claimed drunken-guild installs as a plugin, so removing it deletes no promise. A second install surface beside the installer scripts is the failure this repository exists to cure. `plugins/drunken-extras/.claude-plugin/plugin.json` is a real 519-byte manifest describing the optional extras bundle and **stays** — this row is about the root file only | `scripts/install/install_skills.sh` and `install_agents.sh`, the only install route that has ever worked | `9b4aca6`, at its original `.claude-plugin/plugin.json` path |
 
 
+| `templates/CLAUDE.md` | a 211-line rulebook that predated REQ-015's one-line `CLAUDE.md` adapter and restated coordination rules inline — the Jira lifecycle, the approval protocol, git, what must never be deleted. Those rules now live in a project's own `AGENTS.md`, written once by `drunken-init`, and nothing else restates them. `templates/CONVENTIONS.md`, `.cursorrules` and `.aider.conf.yml` pointed at this file as "the authority"; all three now point at `AGENTS.md` instead (DG-427) | a project's own `AGENTS.md` (REQ-015), via `drunken-init` | `git log --follow -- templates/CLAUDE.md`, its last commit before this retirement, at its original path |
+
 ## Recovering one
 
 ```bash

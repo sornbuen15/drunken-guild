@@ -159,6 +159,18 @@ RETIRED = (
     Retired("require_discord", "DG-355", "nothing; no Discord credential is resolved"),
     Retired("--kind install", "DG-356", "drunken-doctor --requirements"),
     Retired("--kind host", "DG-356", "onboard_project.py --merge-mcp-config"),
+    # DG-427. A 211-line rulebook that predated REQ-015's one-line CLAUDE.md
+    # adapter and restated coordination rules a project's own AGENTS.md now
+    # owns. Moved out of templates/ to _not_used/ (uncommitted); RETIRED.md
+    # carries the row. The name below is also a substring of the
+    # already-retired dotted name above (DG-337's ".guild_templates/"), so a
+    # line naming that one trips both -- test_doc_drift.py's own fixture for
+    # DG-337 accounts for it rather than assuming an exact count of one.
+    Retired(
+        "templates/CLAUDE.md",
+        "DG-427",
+        "a project's own AGENTS.md (REQ-015), written by drunken-init",
+    ),
 )
 
 #: Documents whose job is to record what changed. They have to be able to name

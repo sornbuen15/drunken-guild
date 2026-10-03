@@ -261,13 +261,14 @@ checks it, not what it says.
 | `agents/` | AI agents — installed to `~/.claude/agents/` | yes, each role file by hand | `agents/INDEX.md` inside it is generated the same way, by `scripts/install/install_agents.sh --index-only` |
 | `plugins/` | operators who opt into the extras bundle (specialist agents and general engineering skills, outside the core flow) | yes | its own `plugins/drunken-extras/.claude-plugin/plugin.json` manifest; no generator |
 | `src/core/templates/` | new projects — what `drunken-init` writes into them | yes | packaged into the wheel via `pyproject.toml`'s `[tool.setuptools.package-data]` (`core = ["templates/*.md"]`), because the installed tool carries only `src` (DG-392); `src/core/scaffold.py` reads it to write a project's `AGENTS.md` and `CLAUDE.md` |
-| `templates/` | copy-paste material a person copies into their own project by hand | yes | `scripts/check_doc_drift.py` scans it deliberately, suffix or not, because a stale instruction here propagates into every project it is copied into. **LEGACY:** `templates/CLAUDE.md` (211 lines) is a full rulebook that predates the 2.0.0 standard and contradicts REQ-015's one-line `CLAUDE.md` adapter — DG-427 retires it |
+| `templates/` | copy-paste material a person copies into their own project by hand | yes | `scripts/check_doc_drift.py` scans it deliberately, suffix or not, because a stale instruction here propagates into every project it is copied into. **LEGACY, retired (DG-427):** the 211-line `CLAUDE.md` it used to carry predated REQ-015's one-line adapter and restated rules a project's own `AGENTS.md` now owns — moved out of this folder; `RETIRED.md` names it |
 | `examples/` | reference material — the flow and its filled-in setup documents, for a fictional app | yes | none; `examples/README.md` explains the set (who it's for, the flow walkthrough) |
 | `scripts/install/` | the operator installing skills and agents to `~/.claude/` | yes | `tests/test_install_index_determinism.py` checks what it generates (`skills/INDEX.md`, `agents/INDEX.md`) is reproducible |
 
-Why two template folders: `src/core/templates/` ships inside the installed package, because the
-installed tool carries only `src` (DG-392); `templates/` at the root is copy-paste material, and
-part of it is legacy (DG-427).
+Why two template folders, decided with the Boss rather than merged into one: `src/core/templates/`
+ships inside the installed package, because the installed tool carries only `src` (DG-392);
+`templates/` at the root is copy-paste material for tools other than Claude Code, and its one
+coordination rulebook that drifted from the 2.0.0 standard is retired, not the folder (DG-427).
 
 ---
 
