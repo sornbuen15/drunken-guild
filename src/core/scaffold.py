@@ -37,7 +37,13 @@ _BOM = "﻿"
 
 def _guild_block_text() -> str:
     """The current guild block, markers included, read from the packaged
-    template — the same source `agents_md()` uses for a fresh file."""
+    template — the same source `agents_md()` uses for a fresh file.
+
+    DG-433: a packaged template read from a *new* directory under
+    `src/core/templates/` — here or anywhere else, any call shape — has to
+    be added to `KNOWN_TEMPLATE_DIRS` in
+    `tests/test_template_directory_allowlist.py`, or that test fails.
+    """
     template = (
         resources.files("core")
         .joinpath("templates/AGENTS.md")
@@ -166,6 +172,9 @@ def _write_new(path: Path, text: str) -> None:
 
 
 def agents_md(project: str, jira_key: str | None) -> str:
+    # DG-433: see the note on `_guild_block_text` above — a new packaged
+    # template directory has to be added to `KNOWN_TEMPLATE_DIRS` in
+    # tests/test_template_directory_allowlist.py.
     template = resources.files("core").joinpath("templates/AGENTS.md")
     return template.read_text(encoding="utf-8").format(
         project=project,
