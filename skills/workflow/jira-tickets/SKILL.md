@@ -38,11 +38,18 @@ ticket restating them is a second surface that can disagree.
 REQ-xxx       lives in PRD.md. Never a Jira issue.
   Epic          one bounded context from DOMAIN.md
     Story         one behaviour a customer would notice
-      Task          one vertical slice, finishable in a day
-        Subtask       one ordered step of that task
+    Task          one vertical slice, finishable in a day
+      Subtask       one ordered step of a Story or a Task
 
 Bug           sits beside the hierarchy, parented where the defect lives
 ```
+
+**On this team-managed Jira, Story and Task are siblings — both parent
+directly to the Epic.** `jira_create_issue` for a Task with a Story as parent
+fails with "Please select valid parent issue" (HTTP 400; observed
+2026-10-03, DG-448). There is no four-level chain to create. A Task that
+belongs to a Story **names that Story in its own description** — there is no
+field for it. Subtask parents to whichever Story or Task it belongs to.
 
 **A requirement is not an issue.** `REQ-xxx` stays in `PRD.md` and reaches Jira
 as a label. Two places to edit one requirement is the drift this repo cures.
@@ -171,7 +178,7 @@ REQ-005.
 94 words. One Given/When/Then per behaviour, and the second one is what stops
 the Task being built for the happy path only.
 
-### Task — `SCOPE` · `ACCEPTANCE` · `Parent`
+### Task — `SCOPE` · `ACCEPTANCE` · `Parent` (and `Story`, if it belongs to one)
 
 ```
 [Ordering] Serve the "Order again" card from the orders API
@@ -187,11 +194,15 @@ Unit: an item withdrawn at that store returns `available: false`, the rest
 unchanged.
 Contract: a customer with no completed order returns 204, not an empty 200.
 
-Parent: DG-501.
+Parent: DG-500 (Epic).
+Story: DG-501 — "Customer re-orders their last order in one tap".
 ```
 
-82 words. SCOPE is a short plan, not a diff; ACCEPTANCE is the tests. If the
-plan cannot be written before the code exists, the Task is not ready to start.
+86 words. SCOPE is a short plan, not a diff; ACCEPTANCE is the tests. `Parent`
+is the Epic — this Jira refuses a Task parented to a Story (HTTP 400). `Story`
+is prose, named for a reader, not a field: a Task with no Story line serves
+the Epic directly. If the plan cannot be written before the code exists, the
+Task is not ready to start.
 
 ### Subtask — one step · `DONE WHEN`
 
@@ -266,9 +277,14 @@ backlog, probed rather than inferred: type does not predict it, a kanban board
 may have none while a team-managed 'simple' board has one, and `backlog: null`
 means the question could not be answered — which is not the same as no.
 
-- **`parent`** — Story parents to Epic, Task to Story, Subtask to Task. Without
-  it the issue has no place in the hierarchy and Timeline stays empty. Shared
-  context goes **on the Epic and is linked**, never copied into each child.
+- **`parent`** — Story and Task both parent to Epic; Subtask parents to
+  whichever Story or Task it belongs to. **A Task cannot parent to a Story on
+  this team-managed Jira** — `jira_create_issue` refuses it with "Please
+  select valid parent issue" (HTTP 400; observed 2026-10-03, DG-448). A Task
+  that belongs to a Story names that Story in its own description instead.
+  Without `parent` the issue has no place in the hierarchy and Timeline stays
+  empty. Shared context goes **on the Epic and is linked**, never copied into
+  each child.
 - **`labels`** — comma-separated, and this is how urgency is expressed, along
   with everything in §3. **`priority` cannot be set on a team-managed project
   at all**; every issue reads `Medium` because that is the only value it can
