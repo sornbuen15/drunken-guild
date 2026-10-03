@@ -212,6 +212,9 @@ class TestOptionalPath:
         come back as the real directory under ``HOME``, not the literal
         string wrapped in ``Path()``."""
         monkeypatch.setenv("HOME", str(tmp_path))
+        monkeypatch.setenv("USERPROFILE", str(tmp_path))
+        monkeypatch.delenv("HOMEDRIVE", raising=False)
+        monkeypatch.delenv("HOMEPATH", raising=False)
         registry = ProjectRegistry(
             write_registry(
                 tmp_path,

@@ -330,6 +330,9 @@ class TestARegisteredTildePathIsInspectedNotSkipped:
         self, tmp_path, monkeypatch
     ) -> None:
         monkeypatch.setenv("HOME", str(tmp_path))
+        monkeypatch.setenv("USERPROFILE", str(tmp_path))
+        monkeypatch.delenv("HOMEDRIVE", raising=False)
+        monkeypatch.delenv("HOMEPATH", raising=False)
         root = tmp_path / "checkout"
         _init_repo(root)
         (root / "AGENTS.md").write_text("instructions", encoding="utf-8")
@@ -362,6 +365,9 @@ class TestARegisteredTildePathIsInspectedNotSkipped:
         registered project — tracked AGENTS.md and all — regresses to a
         skip. The assertion below is the mutation's own wrong outcome."""
         monkeypatch.setenv("HOME", str(tmp_path))
+        monkeypatch.setenv("USERPROFILE", str(tmp_path))
+        monkeypatch.delenv("HOMEDRIVE", raising=False)
+        monkeypatch.delenv("HOMEPATH", raising=False)
         root = tmp_path / "checkout"
         _init_repo(root)
         (root / "AGENTS.md").write_text("instructions", encoding="utf-8")

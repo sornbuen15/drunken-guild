@@ -239,6 +239,9 @@ class TestARegisteredTildePathIsChecked:
         self, tmp_path, monkeypatch
     ) -> None:
         monkeypatch.setenv("HOME", str(tmp_path))
+        monkeypatch.setenv("USERPROFILE", str(tmp_path))
+        monkeypatch.delenv("HOMEDRIVE", raising=False)
+        monkeypatch.delenv("HOMEPATH", raising=False)
         checkout = tmp_path / "checkout"
         checkout.mkdir()
 
@@ -263,6 +266,9 @@ class TestARegisteredTildePathIsChecked:
         this mutation was added, which is what proves the mutation, not the
         assertion, is doing the work here."""
         monkeypatch.setenv("HOME", str(tmp_path))
+        monkeypatch.setenv("USERPROFILE", str(tmp_path))
+        monkeypatch.delenv("HOMEDRIVE", raising=False)
+        monkeypatch.delenv("HOMEPATH", raising=False)
         checkout = tmp_path / "checkout"
         checkout.mkdir()
 

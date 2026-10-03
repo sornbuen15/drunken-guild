@@ -167,6 +167,9 @@ class TestPaths:
         against that code: it asserted ``str(root) == str(checkout)`` and
         got ``"~/checkout"`` back unexpanded."""
         monkeypatch.setenv("HOME", str(tmp_path))
+        monkeypatch.setenv("USERPROFILE", str(tmp_path))
+        monkeypatch.delenv("HOMEDRIVE", raising=False)
+        monkeypatch.delenv("HOMEPATH", raising=False)
         checkout = tmp_path / "checkout"
         checkout.mkdir()
         target = tmp_path / "projects.json"
