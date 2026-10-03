@@ -163,8 +163,14 @@ class ProjectContext:
         return self.jira
 
     def root_path(self) -> Path:
-        """The project checkout. Only meaningful for filesystem-backed work."""
-        return Path(self.config.require_path("this operation"))
+        """The project checkout. Only meaningful for filesystem-backed work.
+
+        DG-445: goes through :meth:`ProjectConfig.resolved_path` rather than
+        wrapping ``self.config.path`` in ``Path()`` itself, so a registered
+        ``~/checkout`` is expanded here the same way every other per-project
+        check expands it.
+        """
+        return self.config.resolved_path("this operation")
 
     def git_root_path(self) -> Path:
         """Where ``git`` actually works.
