@@ -90,11 +90,13 @@ description: >
 
   <the_hierarchy>
 
-    REQ-xxx  →  Epic  →  Story  →  Task  →  Subtask
+    REQ-xxx  →  Epic  →  Story | Task  →  Subtask
 
     - **Epic** — one per bounded context in `DOMAIN.md`. No more, no fewer.
     - **Story** — from the requirements that context serves. A user-visible outcome.
     - **Task** — the work. A **vertical slice finishable in a day**: that is the sizing test.
+      Parents to the Epic, same as a Story — this team-managed Jira refuses a Task parented to a
+      Story; a Task names its Story, if any, in its own description instead.
     - **Subtask** — only when a Task genuinely has ordered steps that must be done in that order.
 
     The five ticket templates — Epic, Story, Task, Subtask, Bug — live in the `jira-tickets`
@@ -214,8 +216,9 @@ description: >
     1. LOCATE: `project-docs` — print the block. `PRD.md` and `DOMAIN.md` are both required; point
        at `/prd` or `/ddd` for a missing one rather than working from what you can infer.
     2. PROBE: `jira_board_info` — issue types, settable fields, backlog present?
-    3. MAP: one Epic per context; Stories from that context's requirements; Tasks per Story, each
-       sized to a day; Subtasks only where steps are genuinely ordered.
+    3. MAP: one Epic per context; Stories from that context's requirements; Tasks sized to a day,
+       parented to the Epic and naming their Story (if any) in the description; Subtasks only
+       where steps are genuinely ordered.
     4. CHECK: every requirement reaches at least one Task, every ticket has its `req:` label,
        every Task passes the one-day test. Report any requirement that reaches nothing.
     5. SEQUENCE: group Tasks by the files they touch — sequence or parallel.

@@ -221,6 +221,77 @@ class TestThePermissionsRemedyMatchesThePlatform:
         assert shlex.split(remediation) == ["chmod", "700", str(home)], remediation
 
 
+class TestARegisteredTildePathIsChecked:
+    """DG-445: ``_check_project_paths`` built the checkout path with
+    ``Path(config.path)`` and no ``expanduser()``, so a project registered
+    with a literal ``"~/checkout"`` was treated as pointing at a directory
+    named ``~`` that never exists, rather than the real checkout."""
+
+    def _registry_with_tilde(self, tmp_path) -> ProjectRegistry:
+        target = tmp_path / "projects.json"
+        target.write_text(
+            json.dumps({"version": 2, "projects": {"tilde": {"path": "~/checkout"}}}),
+            encoding="utf-8",
+        )
+        return ProjectRegistry(str(target))
+
+    def test_a_registered_tilde_path_resolves_under_the_real_home(
+        self, tmp_path, monkeypatch
+    ) -> None:
+        monkeypatch.setenv("HOME", str(tmp_path))
+        monkeypatch.setenv("USERPROFILE", str(tmp_path))
+        monkeypatch.delenv("HOMEDRIVE", raising=False)
+        monkeypatch.delenv("HOMEPATH", raising=False)
+        checkout = tmp_path / "checkout"
+        checkout.mkdir()
+
+        report = doctor.run_doctor(
+            registry=self._registry_with_tilde(tmp_path), offline=True
+        )
+
+        check = find(report, "project.tilde.path")
+        assert check.status == "ok", (
+            "a registered '~/checkout' that exists under the real home must "
+            f"be found, not reported missing. Got {check.status}: {check.detail}"
+        )
+        assert str(checkout) in check.detail, check.detail
+
+    def test_mutation_reintroducing_the_unexpanded_path_fails_the_assertion(
+        self, tmp_path, monkeypatch
+    ) -> None:
+        """Mutation: patch ``ProjectConfig.resolved_path`` back to the
+        pre-fix shape — ``Path(self.path)`` with no ``expanduser()`` — and
+        confirm the check regresses to reporting the real checkout as
+        missing. Seen failing first against the real (unpatched) fix before
+        this mutation was added, which is what proves the mutation, not the
+        assertion, is doing the work here."""
+        monkeypatch.setenv("HOME", str(tmp_path))
+        monkeypatch.setenv("USERPROFILE", str(tmp_path))
+        monkeypatch.delenv("HOMEDRIVE", raising=False)
+        monkeypatch.delenv("HOMEPATH", raising=False)
+        checkout = tmp_path / "checkout"
+        checkout.mkdir()
+
+        from core.registry import ProjectConfig
+
+        def _unexpanded(self, reason: str):
+            from pathlib import Path
+
+            return Path(self.require_path(reason))
+
+        monkeypatch.setattr(ProjectConfig, "resolved_path", _unexpanded)
+
+        report = doctor.run_doctor(
+            registry=self._registry_with_tilde(tmp_path), offline=True
+        )
+
+        check = find(report, "project.tilde.path")
+        assert check.status == "fail", (
+            "this is the mutation's own (wrong) outcome — the real fix must "
+            f"disagree with it. Got {check.status}: {check.detail}"
+        )
+
+
 class TestJiraVerification:
     def test_a_working_credential_reports_who_we_are(self, registry) -> None:
         with mock.patch("urllib.request.urlopen", return_value=_identity_response()):

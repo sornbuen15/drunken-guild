@@ -217,8 +217,9 @@ exists. Each owns one stage of the standard spec-driven sequence:
                into PRD.md
 /ddd        →  DOMAIN.md: bounded contexts, shared vocabulary, core entities.
                Each context becomes an Epic
-/breakdown  →  the Jira hierarchy — REQ → Epic → Story → Task → Subtask — every level
-               labelled req:REQ-xxx. Nothing is created until the Boss approves the plan
+/breakdown  →  the Jira hierarchy — REQ → Epic → Story | Task → Subtask, Story and Task
+               both siblings under the Epic — every level labelled req:REQ-xxx. Nothing
+               is created until the Boss approves the plan
 /build      →  one task, one branch, one PR. The test comes from the ticket's acceptance
                and is seen failing first. The Boss merges
 /audit      →  every requirement traced to a task and to a test that passes on the merged

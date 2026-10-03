@@ -169,9 +169,9 @@ async def jira_create_issue(
 ) -> str:
     """
     Create an issue in `project`; shape and word budget are the
-    `jira-tickets` skill's. `parent` is an Epic or Story key — else the
-    Timeline stays empty. `labels` (comma-separated) stands in for priority
-    (unsettable). Dates are ISO YYYY-MM-DD. Warns, never refuses.
+    `jira-tickets` skill's. `parent` is an Epic, Story or Task key — else
+    the Timeline stays empty. `labels` stands in for priority (unsettable).
+    Dates are ISO YYYY-MM-DD. Warns, never refuses.
     """
     client = get_client(project)
     parent_key: Optional[str] = None
@@ -184,7 +184,7 @@ async def jira_create_issue(
         if len(keys) != 1:
             raise ValidationError(
                 f"One parent key, got {len(keys)}.",
-                remediation="Pass a single Epic or Story key.",
+                remediation="Pass a single Epic, Story or Task key.",
             )
         (parent_key,) = keys
     res = await client.create_issue(

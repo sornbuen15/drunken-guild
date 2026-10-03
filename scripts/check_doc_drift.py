@@ -229,6 +229,13 @@ _FIXTURES_PREFIX = ("tests", "fixtures")
 
 
 def _under_fixtures(path: Path) -> bool:
+    """Case-sensitive on purpose (DG-433): `SKIPPED_DIRS` above is matched
+    the same way, an exact-string set lookup against each path segment, and
+    this repository's own directories are created lower-case. Folding case
+    here while `SKIPPED_DIRS` stays exact would make the two exclusion
+    rules disagree about what "the same name" means for no documented
+    reason — if a case-insensitive filesystem ever produces a real
+    `Tests/Fixtures/`, fix both together rather than one in isolation."""
     parts = path.relative_to(REPO_ROOT).parts
     return parts[: len(_FIXTURES_PREFIX)] == _FIXTURES_PREFIX
 
