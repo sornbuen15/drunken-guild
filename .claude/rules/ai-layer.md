@@ -103,11 +103,15 @@ A skill that does not say which layer it needs gets installed into a project tha
 1. **Skills** — authored here, installed to `~/.claude/skills/`.
 2. **Agents** — authored here, installed to `~/.claude/agents/`.
 3. **MCP servers** — also here, in `src/`, declared per project in that project's `.mcp.json`.
-4. **Project instructions** — each project's own `CLAUDE.md`, and the rules beside it.
+4. **Project instructions** — each project's own `AGENTS.md`, with `CLAUDE.md` as its one-line
+   adapter (REQ-015), and the rules beside it.
 
 **Layers 1 and 2 stand on their own.** Most skills need no MCP server at all. Only the coordination
 skills do.
 
-`templates/CLAUDE.md` is a different document from this repository's own `AGENTS.md`: it is the
-file **other projects copy**. This one adds the authoring rules, which apply nowhere else. When a
-coordination rule changes, change it in both.
+`src/core/templates/AGENTS.md` is a different document from this repository's own `AGENTS.md`: it
+is the file `drunken-init` writes into **other projects**. This one adds the authoring rules, which
+apply nowhere else. When a coordination rule changes, change it in both.
+
+The root `templates/CLAUDE.md` this paragraph used to point at instead is retired (DG-427) <!-- drift-ok: recording the retirement, not pointing a reader at it -->
+— a project's own rules live in its `AGENTS.md` now, never restated in a per-tool file.

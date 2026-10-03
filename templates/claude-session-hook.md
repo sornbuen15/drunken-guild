@@ -1,6 +1,6 @@
 # Guild session reminder — SessionStart hook snippet (Claude Code only)
 
-This is a **Claude-only extra**, not part of the portable `templates/CLAUDE.md`. It uses the
+This is a **Claude-only extra**, not part of the portable, vendor-neutral `AGENTS.md`. It uses the
 `SessionStart` hook in `.claude/settings.json`, a Claude Code mechanism with no equivalent in a
 vendor-neutral `AGENTS.md`. **An agent never places or installs a hook** — it does not deploy and
 does not install (CLAUDE.md § "Things that will bite you anywhere"). This document hands the

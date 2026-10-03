@@ -136,12 +136,25 @@ ALLOWLIST: dict[tuple[str, str], str] = {
         "the cp walkthrough's own illustrative target under the reader's "
         "home directory, not a path in this repository"
     ),
+    ("GETTING_STARTED.md", "~/Projects/my-project/AGENTS.md"): (
+        "the walkthrough's own illustrative target under the reader's home "
+        "directory, not a path in this repository -- what drunken-init "
+        "already wrote there in Step 0, named here to say so"
+    ),
+    (".claude/rules/ai-layer.md", "templates/CLAUDE.md"): (
+        "the retired path itself, named in the paragraph recording its "
+        "retirement (DG-427) -- the file no longer exists there on purpose"
+    ),
     ("scripts/check_doc_drift.py", "templates/AGENTS.md"): (
         "a comment explaining why this name is deliberately absent from "
         "the retired-name list below it, not a live pointer -- the file "
         "has never existed at that path"
     ),
     ("scripts/check_doc_drift.py", ".agents/AGENTS.md"): (
+        "the retired path itself, recorded inside a Retired(...) entry -- "
+        "the same job RETIRED.md does, naming the gone thing on purpose"
+    ),
+    ("scripts/check_doc_drift.py", "templates/CLAUDE.md"): (
         "the retired path itself, recorded inside a Retired(...) entry -- "
         "the same job RETIRED.md does, naming the gone thing on purpose"
     ),

@@ -60,16 +60,21 @@ If your tool auto-discovers project-level `.mcp.json`, you're done. Otherwise, p
 
 ## 2. Local AI Configuration Templates
 
-`templates/` is the one template set. **The rules live in one file, `CLAUDE.md`**; the files for
-other tools are thin and point at it, because a rulebook per tool is a rulebook per tool that drifts.
+**The rules live in one file, `AGENTS.md`** (REQ-015) — `drunken-init` writes it, plus a one-line
+`CLAUDE.md` that imports it, from `src/core/templates/`, the one location that is shipped in the
+installed package and is the canonical source for what it writes. `templates/` at this repository's
+root is a second, separate set: copy-paste extras for tools `drunken-init` does not configure, each
+one thin and pointing at `AGENTS.md` rather than restating anything, because a rulebook per tool is
+a rulebook per tool that drifts.
 
 | File | For | What it is |
 |---|---|---|
-| `CLAUDE.md` | every tool | The project's rules: Jira lifecycle, approvals, git, what must never be deleted, where the project's documents are, build and test commands. |
-| `.cursorrules` | Cursor | "Read `CLAUDE.md`; it is the authority" — plus MCP setup and approvals, the parts that differ for Cursor. |
-| `CONVENTIONS.md` + `.aider.conf.yml` | Aider | The config loads `CLAUDE.md` and `CONVENTIONS.md` read-only into every session and turns off Aider's own commits. |
-| `SESSION_CHECKPOINT.md` | every tool | A handoff note, read at session start, rewritten before ending. Untracked. Jira stays the record. |
-| `PROJECT_BRIEF.md`, `REQUIREMENTS.md` | every tool | The project's own documents — what is built and what it must do. |
+| `AGENTS.md` | every tool | The project's rules: Jira lifecycle, approvals, git, what must never be deleted, where the project's documents are, build and test commands. Written once by `drunken-init`. |
+| `CLAUDE.md` | Claude Code | A one-line `@AGENTS.md` import (REQ-015), also written by `drunken-init` — not something you fill in by hand. |
+| `templates/.cursorrules` | Cursor | "Read `AGENTS.md`; it is the authority" — plus MCP setup and approvals, the parts that differ for Cursor. Copy-paste; nothing writes this one for you. |
+| `templates/CONVENTIONS.md` + `templates/.aider.conf.yml` | Aider | The config loads `AGENTS.md` and `CONVENTIONS.md` read-only into every session and turns off Aider's own commits. Copy-paste. |
+| `templates/SESSION_CHECKPOINT.md` | every tool | A handoff note, read at session start, rewritten before ending. Untracked. Jira stays the record. Copy-paste. |
+| `templates/PROJECT_BRIEF.md`, `templates/REQUIREMENTS.md` | every tool | Optional pre-`/prd` drafting material — what is built and what it must do, written before `/prd`'s interview instead of during it. Copy-paste. |
 
 Which files to copy, and where, is [GETTING_STARTED.md, Step 1](./GETTING_STARTED.md#step-1--describe-your-project) —
 one list, kept in one place.
@@ -160,7 +165,7 @@ You want `project.existing-project.jira` to come back naming *you*.
 
 Follow [GETTING_STARTED.md, Step 1](./GETTING_STARTED.md#step-1--describe-your-project). It is
 the one list of what to copy from `templates/` and where each file goes; a second list here is the
-kind of copy that drifts. For an existing project, fill `CLAUDE.md`'s build and test commands from
+kind of copy that drifts. For an existing project, fill `AGENTS.md`'s build and test commands from
 what the project already runs — the placeholders read as instructions if left in.
 
 ### Step 4: The MCP config
@@ -179,7 +184,7 @@ This depends on step 1 — the command has to be on `PATH`. Without `uv tool ins
 
 For Cursor: **Settings > Features > MCP > Add New Server**, type `command`, `drunken-jira-mcp` with args `--project existing-project`, then the same for the other one.
 
-From here, your local AI reads `CLAUDE.md` — directly, or through `.cursorrules` / `.aider.conf.yml`, which point at it — checks Jira via the MCP tools, writes code, and hands off through the same lifecycle described in Section 3.
+From here, your local AI reads `AGENTS.md` — directly, through `CLAUDE.md`'s one-line import, or through `templates/.cursorrules` / `templates/.aider.conf.yml`, which point at it — checks Jira via the MCP tools, writes code, and hands off through the same lifecycle described in Section 3.
 
 ---
 *This document covers integration and handoff only. For Drunken-Guild's own architecture and day-to-day Discord commands, see [Drunken-Guild-Guide.md](./Drunken-Guild-Guide.md).*

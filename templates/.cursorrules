@@ -3,17 +3,18 @@
 # This is a template. Copy it to your project root as `.cursorrules`. It is authored in
 # drunken-guild's `templates/.cursorrules`; a project's own copy is its own to change.
 #
-# It is deliberately thin. The rules live in ONE file, the project's `CLAUDE.md`, and this one
+# It is deliberately thin. The rules live in ONE file, the project's `AGENTS.md`, and this one
 # points at it. A rulebook per tool is a rulebook per tool that drifts: the set this replaced told
 # Cursor to park work on a board that no longer existed, three weeks after the board was retired.
 
-## Read `CLAUDE.md` first. It is the authority here.
+## Read `AGENTS.md` first. It is the authority here.
 
-Before any work, read `CLAUDE.md` at the project root. It is written to Claude Code, but **every
-rule in it applies to you**: the Jira lifecycle, the approval protocol, git, what must never be
-deleted, the build and test commands. Where this file and `CLAUDE.md` disagree, `CLAUDE.md` wins.
+Before any work, read `AGENTS.md` at the project root. It is vendor-neutral and binds every agent
+in the project — the Jira lifecycle, the approval protocol, git, what must never be deleted, the
+build and test commands. `CLAUDE.md` here is only a one-line pointer at it (REQ-015). Where this
+file and `AGENTS.md` disagree, `AGENTS.md` wins.
 
-`CLAUDE.md` also says where this project's documents are — brief, requirements, spec,
+`AGENTS.md` also says where this project's documents are — brief, requirements, spec,
 architecture, policy. Read the ones that exist; do not invent the ones that do not.
 
 ## What is different for Cursor
@@ -25,4 +26,4 @@ architecture, policy. Read the ones that exist; do not invent the ones that do n
   notification and park the task — do not perform the action, take the next unblocked one, and
   pick the answer up when a task finishes or a session starts, never mid-task.
 - **Commits.** Cursor does not commit on its own. When you do, follow the commit format in
-  `CLAUDE.md`, not a format remembered from another project.
+  `AGENTS.md`, not a format remembered from another project.
