@@ -23,17 +23,24 @@ description: >
 
   <the_hierarchy>
     ```
-    REQ-xxx  →  Epic  →  Story  →  Task  →  Subtask
+    REQ-xxx  →  Epic  →  Story | Task  →  Subtask
     ```
+
+    **Story and Task are siblings, both parented directly to the Epic** — this team-managed Jira
+    refuses a Task parented to a Story ("Please select valid parent issue", HTTP 400; observed
+    2026-10-03, DG-448). A Task that belongs to a Story names that Story in its own description;
+    there is no field for it.
 
     - **Epic** — one per bounded context in `DOMAIN.md`. No more, no fewer. A context with no Epic
       loses its work; a second Epic for one context splits a vocabulary in half.
     - **Story** — from the requirements that context serves. A Story is a user-visible outcome.
     - **Task** — the work. A **vertical slice finishable in a day**: that is the daily MVP rule and
       it is the sizing test. Something that cannot be finished in a day is split **before** it is
-      created, not discovered half-done a week later.
+      created, not discovered half-done a week later. Parents to the Epic; names its Story, if it
+      has one, in its description.
     - **Subtask** — only when a Task genuinely has ordered steps that must be done in that order.
-      Not as decoration, and not to make a Task look planned.
+      Not as decoration, and not to make a Task look planned. Parents to whichever Story or Task
+      it belongs to.
 
     The five ticket templates — Epic, Story, Task, Subtask, Bug — live in the `jira-tickets`
     skill, along with the field limits and the status lifecycle. That skill is authoritative; read
@@ -106,14 +113,17 @@ description: >
     1. LOCATE: `project-docs` — print the block. `PRD.md` and `DOMAIN.md` are both required; point
        at `/prd` or `/ddd` for a missing one rather than working from what you can infer.
     2. PROBE: `jira_board_info` — issue types, settable fields, backlog present?
-    3. MAP: one Epic per context; Stories from that context's requirements; Tasks per Story, each
-       sized to a day; Subtasks only where steps are genuinely ordered.
+    3. MAP: one Epic per context; Stories from that context's requirements; Tasks sized to a day,
+       parented to the Epic and naming their Story (if any) in the description; Subtasks only
+       where steps are genuinely ordered.
     4. CHECK: every requirement reaches at least one Task, every ticket has its `req:` label,
        every Task passes the one-day test. Report any requirement that reaches nothing.
     5. SEQUENCE: group Tasks by the files they touch — sequence or parallel.
     6. PROPOSE: print the table. Halt for approval.
-    7. CREATE: on a yes, `jira_create_issue` top-down so each child has its parent key, confirm
-       each with `jira_search_issues`, and `jira_move_to_backlog` so nothing lands on the board.
+    7. CREATE: on a yes, `jira_create_issue` top-down — Epic first, then each Story and each Task
+       with the Epic as `parent` (a Task names its Story in the description, never as `parent`) —
+       confirm each with `jira_search_issues`, and `jira_move_to_backlog` so nothing lands on the
+       board.
     8. REPORT: the created keys, and the one open question about execution order.
   </action_sequence>
 

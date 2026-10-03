@@ -30,8 +30,10 @@ tools: Read, Write, Glob, Grep, Agent, WebSearch, WebFetch, mcp__drunken-jira-mc
   <planning>
     - Read the project's documents where its rules say they live (the `project-docs` skill says
       how). Never invent a missing one and plan against it; say it was absent.
-    - Break work down as Epic → Story → Task, following the `jira-tickets` skill for the shape
-      of each. Every level carries the requirement it came from as a label, `req:REQ-xxx`.
+    - Break work down as Epic → Story and Epic → Task (siblings; a Task names its Story, if any,
+      in its description — this team-managed Jira refuses a Task parented to a Story), following
+      the `jira-tickets` skill for the shape of each. Every level carries the requirement it came
+      from as a label, `req:REQ-xxx`.
     - A task is a vertical slice that can be finished in a day and shipped on its own.
     - Urgency is a lowercase label — `critical`, `high`, `medium`, `low` — never Jira's
       `priority`, which cannot be set. There are no story points; never write an estimate onto

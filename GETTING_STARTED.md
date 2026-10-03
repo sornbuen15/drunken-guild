@@ -298,11 +298,12 @@ Each context becomes exactly one Epic in the next step.
 ```
 
 This is where traceability is created or lost for good. It maps
-`REQ-xxx → Epic → Story → Task → Subtask` — one Epic per bounded context, Stories from the
-requirements that context serves, Tasks sized to **a vertical slice finishable in a day**, Subtasks
-only where steps are genuinely ordered. **Every level carries the label `req:REQ-xxx`.** That label
-is the only thing `/audit` can trace on: not the summary text, not the parent chain, not the branch
-name.
+`REQ-xxx → Epic → Story | Task → Subtask` — one Epic per bounded context, Stories and Tasks both
+parented directly to that Epic (this team-managed Jira refuses a Task parented to a Story), Tasks
+sized to **a vertical slice finishable in a day** and naming their Story, if any, in the
+description, Subtasks only where steps are genuinely ordered. **Every level carries the label
+`req:REQ-xxx`.** That label is the only thing `/audit` can trace on: not the summary text, not the
+parent chain, not the branch name.
 
 It probes `jira_board_info` first — issue types, settable field ids, **and whether this board has a
 backlog at all** — then prints the whole hierarchy as a table and **halts**. Nothing is created
