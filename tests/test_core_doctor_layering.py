@@ -319,6 +319,80 @@ class TestNonAsciiAndSpecialCharacterPaths:
         assert check.status == "fail", check.detail
 
 
+class TestARegisteredTildePathIsInspectedNotSkipped:
+    """DG-445: ``_check_project_layering`` built the checkout path with
+    ``Path(config.path)`` directly, so a project registered with
+    ``"~/checkout"`` read as a literal, nonexistent ``~`` directory and was
+    skipped — "there is no checkout to inspect" — even with a real,
+    trackable git repository sitting right there under the real home."""
+
+    def test_a_tracked_path_under_a_registered_tilde_still_fails(
+        self, tmp_path, monkeypatch
+    ) -> None:
+        monkeypatch.setenv("HOME", str(tmp_path))
+        root = tmp_path / "checkout"
+        _init_repo(root)
+        (root / "AGENTS.md").write_text("instructions", encoding="utf-8")
+        (root / "main.py").write_text("print('hi')", encoding="utf-8")
+        _commit_all(root, "initial")
+
+        registry_path = tmp_path / "projects.json"
+        registry_path.write_text(
+            json.dumps({"version": 2, "projects": {"tilde": {"path": "~/checkout"}}}),
+            encoding="utf-8",
+        )
+
+        report = doctor.run_doctor(
+            registry=ProjectRegistry(str(registry_path)), offline=True
+        )
+
+        check = find(report, "layering.tracked.tilde")
+        assert check.status == "fail", (
+            "a registered '~/checkout' that actually tracks AGENTS.md must "
+            f"be inspected, not skipped as having no checkout. Got "
+            f"{check.status}: {check.detail}"
+        )
+        assert "AGENTS.md" in check.detail, check.detail
+
+    def test_mutation_reintroducing_the_unexpanded_path_is_a_false_skip(
+        self, tmp_path, monkeypatch
+    ) -> None:
+        """Mutation: patch ``ProjectConfig.resolved_path`` back to the
+        pre-fix shape with no ``expanduser()``, and confirm the same
+        registered project — tracked AGENTS.md and all — regresses to a
+        skip. The assertion below is the mutation's own wrong outcome."""
+        monkeypatch.setenv("HOME", str(tmp_path))
+        root = tmp_path / "checkout"
+        _init_repo(root)
+        (root / "AGENTS.md").write_text("instructions", encoding="utf-8")
+        _commit_all(root, "initial")
+
+        registry_path = tmp_path / "projects.json"
+        registry_path.write_text(
+            json.dumps({"version": 2, "projects": {"tilde": {"path": "~/checkout"}}}),
+            encoding="utf-8",
+        )
+
+        from core.registry import ProjectConfig
+
+        def _unexpanded(self, reason: str):
+            from pathlib import Path
+
+            return Path(self.require_path(reason))
+
+        monkeypatch.setattr(ProjectConfig, "resolved_path", _unexpanded)
+
+        report = doctor.run_doctor(
+            registry=ProjectRegistry(str(registry_path)), offline=True
+        )
+
+        check = find(report, "layering.tracked.tilde")
+        assert check.status == "skip", (
+            "this is the mutation's own (wrong) outcome — the real fix must "
+            f"disagree with it. Got {check.status}: {check.detail}"
+        )
+
+
 class TestNoCheckoutIsSkipNeverPass:
     def test_a_registered_path_that_does_not_exist_is_a_skip(self, tmp_path):
         missing = tmp_path / "does-not-exist"

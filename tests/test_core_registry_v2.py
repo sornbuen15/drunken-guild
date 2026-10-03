@@ -3,6 +3,7 @@
 and must not break a registry written by the previous release."""
 
 import json
+from pathlib import Path
 
 import pytest
 
@@ -204,6 +205,52 @@ class TestOptionalPath:
 
         assert "drunken-register" not in caught.value.remediation
         assert "optional" in caught.value.remediation
+
+    def test_resolved_path_expands_a_leading_tilde(self, tmp_path, monkeypatch) -> None:
+        """DG-445: the one place every per-project check now resolves a
+        registered path through. A registry entry of ``"~/checkout"`` must
+        come back as the real directory under ``HOME``, not the literal
+        string wrapped in ``Path()``."""
+        monkeypatch.setenv("HOME", str(tmp_path))
+        registry = ProjectRegistry(
+            write_registry(
+                tmp_path,
+                {"version": 2, "projects": {"tilde": {"path": "~/checkout"}}},
+            )
+        )
+
+        resolved = registry.get_project_config("tilde").resolved_path("a check")
+
+        assert resolved == tmp_path / "checkout", (
+            f"'~/checkout' must expand to {tmp_path / 'checkout'}, got {resolved}"
+        )
+
+    def test_resolved_path_leaves_a_relative_path_relative_to_the_cwd(
+        self, tmp_path
+    ) -> None:
+        """A relative registered path is documented as resolving against
+        the process's current working directory, the same as any other
+        relative :class:`~pathlib.Path` — nothing here anchors it anywhere
+        else."""
+        registry = ProjectRegistry(
+            write_registry(
+                tmp_path,
+                {"version": 2, "projects": {"rel": {"path": "relative/checkout"}}},
+            )
+        )
+
+        resolved = registry.get_project_config("rel").resolved_path("a check")
+
+        assert not resolved.is_absolute()
+        assert resolved == Path("relative/checkout")
+
+    def test_resolved_path_raises_the_same_error_as_require_path(
+        self, tmp_path
+    ) -> None:
+        registry = ProjectRegistry(write_registry(tmp_path, V2_DOCUMENT))
+
+        with pytest.raises(RegistryError, match="no 'path'"):
+            registry.get_project_config("api-only").resolved_path("the board")
 
 
 class TestUnknownProject:

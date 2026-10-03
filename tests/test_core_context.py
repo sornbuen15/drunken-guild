@@ -159,6 +159,29 @@ class TestPaths:
     def test_board_defaults_to_the_claude_convention(self, registry) -> None:
         assert ProjectContext.build("bare", registry).board_dir_path().name == "board"
 
+    def test_root_path_expands_a_registered_tilde(self, tmp_path, monkeypatch) -> None:
+        """DG-445: ``root_path()`` used to wrap ``config.path`` in ``Path()``
+        directly, so a project registered with ``"~/checkout"`` read back as
+        a literal directory named ``~`` that never exists — every check on
+        it then found "no checkout" rather than the real one. Seen failing
+        against that code: it asserted ``str(root) == str(checkout)`` and
+        got ``"~/checkout"`` back unexpanded."""
+        monkeypatch.setenv("HOME", str(tmp_path))
+        checkout = tmp_path / "checkout"
+        checkout.mkdir()
+        target = tmp_path / "projects.json"
+        target.write_text(
+            json.dumps({"version": 2, "projects": {"tilde": {"path": "~/checkout"}}}),
+            encoding="utf-8",
+        )
+        tilde_registry = ProjectRegistry(str(target))
+
+        root = ProjectContext.build("tilde", tilde_registry).root_path()
+
+        assert root == checkout, (
+            f"a registered '~/checkout' must resolve to {checkout}, got {root}"
+        )
+
     def test_board_honours_an_explicit_directory(self, tmp_path) -> None:
         target = tmp_path / "projects.json"
         target.write_text(

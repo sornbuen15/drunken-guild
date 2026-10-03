@@ -22,6 +22,7 @@ import json
 import os
 import re
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Dict, Final, Optional
 
 from .errors import RegistryError, ValidationError
@@ -112,6 +113,24 @@ class ProjectConfig:
                 ),
             )
         return self.path
+
+    def resolved_path(self, reason: str) -> Path:
+        """The checkout path, resolved the one way every per-project check uses.
+
+        DG-445: three call sites each wrapped the raw registry string in
+        ``Path()`` directly, so a project registered with ``~/checkout`` —
+        valid JSON, never rejected on write — read back as a literal
+        directory named ``~`` that does not exist, and every check on it
+        silently skipped rather than failing. ``~`` is expanded here, once,
+        so a skip means "no path declared", never "path declared but not
+        understood".
+
+        A relative path is left relative, resolved against the process's
+        current working directory the same way any other relative
+        :class:`~pathlib.Path` is — nothing here makes it absolute, and
+        nothing here anchors it to the registry file's own location.
+        """
+        return Path(self.require_path(reason)).expanduser()
 
 
 def _parse_jira(data: Any) -> Optional[JiraIdentity]:
