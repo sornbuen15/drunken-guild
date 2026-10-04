@@ -25,28 +25,55 @@ root or escaping it — is refused outright, never written through.
 whose path *the project's own git already tracks* aborts the whole call
 before a single byte is copied, naming the path — overwriting a committed
 file through this path would be a silent, surprising edit to
-version-controlled content. This is checked by path, not by whether the
-destination currently exists on disk: a committed file deleted from the
-working tree is still tracked, and copying over the gap it left behind
-would silently turn a ``git status`` clean worktree into one reporting a
-modified file. Only this git-tracked case is an absolute refusal, with or
-without ``overwrite=True``.
+version-controlled content. "Tracked" means **in the index, or present in
+``HEAD``** — either one alone is enough to refuse. Checking the index
+alone missed a real case: ``git rm --cached`` takes a path out of the
+index while leaving it in ``HEAD`` untouched, so a check that only asked
+the index answered "not tracked" for a file that one ``git checkout`` or
+the next commit would still bring back. This is also checked by path, not
+by whether the destination currently exists on disk: a committed file
+deleted from the working tree is still tracked, and copying over the gap
+it left behind would silently turn a ``git status`` clean worktree into
+one reporting a modified file. Only this tracked case is an absolute
+refusal, with or without ``overwrite=True``.
 
-An existing file that git does **not** track is a softer case: skipped and
-reported (with whether its content already matches the config repo),
-unless the caller passes ``overwrite=True``.
+One thing that is deliberately *not* refused: ``git add -N`` (intent to
+add) stages a placeholder for a brand-new path with no real content yet —
+``git diff --cached`` never lists it, unlike an ordinary staged addition,
+because there is nothing committed or staged there to protect. See
+:func:`_has_staged_content`.
 
-**The tracked-file check fails closed.** Whether a path is tracked is
-decided by :func:`core.exclude.run_git` — git with ``GIT_DIR`` /
-``GIT_COMMON_DIR`` / ``GIT_WORK_TREE`` stripped from the environment, the
-same hardening DG-440 already applies, reused rather than duplicated: a
-second, unstripped implementation here once answered "not tracked" against
-an *unrelated* repository reached through a leaked ``GIT_DIR``, and
-overwrote a committed ``CLAUDE.md``. ``git ls-files --error-unmatch``
-reports exactly two outcomes by exit code (0 tracked, 1 not tracked) —
-anything else (git missing, a timeout, a corrupted index) is treated as
-"could not determine," which raises rather than silently falling through
-to "not tracked."
+An existing file that is neither in the index (with real content) nor in
+``HEAD`` is a softer case: skipped and reported (with whether its content
+already matches the config repo), unless the caller passes
+``overwrite=True``.
+
+**Both tracked-file checks fail closed.** Whether a path is tracked is
+decided by :func:`core.exclude.run_git` — git with every ``GIT_*``
+environment variable stripped, the same hardening DG-440 already applies,
+reused rather than duplicated: a second, unstripped implementation here
+once answered "not tracked" against an *unrelated* repository reached
+through a leaked ``GIT_DIR``/``GIT_WORK_TREE``/``GIT_INDEX_FILE``, and
+overwrote a committed ``CLAUDE.md``. Each of the two checks (index,
+``HEAD``) reports a small, known set of outcomes by exit code; anything
+outside that set (git missing, a timeout, a corrupted repository) is
+treated as "could not determine," which raises rather than silently
+falling through to "not tracked."
+
+**The exclude entries are written before any file is copied, not after.**
+A call that copies files first and excludes them afterward can leave
+copied, untracked files behind with a dirty ``git status`` if the exclude
+write then fails (a corrupted marker block, say) — exactly the state this
+whole mechanism exists to prevent. :func:`exclude_ai_layer` already
+validates the exclude file and the git root on its own, so running it
+*before* the copy loop means a validation failure there still leaves the
+project tree byte-identical to before the call, the same guarantee the
+tracked-file checks give. If a copy then fails partway through (a real
+I/O error — disk full, a permission problem), the files already copied by
+that point are reported by name rather than lost in a bare exception, and
+re-running after fixing the underlying problem is idempotent: an
+already-copied, now-identical file is skipped as "unchanged," not
+re-copied from scratch.
 
 **Never outside the project root, never outside the config repo.** A
 project id is validated the same way the registry already validates one
@@ -78,7 +105,7 @@ from pathlib import Path
 from typing import Sequence
 
 from .ai_layer import is_ai_layer_path
-from .errors import ValidationError
+from .errors import DrunkenError, ValidationError
 from .exclude import ExcludeResult, exclude_ai_layer, resolve_info_exclude_path, run_git
 from .registry import validate_project_id
 
@@ -112,6 +139,20 @@ class GitTrackedCheckFailedError(ValidationError):
     """git could not say whether a path is tracked (not: "git said no")."""
 
     code = "git_tracked_check_failed"
+
+
+class PartialCopyError(DrunkenError):
+    """A real I/O failure stopped the copy partway through.
+
+    Not a :class:`ValidationError`: nothing about the *call* was invalid —
+    every check passed — a filesystem operation itself failed (disk full,
+    a permission problem) after some files were already written. The files
+    copied before the failure are named, both in the message and in
+    ``details``, so a caller is never left guessing what state the project
+    tree is in.
+    """
+
+    code = "partial_copy"
 
 
 @dataclass(frozen=True)
@@ -211,30 +252,95 @@ def _layer_files(project_folder: Path) -> list[Path]:
     return sorted(files)
 
 
-def _is_tracked(git_root: Path, relative_to_git_root: str) -> bool:
-    """Whether *git_root*'s own git already tracks *relative_to_git_root*.
+def _has_staged_content(git_root: Path, relative_to_git_root: str) -> bool:
+    """Whether *relative_to_git_root* has real staged content ahead of
+    ``HEAD`` — deliberately **not** ``git ls-files``, which lists an
+    intent-to-add placeholder (``git add -N``) exactly as if it were an
+    ordinary tracked file even though it has no real content at all.
+    ``git diff --cached --name-only`` draws that distinction on its own
+    (verified empirically: an intent-to-add path never appears in its
+    output, an ordinary staged addition always does), and does so whether
+    or not ``HEAD`` exists yet — it diffs against the empty tree for a
+    repository with no commits, no special-casing needed here for that.
 
-    Fails closed: ``git ls-files --error-unmatch`` is documented to exit 0
-    (tracked) or 1 (not tracked) for exactly this call shape. Anything else
-    — git missing (``run_git`` already raises for that), a corrupted index,
-    an unexpected exit code — is "git could not say", which raises rather
-    than being treated as "not tracked" and copied over.
+    Fails closed: this diff is not asked to signal "changed" via its exit
+    code (no ``--exit-code``), so exit 0 is the only documented outcome;
+    anything else is "git could not say."
     """
     result = run_git(
-        ["ls-files", "--error-unmatch", "--", relative_to_git_root], git_root
+        ["diff", "--cached", "--name-only", "--", relative_to_git_root], git_root
     )
+    if result.returncode != 0:
+        raise GitTrackedCheckFailedError(
+            f"git could not determine whether {relative_to_git_root!r} has "
+            f"staged content in {git_root} (exit {result.returncode}): "
+            f"{result.stderr.strip()}",
+            remediation=(
+                "Check git is installed, on PATH, and that this "
+                "repository's index is not corrupted."
+            ),
+        )
+    return bool(result.stdout.strip())
+
+
+def _has_head(git_root: Path) -> bool:
+    """Whether *git_root* has at least one commit — an "unborn" ``HEAD``
+    (a fresh ``git init`` with nothing committed yet) answers no, cleanly,
+    by design of ``--verify -q``: exit 0 means ``HEAD`` resolves, exit 1
+    means it does not. Checked before :func:`_in_head` asks about any one
+    path, rather than inferring "no commits yet" from parsing a git error
+    message, which is not a stable contract across versions or locales.
+    """
+    result = run_git(["rev-parse", "--verify", "-q", "HEAD"], git_root)
+    if result.returncode in (0, 1):
+        return result.returncode == 0
+    raise GitTrackedCheckFailedError(
+        f"git could not determine whether {git_root} has a commit yet "
+        f"(exit {result.returncode}): {result.stderr.strip()}",
+        remediation="Check git is installed and the repository is not corrupted.",
+    )
+
+
+def _in_head(git_root: Path, relative_to_git_root: str) -> bool:
+    """Whether *relative_to_git_root* exists in *git_root*'s ``HEAD`` —
+    catches the gap a plain index check misses: ``git rm --cached`` takes
+    a path out of the index while leaving it in ``HEAD`` exactly as
+    committed.
+
+    ``git cat-file -e HEAD:<path>`` exits 128 for *two* different reasons
+    with different messages — "path does not exist in 'HEAD'" and (on an
+    unborn ``HEAD``) "not a valid object name" — and this never needs to
+    tell them apart by parsing either one: :func:`_has_head` answers "no
+    commits yet" first, on its own, so cat-file is only ever asked about a
+    ``HEAD`` already known to exist. Once that is established, exit 128
+    unambiguously means "not in HEAD," and anything other than 0 or 128 is
+    "could not determine" — fails closed rather than reading an unexpected
+    code as "not present."
+    """
+    if not _has_head(git_root):
+        return False
+
+    result = run_git(["cat-file", "-e", f"HEAD:{relative_to_git_root}"], git_root)
     if result.returncode == 0:
         return True
-    if result.returncode == 1:
+    if result.returncode == 128:
         return False
     raise GitTrackedCheckFailedError(
-        f"git could not determine whether {relative_to_git_root!r} is "
-        f"tracked in {git_root} (exit {result.returncode}): "
+        f"git could not determine whether {relative_to_git_root!r} is in "
+        f"HEAD at {git_root} (exit {result.returncode}): "
         f"{result.stderr.strip()}",
-        remediation=(
-            "Check git is installed, on PATH, and that this repository's "
-            "index is not corrupted."
-        ),
+        remediation="Check git is installed and this repository's HEAD is not corrupted.",
+    )
+
+
+def _is_tracked(git_root: Path, relative_to_git_root: str) -> bool:
+    """Whether *git_root*'s own git already protects *relative_to_git_root*
+    — in the index with real content, or present in ``HEAD``. See the
+    module docstring for why both, and why an intent-to-add placeholder is
+    deliberately not one of them.
+    """
+    return _has_staged_content(git_root, relative_to_git_root) or _in_head(
+        git_root, relative_to_git_root
     )
 
 
@@ -303,9 +409,15 @@ def copy_ai_layer_in(
     already tracked by *git_root*'s own git, whether or not it currently
     exists on disk; or a destination is unsafe (a symlink, or outside
     either root). An existing, untracked, on-disk file is skipped
-    (reported in ``.skipped``) unless *overwrite* is set. The exclude
-    writer always runs last, against *git_root*, so a clean ``git status``
-    is never a second manual step.
+    (reported in ``.skipped``) unless *overwrite* is set.
+
+    The exclude writer runs against *git_root* **before** any file is
+    copied — so a clean ``git status`` is never a second manual step, and
+    a failure there (a corrupted marker block) leaves the project tree
+    exactly as it was, the same guarantee the tracked-file checks give. A
+    real I/O failure partway through the copy itself raises
+    :class:`PartialCopyError`, naming every file copied before it —
+    re-running after fixing the underlying problem is idempotent.
     """
     config_repo = Path(config_repo)
     project_root = Path(project_root)
@@ -344,7 +456,12 @@ def copy_ai_layer_in(
                 ),
             )
 
-    # Phase 2 — copy what phase 1 did not refuse.
+    # Phase 2 — the exclude entries, *before* any file is copied: a
+    # malformed marker block (or any other reason this refuses) must leave
+    # the project tree exactly as it was, not copied-but-untracked.
+    excluded = exclude_ai_layer(git_root)
+
+    # Phase 3 — copy what phase 1 did not refuse.
     copied: list[str] = []
     skipped: list[SkippedFile] = []
     for relative in layer_files:
@@ -364,11 +481,27 @@ def copy_ai_layer_in(
             )
             continue
 
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(source, destination)
+        try:
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source, destination)
+        except OSError as exc:
+            raise PartialCopyError(
+                f"Copying {relative.as_posix()} into {project_root_resolved} "
+                f"failed: {exc}. {len(copied)} file(s) were already copied "
+                "before this one: "
+                f"{', '.join(copied) if copied else '(none)'}.",
+                remediation=(
+                    "Fix the underlying problem (disk space, permissions) "
+                    "and run this again — the files already copied are left "
+                    "as is and will be skipped or compared, not re-copied "
+                    "from scratch."
+                ),
+                details={
+                    "copied": list(copied),
+                    "failed_relative": relative.as_posix(),
+                },
+            ) from exc
         copied.append(relative.as_posix())
-
-    excluded = exclude_ai_layer(git_root)
 
     return LayerCopyResult(
         project_root=project_root,
@@ -385,6 +518,7 @@ __all__: Sequence[str] = (
     "ConfigRepoProjectNotFoundError",
     "GitTrackedCheckFailedError",
     "LayerCopyResult",
+    "PartialCopyError",
     "ProjectRootEscapeError",
     "SkippedFile",
     "TrackedFileConflictError",

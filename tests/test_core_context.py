@@ -4,6 +4,7 @@ can never be."""
 
 import json
 import urllib.error
+from pathlib import Path
 from unittest import mock
 
 import pytest
@@ -165,9 +166,19 @@ class TestPaths:
         *opposite* offset from ALPHA's — ascending, not descending. Nothing
         in ``git_root``'s implementation (a plain ``Path`` join, never
         resolved here) restricts it to one direction; this is the other
-        one, proven the same way the descending case already is."""
+        one, proven the same way the descending case already is.
+
+        Built with ``Path`` rather than a literal ``"/abs/..."`` string
+        (review finding): on Windows, ``Path("/abs/.../sample") / ".."``
+        renders with backslashes, so a literal forward-slashed expected
+        value fails there for a platform reason that has nothing to do
+        with what this test is actually proving — the ascending join
+        itself, which this now compares against the same construction the
+        code under test performs.
+        """
         context = ProjectContext.build("monorepo-package", registry)
-        assert str(context.git_root_path()) == "/abs/monorepo/packages/sample/.."
+        expected = str(Path("/abs/monorepo/packages/sample") / "..")
+        assert str(context.git_root_path()) == expected
 
     def test_board_defaults_to_the_claude_convention(self, registry) -> None:
         assert ProjectContext.build("bare", registry).board_dir_path().name == "board"

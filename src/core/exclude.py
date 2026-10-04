@@ -16,18 +16,33 @@ Code. The recorded result (DG-432) is yes, so building on
 
 ``drunken-init``'s copy-in (DG-441, :mod:`core.layer_copy`) runs this after
 every copy, from inside a context that can itself run inside a git hook —
-where ``GIT_DIR``, ``GIT_COMMON_DIR`` and ``GIT_WORK_TREE`` are set in the
-environment and point at whichever repository invoked the hook. Every git
-subprocess this module runs strips those three first
-(:func:`git_subprocess_env`), and :func:`resolve_info_exclude_path`
-independently cross-checks that ``repo_root`` really is the working tree
-git resolved — not a different repository reached only through an
-inherited variable, and not a parent directory's repository reached by
-climbing past a `repo_root` that is not itself a repository.
-:func:`run_git` (hardened the same way) is public precisely so
-:mod:`core.layer_copy`'s own git calls — asking whether a destination is
-already tracked — go through the *same* stripped environment rather than
-growing a second, unstripped implementation next to this one.
+where any number of ``GIT_*`` variables can be set in the environment and
+point at whichever repository (or whichever index, object store, config or
+namespace within one) invoked the hook. Every git subprocess this module
+runs strips **every environment variable whose name starts with ``GIT_``**,
+compared case-insensitively (:func:`git_subprocess_env`) — not a fixed
+list of three. A fixed list was tried first and was wrong: a leaked
+``GIT_INDEX_FILE`` pointing at an empty or alternate index made
+``git ls-files`` answer "not tracked" for a file that was, in fact,
+committed, with neither ``GIT_DIR`` nor ``GIT_WORK_TREE`` involved at all.
+``GIT_CONFIG_COUNT``/``GIT_CONFIG_KEY_*``/``GIT_CONFIG_VALUE_*``,
+``GIT_OBJECT_DIRECTORY``, ``GIT_ALTERNATE_OBJECT_DIRECTORIES`` and
+``GIT_NAMESPACE`` are three more ways an inherited variable changes what
+git answers without touching which repository it *resolves*, which is why
+a strip list scoped to "variables that redirect repository resolution"
+was the wrong shape of guard from the start — the rule is "every ``GIT_``
+variable", full stop. ``os.environ`` is case-insensitive on Windows, so
+the comparison upper-cases each key before checking the prefix, rather
+than assuming the exact-case spelling this module happens to use
+elsewhere. :func:`resolve_info_exclude_path` additionally cross-checks
+that ``repo_root`` really is the working tree git resolved — not a
+different repository reached only through an inherited variable, and not
+a parent directory's repository reached by climbing past a `repo_root`
+that is not itself a repository. :func:`run_git` (hardened the same way)
+is public precisely so :mod:`core.layer_copy`'s own git calls — asking
+whether a destination is already tracked, or already in ``HEAD`` — go
+through the *same* stripped environment rather than growing a second,
+unstripped implementation next to this one.
 
 The write itself is a single ``open(..., "a")`` append, not a
 read-modify-write replace — there is no temp file and no rename, so a
@@ -63,18 +78,13 @@ from .errors import ValidationError
 MARKER_START = "# >>> drunken-guild AI layer (DG-440) >>>"
 MARKER_END = "# <<< drunken-guild AI layer (DG-440) <<<"
 
-#: Stripped from every git subprocess this module runs. A caller's own
-#: process — `drunken-init` running inside a git hook, for instance — may
-#: have one of these set, pointing `git rev-parse` at a *different*
-#: repository than the `cwd` it is given. `GIT_INDEX_FILE`,
-#: `GIT_OBJECT_DIRECTORY` and `GIT_CEILING_DIRECTORIES` are not in this set:
-#: none of them redirect which repository `--git-path`/`--show-toplevel`
-#: resolve against the way these three do.
-_GIT_ENV_VARS_TO_STRIP: tuple[str, ...] = (
-    "GIT_DIR",
-    "GIT_COMMON_DIR",
-    "GIT_WORK_TREE",
-)
+#: The prefix every stripped variable's name starts with, compared
+#: case-insensitively. See the module docstring for why this is a rule
+#: ("every `GIT_*` variable") rather than a fixed list of the three that
+#: happen to redirect repository *resolution* — `GIT_INDEX_FILE` redirects
+#: what `git ls-files` answers without touching resolution at all, and a
+#: fixed list missed it.
+_GIT_ENV_VAR_PREFIX = "GIT_"
 
 
 class NotAGitRepositoryError(ValidationError):
@@ -128,22 +138,31 @@ def default_ai_layer_patterns() -> tuple[str, ...]:
 
 
 def git_subprocess_env() -> dict[str, str]:
-    """A copy of the current environment with the git-redirecting vars gone.
+    """A copy of the current environment with every ``GIT_*`` variable gone.
 
-    See ``_GIT_ENV_VARS_TO_STRIP`` for which, and the module docstring for
-    why: inherited from the calling process rather than passed explicitly,
-    so they are exactly the kind of implicit, unnamed configuration this
-    codebase's own rules (``.claude/rules/python.md``) warn against trusting.
+    Every key is compared upper-cased against ``_GIT_ENV_VAR_PREFIX`` — not
+    exact-case — because ``os.environ`` is case-insensitive on Windows: a
+    caller's process can have ``git_index_file`` (lower-case) set and git
+    itself would still honour it there. See the module docstring for why
+    this is a rule over every ``GIT_`` name rather than a fixed list of the
+    few that redirect which *repository* resolution finds: that list missed
+    ``GIT_INDEX_FILE``, which redirects what ``git ls-files`` reports about
+    a repository without ever touching resolution.
+
+    Everything else — ``PATH``, ``HOME``, ``SYSTEMROOT`` and so on — passes
+    through unchanged: git (and the OS loader that finds it) still needs
+    those, and this is not a general "run with nothing inherited" sandbox.
 
     Public so :func:`run_git` is the *only* way anything in this codebase
     invokes git for a repository-resolving command — never a second,
     unstripped ``subprocess.run(["git", ...])`` elsewhere that a leaked
-    ``GIT_DIR`` could silently redirect.
+    ``GIT_*`` variable could silently redirect.
     """
-    env = dict(os.environ)
-    for var in _GIT_ENV_VARS_TO_STRIP:
-        env.pop(var, None)
-    return env
+    return {
+        key: value
+        for key, value in os.environ.items()
+        if not key.upper().startswith(_GIT_ENV_VAR_PREFIX)
+    }
 
 
 def run_git(args: Sequence[str], repo_root: Path) -> subprocess.CompletedProcess[str]:

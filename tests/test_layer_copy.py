@@ -345,12 +345,177 @@ class TestTrackedCheckIgnoresALeakedGitEnvironment:
             "tracked, committed\n"
         )
 
-    def test_a_git_failure_other_than_tracked_or_not_raises_not_skips(
+    def test_git_index_file_leaked_to_a_missing_index_still_refuses_a_tracked_file(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Fail closed: an exit code `ls-files --error-unmatch` does not
-        document as either "tracked" or "not tracked" must raise, not be
-        read as "not tracked" and copied over."""
+        """The exact bug reproduced in review: a leaked `GIT_INDEX_FILE`
+        pointing at a missing (so, empty) index makes git read that empty
+        index instead of the real one — none of GIT_DIR/GIT_COMMON_DIR/
+        GIT_WORK_TREE are involved at all, which is exactly why the strip
+        rule had to widen from "the three that redirect resolution" to
+        "every GIT_ name"."""
+        repo = _init_repo(tmp_path / "project")
+        (repo / "CLAUDE.md").write_text("tracked, committed\n", encoding="utf-8")
+        _run_git("add", "CLAUDE.md", cwd=repo)
+        _run_git("commit", "-q", "-m", "tracked CLAUDE.md", cwd=repo)
+
+        config_repo = _config_repo(tmp_path)
+        project_folder = config_repo / "sample"
+        project_folder.mkdir(parents=True)
+        (project_folder / "CLAUDE.md").write_text(
+            "from the config repo\n", encoding="utf-8"
+        )
+
+        monkeypatch.setenv("GIT_INDEX_FILE", str(tmp_path / "does-not-exist.index"))
+
+        with pytest.raises(DrunkenError):
+            layer_copy.copy_ai_layer_in(
+                config_repo=config_repo,
+                project_id="sample",
+                project_root=repo,
+                git_root=repo,
+                overwrite=True,
+            )
+
+        assert (repo / "CLAUDE.md").read_text(encoding="utf-8") == (
+            "tracked, committed\n"
+        )
+
+    def test_a_lower_case_git_index_file_is_stripped_too(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """`os.environ` is case-insensitive on Windows: a caller's process
+        can have `git_index_file` (lower-case) set and git itself still
+        honours it there. The strip must too."""
+        repo = _init_repo(tmp_path / "project")
+        (repo / "CLAUDE.md").write_text("tracked, committed\n", encoding="utf-8")
+        _run_git("add", "CLAUDE.md", cwd=repo)
+        _run_git("commit", "-q", "-m", "tracked CLAUDE.md", cwd=repo)
+
+        config_repo = _config_repo(tmp_path)
+        project_folder = config_repo / "sample"
+        project_folder.mkdir(parents=True)
+        (project_folder / "CLAUDE.md").write_text(
+            "from the config repo\n", encoding="utf-8"
+        )
+
+        monkeypatch.setenv("git_index_file", str(tmp_path / "does-not-exist.index"))
+
+        with pytest.raises(DrunkenError):
+            layer_copy.copy_ai_layer_in(
+                config_repo=config_repo,
+                project_id="sample",
+                project_root=repo,
+                git_root=repo,
+                overwrite=True,
+            )
+
+        assert (repo / "CLAUDE.md").read_text(encoding="utf-8") == (
+            "tracked, committed\n"
+        )
+
+    def test_git_object_directory_leaked_to_an_empty_store_still_refuses_a_tracked_file(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """End-to-end: the user-facing guarantee holds with a leaked
+        `GIT_OBJECT_DIRECTORY`. (For *which* internal check is responsible
+        here, see `TestInHeadAloneIgnoresALeakedGitObjectDirectory` below —
+        empirically, `git diff --cached` itself already reports a spurious
+        difference when the object store is broken, which also refuses,
+        but for a different reason than the one this scenario was meant to
+        isolate; that class isolates `_in_head` on its own instead.)"""
+        repo = _init_repo(tmp_path / "project")
+        (repo / "CLAUDE.md").write_text("tracked, committed\n", encoding="utf-8")
+        _run_git("add", "CLAUDE.md", cwd=repo)
+        _run_git("commit", "-q", "-m", "tracked CLAUDE.md", cwd=repo)
+
+        empty_objects = tmp_path / "empty-objects"
+        empty_objects.mkdir()
+
+        config_repo = _config_repo(tmp_path)
+        project_folder = config_repo / "sample"
+        project_folder.mkdir(parents=True)
+        (project_folder / "CLAUDE.md").write_text(
+            "from the config repo\n", encoding="utf-8"
+        )
+
+        monkeypatch.setenv("GIT_OBJECT_DIRECTORY", str(empty_objects))
+
+        with pytest.raises(DrunkenError):
+            layer_copy.copy_ai_layer_in(
+                config_repo=config_repo,
+                project_id="sample",
+                project_root=repo,
+                git_root=repo,
+                overwrite=True,
+            )
+
+        assert (repo / "CLAUDE.md").read_text(encoding="utf-8") == (
+            "tracked, committed\n"
+        )
+
+
+class TestInHeadAloneIgnoresALeakedGitObjectDirectory:
+    """Isolates `_in_head` from `_has_staged_content`, which otherwise
+    masks this: empirically, with `GIT_OBJECT_DIRECTORY` pointed at an
+    empty directory, `git diff --cached --name-only` *also* reports a
+    spurious difference for an unmodified tracked file (git errs toward
+    "different" when it cannot read the objects needed to compare) — so
+    the end-to-end test above stays safe regardless of this class's
+    result. This class calls `_in_head` directly to prove *its own*
+    fail-closed behaviour independently of that masking.
+
+    Empirically confirmed directly in a shell first: with
+    `GIT_OBJECT_DIRECTORY` pointed at an empty directory,
+    `git cat-file -e HEAD:<path>` answers exit 128, "path '<path>' exists
+    on disk, but not in 'HEAD'" — the *same* exit code a genuinely absent
+    path gets, for a completely different reason (the object store is
+    broken, not the history). Exit-code fail-closing cannot tell these two
+    apart by code alone; only stripping the leaked variable, so git reads
+    the real object store, answers correctly at all.
+    """
+
+    def test_a_committed_unmodified_file_is_still_found_in_head(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        repo = _init_repo(tmp_path / "project")
+        (repo / "committed.txt").write_text("x\n", encoding="utf-8")
+        _run_git("add", "committed.txt", cwd=repo)
+        _run_git("commit", "-q", "-m", "c", cwd=repo)
+
+        empty_objects = tmp_path / "empty-objects"
+        empty_objects.mkdir()
+        monkeypatch.setenv("GIT_OBJECT_DIRECTORY", str(empty_objects))
+
+        assert layer_copy._in_head(repo, "committed.txt") is True  # noqa: SLF001
+
+    def test_an_unborn_head_never_reaches_cat_file(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Nothing can be "in HEAD" before the first commit — and this
+        must answer that from `_has_head` alone, without even trying
+        `cat-file`, which would otherwise need its own unborn-HEAD parsing
+        of a locale-dependent git message."""
+        repo = tmp_path / "project"
+        repo.mkdir()
+        _run_git("init", "-q", cwd=repo)
+        _run_git("config", "user.email", "test@example.com", cwd=repo)
+        _run_git("config", "user.name", "Test", cwd=repo)
+
+        assert layer_copy._in_head(repo, "never-committed.txt") is False  # noqa: SLF001
+
+
+class TestTrackedCheckFailsClosedOnUnexpectedGitExitCodes:
+    """Fail closed: each git call behind the tracked check is documented to
+    exit with only a small, known set of codes for exactly this call shape.
+    Anything else must raise, never be read either way."""
+
+    def test_an_unexpected_diff_cached_exit_code_raises_not_skips(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """`git diff --cached --name-only` is only ever asked to exit 0
+        here (no `--exit-code`); anything else must raise, not be read as
+        "no staged content" and copied over."""
         import subprocess as subprocess_module
 
         repo = _init_repo(tmp_path / "project")
@@ -360,10 +525,79 @@ class TestTrackedCheckIgnoresALeakedGitEnvironment:
         (project_folder / "AGENTS.md").write_text("instructions\n", encoding="utf-8")
 
         def fake_run_git(args, repo_root):
-            if args[:1] == ["ls-files"]:
+            if args[:1] == ["diff"]:
                 return subprocess_module.CompletedProcess(
                     args, 128, stdout="", stderr="fatal: something went wrong"
                 )
+            return subprocess_module.CompletedProcess(args, 0, stdout="", stderr="")
+
+        monkeypatch.setattr(layer_copy, "run_git", fake_run_git)
+
+        with pytest.raises(DrunkenError):
+            layer_copy.copy_ai_layer_in(
+                config_repo=config_repo,
+                project_id="sample",
+                project_root=repo,
+                git_root=repo,
+            )
+
+        assert not (repo / "AGENTS.md").exists()
+
+    def test_an_unexpected_rev_parse_verify_head_exit_code_raises_not_skips(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Fail closed: `git rev-parse --verify -q HEAD` is documented as
+        exit 0 (HEAD resolves) or 1 (unborn) only; anything else must raise
+        rather than being read either way."""
+        import subprocess as subprocess_module
+
+        repo = _init_repo(tmp_path / "project")
+        config_repo = _config_repo(tmp_path)
+        project_folder = config_repo / "sample"
+        project_folder.mkdir(parents=True)
+        (project_folder / "AGENTS.md").write_text("instructions\n", encoding="utf-8")
+
+        def fake_run_git(args, repo_root):
+            if args[:3] == ["rev-parse", "--verify", "-q"]:
+                return subprocess_module.CompletedProcess(
+                    args, 129, stdout="", stderr="fatal: something went wrong"
+                )
+            return subprocess_module.CompletedProcess(args, 0, stdout="", stderr="")
+
+        monkeypatch.setattr(layer_copy, "run_git", fake_run_git)
+
+        with pytest.raises(DrunkenError):
+            layer_copy.copy_ai_layer_in(
+                config_repo=config_repo,
+                project_id="sample",
+                project_root=repo,
+                git_root=repo,
+            )
+
+        assert not (repo / "AGENTS.md").exists()
+
+    def test_an_unexpected_cat_file_exit_code_raises_not_skips(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Fail closed: `git cat-file -e HEAD:<path>`, once HEAD is known to
+        exist, is only ever asked to exit 0 (present) or 128 (absent);
+        anything else must raise rather than being read as "not present."
+        """
+        import subprocess as subprocess_module
+
+        repo = _init_repo(tmp_path / "project")
+        config_repo = _config_repo(tmp_path)
+        project_folder = config_repo / "sample"
+        project_folder.mkdir(parents=True)
+        (project_folder / "AGENTS.md").write_text("instructions\n", encoding="utf-8")
+
+        def fake_run_git(args, repo_root):
+            if args[:1] == ["cat-file"]:
+                return subprocess_module.CompletedProcess(
+                    args, 2, stdout="", stderr="fatal: something went wrong"
+                )
+            # diff --cached and rev-parse --verify both say "nothing staged,
+            # HEAD exists" so execution reaches the cat-file call above.
             return subprocess_module.CompletedProcess(args, 0, stdout="", stderr="")
 
         monkeypatch.setattr(layer_copy, "run_git", fake_run_git)
@@ -418,6 +652,148 @@ class TestATrackedFileMissingFromTheWorkingTreeIsStillRefused:
         assert not (repo / "CLAUDE.md").exists()
 
 
+class TestGitRmCachedStillLeavesAFileRefused:
+    """HIGH review finding: `git rm --cached` takes a path out of the
+    index while leaving it in `HEAD` untouched — the index-only check this
+    module used to run answered "not tracked" for exactly this state. The
+    combined check (index OR HEAD) must still refuse."""
+
+    def test_rm_cached_state_is_refused_nothing_written(self, tmp_path: Path) -> None:
+        repo = _init_repo(tmp_path / "project")
+        (repo / "CLAUDE.md").write_text("tracked, committed\n", encoding="utf-8")
+        _run_git("add", "CLAUDE.md", cwd=repo)
+        _run_git("commit", "-q", "-m", "tracked CLAUDE.md", cwd=repo)
+        _run_git("rm", "--cached", "CLAUDE.md", cwd=repo)
+        # The file is still on disk (git rm --cached only removes it from
+        # the index) — the realistic shape of this state.
+        assert (repo / "CLAUDE.md").exists()
+
+        config_repo = _config_repo(tmp_path)
+        project_folder = config_repo / "sample"
+        project_folder.mkdir(parents=True)
+        (project_folder / "CLAUDE.md").write_text(
+            "from the config repo\n", encoding="utf-8"
+        )
+
+        with pytest.raises(DrunkenError) as exc_info:
+            layer_copy.copy_ai_layer_in(
+                config_repo=config_repo,
+                project_id="sample",
+                project_root=repo,
+                git_root=repo,
+                overwrite=True,
+            )
+
+        assert str((repo / "CLAUDE.md").resolve()) in str(exc_info.value)
+        assert (repo / "CLAUDE.md").read_text(encoding="utf-8") == (
+            "tracked, committed\n"
+        )
+
+
+class TestARepoWithNoCommitsYet:
+    """A fresh `git init` with nothing committed yet has no HEAD at all —
+    nothing can be "in HEAD" there, and an untracked file is simply fine."""
+
+    def test_an_untracked_file_in_a_repo_with_no_commits_is_not_refused(
+        self, tmp_path: Path
+    ) -> None:
+        repo = tmp_path / "project"
+        repo.mkdir()
+        _run_git("init", "-q", cwd=repo)
+        _run_git("config", "user.email", "test@example.com", cwd=repo)
+        _run_git("config", "user.name", "Test", cwd=repo)
+
+        config_repo = _config_repo(tmp_path)
+        project_folder = config_repo / "sample"
+        project_folder.mkdir(parents=True)
+        (project_folder / "AGENTS.md").write_text("instructions\n", encoding="utf-8")
+
+        result = layer_copy.copy_ai_layer_in(
+            config_repo=config_repo,
+            project_id="sample",
+            project_root=repo,
+            git_root=repo,
+        )
+
+        assert (repo / "AGENTS.md").read_text(encoding="utf-8") == "instructions\n"
+        assert "AGENTS.md" in result.copied
+
+
+class TestIntentToAddIsNotRefused:
+    """`git add -N` (intent to add) stages a placeholder for a brand-new
+    path with no real content yet. There is nothing committed or staged
+    to protect, so — deliberately, confirmed with the reviewer — this is
+    *not* refused, unlike an ordinary staged addition."""
+
+    def test_an_intent_to_add_never_committed_file_is_not_refused(
+        self, tmp_path: Path
+    ) -> None:
+        repo = _init_repo(tmp_path / "project")
+        (repo / "CLAUDE.md").write_text("local, never committed\n", encoding="utf-8")
+        _run_git("add", "-N", "CLAUDE.md", cwd=repo)
+
+        config_repo = _config_repo(tmp_path)
+        project_folder = config_repo / "sample"
+        project_folder.mkdir(parents=True)
+        (project_folder / "CLAUDE.md").write_text(
+            "from the config repo\n", encoding="utf-8"
+        )
+
+        result = layer_copy.copy_ai_layer_in(
+            config_repo=config_repo,
+            project_id="sample",
+            project_root=repo,
+            git_root=repo,
+            overwrite=True,
+        )
+
+        assert (repo / "CLAUDE.md").read_text(
+            encoding="utf-8"
+        ) == "from the config repo\n"
+        assert "CLAUDE.md" in result.copied
+
+
+class TestATrackedPathNestedUnderATrackedDirectory:
+    """Review note: "treat a path under a tracked directory correctly."
+    Only the *exact* file is checked, never a whole-directory shortcut —
+    a sibling under the same tracked directory being tracked must not
+    make an untracked file next to it look tracked, or vice versa."""
+
+    def test_only_the_exact_nested_path_is_treated_as_tracked(
+        self, tmp_path: Path
+    ) -> None:
+        repo = _init_repo(tmp_path / "project")
+        claude_dir = repo / ".claude"
+        claude_dir.mkdir()
+        (claude_dir / "tracked.json").write_text("{}\n", encoding="utf-8")
+        _run_git("add", ".claude/tracked.json", cwd=repo)
+        _run_git("commit", "-q", "-m", "tracked nested file", cwd=repo)
+
+        config_repo = _config_repo(tmp_path)
+        project_folder = config_repo / "sample"
+        project_folder.mkdir(parents=True)
+        nested = project_folder / ".claude"
+        nested.mkdir()
+        (nested / "tracked.json").write_text(
+            '{"from": "config repo"}\n', encoding="utf-8"
+        )
+        (nested / "settings.json").write_text("{}\n", encoding="utf-8")
+
+        with pytest.raises(DrunkenError) as exc_info:
+            layer_copy.copy_ai_layer_in(
+                config_repo=config_repo,
+                project_id="sample",
+                project_root=repo,
+                git_root=repo,
+            )
+
+        # Refused for the tracked sibling, naming it specifically...
+        assert str((repo / ".claude" / "tracked.json").resolve()) in str(exc_info.value)
+        # ...and nothing written at all, including the untracked sibling
+        # that shares its directory.
+        assert not (repo / ".claude" / "settings.json").exists()
+
+
 class TestTheExcludeWriterAlwaysRuns:
     def test_check_ignore_reports_the_copied_files_as_ignored(
         self, tmp_path: Path
@@ -439,6 +815,97 @@ class TestTheExcludeWriterAlwaysRuns:
         for relative in ("AGENTS.md", "CLAUDE.md"):
             result = _run_git("check-ignore", relative, cwd=repo)
             assert result.stdout.strip() == relative
+
+
+class TestExcludeRunsBeforeAnyFileIsCopied:
+    """MEDIUM review finding: copying first and excluding afterward can
+    leave copied, untracked files behind — with a dirty `git status` — if
+    the exclude write then fails. The exclude step must run first, so a
+    failure there leaves the project tree exactly as it was."""
+
+    def test_a_corrupted_info_exclude_raises_and_nothing_is_copied(
+        self, tmp_path: Path
+    ) -> None:
+        repo = _init_repo(tmp_path / "project")
+        info_dir = repo / ".git" / "info"
+        info_dir.mkdir(parents=True, exist_ok=True)
+        # An unclosed start marker — exclude.MalformedExcludeBlockError.
+        (info_dir / "exclude").write_text(
+            f"{exclude.MARKER_START}\n/CLAUDE.md\n", encoding="utf-8"
+        )
+
+        config_repo = _config_repo(tmp_path)
+        project_folder = config_repo / "sample"
+        project_folder.mkdir(parents=True)
+        (project_folder / "AGENTS.md").write_text("instructions\n", encoding="utf-8")
+        (project_folder / "CLAUDE.md").write_text("@AGENTS.md\n", encoding="utf-8")
+
+        with pytest.raises(DrunkenError):
+            layer_copy.copy_ai_layer_in(
+                config_repo=config_repo,
+                project_id="sample",
+                project_root=repo,
+                git_root=repo,
+            )
+
+        # The realistic mutation this guards against: copying first and
+        # excluding last, which would leave these two files sitting on
+        # disk, untracked, even though the whole call raised.
+        assert not (repo / "AGENTS.md").exists()
+        assert not (repo / "CLAUDE.md").exists()
+
+    def test_a_copy_failure_after_exclude_succeeded_reports_what_copied_and_a_rerun_completes(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        repo = _init_repo(tmp_path / "project")
+        config_repo = _config_repo(tmp_path)
+        project_folder = config_repo / "sample"
+        project_folder.mkdir(parents=True)
+        (project_folder / "AGENTS.md").write_text("instructions\n", encoding="utf-8")
+        (project_folder / "CLAUDE.md").write_text("@AGENTS.md\n", encoding="utf-8")
+
+        real_copy2 = layer_copy.shutil.copy2
+        calls: list[str] = []
+
+        def flaky_copy2(source, destination):
+            calls.append(str(destination))
+            if str(destination).endswith("CLAUDE.md"):
+                raise OSError("disk full (simulated)")
+            return real_copy2(source, destination)
+
+        monkeypatch.setattr(layer_copy.shutil, "copy2", flaky_copy2)
+
+        with pytest.raises(layer_copy.PartialCopyError) as exc_info:
+            layer_copy.copy_ai_layer_in(
+                config_repo=config_repo,
+                project_id="sample",
+                project_root=repo,
+                git_root=repo,
+            )
+
+        # Exactly which file was copied before the failure is named, both
+        # in the message and in `details`.
+        assert "AGENTS.md" in str(exc_info.value)
+        assert exc_info.value.details["copied"] == ["AGENTS.md"]
+        assert (repo / "AGENTS.md").read_text(encoding="utf-8") == "instructions\n"
+        assert not (repo / "CLAUDE.md").exists()
+
+        # Fix the underlying problem and re-run: idempotent, completes.
+        monkeypatch.setattr(layer_copy.shutil, "copy2", real_copy2)
+        result = layer_copy.copy_ai_layer_in(
+            config_repo=config_repo,
+            project_id="sample",
+            project_root=repo,
+            git_root=repo,
+        )
+
+        assert (repo / "CLAUDE.md").read_text(encoding="utf-8") == "@AGENTS.md\n"
+        # AGENTS.md, already copied and identical, is "unchanged" this
+        # time, not re-copied from scratch.
+        assert any(
+            skip.relative == "AGENTS.md" and skip.identical for skip in result.skipped
+        )
+        assert "CLAUDE.md" in result.copied
 
 
 class TestRefusesWhenTheProjectRootIsNotAGitRepository:

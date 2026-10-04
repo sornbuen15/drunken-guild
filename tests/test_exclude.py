@@ -504,3 +504,58 @@ class TestToplevelCrossCheckIsActuallyExercised:
             exclude.resolve_info_exclude_path(repo_root)
 
         assert str(different_toplevel.resolve()) in str(exc_info.value)
+
+
+class TestGitSubprocessEnvStripsEveryGitVariable:
+    """Review finding (DG-441 PR #144): a fixed three-name strip list missed
+    `GIT_INDEX_FILE` and every other `GIT_*` variable that changes what git
+    answers without touching repository *resolution*. The rule is now "every
+    name starting with GIT_", not a list — proven directly against
+    :func:`git_subprocess_env`, independent of any one caller."""
+
+    @pytest.mark.parametrize(
+        "name",
+        [
+            "GIT_DIR",
+            "GIT_COMMON_DIR",
+            "GIT_WORK_TREE",
+            "GIT_INDEX_FILE",
+            "GIT_OBJECT_DIRECTORY",
+            "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+            "GIT_NAMESPACE",
+            "GIT_CONFIG_COUNT",
+            "GIT_CONFIG_KEY_0",
+            "GIT_CONFIG_VALUE_0",
+            "GIT_CEILING_DIRECTORIES",
+            "GIT_ATTR_SOURCE",
+            "git_index_file",  # lower-case: os.environ is case-insensitive on Windows
+        ],
+    )
+    def test_every_git_prefixed_name_is_stripped(
+        self, name: str, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv(name, "leaked-value")
+
+        env = exclude.git_subprocess_env()
+
+        assert all(not key.upper().startswith("GIT_") for key in env), (
+            f"{name!r} (or another GIT_-prefixed key) survived stripping: "
+            f"{[k for k in env if k.upper().startswith('GIT_')]}"
+        )
+
+    def test_a_mixed_environment_strips_every_git_key_and_keeps_the_rest(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("GIT_DIR", "x")
+        monkeypatch.setenv("GIT_INDEX_FILE", "y")
+        monkeypatch.setenv("GIT_CONFIG_COUNT", "1")
+        monkeypatch.setenv("GIT_CONFIG_KEY_0", "core.worktree")
+        monkeypatch.setenv("GIT_CONFIG_VALUE_0", "/somewhere/else")
+        monkeypatch.setenv("NOT_GIT_RELATED", "kept")
+        monkeypatch.setenv("PATH", "/usr/bin")
+
+        env = exclude.git_subprocess_env()
+
+        assert not any(key.upper().startswith("GIT_") for key in env)
+        assert env.get("NOT_GIT_RELATED") == "kept"
+        assert env.get("PATH") == "/usr/bin"
