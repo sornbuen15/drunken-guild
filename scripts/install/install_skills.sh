@@ -1,7 +1,7 @@
 #!/bin/bash
 # Deploy skills from this repo to ~/.claude/skills/
 # Works from any directory and any clone location.
-# Usage: bash scripts/install/install_skills.sh
+# Usage: bash scripts/install/install_skills.sh [--index-only] [--prune [--prune-apply]]
 
 set -euo pipefail
 
@@ -25,19 +25,43 @@ GLOBAL_SKILLS_DIR="$HOME/.claude/skills"
 # perform an install. An agent that must not install had no way to keep a
 # tracked file correct, and hand-editing it drifts from the generator's output
 # by a byte or two per line, which is worse than stale.
+#
+# --prune and --prune-apply are DG-359. This script copied skills in and
+# removed nothing: after the 2.0.0 re-scope, 34 retired skill directories
+# stayed installed beside the 11 this repository ships. "An agent does not
+# delete" (CLAUDE.md) applies here too, least of all in the operator's home,
+# so removal is opt-in and dry-run by default:
+#   (no flag)            -- unchanged: report extras, remove nothing
+#   --prune               -- list what would be removed, remove nothing
+#   --prune --prune-apply -- remove exactly what --prune listed
+# --prune-apply alone (without --prune) is refused: nothing decides to delete
+# without first being told what it would delete.
 INDEX_ONLY=false
-case "${1:-}" in
-  "") ;;
-  --index-only) INDEX_ONLY=true ;;
-  *)
-    # DG-302: an unrecognized flag used to fall through here and run a real
-    # install -- `--help`, typed to check usage, did exactly that. Anything
-    # this script does not know must refuse, not proceed.
-    echo -e "${RED}Unrecognized argument: ${1}${NC}" >&2
-    echo "Usage: $0 [--index-only]" >&2
-    exit 1
-    ;;
-esac
+PRUNE=false
+PRUNE_APPLY=false
+for arg in "$@"; do
+  case "$arg" in
+    --index-only) INDEX_ONLY=true ;;
+    --prune) PRUNE=true ;;
+    --prune-apply) PRUNE_APPLY=true ;;
+    *)
+      # DG-302: an unrecognized flag used to fall through here and run a real
+      # install -- `--help`, typed to check usage, did exactly that. Anything
+      # this script does not know must refuse, not proceed.
+      echo -e "${RED}Unrecognized argument: ${arg}${NC}" >&2
+      echo "Usage: $0 [--index-only] [--prune [--prune-apply]]" >&2
+      exit 1
+      ;;
+  esac
+done
+if [ "$INDEX_ONLY" = true ] && { [ "$PRUNE" = true ] || [ "$PRUNE_APPLY" = true ]; }; then
+  echo -e "${RED}--index-only writes nothing outside the repo; it has nothing to prune.${NC}" >&2
+  exit 1
+fi
+if [ "$PRUNE_APPLY" = true ] && [ "$PRUNE" = false ]; then
+  echo -e "${RED}--prune-apply requires --prune: list what would be removed first.${NC}" >&2
+  exit 1
+fi
 INDEX_FILE="$GLOBAL_SKILLS_DIR/INDEX.md"
 
 echo -e "${BLUE}=================================================${NC}"
@@ -219,26 +243,59 @@ echo -e "  INDEX.md: $INDEX_FILE"
 # skills/.external lists third-party skills that legitimately have no source
 # here, so they are not named every run.
 EXTERNAL_FILE="$LOCAL_SKILLS_DIR/.external"
-_installed=$(find "$GLOBAL_SKILLS_DIR" -mindepth 2 -maxdepth 2 -name "SKILL.md" \
-  -exec dirname {} \; | xargs -n1 basename 2>/dev/null | sort -u)
+# `while read` here, not `xargs -n1 basename`: some xargs implementations
+# (observed with MSYS's on Windows) still invoke the command once, with no
+# operand, on zero input, rather than running it zero times — on a clean
+# install with nothing to report, `basename: missing operand` then failed
+# under `set -o pipefail` right where nothing was wrong at all.
+_installed=$(while IFS= read -r f; do basename "$(dirname "$f")"; done \
+  < <(find "$GLOBAL_SKILLS_DIR" -mindepth 2 -maxdepth 2 -name "SKILL.md") | sort -u)
 _ours=$(while IFS= read -r f; do basename "$(dirname "$f")"; done \
   < <(find "$LOCAL_SKILLS_DIR" -type f -name "SKILL.md") | sort -u)
+# `grep -vE` exits 1 when every line is a comment or blank — true today, since
+# .external lists no name yet — and under `set -e` that killed the script
+# right after printing "Done.", before this whole orphan/prune section ever
+# ran. Same disease as the `|| true` guards above: an optional extraction
+# whose "found nothing" is ordinary, not a failure.
 _external=""
-[ -f "$EXTERNAL_FILE" ] && _external=$(grep -vE '^\s*(#|$)' "$EXTERNAL_FILE" | sort -u)
+[ -f "$EXTERNAL_FILE" ] && _external=$(grep -vE '^\s*(#|$)' "$EXTERNAL_FILE" | sort -u || true)
 
 _orphans=$(comm -23 <(echo "$_installed") <(printf '%s\n%s\n' "$_ours" "$_external" | sort -u))
 if [ -n "$_orphans" ]; then
   echo ""
-  echo -e "${YELLOW}Installed but not produced here:${NC}"
-  echo "$_orphans" | sed 's|^|  ~/.claude/skills/|'
-  echo -e "  Left in place. Add to skills/.external if intended, or remove them yourself."
+  if [ "$PRUNE" = true ]; then
+    if [ "$PRUNE_APPLY" = true ]; then
+      echo -e "${YELLOW}Removing (--prune-apply):${NC}"
+    else
+      echo -e "${YELLOW}Would remove (--prune, dry run):${NC}"
+    fi
+    while IFS= read -r _name; do
+      [ -z "$_name" ] && continue
+      _target="$GLOBAL_SKILLS_DIR/$_name"
+      echo "  $_target"
+      if [ "$PRUNE_APPLY" = true ]; then
+        rm -rf -- "$_target"
+      fi
+    done <<< "$_orphans"
+    if [ "$PRUNE_APPLY" = true ]; then
+      echo -e "  Removed. The operator chose --prune-apply; nothing here decided on its own."
+    else
+      echo -e "  Nothing removed. Re-run with --prune --prune-apply to remove these."
+    fi
+  else
+    echo -e "${YELLOW}Installed but not produced here:${NC}"
+    echo "$_orphans" | sed 's|^|  ~/.claude/skills/|'
+    echo -e "  Left in place. Add to skills/.external if intended, or remove with --prune (lists) / --prune --prune-apply (removes)."
+  fi
 fi
 
 # Group directories from an older sync that copied the tree instead of
 # flattening it. This script installs by basename and can never create one, so
 # anything shaped like a group is a leftover holding a frozen old copy.
-_groups=$(find "$GLOBAL_SKILLS_DIR" -mindepth 1 -maxdepth 1 -type d \
-  '!' -exec test -e "{}/SKILL.md" ';' -print | xargs -n1 basename 2>/dev/null | sort)
+# `while read`, not `xargs -n1 basename` — see the comment above `_installed`.
+_groups=$(while IFS= read -r d; do basename "$d"; done \
+  < <(find "$GLOBAL_SKILLS_DIR" -mindepth 1 -maxdepth 1 -type d \
+      '!' -exec test -e "{}/SKILL.md" ';' -print) | sort)
 if [ -n "$_groups" ]; then
   echo ""
   echo -e "${YELLOW}Leftover group directories from an older sync:${NC}"

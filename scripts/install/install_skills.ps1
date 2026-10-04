@@ -1,5 +1,15 @@
 # Install skills from this repo to %USERPROFILE%\.claude\skills\
-# Usage: .\scripts\install\install_skills.ps1 [-IndexOnly]
+# Usage: .\scripts\install\install_skills.ps1 [-IndexOnly] [-Prune [-PruneApply]]
+#
+# -Prune / -PruneApply are DG-359's half of install_skills.sh's fix, kept
+# consistent across both installers. This script copied skills in and
+# removed nothing -- an install left retired skill directories installed
+# beside the ones this repository ships, and nothing ever reported them on
+# Windows at all. Removal is opt-in and dry-run by default:
+#   (no switch)              -- unchanged: nothing reported, nothing removed
+#   -Prune                    -- list what would be removed, remove nothing
+#   -Prune -PruneApply        -- remove exactly what -Prune listed
+# -PruneApply alone (without -Prune) is refused.
 #
 # -IndexOnly rebuilds the repository's skills/INDEX.md and writes nothing
 # else -- not to ~/.claude, not to any target. It is the switch safe for an
@@ -28,17 +38,29 @@
 
 [CmdletBinding()]
 param(
-    [switch]$IndexOnly
+    [switch]$IndexOnly,
+    [switch]$Prune,
+    [switch]$PruneApply
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
+
+if ($IndexOnly -and ($Prune -or $PruneApply)) {
+    Write-Host "-IndexOnly writes nothing outside the repo; it has nothing to prune." -ForegroundColor Red
+    exit 1
+}
+if ($PruneApply -and -not $Prune) {
+    Write-Host "-PruneApply requires -Prune: list what would be removed first." -ForegroundColor Red
+    exit 1
+}
 
 $ScriptDir       = $PSScriptRoot
 $LocalSkillsDir  = Resolve-Path (Join-Path $ScriptDir "..\..\skills")
 $GlobalSkillsDir = Join-Path $HOME ".claude\skills"
 $IndexFile       = Join-Path $GlobalSkillsDir "INDEX.md"
 $LocalIndex      = Join-Path $LocalSkillsDir "INDEX.md"
+$ExternalFile    = Join-Path $LocalSkillsDir ".external"
 
 Write-Host "=================================================" -ForegroundColor Blue
 Write-Host "   Claude Agentic Skills Synchronizer           " -ForegroundColor Blue
@@ -259,3 +281,53 @@ Write-Host "Sync complete." -ForegroundColor Green
 Write-Host "  $NewCount new  |  $UpdatedCount updated"
 Write-Host "  INDEX.md regenerated: $IndexFile"
 Write-Host "  INDEX.md mirrored:    $LocalIndex"
+
+# Anything installed that this repo does not produce. Reported, never deleted
+# unless -Prune / -PruneApply says so -- DG-359, ported from install_skills.sh
+# so the two installers agree about what "installed but not ours" means.
+$Ours = @($SkillFiles | ForEach-Object { Split-Path -Leaf $_.DirectoryName })
+$External = @()
+if (Test-Path $ExternalFile) {
+    $External = @(
+        Get-Content -LiteralPath $ExternalFile -Encoding UTF8 |
+            Where-Object { $_ -match '\S' -and $_ -notmatch '^\s*#' } |
+            ForEach-Object { $_.Trim() }
+    )
+}
+$Known = @($Ours + $External)
+
+$Installed = @(
+    Get-ChildItem -Path $GlobalSkillsDir -Directory |
+        Where-Object { Test-Path (Join-Path $_.FullName "SKILL.md") } |
+        ForEach-Object { $_.Name }
+)
+$Orphans = @($Installed | Where-Object { $Known -notcontains $_ } | Sort-Object)
+
+if ($Orphans.Count -gt 0) {
+    Write-Host ""
+    if ($Prune) {
+        if ($PruneApply) {
+            Write-Host "Removing (-PruneApply):" -ForegroundColor Yellow
+        } else {
+            Write-Host "Would remove (-Prune, dry run):" -ForegroundColor Yellow
+        }
+        foreach ($name in $Orphans) {
+            $target = Join-Path $GlobalSkillsDir $name
+            Write-Host "  $target"
+            if ($PruneApply) {
+                Remove-Item -LiteralPath $target -Recurse -Force
+            }
+        }
+        if ($PruneApply) {
+            Write-Host "  Removed. The operator chose -PruneApply; nothing here decided on its own."
+        } else {
+            Write-Host "  Nothing removed. Re-run with -Prune -PruneApply to remove these."
+        }
+    } else {
+        Write-Host "Installed but not produced here:" -ForegroundColor Yellow
+        foreach ($name in $Orphans) {
+            Write-Host "  $(Join-Path $GlobalSkillsDir $name)"
+        }
+        Write-Host "  Left in place. Add to skills/.external if intended, or remove with -Prune (lists) / -Prune -PruneApply (removes)."
+    }
+}
