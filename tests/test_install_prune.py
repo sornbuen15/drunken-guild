@@ -423,14 +423,26 @@ class TestThePs1InstallerPrunesConsistentlyWithTheShOne:
                 "-NoProfile",
                 "-NonInteractive",
                 "-Command",
-                f"New-Item -ItemType Junction -Path '{link_path}' -Target '{outside}'",
+                f"New-Item -ItemType Junction -Path '{link_path}' -Target '{outside}'; "
+                "$item = Get-Item -LiteralPath "
+                f"'{link_path}' -Force; "
+                'Write-Host "REPARSE:$([bool]($item.Attributes -band '
+                '[System.IO.FileAttributes]::ReparsePoint))"',
             ],
             capture_output=True,
             text=True,
         )
-        if creation.returncode != 0:
+        # `-ItemType Junction` is an NTFS-specific concept. On Linux (CI's
+        # PowerShell host is `pwsh`, not Windows PowerShell) it may exit 0
+        # without actually producing a reparse point at all -- confirmed by
+        # reproduction: it printed nothing, created no entry, and the test
+        # below would then pass for the wrong reason (the install never saw
+        # anything named `ai-output` to begin with). Verify a real reparse
+        # point actually exists before trusting the rest of this test.
+        if creation.returncode != 0 or "REPARSE:True" not in creation.stdout:
             pytest.skip(
-                "cannot create a real junction on this machine: "
+                "cannot create a real reparse point (junction) on this "
+                f"machine: rc={creation.returncode}\n"
                 f"{creation.stdout}\n{creation.stderr}"
             )
 
