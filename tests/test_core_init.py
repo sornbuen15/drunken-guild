@@ -465,3 +465,133 @@ class TestGuildBlockSafety:
         out = capsys.readouterr().out
         assert "created with the block" in out
         assert "unchanged" not in out
+
+
+def _run_git(*cmd_args, cwd):
+    import subprocess
+
+    result = subprocess.run(
+        ["git", *cmd_args], cwd=cwd, capture_output=True, text=True, check=False
+    )
+    assert result.returncode == 0, (
+        f"git {' '.join(cmd_args)} failed in {cwd}: {result.stderr}"
+    )
+    return result
+
+
+def _init_git_repo(path):
+    path.mkdir(parents=True, exist_ok=True)
+    _run_git("init", "-q", cwd=path)
+    _run_git("config", "user.email", "test@example.com", cwd=path)
+    _run_git("config", "user.name", "Test", cwd=path)
+    (path / "README.md").write_text("scratch\n", encoding="utf-8")
+    _run_git("add", "README.md", cwd=path)
+    _run_git("commit", "-q", "-m", "initial", cwd=path)
+    return path
+
+
+class TestConfigRepoCopyIn:
+    """DG-441 (REQ-019/020). ``--config-repo`` wires
+    ``core.layer_copy.copy_ai_layer_in`` into drunken-init."""
+
+    def test_copies_the_project_folder_and_leaves_git_status_clean(
+        self, tmp_path
+    ) -> None:
+        checkout = _init_git_repo(tmp_path / "app")
+        config_repo = tmp_path / "config-repo"
+        project_folder = config_repo / "app"
+        project_folder.mkdir(parents=True)
+        # Not AGENTS.md/CLAUDE.md: `--path` alone already makes
+        # scaffold.instruction_files() write those from the packaged
+        # template in the same call (unchanged by this ticket — DG-442
+        # retires that), so a config-repo copy of .claude/settings.json
+        # proves the wiring without the two colliding over the same file.
+        claude_dir = project_folder / ".claude"
+        claude_dir.mkdir()
+        (claude_dir / "settings.json").write_text(
+            '{"from": "config repo"}\n', encoding="utf-8"
+        )
+
+        assert (
+            run(
+                "--project",
+                "app",
+                "--path",
+                str(checkout),
+                "--config-repo",
+                str(config_repo),
+            )
+            == 0
+        )
+
+        settings = (checkout / ".claude" / "settings.json").read_text(encoding="utf-8")
+        assert settings == '{"from": "config repo"}\n'
+        status = _run_git("status", "--porcelain", cwd=checkout)
+        assert status.stdout.strip() == ""
+
+    def test_missing_project_folder_in_the_config_repo_is_refused(
+        self, tmp_path, capsys
+    ) -> None:
+        checkout = _init_git_repo(tmp_path / "app")
+        # Pre-existing, so scaffold.instruction_files() "keeps" it rather
+        # than writing a fresh one — isolating the config-repo failure's
+        # own "nothing written" guarantee from that unrelated write.
+        (checkout / "AGENTS.md").write_text("PRE-EXISTING\n", encoding="utf-8")
+        config_repo = tmp_path / "config-repo"
+        config_repo.mkdir()
+
+        code = run(
+            "--project",
+            "app",
+            "--path",
+            str(checkout),
+            "--config-repo",
+            str(config_repo),
+        )
+
+        assert code == 1
+        assert "app" in capsys.readouterr().out
+        assert (checkout / "AGENTS.md").read_text(encoding="utf-8") == (
+            "PRE-EXISTING\n"
+        )
+
+    def test_config_repo_without_a_project_is_refused(self, tmp_path, capsys) -> None:
+        config_repo = tmp_path / "config-repo"
+        config_repo.mkdir()
+
+        code = run("--config-repo", str(config_repo))
+
+        assert code == 1
+        assert "requires --project" in capsys.readouterr().out
+
+    def test_works_on_a_second_run_against_an_already_registered_path(
+        self, tmp_path
+    ) -> None:
+        """Idempotent, like every other flag: --path need not be repeated."""
+        checkout = _init_git_repo(tmp_path / "app")
+        config_repo = tmp_path / "config-repo"
+        project_folder = config_repo / "app"
+        project_folder.mkdir(parents=True)
+        (project_folder / "AGENTS.md").write_text(
+            "from the config repo\n", encoding="utf-8"
+        )
+
+        assert run("--project", "app", "--path", str(checkout)) == 0
+        # instruction_files() already wrote a placeholder AGENTS.md from the
+        # packaged template on the line above — overwrite it explicitly so
+        # this test is about --config-repo finding the registered path on a
+        # later call, not about the untracked-file-skip default (covered in
+        # tests/test_layer_copy.py).
+        assert (
+            run(
+                "--project",
+                "app",
+                "--config-repo",
+                str(config_repo),
+                "--overwrite-ai-layer",
+            )
+            == 0
+        )
+
+        agents = (checkout / "AGENTS.md").read_text(encoding="utf-8")
+        assert agents == "from the config repo\n"

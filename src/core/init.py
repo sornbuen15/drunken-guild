@@ -31,7 +31,7 @@ import os
 from pathlib import Path
 from typing import Any, Optional
 
-from . import paths, scaffold, secrets
+from . import layer_copy, paths, scaffold, secrets
 from .errors import DrunkenError, ValidationError
 from .registry import SCHEMA_VERSION, validate_project_id
 
@@ -183,9 +183,81 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--config-repo",
+        help=(
+            "Path to a LOCAL clone of the private config repo (REQ-020). With "
+            "--project, copies that project's AI-layer folder (named by its "
+            "registered id) into its registered path, then excludes the "
+            "copied files from the project's own git. No network access: "
+            "the Boss clones the config repo; this only reads a path."
+        ),
+    )
+    parser.add_argument(
+        "--overwrite-ai-layer",
+        action="store_true",
+        help=(
+            "Allow --config-repo to replace an existing, untracked AI-layer "
+            "file in the project. Without it, an existing file is skipped "
+            "and reported, never overwritten. A file the project's own git "
+            "already tracks is always refused outright, with or without "
+            "this flag."
+        ),
+    )
+    parser.add_argument(
         "--registry", help="Registry file to write instead of the resolved default."
     )
     return parser
+
+
+def _copy_ai_layer_in(
+    document: dict[str, Any], project_id: Optional[str], args: argparse.Namespace
+) -> list[str]:
+    """DG-441 (REQ-019/020). Wire :func:`core.layer_copy.copy_ai_layer_in`.
+
+    Independent of whether ``--path`` was passed *this* run: a project
+    registered earlier already has a ``path`` in the document, and
+    ``--config-repo`` should work against it on a later, idempotent call —
+    the same shape every other ``drunken-init`` flag already has.
+    """
+    if not project_id:
+        raise ValidationError(
+            "--config-repo requires --project.",
+            remediation="Pass --project <id> together with --config-repo.",
+        )
+
+    entry = document["projects"][project_id]
+    if not entry.get("path"):
+        raise ValidationError(
+            f"Project {project_id!r} has no registered path to copy its AI layer into.",
+            remediation=(
+                "Pass --path (this run or an earlier one) before --config-repo."
+            ),
+        )
+
+    project_root = Path(entry["path"]).expanduser()
+    git_root = (
+        project_root / entry["git_root"] if entry.get("git_root") else project_root
+    )
+
+    result = layer_copy.copy_ai_layer_in(
+        config_repo=Path(args.config_repo).expanduser(),
+        project_id=project_id,
+        project_root=project_root,
+        git_root=git_root,
+        overwrite=bool(args.overwrite_ai_layer),
+    )
+
+    lines = [f"ai layer        : copied, {path}" for path in result.copied]
+    lines.extend(
+        f"ai layer        : skipped, {skip.relative} ({skip.reason})"
+        for skip in result.skipped
+    )
+    if result.excluded.added:
+        lines.append(
+            f"ai layer        : excluded {len(result.excluded.added)} "
+            f"pattern(s) in {result.excluded.exclude_path}"
+        )
+    return lines
 
 
 def main() -> int:
@@ -231,6 +303,9 @@ def main() -> int:
                 written.append(
                     f"guild block     : created with the block, {agents_path}"
                 )
+
+        if args.config_repo:
+            written.extend(_copy_ai_layer_in(document, project_id, args))
     except DrunkenError as exc:
         print(f"error: {exc}")
         if exc.remediation:

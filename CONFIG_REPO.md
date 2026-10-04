@@ -4,13 +4,13 @@ What REQ-020 (`.ai/PRD.md`) names and does not yet build: the one place a projec
 from. REQ-019 and REQ-020, and the Layering context in `.ai/DOMAIN.md`, are the source of every
 term this page uses — read those first if a word here is unfamiliar.
 
-**This page defines the layout. It builds nothing.** The `.git/info/exclude` writer (DG-440) and
-init's copy-in (DG-441) are later Tasks of Story DG-436 (this Jira parents them to the Epic DG-434,
-not to the Story) — along with init no longer writing a tracked `AGENTS.md`/`CLAUDE.md` into a
-project (DG-442), init setting up the hooks and Jira configuration (DG-443), and the matching
-README/getting-started update (DG-444). Nothing here is built on the result of Spike DG-432 yet —
-that spike is about whether Claude Code loads a `.claude/settings.json` reached through
-`.git/info/exclude` at all, and this page's layout does not depend on its answer.
+**This page defines the layout.** The `.git/info/exclude` writer (DG-440) and init's copy-in
+(DG-441) are built — see "What is built" below. Still ahead, as later Tasks of Story DG-436 (this
+Jira parents them to the Epic DG-434, not to the Story): init no longer writing a tracked
+`AGENTS.md`/`CLAUDE.md` into a project (DG-442), init setting up the hooks and Jira configuration
+(DG-443), and the matching README/getting-started update (DG-444). Spike DG-432 found that a
+git-excluded `CLAUDE.md`/`.claude/settings.json` loads in Claude Code exactly like a tracked one
+(see "What is built"); DG-443's interactive trust-prompt question is still open.
 
 ---
 
@@ -38,9 +38,9 @@ config-repo/
     ...
 ```
 
-The exact filenames under `.claude/` and the hook/Jira configuration's own format are for DG-440
-and DG-441 to decide when they build the exclude writer and the copy-in; this page fixes only what
-kind of file the folder may hold, not every name in it.
+The exact filenames under `.claude/` and the hook/Jira configuration's own format are for DG-443 to
+decide, when it builds hooks and Jira configuration; this page fixes only what kind of file the
+folder may hold, not every name in it.
 
 ---
 
@@ -89,14 +89,32 @@ not in the config repo.
 
 ---
 
+## What is built
+
+- **`.git/info/exclude` writer (DG-440, `src/core/exclude.py`).** `exclude_ai_layer()` appends the
+  one AI-layer list's patterns, between markers, idempotently — in a plain clone and in a `git
+  worktree` alike. It refuses a `repo_root` that git itself does not resolve to its own top level,
+  which is why `drunken-init`'s copy-in (below) calls it with the git root, never a nested project
+  path.
+- **`drunken-init --config-repo` copy-in (DG-441, `src/core/layer_copy.py`).** Takes the path to a
+  *local* clone of the config repo (the Boss clones it; nothing here does) and the project's
+  registered id, copies only the files `core.ai_layer` lists from that project's config-repo folder
+  into its registered path, then calls the exclude writer so `git status` stays clean. Copies, never
+  symlinks. An existing file the project's own git already tracks aborts the whole call, naming it,
+  before anything is written; an existing *untracked* file is skipped and reported unless
+  `--overwrite-ai-layer` is passed. Still open: DG-442 (init stops writing a tracked
+  `AGENTS.md`/`CLAUDE.md` from the packaged template — until then the two can collide on the same
+  files in one run), DG-443 (hooks and Jira configuration — blocked on where a credential lives) and
+  DG-446 (migrating an already-tracked project).
+
 ## Not built yet
 
-- **Nothing writes `.git/info/exclude` yet.** Hiding the copied files from the project's own git is
-  DG-440.
-- **Init does not copy anything in yet.** The copy step, from the config repo into a project's
-  folder, is DG-441.
-- **The AI-layer list this page's "may hold" section restates by hand is not yet a module.**
-  DG-437 adds it in `src/core`; see above.
-- **Nothing here is built on DG-432's result.** That spike checks whether Claude Code reads a
-  `.claude/settings.json` reached only through `.git/info/exclude`; until a recorded run answers
-  that, this layout is a definition, not a working pipeline.
+- **The AI-layer list this page's "may hold" section restates by hand is not yet reflected
+  everywhere it could be.** `core.ai_layer` (DG-437) is the canonical module both DG-440 and DG-441
+  read; this page still names it by hand rather than generating from it.
+- **Nothing here is built on DG-432's result beyond what it already answered.** The spike (comment
+  on DG-441) found a git-excluded `CLAUDE.md`, `AGENTS.md`, a settings.json hook and a path-scoped
+  rule load in Claude Code exactly like tracked ones, under `claude -p`; the interactive trust-prompt
+  case for hooks is still open (DG-443), not answered by this layout.
+- **Init does not yet set up hooks or Jira configuration.** That is DG-443.
+- **Nothing migrates an already-tracked project's AI layer out of its repository.** That is DG-446.
