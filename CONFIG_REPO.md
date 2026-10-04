@@ -100,12 +100,23 @@ not in the config repo.
   *local* clone of the config repo (the Boss clones it; nothing here does) and the project's
   registered id, copies only the files `core.ai_layer` lists from that project's config-repo folder
   into its registered path, then calls the exclude writer so `git status` stays clean. Copies, never
-  symlinks. An existing file the project's own git already tracks aborts the whole call, naming it,
-  before anything is written; an existing *untracked* file is skipped and reported unless
-  `--overwrite-ai-layer` is passed. Still open: DG-442 (init stops writing a tracked
-  `AGENTS.md`/`CLAUDE.md` from the packaged template — until then the two can collide on the same
-  files in one run), DG-443 (hooks and Jira configuration — blocked on where a credential lives) and
-  DG-446 (migrating an already-tracked project).
+  symlinks — never through a destination that is itself a symlink either, and never by following one
+  inside the config repo's own project folder. Checked by *path*, not by whether the destination
+  currently exists: a file the project's own git already tracks aborts the whole call, naming it,
+  before anything is written, whether or not it is still present on disk (a committed file deleted
+  from the working tree is still tracked). The tracked check itself goes through
+  `core.exclude.run_git` — the same `GIT_DIR`/`GIT_COMMON_DIR`/`GIT_WORK_TREE`-stripped git caller
+  DG-440 uses — and fails closed on anything git does not answer with a documented tracked/not-tracked
+  exit code. An existing *untracked* file that differs from the config repo is skipped, named on
+  stderr, and fails the run (`exit 1`) unless `--overwrite-ai-layer` is passed; identical is
+  "unchanged" and stays green. Works for a project registered at a subfolder of a larger repository
+  too: `--git-root` is a plain relative offset, either direction — `".."`/`"../.."` ascends to the
+  real top level when `--path` is itself nested inside it, the same field ALPHA's descending case
+  already used (`core.context.ProjectContext.git_root_path`). Still open: DG-442 (init stops writing a
+  tracked `AGENTS.md`/`CLAUDE.md` from the packaged template — until then the two can collide on the
+  same files in one run, which is exactly the case the non-zero exit above exists to surface rather
+  than bury), DG-443 (hooks and Jira configuration — blocked on where a credential lives) and DG-446
+  (migrating an already-tracked project).
 
 ## Not built yet
 

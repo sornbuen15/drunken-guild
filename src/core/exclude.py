@@ -14,18 +14,20 @@ an excluded ``CLAUDE.md``/``.claude/settings.json`` still loads in Claude
 Code. The recorded result (DG-432) is yes, so building on
 ``.git/info/exclude`` is allowed.
 
-Nothing here is wired into ``drunken-init`` yet — that wiring is DG-441,
-which shares ``src/core/init.py`` with two sibling Tasks and is kept out of
-this change on purpose. DG-441 runs this from inside ``drunken-init``, which
-can itself run inside a git hook — where ``GIT_DIR``, ``GIT_COMMON_DIR`` and
-``GIT_WORK_TREE`` are set in the environment and point at whichever
-repository invoked the hook. Every git subprocess this module runs strips
-those three first (:func:`_git_subprocess_env`), and
-:func:`resolve_info_exclude_path` independently cross-checks that
-``repo_root`` really is the working tree git resolved — not a different
-repository reached only through an inherited variable, and not a parent
-directory's repository reached by climbing past a `repo_root` that is not
-itself a repository.
+``drunken-init``'s copy-in (DG-441, :mod:`core.layer_copy`) runs this after
+every copy, from inside a context that can itself run inside a git hook —
+where ``GIT_DIR``, ``GIT_COMMON_DIR`` and ``GIT_WORK_TREE`` are set in the
+environment and point at whichever repository invoked the hook. Every git
+subprocess this module runs strips those three first
+(:func:`git_subprocess_env`), and :func:`resolve_info_exclude_path`
+independently cross-checks that ``repo_root`` really is the working tree
+git resolved — not a different repository reached only through an
+inherited variable, and not a parent directory's repository reached by
+climbing past a `repo_root` that is not itself a repository.
+:func:`run_git` (hardened the same way) is public precisely so
+:mod:`core.layer_copy`'s own git calls — asking whether a destination is
+already tracked — go through the *same* stripped environment rather than
+growing a second, unstripped implementation next to this one.
 
 The write itself is a single ``open(..., "a")`` append, not a
 read-modify-write replace — there is no temp file and no rename, so a
@@ -125,13 +127,18 @@ def default_ai_layer_patterns() -> tuple[str, ...]:
     return tuple(patterns)
 
 
-def _git_subprocess_env() -> dict[str, str]:
+def git_subprocess_env() -> dict[str, str]:
     """A copy of the current environment with the git-redirecting vars gone.
 
     See ``_GIT_ENV_VARS_TO_STRIP`` for which, and the module docstring for
     why: inherited from the calling process rather than passed explicitly,
     so they are exactly the kind of implicit, unnamed configuration this
     codebase's own rules (``.claude/rules/python.md``) warn against trusting.
+
+    Public so :func:`run_git` is the *only* way anything in this codebase
+    invokes git for a repository-resolving command — never a second,
+    unstripped ``subprocess.run(["git", ...])`` elsewhere that a leaked
+    ``GIT_DIR`` could silently redirect.
     """
     env = dict(os.environ)
     for var in _GIT_ENV_VARS_TO_STRIP:
@@ -139,7 +146,17 @@ def _git_subprocess_env() -> dict[str, str]:
     return env
 
 
-def _run_git(args: Sequence[str], repo_root: Path) -> subprocess.CompletedProcess[str]:
+def run_git(args: Sequence[str], repo_root: Path) -> subprocess.CompletedProcess[str]:
+    """Run ``git`` with *args* in *repo_root*, env stripped (see above).
+
+    Public — and the one hardened git caller every module in this
+    codebase that needs to ask something of a project's own git should
+    import, rather than opening a second ``subprocess.run(["git", ...])``
+    that forgets the strip. :mod:`core.layer_copy` is the first such caller
+    (DG-441): a tracked-file check that ran unstripped silently answered
+    "not tracked" against an *unrelated* repository reached through a
+    leaked ``GIT_DIR``/``GIT_WORK_TREE``, and overwrote a committed file.
+    """
     try:
         return subprocess.run(
             ["git", *args],
@@ -147,7 +164,7 @@ def _run_git(args: Sequence[str], repo_root: Path) -> subprocess.CompletedProces
             capture_output=True,
             text=True,
             check=False,
-            env=_git_subprocess_env(),
+            env=git_subprocess_env(),
         )
     except OSError as exc:
         raise NotAGitRepositoryError(
@@ -232,7 +249,7 @@ def resolve_info_exclude_path(repo_root: Path) -> Path:
     """
     repo_root = Path(repo_root)
 
-    git_path_result = _run_git(["rev-parse", "--git-path", "info/exclude"], repo_root)
+    git_path_result = run_git(["rev-parse", "--git-path", "info/exclude"], repo_root)
     if git_path_result.returncode != 0:
         raise NotAGitRepositoryError(
             f"{repo_root} is not a git repository "
@@ -249,7 +266,7 @@ def resolve_info_exclude_path(repo_root: Path) -> Path:
             remediation="Run this inside a git clone or a git worktree.",
         )
 
-    toplevel_result = _run_git(["rev-parse", "--show-toplevel"], repo_root)
+    toplevel_result = run_git(["rev-parse", "--show-toplevel"], repo_root)
     if toplevel_result.returncode != 0 or not toplevel_result.stdout.strip():
         raise NotAGitRepositoryError(
             f"{repo_root} is not recognised as a git working tree "

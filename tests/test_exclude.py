@@ -498,7 +498,7 @@ class TestToplevelCrossCheckIsActuallyExercised:
                 )
             raise AssertionError(f"unexpected git args in test double: {args}")
 
-        monkeypatch.setattr(exclude, "_run_git", fake_run_git)
+        monkeypatch.setattr(exclude, "run_git", fake_run_git)
 
         with pytest.raises(DrunkenError) as exc_info:
             exclude.resolve_info_exclude_path(repo_root)
