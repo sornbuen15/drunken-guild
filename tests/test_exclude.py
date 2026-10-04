@@ -384,3 +384,123 @@ class TestMalformedExcludeBlockIsRefused:
 
         with pytest.raises(DrunkenError):
             exclude.exclude_ai_layer(repo)
+
+    def test_reversed_markers_with_equal_counts_raises(self, tmp_path: Path) -> None:
+        # The realistic mutation this guards against: counting START and
+        # END occurrences (equal, 1 and 1) and calling that well-formed. An
+        # END that appears *before* any open START is not a valid block
+        # even though the counts match.
+        repo = _init_repo(tmp_path / "repo")
+        info_dir = repo / ".git" / "info"
+        info_dir.mkdir(parents=True, exist_ok=True)
+        exclude_path = info_dir / "exclude"
+        exclude_path.write_text(
+            f"{exclude.MARKER_END}\n/CLAUDE.md\n{exclude.MARKER_START}\n",
+            encoding="utf-8",
+        )
+
+        with pytest.raises(DrunkenError) as exc_info:
+            exclude.exclude_ai_layer(repo)
+        # Names the file and the line number, not just "malformed".
+        assert str(exclude_path) in str(exc_info.value)
+        assert "1" in str(exc_info.value), (
+            "the end-before-start marker is on line 1 — the message should name it"
+        )
+
+    def test_two_complete_blocks_are_accepted(self, tmp_path: Path) -> None:
+        # Nothing breaks an existing file that already has two complete,
+        # well-formed pairs — only a *mismatched* or *reversed* block is
+        # malformed.
+        repo = _init_repo(tmp_path / "repo")
+        info_dir = repo / ".git" / "info"
+        info_dir.mkdir(parents=True, exist_ok=True)
+        exclude_path = info_dir / "exclude"
+        exclude_path.write_text(
+            f"{exclude.MARKER_START}\n/CLAUDE.md\n{exclude.MARKER_END}\n"
+            f"{exclude.MARKER_START}\n/AGENTS.md\n{exclude.MARKER_END}\n",
+            encoding="utf-8",
+        )
+
+        result = exclude.exclude_ai_layer(repo)
+
+        assert result.exclude_path == exclude_path
+
+    def test_substring_mention_of_the_marker_is_not_treated_as_a_marker(
+        self, tmp_path: Path
+    ) -> None:
+        # A human comment that merely *mentions* the marker text — e.g.
+        # documenting it — must not trip the check. The realistic mutation
+        # this guards against: counting substring occurrences
+        # (`text.count(MARKER_START)`) instead of exact, stripped line
+        # equality; that mutation sees this single line as "one start, zero
+        # end" and wrongly raises on a file that has no real block at all.
+        repo = _init_repo(tmp_path / "repo")
+        info_dir = repo / ".git" / "info"
+        info_dir.mkdir(parents=True, exist_ok=True)
+        exclude_path = info_dir / "exclude"
+        exclude_path.write_text(
+            f"# example: {exclude.MARKER_START}\n", encoding="utf-8"
+        )
+
+        # Must not raise: there is no real marker line here, only a comment
+        # that contains the marker text as a substring.
+        result = exclude.exclude_ai_layer(repo)
+
+        assert result.added, "the real patterns should still have been added"
+
+
+class TestToplevelCrossCheckIsActuallyExercised:
+    """The env-leak tests prove the toplevel cross-check catches a leaked
+    GIT_DIR/GIT_COMMON_DIR. Neither proves the check itself does anything —
+    a mutation that always treats `reported_toplevel` as equal to
+    `repo_root` would pass every one of them unchanged (no env var is
+    involved in either path). These exercise the check with no environment
+    variable set at all.
+    """
+
+    def test_non_root_subdirectory_of_a_real_repo_raises_naming_the_toplevel(
+        self, tmp_path: Path
+    ) -> None:
+        repo = _init_repo(tmp_path / "repo")
+        subdir = repo / "sub"
+        subdir.mkdir()
+
+        with pytest.raises(DrunkenError) as exc_info:
+            exclude.exclude_ai_layer(subdir)
+
+        assert str(repo.resolve()) in str(exc_info.value), (
+            "the error should name the toplevel git actually resolved "
+            f"({repo.resolve()}), not just say 'not a git repository'"
+        )
+
+    def test_monkeypatched_run_git_reporting_a_different_toplevel_raises(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # No real git worktree/env trickery at all — just the two calls
+        # resolve_info_exclude_path() makes, with the second one reporting
+        # a toplevel that is not repo_root. This isolates the cross-check
+        # itself from everything else in the function.
+        repo_root = tmp_path / "repo_root"
+        repo_root.mkdir()
+        different_toplevel = tmp_path / "elsewhere"
+        different_toplevel.mkdir()
+
+        def fake_run_git(
+            args: list[str], repo_root_arg: Path
+        ) -> subprocess.CompletedProcess[str]:
+            if args[:2] == ["rev-parse", "--git-path"]:
+                return subprocess.CompletedProcess(
+                    args, 0, stdout="info/exclude\n", stderr=""
+                )
+            if args[:2] == ["rev-parse", "--show-toplevel"]:
+                return subprocess.CompletedProcess(
+                    args, 0, stdout=f"{different_toplevel}\n", stderr=""
+                )
+            raise AssertionError(f"unexpected git args in test double: {args}")
+
+        monkeypatch.setattr(exclude, "_run_git", fake_run_git)
+
+        with pytest.raises(DrunkenError) as exc_info:
+            exclude.resolve_info_exclude_path(repo_root)
+
+        assert str(different_toplevel.resolve()) in str(exc_info.value)

@@ -156,6 +156,62 @@ def _run_git(args: Sequence[str], repo_root: Path) -> subprocess.CompletedProces
         ) from exc
 
 
+def _validate_marker_lines(existing_text: str, exclude_path: Path) -> None:
+    """Refuse a marker block that is not well-formed, line by line.
+
+    A marker is recognised only by *exact* line equality after stripping
+    surrounding whitespace (``line.strip() == MARKER_START``) — not by
+    counting substring occurrences across the whole file. A human comment
+    that merely *mentions* the marker text (``# see also <marker>``) is not
+    a marker and must never trip this check; counting substrings would have
+    treated it as one.
+
+    Equal start/end *counts* are not enough either: an END appearing before
+    any open START is just as malformed as a dangling, unclosed START, even
+    though the counts match. This walks the file as open/closed state and
+    catches all three: an END with no open START, a START while one is
+    already open, and an unclosed START at end of file. Two or more
+    *complete* pairs are fine and change nothing here.
+    """
+    open_start_line: int | None = None
+    for line_number, raw_line in enumerate(existing_text.splitlines(), start=1):
+        line = raw_line.strip()
+        if line == MARKER_START:
+            if open_start_line is not None:
+                raise MalformedExcludeBlockError(
+                    f"{exclude_path}:{line_number}: a start marker opens "
+                    f"here while the one at line {open_start_line} is "
+                    "still unclosed.",
+                    remediation=(
+                        f"Open {exclude_path} and fix the marker block by "
+                        "hand, then run this again."
+                    ),
+                )
+            open_start_line = line_number
+        elif line == MARKER_END:
+            if open_start_line is None:
+                raise MalformedExcludeBlockError(
+                    f"{exclude_path}:{line_number}: an end marker appears "
+                    "here with no open start marker before it.",
+                    remediation=(
+                        f"Open {exclude_path} and fix the marker block by "
+                        "hand, then run this again."
+                    ),
+                )
+            open_start_line = None
+
+    if open_start_line is not None:
+        raise MalformedExcludeBlockError(
+            f"{exclude_path}:{open_start_line}: a start marker here is "
+            "never closed by a matching end marker — a previous write may "
+            "have been interrupted.",
+            remediation=(
+                f"Open {exclude_path} and fix the marker block by hand, "
+                "then run this again."
+            ),
+        )
+
+
 def resolve_info_exclude_path(repo_root: Path) -> Path:
     """The ``info/exclude`` file git itself would read for *repo_root*.
 
@@ -237,6 +293,16 @@ def exclude_ai_layer(
     in :mod:`core.ai_layer` turned into gitignore syntax. A caller passing
     its own sequence is only for a test; nothing in this codebase should
     ever need a second list.
+
+    **Pass the git root, not the project root.** A registered project may
+    have its checkout at a subdirectory of the actual repository (see
+    ``core.context.git_root_path`` / ``Context.git_root_path`` and the
+    ``git_root`` registry field) — a monorepo, for instance. *repo_root*
+    here must be that git root, not the project's own subdirectory:
+    :func:`resolve_info_exclude_path` refuses a non-root subdirectory
+    outright (its ``git rev-parse --show-toplevel`` will not equal it), so a
+    caller handing this the project root of a project nested inside a
+    larger repository gets a clear error rather than a wrong file.
     """
     resolved_patterns = (
         tuple(patterns) if patterns is not None else default_ai_layer_patterns()
@@ -249,19 +315,7 @@ def exclude_ai_layer(
         exclude_path.read_text(encoding="utf-8") if exclude_path.exists() else ""
     )
 
-    start_count = existing_text.count(MARKER_START)
-    end_count = existing_text.count(MARKER_END)
-    if start_count != end_count:
-        raise MalformedExcludeBlockError(
-            f"{exclude_path} has {start_count} start marker(s) but "
-            f"{end_count} end marker(s) for this module's block — a "
-            "previous write may have been interrupted.",
-            remediation=(
-                f"Open {exclude_path} and fix the marker block by hand "
-                f"(matching pairs of {MARKER_START!r} / {MARKER_END!r}), "
-                "then run this again."
-            ),
-        )
+    _validate_marker_lines(existing_text, exclude_path)
 
     existing_lines = set(existing_text.splitlines())
 
