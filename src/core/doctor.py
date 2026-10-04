@@ -755,17 +755,90 @@ def repo_skills(root: Path) -> dict[str, Path]:
     }
 
 
+def extras_skill_names(root: Path) -> set[str]:
+    """Skills that moved to ``plugins/drunken-extras/skills/`` (DG-352/353).
+
+    Named separately from :func:`repo_skills` because they are still
+    first-party and still shipped — just not from ``skills/`` any more, and
+    an install that still carries one is not the same finding as one carrying
+    something this project never produced at all (DG-359).
+    """
+    extras_dir = root / "plugins" / "drunken-extras" / "skills"
+    if not extras_dir.is_dir():
+        return set()
+    return {skill.parent.name for skill in extras_dir.glob("*/SKILL.md")}
+
+
+def external_skill_names(root: Path) -> set[str]:
+    """Names declared third-party in ``skills/.external``.
+
+    Same file ``install_skills.sh`` reads: a name listed there is a deliberate
+    statement that this repository did not author it, so it is not reported as
+    an unexplained extra either.
+    """
+    external_file = root / "skills" / ".external"
+    if not external_file.is_file():
+        return set()
+    names = set()
+    for line in external_file.read_text(encoding="utf-8").splitlines():
+        stripped = line.strip()
+        if stripped and not stripped.startswith("#"):
+            names.add(stripped)
+    return names
+
+
+#: Relative to the repository root. The single list both installers and this
+#: module read, so "retired" means one thing everywhere (DG-359 review
+#: finding #1).
+RETIRED_SKILLS_FILE: Final = "scripts/install/retired_skills.txt"
+
+
+def retired_skill_names(root: Path) -> set[str]:
+    """Names on ``scripts/install/retired_skills.txt`` — the *only* names an
+    install script's ``--prune-apply`` may ever remove.
+
+    Comments (``#``) and blank lines are skipped; ``\\r`` is stripped so a
+    CRLF checkout parses identically to an LF one. **Never** returns a name
+    that :func:`repo_skills` also returns — a retired name must not be able
+    to delete something the guild still ships; that invariant is asserted in
+    ``tests/test_install_prune.py``, not enforced here, because this function
+    answers "what does the list say", not "is the list sane".
+    """
+    list_file = root / RETIRED_SKILLS_FILE
+    if not list_file.is_file():
+        return set()
+    names = set()
+    for raw_line in list_file.read_text(encoding="utf-8").splitlines():
+        stripped = raw_line.strip("\r").strip()
+        if stripped and not stripped.startswith("#"):
+            names.add(stripped)
+    return names
+
+
 def compare_ai_layer(root: Path, install_root: Path) -> dict[str, list[str]]:
-    """Which of the repository's skills are absent or different at *install_root*.
+    """Which of the repository's skills are absent, different, or extra at
+    *install_root*.
 
     Compared by reading ``SKILL.md`` rather than by mtime or by counting
     directories. A count matched while `git-workflow` was installed at 120 lines
     against 196 in the source, and both surfaces reported themselves healthy.
+
+    ``extra`` names a directory installed with a ``SKILL.md`` that this
+    repository's ``skills/`` does not produce. It is **not** drift — content
+    that is present and correct is not "different" — and it is not ownership:
+    a third-party pack such as Gemini CLI's own ``~/.gemini/.../skills`` is
+    never passed as *install_root* here, but if it ever were, a name this
+    repository has no stake in is still worth a caller naming rather than
+    silently absorbing into "fine" (DG-359). Classifying an extra as retired
+    versus merely moved elsewhere is the caller's job — see
+    :func:`extras_skill_names` and :func:`external_skill_names` — because that
+    answer depends on the repository, not on the comparison itself.
     """
     missing: list[str] = []
     drifted: list[str] = []
 
-    for name, source in repo_skills(root).items():
+    ours = repo_skills(root)
+    for name, source in ours.items():
         installed = install_root / name / "SKILL.md"
         if not installed.is_file():
             missing.append(name)
@@ -776,7 +849,17 @@ def compare_ai_layer(root: Path, install_root: Path) -> dict[str, list[str]]:
         except OSError:
             drifted.append(name)
 
-    return {"missing": missing, "drifted": drifted}
+    extra: list[str] = []
+    if install_root.is_dir():
+        for entry in sorted(install_root.iterdir()):
+            if (
+                entry.is_dir()
+                and entry.name not in ours
+                and (entry / "SKILL.md").is_file()
+            ):
+                extra.append(entry.name)
+
+    return {"missing": missing, "drifted": drifted, "extra": extra}
 
 
 def _check_ai_layer(report: Report, root: Optional[Path] = None) -> None:
@@ -794,6 +877,16 @@ def _check_ai_layer(report: Report, root: Optional[Path] = None) -> None:
     legitimately has none, and a check that cries wolf there is one everybody
     learns to ignore. Drift is a **warn** rather than a failure because the
     remedy is an install, which is the operator's to run, not this tool's.
+
+    ``ok`` used to mean only "ours are present and correct" — the question this
+    answered was always "are ours all there", never "is anything else there
+    too". `install_skills.sh` was run after the 2.0.0 re-scope and left 34
+    retired skill directories installed beside the 11 this repository ships;
+    this check reported "all 11 skills match the source" in the same run,
+    because nothing it compared ever looked past the 11 it already knew about
+    (DG-359). An extra directory now ends the ``ok``, named apart from drift
+    and from a merely-moved skill — see :func:`compare_ai_layer`,
+    :func:`extras_skill_names` and :func:`external_skill_names`.
     """
     root = root if root is not None else source_tree_root()
     if root is None:
@@ -806,6 +899,13 @@ def _check_ai_layer(report: Report, root: Optional[Path] = None) -> None:
         return
 
     total = len(repo_skills(root))
+    moved = extras_skill_names(root)
+    external = external_skill_names(root)
+    # A name on the retired list that has since reappeared under `skills/` or
+    # `plugins/drunken-extras/skills/` is shipped again, by whichever surface
+    # claims it — `moved`/`ours` always wins over "retired", so this check
+    # never calls something the guild currently ships prunable.
+    retired = retired_skill_names(root) - moved - set(repo_skills(root))
     for name, raw in AI_LAYER_ROOTS:
         install_root = Path(raw).expanduser()
         if not install_root.is_dir():
@@ -814,7 +914,14 @@ def _check_ai_layer(report: Report, root: Optional[Path] = None) -> None:
 
         result = compare_ai_layer(root, install_root)
         missing, drifted = result["missing"], result["drifted"]
-        if not missing and not drifted:
+        extra = [e for e in result["extra"] if e not in external]
+        extra_moved = sorted(e for e in extra if e in moved)
+        extra_retired = sorted(e for e in extra if e not in moved and e in retired)
+        extra_unrecognised = sorted(
+            e for e in extra if e not in moved and e not in retired
+        )
+
+        if not missing and not drifted and not extra:
             report.add(
                 f"ai_layer.{name}",
                 "ok",
@@ -835,12 +942,37 @@ def _check_ai_layer(report: Report, root: Optional[Path] = None) -> None:
                 + (", …" if len(missing) > 4 else "")
                 + ")"
             )
+        if extra_moved:
+            parts.append(
+                f"{len(extra_moved)} moved to plugins/drunken-extras "
+                f"({', '.join(extra_moved[:4])}"
+                + (", …" if len(extra_moved) > 4 else "")
+                + ")"
+            )
+        if extra_retired:
+            parts.append(
+                f"{len(extra_retired)} retired, will be pruned "
+                f"({', '.join(extra_retired[:4])}"
+                + (", …" if len(extra_retired) > 4 else "")
+                + ")"
+            )
+        if extra_unrecognised:
+            parts.append(
+                f"{len(extra_unrecognised)} unrecognised, never pruned "
+                f"({', '.join(extra_unrecognised[:4])}"
+                + (", …" if len(extra_unrecognised) > 4 else "")
+                + ")"
+            )
         report.add(
             f"ai_layer.{name}",
             "warn",
             "; ".join(parts)
             + ". Run scripts/install/install_skills.sh — an install is the "
-            "operator's to run.",
+            "operator's to run, and pruning is opt-in and list-only by "
+            "default (--prune to list, --prune --prune-apply to remove only "
+            "the retired ones). An unrecognised name is never pruned "
+            "automatically — add it to skills/.external if it is yours, or "
+            "to scripts/install/retired_skills.txt if it is retired.",
         )
 
 
