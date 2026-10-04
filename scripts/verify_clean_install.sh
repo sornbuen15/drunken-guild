@@ -102,6 +102,32 @@ python_version="$("$BIN/python" -c 'import sys;print(".".join(map(str,sys.versio
 echo "        python $python_version"
 
 # ---------------------------------------------------------------------------
+say "0b. The wheel ships only what it declares"
+# ---------------------------------------------------------------------------
+# DG-363. Deliberately built from $REPO, the working tree -- not $SOURCE,
+# which is a git-archive export and so never contains an untracked build/.
+# A stale build/lib/ left over from a package retired since it was last
+# written is exactly what this step exists to catch, and an export would
+# dodge it the same way the install above does.
+wheel_dir="$WORK/wheel"
+mkdir -p "$wheel_dir"
+build_log="$(cd "$REPO" && VIRTUAL_ENV="$VENV" uv build --out-dir "$wheel_dir" 2>&1)"
+wheel_file="$(ls "$wheel_dir"/*.whl 2>/dev/null | head -n1)"
+
+if [ -z "$wheel_file" ]; then
+  bad "wheel build failed"
+  printf '%s\n' "$build_log" | tail -n 12
+else
+  contents_out="$("$BIN/python" "$REPO/scripts/check_wheel_contents.py" "$wheel_file" 2>&1)"
+  if [ $? -eq 0 ]; then
+    ok "wheel ships only its declared top-level modules"
+  else
+    bad "wheel ships an undeclared module"
+    printf '%s\n' "$contents_out"
+  fi
+fi
+
+# ---------------------------------------------------------------------------
 say "1. Nothing configured — does it explain itself?"
 # ---------------------------------------------------------------------------
 out="$(clean_run "$BIN/drunken-doctor")"
