@@ -16,11 +16,36 @@ Code. The recorded result (DG-432) is yes, so building on
 
 Nothing here is wired into ``drunken-init`` yet — that wiring is DG-441,
 which shares ``src/core/init.py`` with two sibling Tasks and is kept out of
-this change on purpose.
+this change on purpose. DG-441 runs this from inside ``drunken-init``, which
+can itself run inside a git hook — where ``GIT_DIR``, ``GIT_COMMON_DIR`` and
+``GIT_WORK_TREE`` are set in the environment and point at whichever
+repository invoked the hook. Every git subprocess this module runs strips
+those three first (:func:`_git_subprocess_env`), and
+:func:`resolve_info_exclude_path` independently cross-checks that
+``repo_root`` really is the working tree git resolved — not a different
+repository reached only through an inherited variable, and not a parent
+directory's repository reached by climbing past a `repo_root` that is not
+itself a repository.
+
+The write itself is a single ``open(..., "a")`` append, not a
+read-modify-write replace — there is no temp file and no rename, so a
+process killed mid-write can leave a start marker with no matching end
+marker. Rather than silently treating that as "nothing to add yet" and
+appending a second, complete block next to the broken one,
+:func:`exclude_ai_layer` treats a mismatched marker count as corruption and
+refuses, naming the file, so a human fixes it by hand once instead of the
+file slowly accumulating duplicate blocks.
+
+A pre-existing ``info/exclude`` saved with CRLF line endings keeps its own
+line endings; only the appended block is LF-only. git has been observed
+(on Windows, by a reviewer, with ``git status`` and ``git check-ignore``) to
+tolerate the mix. That has not been observed on Linux — say so rather than
+assuming the Windows result travels.
 """
 
 from __future__ import annotations
 
+import os
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
@@ -36,11 +61,30 @@ from .errors import ValidationError
 MARKER_START = "# >>> drunken-guild AI layer (DG-440) >>>"
 MARKER_END = "# <<< drunken-guild AI layer (DG-440) <<<"
 
+#: Stripped from every git subprocess this module runs. A caller's own
+#: process — `drunken-init` running inside a git hook, for instance — may
+#: have one of these set, pointing `git rev-parse` at a *different*
+#: repository than the `cwd` it is given. `GIT_INDEX_FILE`,
+#: `GIT_OBJECT_DIRECTORY` and `GIT_CEILING_DIRECTORIES` are not in this set:
+#: none of them redirect which repository `--git-path`/`--show-toplevel`
+#: resolve against the way these three do.
+_GIT_ENV_VARS_TO_STRIP: tuple[str, ...] = (
+    "GIT_DIR",
+    "GIT_COMMON_DIR",
+    "GIT_WORK_TREE",
+)
+
 
 class NotAGitRepositoryError(ValidationError):
     """*repo_root* is not a git repository (or git itself is unavailable)."""
 
     code = "not_a_git_repository"
+
+
+class MalformedExcludeBlockError(ValidationError):
+    """The exclude file already has an unmatched marker from this module."""
+
+    code = "malformed_exclude_block"
 
 
 @dataclass(frozen=True)
@@ -81,6 +125,37 @@ def default_ai_layer_patterns() -> tuple[str, ...]:
     return tuple(patterns)
 
 
+def _git_subprocess_env() -> dict[str, str]:
+    """A copy of the current environment with the git-redirecting vars gone.
+
+    See ``_GIT_ENV_VARS_TO_STRIP`` for which, and the module docstring for
+    why: inherited from the calling process rather than passed explicitly,
+    so they are exactly the kind of implicit, unnamed configuration this
+    codebase's own rules (``.claude/rules/python.md``) warn against trusting.
+    """
+    env = dict(os.environ)
+    for var in _GIT_ENV_VARS_TO_STRIP:
+        env.pop(var, None)
+    return env
+
+
+def _run_git(args: Sequence[str], repo_root: Path) -> subprocess.CompletedProcess[str]:
+    try:
+        return subprocess.run(
+            ["git", *args],
+            cwd=repo_root,
+            capture_output=True,
+            text=True,
+            check=False,
+            env=_git_subprocess_env(),
+        )
+    except OSError as exc:
+        raise NotAGitRepositoryError(
+            f"Could not run git ({' '.join(args)}) for {repo_root}: {exc}",
+            remediation="Install git and make sure it is on PATH.",
+        ) from exc
+
+
 def resolve_info_exclude_path(repo_root: Path) -> Path:
     """The ``info/exclude`` file git itself would read for *repo_root*.
 
@@ -90,35 +165,56 @@ def resolve_info_exclude_path(repo_root: Path) -> Path:
     and ``info/exclude`` is not even there — it is shared repository state
     that lives in the common dir. ``git rev-parse --git-path`` already knows
     this difference; assuming ``.git`` is a directory does not.
-    """
-    try:
-        result = subprocess.run(
-            ["git", "rev-parse", "--git-path", "info/exclude"],
-            cwd=repo_root,
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-    except OSError as exc:
-        raise NotAGitRepositoryError(
-            f"Could not run git to resolve info/exclude for {repo_root}: {exc}",
-            remediation="Install git and make sure it is on PATH.",
-        ) from exc
 
-    if result.returncode != 0:
+    Run with ``GIT_DIR``/``GIT_COMMON_DIR``/``GIT_WORK_TREE`` stripped from
+    the environment (see the module docstring), and cross-checked against
+    ``git rev-parse --show-toplevel`` run the same way: if git's own idea of
+    *repo_root*'s working-tree root is not ``repo_root`` itself, this refuses
+    rather than silently resolving into whatever repository git actually
+    found — a parent directory's, if one climbed past a `repo_root` that is
+    not a repository root on its own.
+    """
+    repo_root = Path(repo_root)
+
+    git_path_result = _run_git(["rev-parse", "--git-path", "info/exclude"], repo_root)
+    if git_path_result.returncode != 0:
         raise NotAGitRepositoryError(
             f"{repo_root} is not a git repository "
-            f"(git rev-parse --git-path failed: {result.stderr.strip()}).",
+            f"(git rev-parse --git-path failed: {git_path_result.stderr.strip()}).",
             remediation=(
                 "Run this inside a git clone or a git worktree, not a plain folder."
             ),
         )
 
-    git_path = result.stdout.strip()
+    git_path = git_path_result.stdout.strip()
     if not git_path:
         raise NotAGitRepositoryError(
             f"git reported no path for info/exclude in {repo_root}.",
             remediation="Run this inside a git clone or a git worktree.",
+        )
+
+    toplevel_result = _run_git(["rev-parse", "--show-toplevel"], repo_root)
+    if toplevel_result.returncode != 0 or not toplevel_result.stdout.strip():
+        raise NotAGitRepositoryError(
+            f"{repo_root} is not recognised as a git working tree "
+            f"(git rev-parse --show-toplevel failed: "
+            f"{toplevel_result.stderr.strip()}).",
+            remediation=(
+                "Run this inside a git clone or a git worktree, not a plain folder."
+            ),
+        )
+
+    reported_toplevel = Path(toplevel_result.stdout.strip()).resolve()
+    if reported_toplevel != repo_root.resolve():
+        raise NotAGitRepositoryError(
+            f"{repo_root} is not its own git working-tree root — git "
+            f"resolved it to {reported_toplevel} instead, which would mean "
+            "writing into a different repository's info/exclude.",
+            remediation=(
+                "Run this inside the actual repository or worktree root, and "
+                "check GIT_DIR/GIT_COMMON_DIR/GIT_WORK_TREE are not set to "
+                "point somewhere else."
+            ),
         )
 
     return (repo_root / git_path).resolve()
@@ -152,6 +248,21 @@ def exclude_ai_layer(
     existing_text = (
         exclude_path.read_text(encoding="utf-8") if exclude_path.exists() else ""
     )
+
+    start_count = existing_text.count(MARKER_START)
+    end_count = existing_text.count(MARKER_END)
+    if start_count != end_count:
+        raise MalformedExcludeBlockError(
+            f"{exclude_path} has {start_count} start marker(s) but "
+            f"{end_count} end marker(s) for this module's block — a "
+            "previous write may have been interrupted.",
+            remediation=(
+                f"Open {exclude_path} and fix the marker block by hand "
+                f"(matching pairs of {MARKER_START!r} / {MARKER_END!r}), "
+                "then run this again."
+            ),
+        )
+
     existing_lines = set(existing_text.splitlines())
 
     missing = tuple(p for p in resolved_patterns if p not in existing_lines)

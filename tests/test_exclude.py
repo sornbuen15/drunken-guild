@@ -262,3 +262,125 @@ class TestNeverWritesOutsideTheRepo:
         assert str(result.exclude_path.resolve()).startswith(str(git_dir)), (
             "the exclude file must live inside the resolved git directory"
         )
+
+
+class TestInheritedGitEnvironmentIsIgnored:
+    """A caller's own process (e.g. a git hook, or init running inside one)
+    may have GIT_DIR / GIT_COMMON_DIR / GIT_WORK_TREE set, pointing at a
+    completely different repository. `git rev-parse` honours those over the
+    cwd it is given, so a naive subprocess call resolves — and then writes
+    into — the *other* repository's info/exclude instead of repo_root's own.
+    """
+
+    def test_git_dir_pointing_elsewhere_does_not_redirect_a_real_repo(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        unrelated = _init_repo(tmp_path / "unrelated")
+        repo = _init_repo(tmp_path / "repo")
+        monkeypatch.setenv("GIT_DIR", str(unrelated / ".git"))
+
+        result = exclude.exclude_ai_layer(repo)
+
+        assert result.exclude_path == repo / ".git" / "info" / "exclude"
+        unrelated_exclude = unrelated / ".git" / "info" / "exclude"
+        unrelated_text = (
+            unrelated_exclude.read_text(encoding="utf-8")
+            if unrelated_exclude.exists()
+            else ""
+        )
+        assert exclude.MARKER_START not in unrelated_text, (
+            "the unrelated repo picked up by a leaked GIT_DIR must not be written to"
+        )
+
+    def test_git_common_dir_pointing_elsewhere_does_not_redirect_a_real_repo(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        unrelated = _init_repo(tmp_path / "unrelated")
+        repo = _init_repo(tmp_path / "repo")
+        monkeypatch.setenv("GIT_COMMON_DIR", str(unrelated / ".git"))
+
+        result = exclude.exclude_ai_layer(repo)
+
+        assert result.exclude_path == repo / ".git" / "info" / "exclude"
+
+    def test_git_dir_pointing_elsewhere_still_refuses_a_non_repo_folder(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        unrelated = _init_repo(tmp_path / "unrelated")
+        not_a_repo = tmp_path / "not-a-repo"
+        not_a_repo.mkdir()
+        monkeypatch.setenv("GIT_DIR", str(unrelated / ".git"))
+
+        with pytest.raises(DrunkenError):
+            exclude.exclude_ai_layer(not_a_repo)
+
+        unrelated_exclude = unrelated / ".git" / "info" / "exclude"
+        unrelated_text = (
+            unrelated_exclude.read_text(encoding="utf-8")
+            if unrelated_exclude.exists()
+            else ""
+        )
+        assert exclude.MARKER_START not in unrelated_text, (
+            "a non-repo folder must raise, never fall through to a repo "
+            "found only via a leaked GIT_DIR"
+        )
+        assert not (not_a_repo / ".git").exists()
+
+    def test_git_common_dir_pointing_elsewhere_still_refuses_a_non_repo_folder(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        unrelated = _init_repo(tmp_path / "unrelated")
+        not_a_repo = tmp_path / "not-a-repo"
+        not_a_repo.mkdir()
+        monkeypatch.setenv("GIT_COMMON_DIR", str(unrelated / ".git"))
+
+        with pytest.raises(DrunkenError):
+            exclude.exclude_ai_layer(not_a_repo)
+
+        unrelated_exclude = unrelated / ".git" / "info" / "exclude"
+        unrelated_text = (
+            unrelated_exclude.read_text(encoding="utf-8")
+            if unrelated_exclude.exists()
+            else ""
+        )
+        assert exclude.MARKER_START not in unrelated_text
+
+
+class TestMalformedExcludeBlockIsRefused:
+    """A marker block interrupted mid-write (process killed between the
+    start marker and the end marker) must never be silently appended a
+    second time — that is how a non-atomic writer accumulates duplicate
+    blocks. It must be named and refused instead.
+    """
+
+    def test_start_marker_without_end_marker_raises(self, tmp_path: Path) -> None:
+        repo = _init_repo(tmp_path / "repo")
+        info_dir = repo / ".git" / "info"
+        info_dir.mkdir(parents=True, exist_ok=True)
+        exclude_path = info_dir / "exclude"
+        exclude_path.write_text(
+            f"*.pyc\n{exclude.MARKER_START}\n/CLAUDE.md\n", encoding="utf-8"
+        )
+
+        with pytest.raises(DrunkenError):
+            exclude.exclude_ai_layer(repo)
+
+        # The realistic mutation this guards against: an implementation
+        # that only counts missing *patterns* (not markers) would treat
+        # /CLAUDE.md as already present and the file as fine, then append
+        # a second start marker the next time a new pattern was added —
+        # proving the file was never actually validated.
+        text = exclude_path.read_text(encoding="utf-8")
+        assert text.count(exclude.MARKER_START) == 1, (
+            "a failed call must not have appended anything at all"
+        )
+
+    def test_end_marker_without_start_marker_raises(self, tmp_path: Path) -> None:
+        repo = _init_repo(tmp_path / "repo")
+        info_dir = repo / ".git" / "info"
+        info_dir.mkdir(parents=True, exist_ok=True)
+        exclude_path = info_dir / "exclude"
+        exclude_path.write_text(f"/CLAUDE.md\n{exclude.MARKER_END}\n", encoding="utf-8")
+
+        with pytest.raises(DrunkenError):
+            exclude.exclude_ai_layer(repo)
