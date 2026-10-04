@@ -16,6 +16,15 @@ NC='\033[0m'
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 LOCAL_SKILLS_DIR="$PROJECT_ROOT/skills"
+
+# An empty or unset $HOME must refuse outright, not resolve to
+# ".claude/skills" relative to wherever the shell happens to be — that is how
+# a run from the wrong directory could touch an unintended tree instead of
+# failing loudly (DG-359 review finding #3).
+if [ -z "${HOME:-}" ]; then
+  echo -e "${RED}\$HOME is empty or unset. Refusing to guess an install target.${NC}" >&2
+  exit 1
+fi
 GLOBAL_SKILLS_DIR="$HOME/.claude/skills"
 
 # --index-only rebuilds the repository's INDEX.md and writes nothing else --
@@ -30,12 +39,21 @@ GLOBAL_SKILLS_DIR="$HOME/.claude/skills"
 # removed nothing: after the 2.0.0 re-scope, 34 retired skill directories
 # stayed installed beside the 11 this repository ships. "An agent does not
 # delete" (CLAUDE.md) applies here too, least of all in the operator's home,
-# so removal is opt-in and dry-run by default:
+# so removal is opt-in, dry-run by default, and -- after review finding #1 --
+# restricted to names this repository actually knows are retired:
 #   (no flag)            -- unchanged: report extras, remove nothing
-#   --prune               -- list what would be removed, remove nothing
-#   --prune --prune-apply -- remove exactly what --prune listed
+#   --prune               -- list what --prune-apply would remove, remove nothing
+#   --prune --prune-apply -- remove ONLY orphans listed on
+#                            scripts/install/retired_skills.txt; anything
+#                            else unshipped is reported "unrecognised" and
+#                            never removed, because an unshipped directory is
+#                            not proof it is safe to delete -- a hand-written,
+#                            never-shipped skill was deleted by the first cut
+#                            of this feature, which pruned any orphan.
 # --prune-apply alone (without --prune) is refused: nothing decides to delete
-# without first being told what it would delete.
+# without first being told what it would delete. A symlink is never followed
+# or removed, listed or applied: `-L` on the target is checked before every
+# `rm -rf`.
 INDEX_ONLY=false
 PRUNE=false
 PRUNE_APPLY=false
@@ -236,22 +254,51 @@ echo ""
 echo -e "${GREEN}Done.${NC} $NEW_COUNT new  |  $UPDATED_COUNT updated"
 echo -e "  INDEX.md: $INDEX_FILE"
 
-# Anything installed that this repo does not produce. Reported, never deleted:
-# removing is the operator's call, and a stale skill still being offered to
-# every session is worth knowing about either way.
+# Anything installed that this repo does not produce. Reported, never deleted
+# unless it is on RETIRED_FILE and --prune-apply is the operator's own choice:
+# a stale skill still being offered to every session is worth knowing about
+# either way, but "not ours" is not the same claim as "safe to delete" --
+# that was DG-359 review finding #1, confirmed by reproduction: the first cut
+# of this pruned ANY unshipped directory and deleted a hand-written skill
+# that had never been this repository's to begin with.
 #
 # skills/.external lists third-party skills that legitimately have no source
 # here, so they are not named every run.
 EXTERNAL_FILE="$LOCAL_SKILLS_DIR/.external"
-# `while read` here, not `xargs -n1 basename`: some xargs implementations
-# (observed with MSYS's on Windows) still invoke the command once, with no
-# operand, on zero input, rather than running it zero times — on a clean
-# install with nothing to report, `basename: missing operand` then failed
-# under `set -o pipefail` right where nothing was wrong at all.
-_installed=$(while IFS= read -r f; do basename "$(dirname "$f")"; done \
-  < <(find "$GLOBAL_SKILLS_DIR" -mindepth 2 -maxdepth 2 -name "SKILL.md") | sort -u)
-_ours=$(while IFS= read -r f; do basename "$(dirname "$f")"; done \
-  < <(find "$LOCAL_SKILLS_DIR" -type f -name "SKILL.md") | sort -u)
+RETIRED_FILE="$SCRIPT_DIR/retired_skills.txt"
+
+# `find -print0` / `read -d ''`, not line-based reading: a directory name
+# carrying a literal newline would otherwise split into two apparent entries
+# downstream, in a part of the script whose output decides what gets deleted
+# (DG-359 review finding #3). Not `xargs -n1 basename` either: some xargs
+# implementations (observed with MSYS's on Windows) still invoke the command
+# once, with no operand, on zero input, rather than running it zero times --
+# on a clean install with nothing to report, `basename: missing operand`
+# then failed under `set -o pipefail` right where nothing was wrong at all.
+# A plain `find -mindepth 2 -name SKILL.md` never descends into a symlinked
+# top-level entry (GNU find does not follow a symlink encountered during
+# descent without `-L`), so a skill name that is actually a symlink to
+# somewhere else would be invisible here -- never counted as installed,
+# never reported, never reaching the link-skip check below at all.
+# Confirmed by reproduction: a real symlink built this way was silently
+# absent from every list this script prints (DG-359 review finding #2).
+# Scanning top-level entries directly, and deciding per entry, is what makes
+# a symlink visible to the orphan/retire classification so it can be
+# reported and explicitly skipped rather than silently ignored.
+_installed=$(
+  while IFS= read -r -d '' entry; do
+    _name="$(basename "$entry")"
+    if [ -L "$entry" ] || [ -f "$entry/SKILL.md" ]; then
+      printf '%s\n' "$_name"
+    fi
+  done < <(find "$GLOBAL_SKILLS_DIR" -mindepth 1 -maxdepth 1 -print0) \
+    | sort -u
+)
+_ours=$(
+  while IFS= read -r -d '' f; do basename "$(dirname "$f")"; done \
+    < <(find "$LOCAL_SKILLS_DIR" -type f -name "SKILL.md" -print0) \
+    | sort -u
+)
 # `grep -vE` exits 1 when every line is a comment or blank — true today, since
 # .external lists no name yet — and under `set -e` that killed the script
 # right after printing "Done.", before this whole orphan/prune section ever
@@ -259,43 +306,90 @@ _ours=$(while IFS= read -r f; do basename "$(dirname "$f")"; done \
 # whose "found nothing" is ordinary, not a failure.
 _external=""
 [ -f "$EXTERNAL_FILE" ] && _external=$(grep -vE '^\s*(#|$)' "$EXTERNAL_FILE" | sort -u || true)
+_retired_listed=""
+[ -f "$RETIRED_FILE" ] && _retired_listed=$(grep -vE '^\s*(#|$)' "$RETIRED_FILE" | tr -d '\r' | sort -u || true)
+# A name can be on the tracked retired list and also be shipped today under
+# plugins/drunken-extras/skills/ -- the list is not proof against drift
+# either. Whatever is currently shipped there wins over "retired": this must
+# never be able to delete a skill the guild still ships under another
+# surface, the same rule doctor's `_check_ai_layer` applies.
+EXTRAS_DIR="$PROJECT_ROOT/plugins/drunken-extras/skills"
+_extras=""
+if [ -d "$EXTRAS_DIR" ]; then
+  _extras=$(
+    while IFS= read -r -d '' f; do basename "$(dirname "$f")"; done \
+      < <(find "$EXTRAS_DIR" -mindepth 2 -maxdepth 2 -name "SKILL.md" -print0) \
+      | sort -u
+  )
+fi
+_retired=$(comm -23 <(printf '%s\n' "$_retired_listed" | sort -u) <(printf '%s\n' "$_extras" | sort -u))
 
 _orphans=$(comm -23 <(echo "$_installed") <(printf '%s\n%s\n' "$_ours" "$_external" | sort -u))
 if [ -n "$_orphans" ]; then
   echo ""
+  # Split what is not ours into what the tracked list says is retired (the
+  # only names --prune-apply may ever remove) and everything else, which is
+  # reported but never removed automatically -- it might be a hand-written
+  # skill with no relationship to this repository at all.
+  _retired_orphans=$(comm -12 <(echo "$_orphans") <(printf '%s\n' "$_retired" | sort -u))
+  _unrecognised_orphans=$(comm -23 <(echo "$_orphans") <(printf '%s\n' "$_retired" | sort -u))
+
   if [ "$PRUNE" = true ]; then
     if [ "$PRUNE_APPLY" = true ]; then
-      echo -e "${YELLOW}Removing (--prune-apply):${NC}"
+      echo -e "${YELLOW}Removing (--prune-apply) -- retired, on $RETIRED_FILE:${NC}"
     else
-      echo -e "${YELLOW}Would remove (--prune, dry run):${NC}"
+      echo -e "${YELLOW}Would remove (--prune, dry run) -- retired, on $RETIRED_FILE:${NC}"
     fi
-    while IFS= read -r _name; do
-      [ -z "$_name" ] && continue
-      _target="$GLOBAL_SKILLS_DIR/$_name"
-      echo "  $_target"
-      if [ "$PRUNE_APPLY" = true ]; then
-        rm -rf -- "$_target"
-      fi
-    done <<< "$_orphans"
+    if [ -n "$_retired_orphans" ]; then
+      while IFS= read -r _name; do
+        [ -z "$_name" ] && continue
+        _target="$GLOBAL_SKILLS_DIR/$_name"
+        # Never follow or remove a link. `-L` is true for a symlink to
+        # anything, present or not; a reparse point that is a Windows
+        # junction is covered by the `.ps1` installer's own
+        # `ReparsePoint` check, since `[ -L ]` does not reliably see a
+        # junction from this shell (DG-359 review finding #2).
+        if [ -L "$_target" ]; then
+          echo "  $_target (link, not touched)"
+          continue
+        fi
+        echo "  $_target"
+        if [ "$PRUNE_APPLY" = true ]; then
+          rm -rf -- "$_target"
+        fi
+      done <<< "$_retired_orphans"
+    else
+      echo "  (none)"
+    fi
     if [ "$PRUNE_APPLY" = true ]; then
       echo -e "  Removed. The operator chose --prune-apply; nothing here decided on its own."
     else
       echo -e "  Nothing removed. Re-run with --prune --prune-apply to remove these."
     fi
+    if [ -n "$_unrecognised_orphans" ]; then
+      echo ""
+      echo -e "${YELLOW}Unrecognised, never pruned automatically:${NC}"
+      echo "$_unrecognised_orphans" | sed 's|^|  ~/.claude/skills/|'
+      echo -e "  Add to skills/.external if it is yours, or to $RETIRED_FILE if it is retired."
+    fi
   else
     echo -e "${YELLOW}Installed but not produced here:${NC}"
     echo "$_orphans" | sed 's|^|  ~/.claude/skills/|'
-    echo -e "  Left in place. Add to skills/.external if intended, or remove with --prune (lists) / --prune --prune-apply (removes)."
+    echo -e "  Left in place. Add to skills/.external if intended. --prune lists what --prune --prune-apply would remove -- only names on $RETIRED_FILE, never anything else."
   fi
 fi
 
 # Group directories from an older sync that copied the tree instead of
 # flattening it. This script installs by basename and can never create one, so
 # anything shaped like a group is a leftover holding a frozen old copy.
-# `while read`, not `xargs -n1 basename` — see the comment above `_installed`.
-_groups=$(while IFS= read -r d; do basename "$d"; done \
-  < <(find "$GLOBAL_SKILLS_DIR" -mindepth 1 -maxdepth 1 -type d \
-      '!' -exec test -e "{}/SKILL.md" ';' -print) | sort)
+# `-print0` / `read -d ''`, not `xargs -n1 basename` — see the comment above
+# `_installed`.
+_groups=$(
+  while IFS= read -r -d '' d; do basename "$d"; done \
+    < <(find "$GLOBAL_SKILLS_DIR" -mindepth 1 -maxdepth 1 -type d \
+        '!' -exec test -e "{}/SKILL.md" ';' -print0) \
+    | sort
+)
 if [ -n "$_groups" ]; then
   echo ""
   echo -e "${YELLOW}Leftover group directories from an older sync:${NC}"

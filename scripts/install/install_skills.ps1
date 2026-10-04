@@ -5,11 +5,21 @@
 # consistent across both installers. This script copied skills in and
 # removed nothing -- an install left retired skill directories installed
 # beside the ones this repository ships, and nothing ever reported them on
-# Windows at all. Removal is opt-in and dry-run by default:
+# Windows at all. Removal is opt-in, dry-run by default, and -- after review
+# finding #1 -- restricted to names this repository actually knows are
+# retired:
 #   (no switch)              -- unchanged: nothing reported, nothing removed
-#   -Prune                    -- list what would be removed, remove nothing
-#   -Prune -PruneApply        -- remove exactly what -Prune listed
-# -PruneApply alone (without -Prune) is refused.
+#   -Prune                    -- list what -PruneApply would remove, remove nothing
+#   -Prune -PruneApply        -- remove ONLY orphans listed on
+#                                scripts/install/retired_skills.txt; anything
+#                                else unshipped is reported "unrecognised" and
+#                                never removed -- an unshipped directory is
+#                                not proof it is safe to delete. The first cut
+#                                of this feature pruned any orphan and deleted
+#                                a hand-written, never-shipped skill.
+# -PruneApply alone (without -Prune) is refused. A reparse point (symlink or
+# junction) is never followed or removed, listed or applied: its Attributes
+# are checked before every Remove-Item (review finding #2).
 #
 # -IndexOnly rebuilds the repository's skills/INDEX.md and writes nothing
 # else -- not to ~/.claude, not to any target. It is the switch safe for an
@@ -55,12 +65,25 @@ if ($PruneApply -and -not $Prune) {
     exit 1
 }
 
+# An empty or unset $HOME must refuse outright, not resolve to a path
+# relative to wherever the process happens to be -- that is how a run could
+# touch an unintended tree instead of failing loudly (DG-359 review finding
+# #3). PowerShell's own $HOME falls back to $env:USERPROFILE when unset, so
+# both are checked explicitly.
+if ([string]::IsNullOrWhiteSpace($HOME) -and [string]::IsNullOrWhiteSpace($env:USERPROFILE)) {
+    Write-Host "`$HOME and `$env:USERPROFILE are both empty or unset. Refusing to guess an install target." -ForegroundColor Red
+    exit 1
+}
+
 $ScriptDir       = $PSScriptRoot
+$ProjectRoot     = Resolve-Path (Join-Path $ScriptDir "..\..")
 $LocalSkillsDir  = Resolve-Path (Join-Path $ScriptDir "..\..\skills")
 $GlobalSkillsDir = Join-Path $HOME ".claude\skills"
 $IndexFile       = Join-Path $GlobalSkillsDir "INDEX.md"
 $LocalIndex      = Join-Path $LocalSkillsDir "INDEX.md"
 $ExternalFile    = Join-Path $LocalSkillsDir ".external"
+$RetiredFile     = Join-Path $ScriptDir "retired_skills.txt"
+$ExtrasDir       = Join-Path $ProjectRoot "plugins\drunken-extras\skills"
 
 Write-Host "=================================================" -ForegroundColor Blue
 Write-Host "   Claude Agentic Skills Synchronizer           " -ForegroundColor Blue
@@ -283,8 +306,10 @@ Write-Host "  INDEX.md regenerated: $IndexFile"
 Write-Host "  INDEX.md mirrored:    $LocalIndex"
 
 # Anything installed that this repo does not produce. Reported, never deleted
-# unless -Prune / -PruneApply says so -- DG-359, ported from install_skills.sh
-# so the two installers agree about what "installed but not ours" means.
+# unless it is on $RetiredFile and -PruneApply is the operator's own choice --
+# DG-359, ported from install_skills.sh so the two installers agree about
+# both what "installed but not ours" means and what is actually safe to
+# remove (review finding #1: "not ours" is not the same claim as "retired").
 $Ours = @($SkillFiles | ForEach-Object { Split-Path -Leaf $_.DirectoryName })
 $External = @()
 if (Test-Path $ExternalFile) {
@@ -296,6 +321,29 @@ if (Test-Path $ExternalFile) {
 }
 $Known = @($Ours + $External)
 
+# Names on $RetiredFile that are shipped today under
+# plugins/drunken-extras/skills/ are shipped, not retired -- the list is not
+# proof against drift either, and "currently shipped elsewhere" must win
+# over "on the retired list", the same rule doctor's `_check_ai_layer` and
+# install_skills.sh apply.
+$RetiredListed = @()
+if (Test-Path $RetiredFile) {
+    $RetiredListed = @(
+        Get-Content -LiteralPath $RetiredFile -Encoding UTF8 |
+            ForEach-Object { $_.TrimEnd("`r") } |
+            Where-Object { $_ -match '\S' -and $_ -notmatch '^\s*#' } |
+            ForEach-Object { $_.Trim() }
+    )
+}
+$Extras = @()
+if (Test-Path $ExtrasDir) {
+    $Extras = @(
+        Get-ChildItem -Path $ExtrasDir -Filter "SKILL.md" -Recurse |
+            ForEach-Object { Split-Path -Leaf $_.DirectoryName }
+    )
+}
+$Retired = @($RetiredListed | Where-Object { $Extras -notcontains $_ })
+
 $Installed = @(
     Get-ChildItem -Path $GlobalSkillsDir -Directory |
         Where-Object { Test-Path (Join-Path $_.FullName "SKILL.md") } |
@@ -305,29 +353,54 @@ $Orphans = @($Installed | Where-Object { $Known -notcontains $_ } | Sort-Object)
 
 if ($Orphans.Count -gt 0) {
     Write-Host ""
+    $RetiredOrphans      = @($Orphans | Where-Object { $Retired -contains $_ })
+    $UnrecognisedOrphans = @($Orphans | Where-Object { $Retired -notcontains $_ })
+
     if ($Prune) {
         if ($PruneApply) {
-            Write-Host "Removing (-PruneApply):" -ForegroundColor Yellow
+            Write-Host "Removing (-PruneApply) -- retired, on ${RetiredFile}:" -ForegroundColor Yellow
         } else {
-            Write-Host "Would remove (-Prune, dry run):" -ForegroundColor Yellow
+            Write-Host "Would remove (-Prune, dry run) -- retired, on ${RetiredFile}:" -ForegroundColor Yellow
         }
-        foreach ($name in $Orphans) {
-            $target = Join-Path $GlobalSkillsDir $name
-            Write-Host "  $target"
-            if ($PruneApply) {
-                Remove-Item -LiteralPath $target -Recurse -Force
+        if ($RetiredOrphans.Count -gt 0) {
+            foreach ($name in $RetiredOrphans) {
+                $target = Join-Path $GlobalSkillsDir $name
+                # Never follow or remove a link. A reparse point covers both
+                # a symlink and a Windows junction -- `Remove-Item -Recurse`
+                # on one has a history of recursing into the TARGET's
+                # contents rather than removing the link itself (review
+                # finding #2).
+                $item = Get-Item -LiteralPath $target -Force
+                if ($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) {
+                    Write-Host "  $target (link, not touched)"
+                    continue
+                }
+                Write-Host "  $target"
+                if ($PruneApply) {
+                    Remove-Item -LiteralPath $target -Recurse -Force
+                }
             }
+        } else {
+            Write-Host "  (none)"
         }
         if ($PruneApply) {
             Write-Host "  Removed. The operator chose -PruneApply; nothing here decided on its own."
         } else {
             Write-Host "  Nothing removed. Re-run with -Prune -PruneApply to remove these."
         }
+        if ($UnrecognisedOrphans.Count -gt 0) {
+            Write-Host ""
+            Write-Host "Unrecognised, never pruned automatically:" -ForegroundColor Yellow
+            foreach ($name in $UnrecognisedOrphans) {
+                Write-Host "  $(Join-Path $GlobalSkillsDir $name)"
+            }
+            Write-Host "  Add to skills/.external if it is yours, or to $RetiredFile if it is retired."
+        }
     } else {
         Write-Host "Installed but not produced here:" -ForegroundColor Yellow
         foreach ($name in $Orphans) {
             Write-Host "  $(Join-Path $GlobalSkillsDir $name)"
         }
-        Write-Host "  Left in place. Add to skills/.external if intended, or remove with -Prune (lists) / -Prune -PruneApply (removes)."
+        Write-Host "  Left in place. Add to skills/.external if intended. -Prune lists what -Prune -PruneApply would remove -- only names on $RetiredFile, never anything else."
     }
 }

@@ -787,6 +787,34 @@ def external_skill_names(root: Path) -> set[str]:
     return names
 
 
+#: Relative to the repository root. The single list both installers and this
+#: module read, so "retired" means one thing everywhere (DG-359 review
+#: finding #1).
+RETIRED_SKILLS_FILE: Final = "scripts/install/retired_skills.txt"
+
+
+def retired_skill_names(root: Path) -> set[str]:
+    """Names on ``scripts/install/retired_skills.txt`` — the *only* names an
+    install script's ``--prune-apply`` may ever remove.
+
+    Comments (``#``) and blank lines are skipped; ``\\r`` is stripped so a
+    CRLF checkout parses identically to an LF one. **Never** returns a name
+    that :func:`repo_skills` also returns — a retired name must not be able
+    to delete something the guild still ships; that invariant is asserted in
+    ``tests/test_install_prune.py``, not enforced here, because this function
+    answers "what does the list say", not "is the list sane".
+    """
+    list_file = root / RETIRED_SKILLS_FILE
+    if not list_file.is_file():
+        return set()
+    names = set()
+    for raw_line in list_file.read_text(encoding="utf-8").splitlines():
+        stripped = raw_line.strip("\r").strip()
+        if stripped and not stripped.startswith("#"):
+            names.add(stripped)
+    return names
+
+
 def compare_ai_layer(root: Path, install_root: Path) -> dict[str, list[str]]:
     """Which of the repository's skills are absent, different, or extra at
     *install_root*.
@@ -873,6 +901,11 @@ def _check_ai_layer(report: Report, root: Optional[Path] = None) -> None:
     total = len(repo_skills(root))
     moved = extras_skill_names(root)
     external = external_skill_names(root)
+    # A name on the retired list that has since reappeared under `skills/` or
+    # `plugins/drunken-extras/skills/` is shipped again, by whichever surface
+    # claims it — `moved`/`ours` always wins over "retired", so this check
+    # never calls something the guild currently ships prunable.
+    retired = retired_skill_names(root) - moved - set(repo_skills(root))
     for name, raw in AI_LAYER_ROOTS:
         install_root = Path(raw).expanduser()
         if not install_root.is_dir():
@@ -883,7 +916,10 @@ def _check_ai_layer(report: Report, root: Optional[Path] = None) -> None:
         missing, drifted = result["missing"], result["drifted"]
         extra = [e for e in result["extra"] if e not in external]
         extra_moved = sorted(e for e in extra if e in moved)
-        extra_retired = sorted(e for e in extra if e not in moved)
+        extra_retired = sorted(e for e in extra if e not in moved and e in retired)
+        extra_unrecognised = sorted(
+            e for e in extra if e not in moved and e not in retired
+        )
 
         if not missing and not drifted and not extra:
             report.add(
@@ -915,9 +951,16 @@ def _check_ai_layer(report: Report, root: Optional[Path] = None) -> None:
             )
         if extra_retired:
             parts.append(
-                f"{len(extra_retired)} installed but not shipped — retired or "
-                f"unrecognised ({', '.join(extra_retired[:4])}"
+                f"{len(extra_retired)} retired, will be pruned "
+                f"({', '.join(extra_retired[:4])}"
                 + (", …" if len(extra_retired) > 4 else "")
+                + ")"
+            )
+        if extra_unrecognised:
+            parts.append(
+                f"{len(extra_unrecognised)} unrecognised, never pruned "
+                f"({', '.join(extra_unrecognised[:4])}"
+                + (", …" if len(extra_unrecognised) > 4 else "")
                 + ")"
             )
         report.add(
@@ -925,8 +968,11 @@ def _check_ai_layer(report: Report, root: Optional[Path] = None) -> None:
             "warn",
             "; ".join(parts)
             + ". Run scripts/install/install_skills.sh — an install is the "
-            "operator's to run, and pruning is opt-in (--prune to list, "
-            "--prune-apply to remove).",
+            "operator's to run, and pruning is opt-in and list-only by "
+            "default (--prune to list, --prune --prune-apply to remove only "
+            "the retired ones). An unrecognised name is never pruned "
+            "automatically — add it to skills/.external if it is yours, or "
+            "to scripts/install/retired_skills.txt if it is retired.",
         )
 
 

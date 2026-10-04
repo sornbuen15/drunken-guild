@@ -1,0 +1,48 @@
+# DG-359. The only names `--prune --prune-apply` / `-Prune -PruneApply` may
+# ever remove from an install: skills this repository shipped once and
+# withdrew, named in RETIRED.md. One name per line; `#` and blank lines are
+# comments. Anything installed but NOT on this list is reported as
+# "unrecognised" and is never pruned automatically — it might be a hand-
+# written skill that has nothing to do with this repository at all, and a
+# prune step that cannot tell the difference is the defect this ticket
+# exists to fix (DG-359 review finding #1).
+#
+# Measured by the Boss against the 2.0.0 re-scope: exactly these 34 skill
+# directories stayed installed after the groups that retired them merged.
+# A name here must never also be a currently shipped skill under skills/ —
+# tests/test_install_prune.py asserts that directly, so this list can never
+# be used to delete something the guild still ships.
+acronym-namer
+ai-output
+anti-regression
+audit-to-backlog
+backlog-refinement
+business-telemetry
+clean-architecture
+cloud-native
+confluence-sync
+core-engineering
+debug-mantra
+electron-ipc-protocol
+incident-response
+issue-intake
+local-progress-reporter
+management-talk
+post-mortem
+product-midset
+project-audit-reviewer
+project-hygiene
+release-notes-writer
+scrutinize
+secure-by-design
+servant-leadership
+spec-to-backlog
+standard-playbook-generator
+system-design-rules
+task-estimation
+test-architecture
+test-report-generator
+test-strategy
+universal-ui
+universal-ux
+zero-defect-mindset
