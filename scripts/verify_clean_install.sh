@@ -102,6 +102,58 @@ python_version="$("$BIN/python" -c 'import sys;print(".".join(map(str,sys.versio
 echo "        python $python_version"
 
 # ---------------------------------------------------------------------------
+say "0b. The wheel ships only what it declares"
+# ---------------------------------------------------------------------------
+# DG-363. A stale, gitignored build/lib/ left over from before a module was
+# retired gets copied wholesale into a wheel built with `--wheel`: that flag
+# skips the sdist step and builds in place from the source tree, so
+# setuptools' install_lib copies whatever is sitting in build/lib/ regardless
+# of what is declared today.
+#
+# Plain `uv build` (sdist, then wheel built from a *fresh copy* of it) does
+# NOT see this -- the sdist never contains the stale, gitignored build/lib/
+# in the first place, so it reports a false "clean" on exactly the tree this
+# step exists to catch. A review of this script's first version caught it
+# doing exactly that; `--wheel` is required, not a preference.
+#
+# Built from a COPY under $WORK, never from $REPO directly -- `--wheel`
+# writes build/lib/ and *.egg-info into whatever directory it runs in, and
+# this step must leave the operator's real checkout untouched. The copy
+# starts from $SOURCE (already a git-archive export of HEAD, built above)
+# plus $REPO's own build/ directory if one exists, so a locally-stale
+# build/lib/ is exactly what gets exercised.
+if [ "$SOURCE" = "$REPO" ]; then
+  # The git-archive export above failed, same as the install step's own
+  # fallback. Building `--wheel` directly in $REPO would write build/lib/
+  # and *.egg-info into the operator's real checkout, so this step is
+  # skipped rather than risking that -- same choice section 0 already made.
+  bad "skipped: no HEAD export to build the wheel from"
+else
+  wheel_source="$SOURCE"
+  if [ -d "$REPO/build" ]; then
+    cp -r "$REPO/build" "$wheel_source/build" 2>/dev/null
+  fi
+
+  wheel_dir="$WORK/wheel"
+  mkdir -p "$wheel_dir"
+  build_log="$(cd "$wheel_source" && uv build --wheel --out-dir "$wheel_dir" 2>&1)"
+  wheel_file="$(ls "$wheel_dir"/*.whl 2>/dev/null | head -n1)"
+
+  if [ -z "$wheel_file" ]; then
+    bad "wheel build failed"
+    printf '%s\n' "$build_log" | tail -n 12
+  else
+    contents_out="$("$BIN/python" "$REPO/scripts/check_wheel_contents.py" "$wheel_file" 2>&1)"
+    if [ $? -eq 0 ]; then
+      ok "wheel ships only its declared top-level modules"
+    else
+      bad "wheel ships an undeclared module"
+      printf '%s\n' "$contents_out"
+    fi
+  fi
+fi
+
+# ---------------------------------------------------------------------------
 say "1. Nothing configured — does it explain itself?"
 # ---------------------------------------------------------------------------
 out="$(clean_run "$BIN/drunken-doctor")"
