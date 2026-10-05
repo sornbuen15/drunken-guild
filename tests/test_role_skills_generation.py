@@ -105,17 +105,19 @@ class TestRegeneratingMatchesCommittedBytes:
         description changes, but nobody reran the generator, so the
         committed adapter now disagrees with its own source."""
         skills_copy = tmp_path / "skills"
-        skills_copy.mkdir()
-        (skills_copy / "roles").mkdir()
         import shutil
 
-        shutil.copytree(
-            SKILLS_ROOT / "roles" / "worker", skills_copy / "roles" / "worker"
-        )
+        shutil.copytree(SKILLS_ROOT / "roles", skills_copy / "roles")
         skill_md = skills_copy / "roles" / "worker" / "SKILL.md"
+        # The mutation has to land in the frontmatter `description:` --
+        # that is the only part of the skill the generator copies into the
+        # adapter. A change to the body prose (the role's own rules) is
+        # real, but it would not move `agents/worker.md`'s bytes at all,
+        # which is a different, correct claim this test must not conflate
+        # with "the mutation did nothing".
         skill_md.write_text(
             skill_md.read_text(encoding="utf-8").replace(
-                "pragmatic, polyglot engineer", "pragmatic, polyglot wizard"
+                "Any language, any framework", "Any language at all, any framework"
             ),
             encoding="utf-8",
         )
