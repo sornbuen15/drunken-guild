@@ -1414,3 +1414,247 @@ class TestTrackedInstructionFileRefusal:
 
         assert code == 1
         assert registry_path.read_bytes() == before
+
+
+class TestJiraBlockFromConfigRepo:
+    """DG-443: the Jira block can come from the config repo's own
+    `jira.json`, instead of `--jira-*` flags — credential as a reference
+    only, and no identity (`email`) in the config repo at all."""
+
+    def test_jira_block_is_read_from_the_config_repo_fragment(self, tmp_path) -> None:
+        checkout = _init_git_repo(tmp_path / "app")
+        config_repo = tmp_path / "config-repo"
+        project_folder = config_repo / "app"
+        project_folder.mkdir(parents=True)
+        (project_folder / "jira.json").write_text(
+            json.dumps(
+                {
+                    "url": "https://example.atlassian.net",
+                    "project_key": "ALPHA",
+                    "credential": "env://JIRA_TOKEN_ALPHA",
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        code = run(
+            "--project",
+            "app",
+            "--path",
+            str(checkout),
+            "--config-repo",
+            str(config_repo),
+        )
+
+        assert code == 0
+        jira = registry_contents(tmp_path)["projects"]["app"]["jira"]
+        assert jira == {
+            "url": "https://example.atlassian.net",
+            "project_key": "ALPHA",
+            "credential": "env://JIRA_TOKEN_ALPHA",
+        }
+
+    def test_an_email_key_in_the_jira_fragment_is_refused(self, tmp_path) -> None:
+        checkout = _init_git_repo(tmp_path / "app")
+        config_repo = tmp_path / "config-repo"
+        project_folder = config_repo / "app"
+        project_folder.mkdir(parents=True)
+        (project_folder / "jira.json").write_text(
+            json.dumps(
+                {
+                    "url": "https://example.atlassian.net",
+                    "project_key": "ALPHA",
+                    "credential": "env://JIRA_TOKEN_ALPHA",
+                    "email": "person@realcorp.test",
+                }
+            ),
+            encoding="utf-8",
+        )
+        registry_path = tmp_path / "state" / "projects.json"
+
+        code = run(
+            "--project",
+            "app",
+            "--path",
+            str(checkout),
+            "--config-repo",
+            str(config_repo),
+        )
+
+        assert code == 1
+        assert not registry_path.exists()
+
+    def test_a_literal_token_in_the_jira_fragment_credential_is_refused_before_any_write(
+        self, tmp_path
+    ) -> None:
+        checkout = _init_git_repo(tmp_path / "app")
+        config_repo = tmp_path / "config-repo"
+        project_folder = config_repo / "app"
+        project_folder.mkdir(parents=True)
+        bare_token = "ATATT" + "x" * 24
+        (project_folder / "jira.json").write_text(
+            json.dumps(
+                {
+                    "url": "https://example.atlassian.net",
+                    "project_key": "ALPHA",
+                    "credential": bare_token,
+                }
+            ),
+            encoding="utf-8",
+        )
+        registry_path = tmp_path / "state" / "projects.json"
+
+        code = run(
+            "--project",
+            "app",
+            "--path",
+            str(checkout),
+            "--config-repo",
+            str(config_repo),
+        )
+
+        assert code == 1
+        assert not registry_path.exists()
+
+    def test_a_token_shaped_url_field_in_the_jira_fragment_is_refused(
+        self, tmp_path
+    ) -> None:
+        checkout = _init_git_repo(tmp_path / "app")
+        config_repo = tmp_path / "config-repo"
+        project_folder = config_repo / "app"
+        project_folder.mkdir(parents=True)
+        stray_secret = "ghp_" + "a" * 36
+        (project_folder / "jira.json").write_text(
+            json.dumps(
+                {
+                    "url": f"https://example.atlassian.net/{stray_secret}",
+                    "project_key": "ALPHA",
+                    "credential": "env://JIRA_TOKEN_ALPHA",
+                }
+            ),
+            encoding="utf-8",
+        )
+        registry_path = tmp_path / "state" / "projects.json"
+
+        code = run(
+            "--project",
+            "app",
+            "--path",
+            str(checkout),
+            "--config-repo",
+            str(config_repo),
+        )
+
+        assert code == 1
+        assert not registry_path.exists()
+
+    def test_a_missing_jira_fragment_is_not_an_error(self, tmp_path) -> None:
+        checkout = _init_git_repo(tmp_path / "app")
+        config_repo = tmp_path / "config-repo"
+        project_folder = config_repo / "app"
+        project_folder.mkdir(parents=True)
+        (project_folder / "AGENTS.md").write_text("clean\n", encoding="utf-8")
+
+        code = run(
+            "--project",
+            "app",
+            "--path",
+            str(checkout),
+            "--config-repo",
+            str(config_repo),
+        )
+
+        assert code == 0
+        assert "jira" not in registry_contents(tmp_path)["projects"]["app"]
+
+    def test_a_malformed_jira_fragment_is_reported_not_silently_ignored(
+        self, tmp_path
+    ) -> None:
+        checkout = _init_git_repo(tmp_path / "app")
+        config_repo = tmp_path / "config-repo"
+        project_folder = config_repo / "app"
+        project_folder.mkdir(parents=True)
+        (project_folder / "jira.json").write_text("{not valid json", encoding="utf-8")
+        registry_path = tmp_path / "state" / "projects.json"
+
+        code = run(
+            "--project",
+            "app",
+            "--path",
+            str(checkout),
+            "--config-repo",
+            str(config_repo),
+        )
+
+        assert code == 1
+        assert not registry_path.exists()
+
+    def test_an_earlier_cli_written_jira_block_survives_a_config_repo_run_with_no_fragment(
+        self, tmp_path
+    ) -> None:
+        checkout = _init_git_repo(tmp_path / "app")
+        assert (
+            run(
+                "--project",
+                "app",
+                "--path",
+                str(checkout),
+                "--jira-url",
+                "https://example.atlassian.net",
+                "--jira-email",
+                "person@realcorp.test",
+                "--jira-project-key",
+                "ALPHA",
+                "--jira-credential",
+                "env://JIRA_TOKEN_ALPHA",
+            )
+            == 0
+        )
+        before = registry_contents(tmp_path)["projects"]["app"]["jira"]
+
+        config_repo = tmp_path / "config-repo"
+        project_folder = config_repo / "app"
+        project_folder.mkdir(parents=True)
+        (project_folder / "AGENTS.md").write_text("clean\n", encoding="utf-8")
+
+        code = run(
+            "--project",
+            "app",
+            "--config-repo",
+            str(config_repo),
+            "--overwrite-ai-layer",
+        )
+
+        assert code == 0
+        assert registry_contents(tmp_path)["projects"]["app"]["jira"] == before
+
+
+class TestContentScanRefusalBeforeAnyWriteEndToEnd:
+    """DG-443 review (comment 11482, decision 4): a config-repo content
+    refusal on a *new* project must leave the registry absent, not just
+    the project checkout untouched — the registry write happens strictly
+    after every validation, not before it."""
+
+    def test_a_content_scan_refusal_on_a_new_project_leaves_the_registry_absent(
+        self, tmp_path
+    ) -> None:
+        checkout = _init_git_repo(tmp_path / "app")
+        config_repo = tmp_path / "config-repo"
+        project_folder = config_repo / "app"
+        project_folder.mkdir(parents=True)
+        secret = "ghp_" + "a" * 36
+        (project_folder / "AGENTS.md").write_text(secret, encoding="utf-8")
+        registry_path = tmp_path / "state" / "projects.json"
+
+        code = run(
+            "--project",
+            "app",
+            "--path",
+            str(checkout),
+            "--config-repo",
+            str(config_repo),
+        )
+
+        assert code == 1
+        assert not registry_path.exists()
+        assert not (checkout / "AGENTS.md").exists()
