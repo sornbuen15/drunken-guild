@@ -677,7 +677,7 @@ class TestRunGitTimeout:
         repo_root = tmp_path / "repo"
         repo_root.mkdir()
 
-        with pytest.raises(exclude.NotAGitRepositoryError) as exc_info:
+        with pytest.raises(exclude.GitTimedOutError) as exc_info:
             exclude.run_git(["status"], repo_root, timeout=0.2)
 
         message = str(exc_info.value)
@@ -704,5 +704,77 @@ class TestRunGitTimeout:
         repo_root = tmp_path / "repo"
         repo_root.mkdir()
 
-        with pytest.raises(exclude.NotAGitRepositoryError):
+        with pytest.raises(exclude.GitTimedOutError):
             exclude.run_git(["status"], repo_root)  # no timeout passed at all
+
+    def test_git_timed_out_error_is_not_a_not_a_git_repository_error(self) -> None:
+        # The load-bearing property this whole review turn exists for
+        # (DG-454 review): a caller written as `except
+        # NotAGitRepositoryError` to mean "nothing here to protect" must
+        # NOT also, silently, catch a timeout that way.
+        assert not issubclass(exclude.GitTimedOutError, exclude.NotAGitRepositoryError)
+        assert issubclass(exclude.GitTimedOutError, exclude.GitCommandError)
+        assert issubclass(exclude.NotAGitRepositoryError, exclude.GitCommandError)
+
+
+class TestGitTimeoutEnvVarOverride:
+    """DG-454 review (MEDIUM): an operator whose checkout genuinely needs
+    longer than the 30s default (a large network filesystem, say) can say
+    so without editing source, via DRUNKEN_GIT_TIMEOUT. An invalid value
+    is ignored and falls back to the default — never read as "no limit"."""
+
+    def test_a_valid_override_is_used(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv(exclude.GIT_TIMEOUT_ENV_VAR, "0.2")
+        bin_dir = tmp_path / "fakebin"
+        _write_sleepy_git(bin_dir, sleep_seconds=2)
+        _prepend_to_path(monkeypatch, bin_dir)
+        repo_root = tmp_path / "repo"
+        repo_root.mkdir()
+
+        with pytest.raises(exclude.GitTimedOutError) as exc_info:
+            exclude.run_git(["status"], repo_root)  # no timeout passed at all
+
+        assert "0.2" in str(exc_info.value)
+
+    @pytest.mark.parametrize("raw", ["not-a-number", "", "abc"])
+    def test_an_invalid_value_is_ignored_not_treated_as_no_limit(
+        self, raw: str, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv(exclude.GIT_TIMEOUT_ENV_VAR, raw)
+        monkeypatch.setattr(exclude, "DEFAULT_GIT_TIMEOUT_SECONDS", 0.2)
+
+        assert exclude._resolve_default_git_timeout() == 0.2  # noqa: SLF001
+
+    @pytest.mark.parametrize("raw", ["0", "-1", "-0.5"])
+    def test_zero_or_negative_is_ignored_not_treated_as_no_limit(
+        self, raw: str, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv(exclude.GIT_TIMEOUT_ENV_VAR, raw)
+        monkeypatch.setattr(exclude, "DEFAULT_GIT_TIMEOUT_SECONDS", 0.2)
+
+        assert exclude._resolve_default_git_timeout() == 0.2  # noqa: SLF001
+
+    def test_unset_falls_back_to_the_default(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.delenv(exclude.GIT_TIMEOUT_ENV_VAR, raising=False)
+        monkeypatch.setattr(exclude, "DEFAULT_GIT_TIMEOUT_SECONDS", 7.0)
+
+        assert exclude._resolve_default_git_timeout() == 7.0  # noqa: SLF001
+
+    def test_the_remediation_names_the_env_var(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        bin_dir = tmp_path / "fakebin"
+        _write_sleepy_git(bin_dir, sleep_seconds=2)
+        _prepend_to_path(monkeypatch, bin_dir)
+        repo_root = tmp_path / "repo"
+        repo_root.mkdir()
+
+        with pytest.raises(exclude.GitTimedOutError) as exc_info:
+            exclude.run_git(["status"], repo_root, timeout=0.2)
+
+        assert exc_info.value.remediation is not None
+        assert exclude.GIT_TIMEOUT_ENV_VAR in exc_info.value.remediation

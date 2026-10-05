@@ -1794,7 +1794,7 @@ class TestCopyInRefusesWhenGitHangs:
         _write_sleepy_git(bin_dir, sleep_seconds=2)
         _prepend_sleepy_git_to_path(monkeypatch, bin_dir)
 
-        with pytest.raises(exclude.NotAGitRepositoryError):
+        with pytest.raises(exclude.GitTimedOutError):
             layer_copy.copy_ai_layer_in(
                 config_repo=config_repo,
                 project_id="sample",
@@ -1822,5 +1822,5 @@ class TestCopyInRefusesWhenGitHangs:
         _write_sleepy_git(bin_dir, sleep_seconds=2)
         _prepend_sleepy_git_to_path(monkeypatch, bin_dir)
 
-        with pytest.raises(exclude.NotAGitRepositoryError):
+        with pytest.raises(exclude.GitTimedOutError):
             layer_copy._has_staged_content(repo, "AGENTS.md")  # noqa: SLF001

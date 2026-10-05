@@ -102,6 +102,14 @@ _GIT_ENV_VAR_PREFIX = "GIT_"
 #: what happens when none is given.
 DEFAULT_GIT_TIMEOUT_SECONDS: Final[float] = 30.0
 
+#: Overrides :data:`DEFAULT_GIT_TIMEOUT_SECONDS` when set to a positive
+#: number of seconds (DG-454 review) — an operator whose checkout genuinely
+#: needs longer than 30s (a large network filesystem, say) can say so
+#: without editing source. Read fresh on every call needing the default
+#: (:func:`_resolve_default_git_timeout`), not cached at import time, so a
+#: test (or a caller) can change it between calls.
+GIT_TIMEOUT_ENV_VAR: Final[str] = "DRUNKEN_GIT_TIMEOUT"
+
 #: Set on every git subprocess this module runs, overriding whatever this
 #: process inherited (or had stripped, since it also starts with ``GIT_``)
 #: — never ``"1"``, the default a locally spawned git otherwise falls back
@@ -115,10 +123,45 @@ DEFAULT_GIT_TIMEOUT_SECONDS: Final[float] = 30.0
 _GIT_TERMINAL_PROMPT_KEY = "GIT_TERMINAL_PROMPT"
 
 
-class NotAGitRepositoryError(ValidationError):
+class GitCommandError(ValidationError):
+    """Base for every way :func:`run_git` can fail to answer at all —
+    see its two concrete subclasses below.
+
+    **Catch one of the two subclasses, never this base, unless "either
+    reason is the same to me" is actually true for the caller.** DG-454
+    review: :mod:`core.init`'s tracked-instruction-file refusal caught
+    ``NotAGitRepositoryError`` to mean "nothing to protect here" (correct:
+    a repository that does not exist cannot track anything) — and a prior
+    version of this change made a timeout raise that *same* exception,
+    which that catch then read the same way, so a hung git during the
+    refusal's own check silently answered "nothing tracked" for a file
+    that, in fact, was. A timeout is a question that went unanswered, not
+    evidence the repository does not exist, so it is its own subclass
+    (:class:`GitTimedOutError`) that a narrow ``except
+    NotAGitRepositoryError`` does **not** catch — a caller that wants "ran
+    at all, however it failed" opts into that explicitly, in writing, by
+    naming both.
+    """
+
+    code = "git_command_failed"
+
+
+class NotAGitRepositoryError(GitCommandError):
     """*repo_root* is not a git repository (or git itself is unavailable)."""
 
     code = "not_a_git_repository"
+
+
+class GitTimedOutError(GitCommandError):
+    """A git subprocess did not finish within its timeout.
+
+    Deliberately not caught by anything written as ``except
+    NotAGitRepositoryError`` — see :class:`GitCommandError` for why that
+    matters. A caller that treats "not a repository" and "timed out" the
+    same way names both explicitly.
+    """
+
+    code = "git_timed_out"
 
 
 class MalformedExcludeBlockError(ValidationError):
@@ -202,6 +245,31 @@ def git_subprocess_env() -> dict[str, str]:
     return env
 
 
+def _resolve_default_git_timeout() -> float:
+    """:data:`DEFAULT_GIT_TIMEOUT_SECONDS`, unless :data:`GIT_TIMEOUT_ENV_VAR`
+    names a valid override (DG-454 review): a positive number of seconds.
+
+    Anything else — unset, not a number, zero, or negative — is ignored and
+    falls back to the module default. An invalid override must never be
+    read as "disable the bound entirely"; it means only "this particular
+    value could not be used," the same safe direction :func:`run_git`'s own
+    ``timeout=None`` already resolves in.
+
+    Read fresh on every call that needs it (never cached at import time),
+    so a caller — or a test — can change the environment between calls.
+    """
+    raw = os.environ.get(GIT_TIMEOUT_ENV_VAR)
+    if raw is None:
+        return DEFAULT_GIT_TIMEOUT_SECONDS
+    try:
+        value = float(raw)
+    except ValueError:
+        return DEFAULT_GIT_TIMEOUT_SECONDS
+    if value <= 0:
+        return DEFAULT_GIT_TIMEOUT_SECONDS
+    return value
+
+
 def run_git(
     args: Sequence[str],
     repo_root: Path,
@@ -229,21 +297,26 @@ def run_git(
     ``surrogateescape`` does not.
 
     *timeout* is the per-call limit in seconds. ``None`` (the default) does
-    **not** mean "no limit" — it means "use :data:`DEFAULT_GIT_TIMEOUT_SECONDS`"
-    (DG-454): a caller that passes nothing at all still gets a bound, so a
-    git waiting on a lock, a credential prompt, or a slow network
-    filesystem cannot hang whatever called this forever. A caller that
-    genuinely wants a different bound (:mod:`core.doctor` already does)
-    passes its own *timeout* explicitly; nothing in this codebase currently
-    needs an unbounded wait.
+    **not** mean "no limit" — it means "use
+    :func:`_resolve_default_git_timeout`" (:data:`DEFAULT_GIT_TIMEOUT_SECONDS`,
+    or the :data:`GIT_TIMEOUT_ENV_VAR` override) (DG-454): a caller that
+    passes nothing at all still gets a bound, so a git waiting on a lock, a
+    credential prompt, or a slow network filesystem cannot hang whatever
+    called this forever. A caller that genuinely wants a different bound
+    (:mod:`core.doctor` already does) passes its own *timeout* explicitly;
+    nothing in this codebase currently needs an unbounded wait.
 
     A git failure (a non-zero exit) is *not* raised here — every existing
     caller reads ``returncode``/``stdout`` itself and decides what that
-    means. Only an inability to run the process at all — no binary, no
-    permission, or a timeout — raises, so a caller cannot forget to notice
-    that git never answered.
+    means. An inability to run the process at all (no binary, no
+    permission) raises :class:`NotAGitRepositoryError`; a timeout raises
+    the *separate* :class:`GitTimedOutError` instead (DG-454 review) —
+    deliberately not the same exception, so a caller written as ``except
+    NotAGitRepositoryError`` to mean "there is nothing here to protect"
+    cannot also, silently, read "git never got the chance to answer" the
+    same way. Either way, a caller cannot forget that git never answered.
     """
-    effective_timeout = DEFAULT_GIT_TIMEOUT_SECONDS if timeout is None else timeout
+    effective_timeout = _resolve_default_git_timeout() if timeout is None else timeout
     try:
         return subprocess.run(
             ["git", *args],
@@ -255,7 +328,7 @@ def run_git(
             timeout=effective_timeout,
         )
     except subprocess.TimeoutExpired as exc:
-        raise NotAGitRepositoryError(
+        raise GitTimedOutError(
             f"git {' '.join(args)} in {repo_root} did not finish within "
             f"{effective_timeout}s and was killed rather than left to hang "
             "(a lock wait, a credential prompt, or a slow filesystem can "
@@ -263,8 +336,10 @@ def run_git(
             remediation=(
                 "Check whether another git process holds a lock on "
                 f"{repo_root}, whether a credential prompt is waiting, or "
-                "whether the filesystem is unusually slow, then run this "
-                "again."
+                "whether the filesystem is unusually slow. If this "
+                f"environment genuinely needs longer than {effective_timeout}s, "
+                f"set {GIT_TIMEOUT_ENV_VAR} to a larger number of seconds; "
+                "otherwise run this again."
             ),
         ) from exc
     except (OSError, subprocess.SubprocessError) as exc:

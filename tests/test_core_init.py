@@ -3,7 +3,9 @@
 
 import json
 import os
+import shutil
 import stat
+import sys
 from pathlib import Path
 
 import pytest
@@ -1414,3 +1416,110 @@ class TestTrackedInstructionFileRefusal:
 
         assert code == 1
         assert registry_path.read_bytes() == before
+
+
+def _write_sleepy_git(bin_dir: Path, sleep_seconds: float) -> None:
+    """A git stand-in that sleeps for *sleep_seconds* then exits 0, for
+    proving a real ``subprocess`` timeout fires rather than a mocked
+    return value. Bounded: this never sleeps forever, so a test exercising
+    it is bounded by *sleep_seconds* even if the timeout under test fails
+    to apply at all.
+
+    Duplicated from ``tests/test_exclude.py``'s identical helper rather
+    than imported across test modules — see that copy's docstring for why
+    Windows needs a copy of the current interpreter plus a
+    ``sitecustomize.py`` rather than a ``.bat``/``.cmd`` file: a bare name
+    with no extension only gets ``.exe`` auto-appended by Windows'
+    ``CreateProcess``, so a batch file here would be invisible to the
+    lookup and silently fall through to the real ``git.exe`` elsewhere on
+    ``PATH``.
+    """
+    bin_dir.mkdir(parents=True, exist_ok=True)
+    if sys.platform == "win32":
+        git_path = bin_dir / "git.exe"
+        shutil.copy2(sys.executable, git_path)
+        (bin_dir / "sitecustomize.py").write_text(
+            f"import time, os\ntime.sleep({sleep_seconds})\nos._exit(0)\n",
+            encoding="utf-8",
+        )
+    else:
+        git_path = bin_dir / "git"
+        git_path.write_text(
+            f"#!/bin/sh\nsleep {sleep_seconds}\nexit 0\n", encoding="utf-8"
+        )
+        git_path.chmod(0o755)
+
+
+def _prepend_sleepy_git_to_path(monkeypatch: pytest.MonkeyPatch, bin_dir: Path) -> None:
+    """``monkeypatch.setenv`` specifically, not a one-off ``env=`` dict
+    built for a single subprocess call: Windows' ``CreateProcess``
+    resolves which executable a bare name like ``"git"`` finds using the
+    *calling* process's own environment, not whatever is later passed as
+    ``env=`` — ``monkeypatch.setenv`` mutates this process's real
+    ``os.environ``, which is what that lookup actually reads."""
+    monkeypatch.setenv("PATH", f"{bin_dir}{os.pathsep}{os.environ.get('PATH', '')}")
+    if sys.platform == "win32":
+        monkeypatch.setenv(
+            "PYTHONPATH", f"{bin_dir}{os.pathsep}{os.environ.get('PYTHONPATH', '')}"
+        )
+
+
+class TestTrackedInstructionFileRefusalUnderAHungGit:
+    """DG-454 review (CRITICAL): a prior version of this change let a git
+    timeout raise the *same* exception :func:`core.init._tracked_instruction_files`
+    already caught to mean "not a git repository at all, so nothing can be
+    tracked" — ``exclude.NotAGitRepositoryError``. A reviewer reproduced
+    it: under a hung git, that catch returned ``[]`` ("nothing tracked")
+    for a checkout whose AGENTS.md *was*, in fact, already tracked, so
+    ``_refuse_if_already_tracked`` never refused at all.
+
+    A timeout must now raise the separate ``exclude.GitTimedOutError``
+    instead (see ``tests/test_exclude.py::TestRunGitTimeout``), which this
+    module's narrow ``except exclude.NotAGitRepositoryError`` does not
+    catch — it propagates, through ``main()``'s own ``except DrunkenError``,
+    as a refusal. No edit to ``core/init.py`` itself was needed for this:
+    the fix is entirely in which exception a timeout raises."""
+
+    def test_tracked_instruction_files_raises_rather_than_answering_empty(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        checkout = _init_git_repo(tmp_path / "app")
+        (checkout / "AGENTS.md").write_text("real, tracked content\n", encoding="utf-8")
+        _run_git("add", "AGENTS.md", cwd=checkout)
+        _run_git("commit", "-q", "-m", "tracked", cwd=checkout)
+
+        monkeypatch.setattr(exclude, "DEFAULT_GIT_TIMEOUT_SECONDS", 0.2)
+        bin_dir = tmp_path / "fakebin"
+        _write_sleepy_git(bin_dir, sleep_seconds=2)
+        _prepend_sleepy_git_to_path(monkeypatch, bin_dir)
+
+        with pytest.raises(exclude.GitCommandError):
+            init._tracked_instruction_files(checkout, checkout)  # noqa: SLF001
+
+    def test_main_refuses_and_writes_nothing_under_a_hung_git(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys
+    ) -> None:
+        """Acceptance (c): the full ``main()`` flow, not just the helper
+        function — refuses, prints an error, and the registry is never
+        written at all (the same "no file at all on a first run"
+        guarantee as :class:`TestTheRegistryIsNeverWrittenOnARefusedRun`
+        above, now under a timeout instead of an ordinary tracked file)."""
+        checkout = _init_git_repo(tmp_path / "app")
+        (checkout / "AGENTS.md").write_text("real, tracked content\n", encoding="utf-8")
+        _run_git("add", "AGENTS.md", cwd=checkout)
+        _run_git("commit", "-q", "-m", "tracked", cwd=checkout)
+
+        monkeypatch.setattr(exclude, "DEFAULT_GIT_TIMEOUT_SECONDS", 0.2)
+        bin_dir = tmp_path / "fakebin"
+        _write_sleepy_git(bin_dir, sleep_seconds=2)
+        _prepend_sleepy_git_to_path(monkeypatch, bin_dir)
+
+        code = run("--project", "app", "--path", str(checkout))
+
+        assert code == 1
+        registry_path = tmp_path / "state" / "projects.json"
+        assert not registry_path.exists(), (
+            "a hung git must refuse before the registry is ever written, "
+            "exactly like any other refused run — never silently proceed "
+            "as though nothing were tracked"
+        )
