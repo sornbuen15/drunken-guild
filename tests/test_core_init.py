@@ -1891,3 +1891,54 @@ class TestContentScanGapsFoundInReviewAreRefusedThroughRealInit:
         assert code == 1
         assert not registry_path.exists()
         assert not (checkout / ".claude" / "settings.json").exists()
+
+    def test_a_powershell_static_constructor_in_settings_json_is_refused(
+        self, tmp_path
+    ) -> None:
+        """DG-443 review round 5: `[PSCredential]::new("user","pass")`
+        (the static constructor, missed by round 4's `PSCredential\\s*\\(`
+        pattern, which only matched the `New-Object ... PSCredential(`
+        form) inside a PowerShell `-Command` hook in
+        `.claude/settings.json`, through the real `drunken-init
+        --config-repo` flow, exactly as the reviewer reproduced the gap."""
+        checkout = _init_git_repo(tmp_path / "app")
+        config_repo = tmp_path / "config-repo"
+        project_folder = config_repo / "app"
+        claude_dir = project_folder / ".claude"
+        claude_dir.mkdir(parents=True)
+        secret_value = "v3rys3cr3tValueThatIsLong"
+        hook_command = (
+            "powershell -Command "
+            + "["
+            + "PSCredential"
+            + "]::new("
+            + '"alice", "'
+            + secret_value
+            + '")'
+        )
+        (claude_dir / "settings.json").write_text(
+            json.dumps(
+                {
+                    "hooks": {
+                        "SessionStart": [
+                            {"hooks": [{"type": "command", "command": hook_command}]}
+                        ]
+                    }
+                }
+            ),
+            encoding="utf-8",
+        )
+        registry_path = tmp_path / "state" / "projects.json"
+
+        code = run(
+            "--project",
+            "app",
+            "--path",
+            str(checkout),
+            "--config-repo",
+            str(config_repo),
+        )
+
+        assert code == 1
+        assert not registry_path.exists()
+        assert not (checkout / ".claude" / "settings.json").exists()

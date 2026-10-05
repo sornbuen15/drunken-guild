@@ -344,15 +344,31 @@ _CURL_USER_FLAG_RE: Final = re.compile(
     r"[\"']?[^\s\"':]+:(?!//)([^\s\"']+)"
 )
 
-#: A PowerShell literal secret (DG-443 review round 4): either
+#: A PowerShell literal secret (DG-443 review rounds 4-5): either
 #: ``ConvertTo-SecureString`` together with ``-AsPlainText`` on the same
-#: line, or a ``PSCredential(`` constructor call — both only when a
-#: quoted literal is actually present on that line; ``$var``/
-#: ``Read-Host`` (no quoted literal at all, or a quoted reference that
-#: :func:`_looks_like_a_real_value` already rejects) never match.
+#: line, or a ``PSCredential`` object built one of two ways — both only
+#: when a quoted literal is actually present on that line; ``$var``/
+#: ``Read-Host``/``Get-Credential``/``Get-Content`` (no quoted literal at
+#: all, or a quoted reference that :func:`_looks_like_a_real_value`
+#: already rejects) never match.
 _PS_SECURE_STRING_RE: Final = re.compile(r"(?i)ConvertTo-SecureString")
 _PS_AS_PLAIN_TEXT_RE: Final = re.compile(r"(?i)-AsPlainText\b")
-_PS_CREDENTIAL_RE: Final = re.compile(r"(?i)PSCredential\s*\(")
+
+#: Two shapes (round 5): ``New-Object ... PSCredential(...)`` (round 4 —
+#: matched by the bare ``PSCredential\s*\(`` alternative), and the static
+#: constructor ``[PSCredential]::new(...)`` / fully-qualified
+#: ``[System.Management.Automation.PSCredential]::new(...)`` — missed
+#: entirely by round 4's pattern, reproduced end to end (copied in,
+#: unredacted, exit 0). ``[\s\x60]*`` between ``new`` and ``(`` allows
+#: whitespace or a backtick line-continuation, PowerShell's own way of
+#: splitting a long constructor call across lines; the type name before
+#: ``]::`` is matched generically (``[\w.]*PSCredential``) so both the
+#: short and the fully-qualified spelling are caught, and a lookalike
+#: like ``[string]::new(...)`` — no ``PSCredential`` in its brackets at
+#: all — never matches either alternative.
+_PS_CREDENTIAL_RE: Final = re.compile(
+    r"(?i)(?:PSCredential\s*\(|\[[\w.]*PSCredential\]\s*::\s*new[\s\x60]*\()"
+)
 _PS_QUOTED_LITERAL_RE: Final = re.compile(r"[\"']([^\"']+)[\"']")
 
 
@@ -437,12 +453,13 @@ def _scan_unmasked_line(line: str, line_number: int, filename: str) -> list[Find
 def _scan_powershell_literal(
     line: str, line_number: int, filename: str
 ) -> list[Finding]:
-    """A quoted literal secret on a PowerShell line (DG-443 review round
-    4): ``ConvertTo-SecureString "..." -AsPlainText`` or
-    ``PSCredential("...", ...)`` — only when a quoted literal is actually
-    present, and only the first one that looks real (see
-    :data:`_PS_SECURE_STRING_RE` for why ``$var``/``Read-Host`` never
-    match at all)."""
+    """A quoted literal secret on a PowerShell line (DG-443 review rounds
+    4-5): ``ConvertTo-SecureString "..." -AsPlainText``,
+    ``PSCredential("...", ...)``, or ``[PSCredential]::new("...", ...)``
+    — only when a quoted literal is actually present, and only the ones
+    that look real (see :data:`_PS_SECURE_STRING_RE` for why ``$var``/
+    ``Read-Host``/``Get-Credential``/``Get-Content`` never match at
+    all)."""
     is_secure_string_line = _PS_SECURE_STRING_RE.search(
         line
     ) and _PS_AS_PLAIN_TEXT_RE.search(line)

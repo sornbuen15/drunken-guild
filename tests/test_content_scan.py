@@ -874,3 +874,94 @@ def test_mutation_removing_the_powershell_check_misses_it(
     )
     text = _ps_secure_string_line(_secret_value())
     assert content_scan.scan_text(text, "f") == []
+
+
+# ============================================================================
+# DG-443 review round 5 — the PSCredential *static constructor*
+# (`[PSCredential]::new(...)`), missed entirely by round 4's `PSCredential\s*\(`
+# pattern. Nothing else changes this round.
+# ============================================================================
+
+
+def _ps_static_new_line(type_name: str, quote: str, value: str) -> str:
+    """``[<type_name>]::new(<quote>alice<quote>, <quote><value><quote>)``,
+    assembled at call time — the user and password literals are built the
+    same piecewise way every other round's fixtures are, even though
+    there is no known gitleaks rule for this particular shape."""
+    return (
+        "["
+        + type_name
+        + "]::new("
+        + quote
+        + "alice"
+        + quote
+        + ", "
+        + quote
+        + value
+        + quote
+        + ")"
+    )
+
+
+def _powershell_static_constructor_rows() -> list[tuple[str, str]]:
+    value = _secret_value()
+    return [
+        ("ps_static_new_short_type", _ps_static_new_line("PSCredential", '"', value)),
+        (
+            "ps_static_new_fully_qualified",
+            _ps_static_new_line(
+                "System.Management.Automation.PSCredential", '"', value
+            ),
+        ),
+        (
+            "ps_static_new_single_quoted",
+            _ps_static_new_line("PSCredential", "'", value),
+        ),
+        (
+            "ps_static_New_capitalised",
+            "[PSCredential]::New(" + '"alice", "' + value + '")',
+        ),
+        (
+            "ps_static_new_extra_spacing",
+            "[PSCredential]::new( " + '"alice" , "' + value + '" ' + ")",
+        ),
+    ]
+
+
+def _powershell_static_constructor_negative_rows() -> list[tuple[str, str]]:
+    return [
+        ("ps_static_new_vars", "$cred = [PSCredential]::new($user, $securePass)"),
+        ("ps_get_credential_bare", "$cred = (Get-Credential)"),
+        ("ps_get_credential_username", "Get-Credential -UserName alice"),
+        ("ps_string_new_lookalike", '[string]::new("hello world, not a secret")'),
+        ("ps_get_content", "Get-Content " + '"secrets.txt"'),
+    ]
+
+
+@pytest.mark.parametrize("case_id,text", _powershell_static_constructor_rows())
+def test_must_flag_powershell_static_constructor_corpus(
+    case_id: str, text: str
+) -> None:
+    findings = content_scan.scan_text(text, "f")
+    assert findings, f"{case_id!r} ({text!r}) was not flagged at all"
+
+
+@pytest.mark.parametrize("case_id,text", _powershell_static_constructor_negative_rows())
+def test_must_not_flag_powershell_static_constructor_negatives(
+    case_id: str, text: str
+) -> None:
+    findings = content_scan.scan_text(text, "f")
+    assert findings == [], f"{case_id!r} ({text!r}) was wrongly flagged: {findings}"
+
+
+def test_mutation_removing_the_static_constructor_branch_misses_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Narrows `_PS_CREDENTIAL_RE` back to round 4's shape (the
+    `New-Object ... PSCredential(` alternative only) — the exact gap the
+    reviewer reproduced end to end."""
+    monkeypatch.setattr(
+        content_scan, "_PS_CREDENTIAL_RE", re.compile(r"(?i)PSCredential\s*\(")
+    )
+    text = _ps_static_new_line("PSCredential", '"', _secret_value())
+    assert content_scan.scan_text(text, "f") == []
