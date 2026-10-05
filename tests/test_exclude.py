@@ -9,7 +9,10 @@ second list of paths.
 
 from __future__ import annotations
 
+import os
+import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -538,9 +541,18 @@ class TestGitSubprocessEnvStripsEveryGitVariable:
 
         env = exclude.git_subprocess_env()
 
-        assert all(not key.upper().startswith("GIT_") for key in env), (
-            f"{name!r} (or another GIT_-prefixed key) survived stripping: "
-            f"{[k for k in env if k.upper().startswith('GIT_')]}"
+        # GIT_TERMINAL_PROMPT is the one deliberate exception (DG-454): it
+        # is this module's own override, set *after* the strip, never a
+        # passthrough of anything inherited — see
+        # TestGitSubprocessEnvDisablesTerminalPrompt below for that claim
+        # checked on its own.
+        survivors = [
+            key
+            for key in env
+            if key.upper().startswith("GIT_") and key.upper() != "GIT_TERMINAL_PROMPT"
+        ]
+        assert not survivors, (
+            f"{name!r} (or another GIT_-prefixed key) survived stripping: {survivors}"
         )
 
     def test_a_mixed_environment_strips_every_git_key_and_keeps_the_rest(
@@ -556,6 +568,241 @@ class TestGitSubprocessEnvStripsEveryGitVariable:
 
         env = exclude.git_subprocess_env()
 
-        assert not any(key.upper().startswith("GIT_") for key in env)
+        survivors = [
+            key
+            for key in env
+            if key.upper().startswith("GIT_") and key.upper() != "GIT_TERMINAL_PROMPT"
+        ]
+        assert not survivors
         assert env.get("NOT_GIT_RELATED") == "kept"
         assert env.get("PATH") == "/usr/bin"
+
+
+class TestGitSubprocessEnvDisablesTerminalPrompt:
+    """DG-454: a credential prompt is one more way a git call can block —
+    past *timeout*'s "wait, then fail" into "wait, prompt an unattended
+    process's stdin, and fail anyway". ``GIT_TERMINAL_PROMPT=0`` makes git
+    refuse to prompt and exit immediately instead."""
+
+    def test_git_terminal_prompt_is_disabled(self) -> None:
+        env = exclude.git_subprocess_env()
+        assert env.get("GIT_TERMINAL_PROMPT") == "0"
+
+    def test_an_inherited_terminal_prompt_opt_in_is_overridden(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # A caller's own process could have GIT_TERMINAL_PROMPT=1 set
+        # (asking for prompts) — this module's own "never prompt" rule
+        # wins regardless of what was inherited.
+        monkeypatch.setenv("GIT_TERMINAL_PROMPT", "1")
+
+        env = exclude.git_subprocess_env()
+
+        assert env.get("GIT_TERMINAL_PROMPT") == "0"
+
+
+def _write_sleepy_git(bin_dir: Path, sleep_seconds: float) -> None:
+    """A git stand-in that sleeps for *sleep_seconds* then exits 0,
+    regardless of what it was called with — for proving a real
+    ``subprocess`` timeout fires, not a mocked return value. Bounded: this
+    never sleeps forever, so a test exercising it is bounded by
+    *sleep_seconds* even if the timeout under test fails to apply at all
+    (the mutation this is built to catch).
+
+    On POSIX this is a plain shebang script named ``git`` — the OS finds
+    it on ``PATH`` the same way it finds the real binary.
+
+    On Windows, a file merely named ``git.bat``/``git.cmd`` is invisible to
+    this lookup: when ``subprocess`` gives Windows' ``CreateProcess`` a bare
+    name with no extension, the OS auto-appends **only** ``.exe`` before
+    searching ``PATH`` — ``.bat``/``.cmd`` resolution through ``PATHEXT`` is
+    a feature of ``cmd.exe`` itself, not of ``CreateProcess`` called this
+    way, so a batch file here would silently fall through to the real
+    ``git.exe`` found later on ``PATH`` (verified empirically: it did, and
+    the test using one passed for the wrong reason — it still used real
+    git). This copies the current Python interpreter to ``git.exe`` instead
+    (a real, already-valid executable) and drops a ``sitecustomize.py``
+    beside it on ``PYTHONPATH``: Python imports ``sitecustomize`` during
+    interpreter start-up, *before* it ever tries to open ``sys.argv[1]``
+    ("status", "rev-parse", ...) as a script file, so the sleep (and the
+    process exit) happens before Python ever notices those arguments do
+    not name a real file.
+    """
+    bin_dir.mkdir(parents=True, exist_ok=True)
+    if sys.platform == "win32":
+        git_path = bin_dir / "git.exe"
+        shutil.copy2(sys.executable, git_path)
+        (bin_dir / "sitecustomize.py").write_text(
+            f"import time, os\ntime.sleep({sleep_seconds})\nos._exit(0)\n",
+            encoding="utf-8",
+        )
+    else:
+        git_path = bin_dir / "git"
+        git_path.write_text(
+            f"#!/bin/sh\nsleep {sleep_seconds}\nexit 0\n", encoding="utf-8"
+        )
+        git_path.chmod(0o755)
+
+
+def _prepend_to_path(monkeypatch: pytest.MonkeyPatch, bin_dir: Path) -> None:
+    """Put *bin_dir* ahead of ``PATH`` (and, on Windows, ``PYTHONPATH`` —
+    see :func:`_write_sleepy_git`) using ``monkeypatch.setenv`` specifically
+    rather than building a one-off ``env=`` dict for the subprocess call:
+    Windows' ``CreateProcess`` resolves *which* executable a bare name like
+    ``"git"`` finds using the **calling process's own** environment, not
+    whatever is later passed as ``env=`` to ``subprocess.run`` — verified
+    empirically, since that is the opposite of the first (reasonable)
+    assumption. ``monkeypatch.setenv`` mutates this process's real
+    ``os.environ``, which is what that search actually reads.
+    """
+    monkeypatch.setenv("PATH", f"{bin_dir}{os.pathsep}{os.environ.get('PATH', '')}")
+    if sys.platform == "win32":
+        monkeypatch.setenv(
+            "PYTHONPATH", f"{bin_dir}{os.pathsep}{os.environ.get('PYTHONPATH', '')}"
+        )
+
+
+class TestRunGitTimeout:
+    """DG-454: ``run_git`` must not be able to hang forever. A real git
+    stand-in that sleeps past the timeout — not a mocked ``run_git`` — is
+    used here so this actually proves the ``subprocess.run(timeout=...)``
+    plumbing fires, not merely that some code path returns an error."""
+
+    def test_an_explicit_timeout_raises_fail_closed_naming_command_and_timeout(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        bin_dir = tmp_path / "fakebin"
+        _write_sleepy_git(bin_dir, sleep_seconds=2)
+        _prepend_to_path(monkeypatch, bin_dir)
+        repo_root = tmp_path / "repo"
+        repo_root.mkdir()
+
+        with pytest.raises(exclude.GitTimedOutError) as exc_info:
+            exclude.run_git(["status"], repo_root, timeout=0.2)
+
+        message = str(exc_info.value)
+        assert "git status" in message, (
+            f"the error should name the git command that hung: {message!r}"
+        )
+        assert "0.2" in message, (
+            f"the error should name the timeout that was hit: {message!r}"
+        )
+
+    def test_the_default_timeout_applies_when_the_caller_passes_none(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # A tiny timeout for *this test*, not DEFAULT_GIT_TIMEOUT_SECONDS
+        # itself — the suite must not wait out the real 30s default. This
+        # is exactly the line a mutation deleting "use the default when
+        # none is given" would remove: with it gone, the call below falls
+        # back to no bound at all, waits out the full sleep below, and
+        # this goes red (bounded at the stand-in's own sleep, not forever).
+        monkeypatch.setattr(exclude, "DEFAULT_GIT_TIMEOUT_SECONDS", 0.2)
+        bin_dir = tmp_path / "fakebin"
+        _write_sleepy_git(bin_dir, sleep_seconds=2)
+        _prepend_to_path(monkeypatch, bin_dir)
+        repo_root = tmp_path / "repo"
+        repo_root.mkdir()
+
+        with pytest.raises(exclude.GitTimedOutError):
+            exclude.run_git(["status"], repo_root)  # no timeout passed at all
+
+    def test_git_timed_out_error_is_not_a_not_a_git_repository_error(self) -> None:
+        # The load-bearing property this whole review turn exists for
+        # (DG-454 review): a caller written as `except
+        # NotAGitRepositoryError` to mean "nothing here to protect" must
+        # NOT also, silently, catch a timeout that way.
+        assert not issubclass(exclude.GitTimedOutError, exclude.NotAGitRepositoryError)
+        assert issubclass(exclude.GitTimedOutError, exclude.GitCommandError)
+        assert issubclass(exclude.NotAGitRepositoryError, exclude.GitCommandError)
+
+
+class TestGitTimeoutEnvVarOverride:
+    """DG-454 review (MEDIUM): an operator whose checkout genuinely needs
+    longer than the 30s default (a large network filesystem, say) can say
+    so without editing source, via DRUNKEN_GIT_TIMEOUT. An invalid value
+    is ignored and falls back to the default — never read as "no limit"."""
+
+    def test_a_valid_override_is_used(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv(exclude.GIT_TIMEOUT_ENV_VAR, "0.2")
+        bin_dir = tmp_path / "fakebin"
+        _write_sleepy_git(bin_dir, sleep_seconds=2)
+        _prepend_to_path(monkeypatch, bin_dir)
+        repo_root = tmp_path / "repo"
+        repo_root.mkdir()
+
+        with pytest.raises(exclude.GitTimedOutError) as exc_info:
+            exclude.run_git(["status"], repo_root)  # no timeout passed at all
+
+        assert "0.2" in str(exc_info.value)
+
+    @pytest.mark.parametrize("raw", ["not-a-number", "", "abc"])
+    def test_an_invalid_value_is_ignored_not_treated_as_no_limit(
+        self, raw: str, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv(exclude.GIT_TIMEOUT_ENV_VAR, raw)
+        monkeypatch.setattr(exclude, "DEFAULT_GIT_TIMEOUT_SECONDS", 0.2)
+
+        assert exclude._resolve_default_git_timeout() == 0.2  # noqa: SLF001
+
+    @pytest.mark.parametrize("raw", ["0", "-1", "-0.5"])
+    def test_zero_or_negative_is_ignored_not_treated_as_no_limit(
+        self, raw: str, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv(exclude.GIT_TIMEOUT_ENV_VAR, raw)
+        monkeypatch.setattr(exclude, "DEFAULT_GIT_TIMEOUT_SECONDS", 0.2)
+
+        assert exclude._resolve_default_git_timeout() == 0.2  # noqa: SLF001
+
+    @pytest.mark.parametrize("raw", ["nan", "inf", "-inf", "1e100", "99999"])
+    def test_non_finite_or_absurd_values_are_ignored_not_treated_as_no_limit(
+        self, raw: str, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """DG-454 review (MEDIUM): ``float()`` parses ``"nan"``/``"inf"``
+        without raising, and a plain ``value <= 0`` check lets both
+        ``inf`` and an absurdly large finite value like ``1e100`` straight
+        through — observed directly: ``subprocess.run(timeout=float("inf"))``
+        raises a bare, uncaught ``OverflowError``; ``nan`` raises
+        ``ValueError`` at the same point; and ``1e100`` does not crash but
+        fires an almost-immediate spurious ``TimeoutExpired`` instead of
+        the longer wait the caller asked for. None of these are "a valid
+        override," and must fall back to the default exactly like any
+        other invalid value.
+        """
+        monkeypatch.setenv(exclude.GIT_TIMEOUT_ENV_VAR, raw)
+        monkeypatch.setattr(exclude, "DEFAULT_GIT_TIMEOUT_SECONDS", 0.2)
+
+        assert exclude._resolve_default_git_timeout() == 0.2  # noqa: SLF001
+
+    def test_a_valid_override_within_the_ceiling_is_used(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv(exclude.GIT_TIMEOUT_ENV_VAR, "45")
+        monkeypatch.setattr(exclude, "DEFAULT_GIT_TIMEOUT_SECONDS", 0.2)
+
+        assert exclude._resolve_default_git_timeout() == 45.0  # noqa: SLF001
+
+    def test_unset_falls_back_to_the_default(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.delenv(exclude.GIT_TIMEOUT_ENV_VAR, raising=False)
+        monkeypatch.setattr(exclude, "DEFAULT_GIT_TIMEOUT_SECONDS", 7.0)
+
+        assert exclude._resolve_default_git_timeout() == 7.0  # noqa: SLF001
+
+    def test_the_remediation_names_the_env_var(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        bin_dir = tmp_path / "fakebin"
+        _write_sleepy_git(bin_dir, sleep_seconds=2)
+        _prepend_to_path(monkeypatch, bin_dir)
+        repo_root = tmp_path / "repo"
+        repo_root.mkdir()
+
+        with pytest.raises(exclude.GitTimedOutError) as exc_info:
+            exclude.run_git(["status"], repo_root, timeout=0.2)
+
+        assert exc_info.value.remediation is not None
+        assert exclude.GIT_TIMEOUT_ENV_VAR in exc_info.value.remediation
