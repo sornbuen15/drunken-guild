@@ -62,6 +62,7 @@ assuming the Windows result travels.
 
 from __future__ import annotations
 
+import math
 import os
 import subprocess
 from dataclasses import dataclass
@@ -109,6 +110,20 @@ DEFAULT_GIT_TIMEOUT_SECONDS: Final[float] = 30.0
 #: (:func:`_resolve_default_git_timeout`), not cached at import time, so a
 #: test (or a caller) can change it between calls.
 GIT_TIMEOUT_ENV_VAR: Final[str] = "DRUNKEN_GIT_TIMEOUT"
+
+#: The upper bound :data:`GIT_TIMEOUT_ENV_VAR` can set (DG-454 review, MEDIUM
+#: follow-up): one hour. Without this, ``float("inf")`` or an absurdly large
+#: finite value (``"1e100"``) both passed the earlier "positive number"
+#: check alone — ``inf`` raised a bare ``OverflowError`` out of
+#: ``subprocess.run`` (CPython converts a timeout to a C ``struct timeval``,
+#: which cannot represent it), uncaught by :func:`run_git`'s own
+#: ``except`` clauses, and ``1e100`` is accepted by the platform's timer
+#: but then fires almost immediately as a *spurious* ``TimeoutExpired`` on
+#: at least one observed machine — neither is "a longer bound," both are a
+#: crash or a false timeout wearing a valid-looking number. One hour is
+#: already far longer than any caller in this codebase could plausibly
+#: need to wait.
+GIT_TIMEOUT_CEILING_SECONDS: Final[float] = 3600.0
 
 #: Set on every git subprocess this module runs, overriding whatever this
 #: process inherited (or had stripped, since it also starts with ``GIT_``)
@@ -247,13 +262,32 @@ def git_subprocess_env() -> dict[str, str]:
 
 def _resolve_default_git_timeout() -> float:
     """:data:`DEFAULT_GIT_TIMEOUT_SECONDS`, unless :data:`GIT_TIMEOUT_ENV_VAR`
-    names a valid override (DG-454 review): a positive number of seconds.
+    names a valid override (DG-454 review): a *finite* number of seconds,
+    greater than zero, at or below :data:`GIT_TIMEOUT_CEILING_SECONDS`.
 
-    Anything else — unset, not a number, zero, or negative — is ignored and
-    falls back to the module default. An invalid override must never be
-    read as "disable the bound entirely"; it means only "this particular
-    value could not be used," the same safe direction :func:`run_git`'s own
-    ``timeout=None`` already resolves in.
+    Anything else — unset, not a number, ``nan``, ``inf``/``-inf``, zero,
+    negative, or above the ceiling — is ignored and falls back to the
+    module default. An invalid override must never be read as "disable
+    the bound entirely"; it means only "this particular value could not be
+    used," the same safe direction :func:`run_git`'s own ``timeout=None``
+    already resolves in.
+
+    ``float("inf")`` and ``float("nan")`` both parse as valid ``float``
+    values — ``float()`` raising ``ValueError`` alone does not reject
+    them — and a plain ``value <= 0`` check lets both ``inf`` (not ``<=
+    0``) and an absurdly large finite value like ``1e100`` straight
+    through. Observed directly: ``subprocess.run(timeout=float("inf"))``
+    raises a bare ``OverflowError`` (converting to a C ``struct timeval``
+    cannot represent it) that :func:`run_git`'s own ``except`` clauses do
+    not catch, and ``timeout=float("nan")`` raises ``ValueError`` from the
+    same conversion — both crash *before* git even starts, not "wait
+    longer." ``1e100`` does not crash, but the platform's own timer
+    resolution cannot represent a wait that long either, and it was
+    observed firing an almost-immediate, *spurious* ``TimeoutExpired`` —
+    the opposite of what a caller setting a larger number asked for.
+    :func:`math.isfinite` rejects ``nan``/``inf`` in one call, and the
+    ceiling check catches the merely-too-large case ``isfinite`` alone
+    would still accept.
 
     Read fresh on every call that needs it (never cached at import time),
     so a caller — or a test — can change the environment between calls.
@@ -265,7 +299,9 @@ def _resolve_default_git_timeout() -> float:
         value = float(raw)
     except ValueError:
         return DEFAULT_GIT_TIMEOUT_SECONDS
-    if value <= 0:
+    if not math.isfinite(value):
+        return DEFAULT_GIT_TIMEOUT_SECONDS
+    if value <= 0 or value > GIT_TIMEOUT_CEILING_SECONDS:
         return DEFAULT_GIT_TIMEOUT_SECONDS
     return value
 

@@ -756,6 +756,34 @@ class TestGitTimeoutEnvVarOverride:
 
         assert exclude._resolve_default_git_timeout() == 0.2  # noqa: SLF001
 
+    @pytest.mark.parametrize("raw", ["nan", "inf", "-inf", "1e100", "99999"])
+    def test_non_finite_or_absurd_values_are_ignored_not_treated_as_no_limit(
+        self, raw: str, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """DG-454 review (MEDIUM): ``float()`` parses ``"nan"``/``"inf"``
+        without raising, and a plain ``value <= 0`` check lets both
+        ``inf`` and an absurdly large finite value like ``1e100`` straight
+        through — observed directly: ``subprocess.run(timeout=float("inf"))``
+        raises a bare, uncaught ``OverflowError``; ``nan`` raises
+        ``ValueError`` at the same point; and ``1e100`` does not crash but
+        fires an almost-immediate spurious ``TimeoutExpired`` instead of
+        the longer wait the caller asked for. None of these are "a valid
+        override," and must fall back to the default exactly like any
+        other invalid value.
+        """
+        monkeypatch.setenv(exclude.GIT_TIMEOUT_ENV_VAR, raw)
+        monkeypatch.setattr(exclude, "DEFAULT_GIT_TIMEOUT_SECONDS", 0.2)
+
+        assert exclude._resolve_default_git_timeout() == 0.2  # noqa: SLF001
+
+    def test_a_valid_override_within_the_ceiling_is_used(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv(exclude.GIT_TIMEOUT_ENV_VAR, "45")
+        monkeypatch.setattr(exclude, "DEFAULT_GIT_TIMEOUT_SECONDS", 0.2)
+
+        assert exclude._resolve_default_git_timeout() == 45.0  # noqa: SLF001
+
     def test_unset_falls_back_to_the_default(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
