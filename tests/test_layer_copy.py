@@ -1721,6 +1721,419 @@ class TestConfigRepoSymlinksAreNeverFollowed:
         assert "AGENTS.md" not in result.copied
 
 
+class TestContentScanRefusesBeforeAnyWrite:
+    """DG-443: a credential-, identity- or path-shaped value in the config
+    repo's own AI-layer content is refused, before any copy or exclude
+    write — not just a file this project's own git already tracks."""
+
+    def test_a_literal_token_in_the_config_repo_is_refused_before_any_write(
+        self, tmp_path: Path
+    ) -> None:
+        repo = _init_repo(tmp_path / "project")
+        config_repo = _config_repo(tmp_path)
+        project_folder = config_repo / "sample"
+        project_folder.mkdir(parents=True)
+        secret = "ghp_" + "a" * 36
+        (project_folder / "AGENTS.md").write_text(
+            f"token = {secret}\n", encoding="utf-8"
+        )
+
+        before = _run_git("status", "--porcelain", cwd=repo).stdout
+        exclude_path = exclude.resolve_info_exclude_path(repo)
+        exclude_existed_before = exclude_path.exists()
+
+        with pytest.raises(DrunkenError, match="token"):
+            layer_copy.copy_ai_layer_in(
+                config_repo=config_repo,
+                project_id="sample",
+                project_root=repo,
+                git_root=repo,
+            )
+
+        assert not (repo / "AGENTS.md").exists()
+        assert _run_git("status", "--porcelain", cwd=repo).stdout == before
+        assert exclude_path.exists() == exclude_existed_before
+
+    def test_two_bad_files_are_named_together_not_one_at_a_time(
+        self, tmp_path: Path
+    ) -> None:
+        repo = _init_repo(tmp_path / "project")
+        config_repo = _config_repo(tmp_path)
+        project_folder = config_repo / "sample"
+        project_folder.mkdir(parents=True)
+        (project_folder / "AGENTS.md").write_text(
+            "contact jane.doe@realcorp.test\n", encoding="utf-8"
+        )
+        (project_folder / "CONVENTIONS.md").write_text(
+            r"C:\Users\argig\.drunken\secrets.json" + "\n", encoding="utf-8"
+        )
+
+        try:
+            layer_copy.copy_ai_layer_in(
+                config_repo=config_repo,
+                project_id="sample",
+                project_root=repo,
+                git_root=repo,
+            )
+            pytest.fail("expected a refusal")
+        except DrunkenError as exc:
+            message = str(exc)
+            assert "AGENTS.md" in message
+            assert "CONVENTIONS.md" in message
+
+    def test_an_example_com_email_in_agents_md_is_not_refused(
+        self, tmp_path: Path
+    ) -> None:
+        repo = _init_repo(tmp_path / "project")
+        config_repo = _config_repo(tmp_path)
+        project_folder = config_repo / "sample"
+        project_folder.mkdir(parents=True)
+        (project_folder / "AGENTS.md").write_text(
+            "reach us at support@example.com\n", encoding="utf-8"
+        )
+
+        result = layer_copy.copy_ai_layer_in(
+            config_repo=config_repo,
+            project_id="sample",
+            project_root=repo,
+            git_root=repo,
+        )
+
+        assert (repo / "AGENTS.md").exists()
+        assert "AGENTS.md" in result.copied
+
+    def test_an_undecodable_file_is_refused_as_unscannable(
+        self, tmp_path: Path
+    ) -> None:
+        repo = _init_repo(tmp_path / "project")
+        config_repo = _config_repo(tmp_path)
+        project_folder = config_repo / "sample"
+        project_folder.mkdir(parents=True)
+        (project_folder / "AGENTS.md").write_bytes("hello".encode("utf-16"))
+
+        with pytest.raises(DrunkenError, match="not UTF-8 text"):
+            layer_copy.copy_ai_layer_in(
+                config_repo=config_repo,
+                project_id="sample",
+                project_root=repo,
+                git_root=repo,
+            )
+
+        assert not (repo / "AGENTS.md").exists()
+
+
+class TestContentScanAllowlist:
+    """DG-443: `.drunken-scan-allow` excuses one exact finding, named, never
+    a whole file — and is itself scanned, and is never copied in."""
+
+    def test_an_allowlisted_token_is_copied_not_refused(self, tmp_path: Path) -> None:
+        repo = _init_repo(tmp_path / "project")
+        config_repo = _config_repo(tmp_path)
+        project_folder = config_repo / "sample"
+        project_folder.mkdir(parents=True)
+        secret = "ghp_" + "a" * 36
+        (project_folder / "AGENTS.md").write_text(f"{secret}\n", encoding="utf-8")
+        (project_folder / ".drunken-scan-allow").write_text(
+            f"AGENTS.md\ttoken\t{secret}\tdocumentation example, not a real token\n",
+            encoding="utf-8",
+        )
+
+        result = layer_copy.copy_ai_layer_in(
+            config_repo=config_repo,
+            project_id="sample",
+            project_root=repo,
+            git_root=repo,
+        )
+
+        assert "AGENTS.md" in result.copied
+        assert not (repo / ".drunken-scan-allow").exists()
+
+    def test_the_allowlist_file_itself_is_not_copied_into_the_project(
+        self, tmp_path: Path
+    ) -> None:
+        repo = _init_repo(tmp_path / "project")
+        config_repo = _config_repo(tmp_path)
+        project_folder = config_repo / "sample"
+        project_folder.mkdir(parents=True)
+        (project_folder / "AGENTS.md").write_text("clean\n", encoding="utf-8")
+        (project_folder / ".drunken-scan-allow").write_text(
+            "AGENTS.md\ttoken\tirrelevant\treason\n", encoding="utf-8"
+        )
+
+        result = layer_copy.copy_ai_layer_in(
+            config_repo=config_repo,
+            project_id="sample",
+            project_root=repo,
+            git_root=repo,
+        )
+
+        assert ".drunken-scan-allow" not in result.copied
+        assert not (repo / ".drunken-scan-allow").exists()
+
+    def test_an_unlisted_token_in_the_allowlist_file_is_still_refused(
+        self, tmp_path: Path
+    ) -> None:
+        repo = _init_repo(tmp_path / "project")
+        config_repo = _config_repo(tmp_path)
+        project_folder = config_repo / "sample"
+        project_folder.mkdir(parents=True)
+        (project_folder / "AGENTS.md").write_text("clean\n", encoding="utf-8")
+        stray_secret = "ATATT" + "z" * 24
+        (project_folder / ".drunken-scan-allow").write_text(
+            f"AGENTS.md\ttoken\tsome-other-value\treason\nstray note: {stray_secret}\n",
+            encoding="utf-8",
+        )
+
+        with pytest.raises(DrunkenError, match="token"):
+            layer_copy.copy_ai_layer_in(
+                config_repo=config_repo,
+                project_id="sample",
+                project_root=repo,
+                git_root=repo,
+            )
+
+    def test_a_malformed_allowlist_is_refused_before_any_write(
+        self, tmp_path: Path
+    ) -> None:
+        repo = _init_repo(tmp_path / "project")
+        config_repo = _config_repo(tmp_path)
+        project_folder = config_repo / "sample"
+        project_folder.mkdir(parents=True)
+        (project_folder / "AGENTS.md").write_text("clean\n", encoding="utf-8")
+        (project_folder / ".drunken-scan-allow").write_text(
+            "only-two\tfields\n", encoding="utf-8"
+        )
+
+        with pytest.raises(DrunkenError):
+            layer_copy.copy_ai_layer_in(
+                config_repo=config_repo,
+                project_id="sample",
+                project_root=repo,
+                git_root=repo,
+            )
+
+        assert not (repo / "AGENTS.md").exists()
+
+
+class TestValidateAiLayerCopyIsWriteFree:
+    """DG-443: the validation phase `drunken-init` calls before touching the
+    registry must itself write nothing — re-running the real copy
+    afterwards is still the only thing that writes."""
+
+    def test_validate_only_leaves_the_project_tree_untouched(
+        self, tmp_path: Path
+    ) -> None:
+        repo = _init_repo(tmp_path / "project")
+        config_repo = _config_repo(tmp_path)
+        project_folder = config_repo / "sample"
+        project_folder.mkdir(parents=True)
+        (project_folder / "AGENTS.md").write_text("clean\n", encoding="utf-8")
+
+        before = _run_git("status", "--porcelain", cwd=repo).stdout
+        layer_copy.validate_ai_layer_copy(
+            config_repo=config_repo,
+            project_id="sample",
+            project_root=repo,
+            git_root=repo,
+        )
+        assert not (repo / "AGENTS.md").exists()
+        assert _run_git("status", "--porcelain", cwd=repo).stdout == before
+
+    def test_validate_only_still_raises_on_a_bad_file(self, tmp_path: Path) -> None:
+        repo = _init_repo(tmp_path / "project")
+        config_repo = _config_repo(tmp_path)
+        project_folder = config_repo / "sample"
+        project_folder.mkdir(parents=True)
+        secret = "ghp_" + "a" * 36
+        (project_folder / "AGENTS.md").write_text(secret, encoding="utf-8")
+
+        with pytest.raises(DrunkenError, match="token"):
+            layer_copy.validate_ai_layer_copy(
+                config_repo=config_repo,
+                project_id="sample",
+                project_root=repo,
+                git_root=repo,
+            )
+
+
+class TestAiLayerFilesUnderNeverDescendsIntoANestedRepository:
+    """DG-443 review (comment 11482, decision 7): `ai_layer_files_under` is
+    now also walked, read-only, against a *real* project's own checkout by
+    `drunken-doctor` — not only a config repo's small, author-controlled
+    folder. `.claude` is walked to any depth, and a real project's
+    `.claude/worktrees/<agent>/` (Claude Code's own `git worktree` feature)
+    is a full, independent checkout each, with its own dependency tree —
+    without this guard, walking one real project with a handful of active
+    worktrees turned a few thousand files into roughly a million and a
+    diagnostic command into a multi-minute hang (seen directly against a
+    real registered project on the machine this was found on)."""
+
+    def test_a_nested_worktree_directory_is_not_descended_into(
+        self, tmp_path: Path
+    ) -> None:
+        root = tmp_path / "proj"
+        root.mkdir()
+        claude_dir = root / ".claude" / "worktrees" / "agent-x"
+        claude_dir.mkdir(parents=True)
+        # A `git worktree`'s own `.git` is a *file*, not a directory —
+        # pointing back at the main repository's `.git/worktrees/<name>`.
+        (claude_dir / ".git").write_text(
+            "gitdir: /somewhere/else/.git/worktrees/agent-x\n", encoding="utf-8"
+        )
+        (claude_dir / "AGENTS.md").write_text(
+            "from inside the nested worktree\n", encoding="utf-8"
+        )
+
+        found = layer_copy.ai_layer_files_under(root)
+
+        assert not any("agent-x" in f.as_posix() for f in found), (
+            f"must never descend into a nested worktree. Found: {found}"
+        )
+
+    def test_a_nested_ordinary_clone_is_not_descended_into(
+        self, tmp_path: Path
+    ) -> None:
+        root = tmp_path / "proj"
+        root.mkdir()
+        nested = root / "vendor" / "some-package"
+        nested.mkdir(parents=True)
+        (nested / ".git").mkdir()
+        # A real git directory always has HEAD — see
+        # test_a_fake_dot_git_directory_with_no_head_is_not_a_boundary for
+        # the case where it does not.
+        (nested / ".git" / "HEAD").write_text(
+            "ref: refs/heads/main\n", encoding="utf-8"
+        )
+        (nested / "AGENTS.md").write_text(
+            "from inside a nested clone\n", encoding="utf-8"
+        )
+
+        found = layer_copy.ai_layer_files_under(root)
+
+        assert not any("some-package" in f.as_posix() for f in found), (
+            f"must never descend into a nested repository. Found: {found}"
+        )
+
+    def test_a_fake_dot_git_directory_with_no_head_is_not_a_boundary(
+        self, tmp_path: Path
+    ) -> None:
+        """DG-443 review round 2: a directory merely *named* `.git`, with
+        no `HEAD` inside it, is not a real git marker — the walk must keep
+        going through it (and so must the content scan, since both share
+        this same walk), not silently hide whatever is under it."""
+        root = tmp_path / "proj"
+        root.mkdir()
+        fake_git_dir = root / "hooks" / ".git"
+        fake_git_dir.mkdir(parents=True)
+        (fake_git_dir / "not-a-head-file.txt").write_text("decoy\n", encoding="utf-8")
+        secret_holder = root / "hooks" / "AGENTS.md"
+        secret_holder.write_text(
+            "token = " + "ghp_" + "a" * 36 + "\n", encoding="utf-8"
+        )
+
+        found = layer_copy.ai_layer_files_under(root)
+
+        assert Path("hooks/AGENTS.md") in found, (
+            f"a fake .git directory (no HEAD) must not hide what is under "
+            f"it. Found: {found}"
+        )
+
+    def test_a_fake_dot_git_file_with_unrelated_content_is_not_a_boundary(
+        self, tmp_path: Path
+    ) -> None:
+        """The file-shaped twin of the test above: a plain file named
+        `.git` whose content does not start with `gitdir:` is not a
+        worktree pointer, and must not hide a sibling AI-layer file."""
+        root = tmp_path / "proj"
+        root.mkdir()
+        decoy_dir = root / "notes"
+        decoy_dir.mkdir()
+        (decoy_dir / ".git").write_text(
+            "just some notes, not a pointer\n", encoding="utf-8"
+        )
+        (decoy_dir / "AGENTS.md").write_text("plain instructions\n", encoding="utf-8")
+
+        found = layer_copy.ai_layer_files_under(root)
+
+        assert Path("notes/AGENTS.md") in found, (
+            f"a file merely named .git, with unrelated content, must not "
+            f"hide a sibling file. Found: {found}"
+        )
+
+    def test_a_secret_under_a_fake_git_marker_is_found_by_both_copy_and_the_walk(
+        self, tmp_path: Path
+    ) -> None:
+        """Decision 7's explicit ask: prove the copy path and doctor's
+        read-only re-scan cannot disagree, because both go through this
+        one walk. A fake `.git` directory (no HEAD) must not make a
+        secret file underneath invisible to either."""
+        repo = _init_repo(tmp_path / "project")
+        config_repo = _config_repo(tmp_path)
+        project_folder = config_repo / "sample"
+        fake_git_dir = project_folder / "hooks" / ".git"
+        fake_git_dir.mkdir(parents=True)
+        secret = "ghp_" + "b" * 36
+        (project_folder / "hooks" / "AGENTS.md").write_text(
+            f"token = {secret}\n", encoding="utf-8"
+        )
+
+        with pytest.raises(DrunkenError, match="token"):
+            layer_copy.copy_ai_layer_in(
+                config_repo=config_repo,
+                project_id="sample",
+                project_root=repo,
+                git_root=repo,
+            )
+
+        # The walk itself (what doctor's read-only re-scan also calls)
+        # must report the file too — not just the refusal above.
+        found = layer_copy.ai_layer_files_under(project_folder)
+        assert Path("hooks/AGENTS.md") in found
+
+    def test_the_root_itself_having_a_dot_git_is_still_walked(
+        self, tmp_path: Path
+    ) -> None:
+        root = tmp_path / "proj"
+        (root / ".git").mkdir(parents=True)
+        (root / "AGENTS.md").write_text("instructions\n", encoding="utf-8")
+
+        found = layer_copy.ai_layer_files_under(root)
+
+        assert Path("AGENTS.md") in found, (
+            "root's own .git must not make this mistake root for a nested "
+            f"repository and skip it entirely. Found: {found}"
+        )
+
+    def test_mutation_a_naive_walk_with_no_guard_would_have_found_it(
+        self, tmp_path: Path
+    ) -> None:
+        """Not a monkeypatch of production code — a small, honest replica
+        of the *pre-fix* walk (no nested-repository check at all), run
+        against the exact same fixture the real test above uses, to prove
+        that fixture really does exercise the guard rather than being
+        vacuously true for some unrelated reason (e.g. `AGENTS.md` not
+        being on the AI-layer list at all)."""
+        root = tmp_path / "proj"
+        root.mkdir()
+        claude_dir = root / ".claude" / "worktrees" / "agent-x"
+        claude_dir.mkdir(parents=True)
+        (claude_dir / ".git").write_text("gitdir: /elsewhere\n", encoding="utf-8")
+        (claude_dir / "AGENTS.md").write_text("nested\n", encoding="utf-8")
+
+        from core.ai_layer import is_ai_layer_path
+
+        naive_found = [
+            p.relative_to(root)
+            for p in root.rglob("*")
+            if p.is_file() and is_ai_layer_path(p.relative_to(root).as_posix())
+        ]
+
+        assert any("agent-x" in p.as_posix() for p in naive_found), (
+            "the fixture itself must be reachable by a guard-less walk, or "
+            "the real test above proves nothing about the guard"
+        )
+
+
 def _write_sleepy_git(bin_dir: Path, sleep_seconds: float) -> None:
     """A git stand-in that sleeps for *sleep_seconds* then exits 0, for
     proving a real ``subprocess`` timeout fires rather than a mocked
