@@ -1,10 +1,12 @@
 ---
 name: worker
 description: >
-  The team's worker role. Use to implement exactly one approved task end to end — in its own
-  branch and worktree, test first from the task's acceptance, the smallest change that meets it,
-  the suite green, and a pull request opened for a human to merge. Any language, any framework;
-  frontend or backend. Invoke it with a Jira issue key once the manager's plan has been approved.
+  This is the body of the worker Claude subagent, dispatched by name through the Task tool —
+  not a skill to invoke directly. The team's worker role. Use to implement exactly one approved
+  task end to end — in its own branch and worktree, test first from the task's acceptance, the
+  smallest change that meets it, the suite green, and a pull request opened for a human to
+  merge. Any language, any framework; frontend or backend. Invoke it with a Jira issue key once
+  the manager's plan has been approved.
 ---
 
 # Skill: Worker Role

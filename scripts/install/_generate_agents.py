@@ -43,8 +43,16 @@ def skill_description(skill_md: Path) -> str:
     the lines that follow — the only two shapes any skill in this repository uses.
     Multi-line block scalars are joined with a single space, mirroring how the
     folded description reads in prose.
+
+    Read with ``utf-8-sig``, not ``utf-8`` (DG-402 review, LOW): a leading BOM is
+    invisible in most editors and some tools write one by default on Windows, and
+    with plain ``utf-8`` it survives as a ``\\ufeff`` character glued onto ``---``,
+    so ``text.startswith("---")`` below is false and a BOM-prefixed file refused
+    outright rather than being read. ``utf-8-sig`` strips a BOM if present and is
+    otherwise identical to ``utf-8``, so a file with no BOM is read exactly the same
+    either way.
     """
-    text = skill_md.read_text(encoding="utf-8")
+    text = skill_md.read_text(encoding="utf-8-sig")
     if not text.startswith("---"):
         raise ValueError(f"{skill_md}: no frontmatter delimiter")
     parts = text.split("---", 2)

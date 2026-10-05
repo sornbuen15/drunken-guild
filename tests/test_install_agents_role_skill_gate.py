@@ -47,19 +47,28 @@ def _sandbox(tmp_path: Path) -> tuple[Path, Path]:
 
 
 def _run_sh(
-    script: Path, home: Path, extra_args: str = ""
+    script: Path,
+    home: Path,
+    extra_args: str = "",
+    prepend_path: Path | None = None,
 ) -> subprocess.CompletedProcess[str]:
     """Run a bash installer with `$HOME` redirected to *home* via the child
     process's own environment -- no string-built canary command here, since
     nested quoting through `bash -c '...'` is exactly the kind of fragile
     construction DG-321 warns about. The canary is the installer's own
     "Target: ..." line, which always echoes `$GLOBAL_AGENTS_DIR` (built from
-    `$HOME`) back out -- confirmed by :func:`_assert_canary`."""
+    `$HOME`) back out -- confirmed by :func:`_assert_canary`.
+
+    *prepend_path*, if given, goes in front of `$PATH` -- used to put a stub
+    `python3` ahead of the real one, to prove the installer refuses rather
+    than fails open when python3 itself misbehaves."""
     assert BASH is not None
     import os
 
     env = dict(os.environ)
     env["HOME"] = home.as_posix()
+    if prepend_path is not None:
+        env["PATH"] = f"{prepend_path.as_posix()}:{env.get('PATH', '')}"
     return subprocess.run(
         [BASH, str(script), *([extra_args] if extra_args else [])],
         capture_output=True,
@@ -144,6 +153,17 @@ def _real_home_is_never_touched() -> None:
         "the operator's real ~/.claude/agents/manager.md changed during a "
         "sandboxed test -- HOME redirection failed silently"
     )
+
+
+def _write_stub_python3(bin_dir: Path, body: str) -> None:
+    """A fake `python3` on `PATH`, ahead of the real one -- stands in for a
+    misbehaving interpreter (a broken shim, reproduced during review: it can
+    exit 0 and print nothing at all for *any* script, `_role_skill.py`
+    included)."""
+    bin_dir.mkdir(parents=True, exist_ok=True)
+    stub = bin_dir / "python3"
+    stub.write_text(f"#!/bin/bash\n{body}\n", encoding="utf-8")
+    stub.chmod(0o755)
 
 
 def _seed_skill(home: Path, name: str) -> None:
@@ -291,7 +311,7 @@ class TestTheRefusalIsNotAccidentallyRemovable:
         text = script.read_text(encoding="utf-8")
         assert "MISSING_ROLE_SKILL" in text, "the guard itself is already gone"
         mutated = text.replace(
-            'if [ -n "$ROLE_SKILL" ] && [ ! -f "$GLOBAL_SKILLS_DIR/$ROLE_SKILL/SKILL.md" ]; then',
+            'if [ "$ROLE_SKILL" != "-" ] && [ ! -f "$GLOBAL_SKILLS_DIR/$ROLE_SKILL/SKILL.md" ]; then',
             "if false; then",
         )
         assert mutated != text, "the mutation did not change anything -- fix it"
@@ -307,4 +327,124 @@ class TestTheRefusalIsNotAccidentallyRemovable:
             "with the guard removed, manager.md should install despite its "
             "role skill being absent -- the exact defect the guard exists "
             "to prevent"
+        )
+
+
+class TestTheGateFailsClosedWhenPython3ItselfMisbehaves:
+    """DG-402, coordinator review, CRITICAL. The previous `_role_skill()`
+    ended in `2>/dev/null || true`, and the caller refused only when its
+    result was non-empty -- so a `python3` that failed outright, or that
+    exited 0 printing nothing at all (reproduced here with a stub: this is
+    exactly what a broken shim can do, for *any* script, not only
+    `_role_skill.py`), read as "no role dependency" and the adapter
+    installed anyway. Fail *open* is the wrong failure mode for a safety
+    gate; both stubs below must now be refused, loudly, naming python3.
+
+    Seen red first against the pre-fix script (reverting the fix locally
+    and re-running these two reproduces: exit 0, `manager.md` installed,
+    no complaint at all)."""
+
+    @pytest.mark.skipif(BASH is None, reason="no bash host on this machine")
+    def test_a_stub_python3_exiting_0_with_no_output_is_refused(
+        self, tmp_path: Path
+    ) -> None:
+        sandbox, home = _sandbox(tmp_path)
+        bin_dir = tmp_path / "stub-bin"
+        _write_stub_python3(bin_dir, "exit 0")
+        script = sandbox / "scripts" / "install" / "install_agents.sh"
+
+        result = _run_sh(script, home, prepend_path=bin_dir)
+
+        combined = result.stdout + result.stderr
+        assert result.returncode != 0, (
+            f"a python3 stub that exits 0 printing nothing must be refused, "
+            f"not treated as success\n{combined}"
+        )
+        assert "python3" in combined.lower(), (
+            f"the refusal must name python3 as the problem\n{combined}"
+        )
+        assert not (home / ".claude" / "agents" / "manager.md").exists(), (
+            "manager.md must not install when python3 cannot be trusted to "
+            f"answer the role-skill check\n{combined}"
+        )
+
+    @pytest.mark.skipif(BASH is None, reason="no bash host on this machine")
+    def test_a_stub_python3_exiting_non_zero_is_refused(self, tmp_path: Path) -> None:
+        sandbox, home = _sandbox(tmp_path)
+        bin_dir = tmp_path / "stub-bin"
+        _write_stub_python3(bin_dir, "exit 7")
+        script = sandbox / "scripts" / "install" / "install_agents.sh"
+
+        result = _run_sh(script, home, prepend_path=bin_dir)
+
+        combined = result.stdout + result.stderr
+        assert result.returncode != 0, (
+            f"a python3 stub that exits non-zero must be refused, not "
+            f"treated as success\n{combined}"
+        )
+        assert "python3" in combined.lower(), (
+            f"the refusal must name python3 as the problem\n{combined}"
+        )
+        assert not (home / ".claude" / "agents" / "manager.md").exists(), (
+            "manager.md must not install when python3 exits non-zero on the "
+            f"role-skill check\n{combined}"
+        )
+
+    @pytest.mark.skipif(BASH is None, reason="no bash host on this machine")
+    def test_mutation_reintroducing_the_swallow_reproduces_the_fail_open(
+        self, tmp_path: Path
+    ) -> None:
+        """The actual before/after proof: restore the old `|| true` shape
+        over the fixed script and show the stub from the first test above
+        now installs anyway -- the exact bug this PR fixes."""
+        sandbox, home = _sandbox(tmp_path)
+        bin_dir = tmp_path / "stub-bin"
+        _write_stub_python3(bin_dir, "exit 0")
+        script = sandbox / "scripts" / "install" / "install_agents.sh"
+        text = script.read_text(encoding="utf-8")
+
+        assert '"$_PY3_PROBE" != "ok"' in text, (
+            "the python3 sanity probe is already gone"
+        )
+        mutated = text.replace(
+            '_PY3_PROBE="$(python3 -c \'print("ok")\' 2>/dev/null </dev/null || true)"\n'
+            '  if [ "$_PY3_PROBE" != "ok" ]; then',
+            '_PY3_PROBE="ok"\n  if false; then',
+        )
+        assert mutated != text, "the probe-removal mutation did not change anything"
+
+        old_vulnerable_caller = (
+            '    ROLE_SKILL="$(_role_skill "$agent_name" 2>/dev/null </dev/null || true)"\n'
+            '    if [ -n "$ROLE_SKILL" ] && [ ! -f "$GLOBAL_SKILLS_DIR/$ROLE_SKILL/SKILL.md" ]; then\n'
+            "      echo -e \"${RED}  [x] Refusing: ${agent_name} needs the '${ROLE_SKILL}' skill, not installed at $GLOBAL_SKILLS_DIR/$ROLE_SKILL/SKILL.md${NC}\" >&2\n"
+            '      echo -e "${RED}      Run install_skills.sh first, then re-run install_agents.sh.${NC}" >&2\n'
+            "      MISSING_ROLE_SKILL=true\n"
+            "      continue\n"
+            "    fi\n"
+        )
+        fixed_caller_start = '    if ROLE_SKILL="$(_role_skill "$agent_name")"; then'
+        fixed_caller_end = (
+            '    if [ "$ROLE_SKILL" != "-" ] && [ ! -f "$GLOBAL_SKILLS_DIR/$ROLE_SKILL/SKILL.md" ]; then\n'
+            "      echo -e \"${RED}  [x] Refusing: ${agent_name} needs the '${ROLE_SKILL}' skill, not installed at $GLOBAL_SKILLS_DIR/$ROLE_SKILL/SKILL.md${NC}\" >&2\n"
+            '      echo -e "${RED}      Run install_skills.sh first, then re-run install_agents.sh.${NC}" >&2\n'
+            "      MISSING_ROLE_SKILL=true\n"
+            "      continue\n"
+            "    fi\n"
+        )
+        start_idx = mutated.index(fixed_caller_start)
+        end_idx = mutated.index(fixed_caller_end) + len(fixed_caller_end)
+        assert start_idx < end_idx, "could not locate the fixed caller block to revert"
+        mutated = mutated[:start_idx] + old_vulnerable_caller + mutated[end_idx:]
+        assert mutated != text, "the caller-revert mutation did not change anything"
+        script.write_text(mutated, encoding="utf-8")
+
+        result = _run_sh(script, home, prepend_path=bin_dir)
+        assert result.returncode == 0, (
+            "reintroducing the old swallow-to-empty shape should reproduce "
+            f"the fail-open bug (exit 0)\n{result.stdout}\n{result.stderr}"
+        )
+        assert (home / ".claude" / "agents" / "manager.md").is_file(), (
+            "with the swallow reintroduced, manager.md should install "
+            "despite a python3 stub that cannot answer the role-skill "
+            "check at all -- the exact bug this PR fixes"
         )

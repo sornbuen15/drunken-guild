@@ -260,3 +260,42 @@ class TestGeneratorRefusesOnMissingOrEmptySkill:
         )
         with pytest.raises(ValueError, match="empty description"):
             gen.generate(tmp_path / "out", skills_root, manifest)
+
+
+class TestABomPrefixedSkillIsReadNotRefused:
+    """DG-402, coordinator review, LOW. A leading UTF-8 BOM is invisible in
+    most editors and some tools write one by default on Windows. Read with
+    plain `utf-8`, it survives as a literal `\\ufeff` glued onto the
+    frontmatter fence, so `text.startswith("---")` is false and a
+    perfectly ordinary, BOM-prefixed `SKILL.md` was refused outright rather
+    than read. `utf-8-sig` strips a BOM if present (and is identical to
+    `utf-8` when there is none), so this must now read straight through."""
+
+    def test_a_bom_prefixed_skill_md_is_read_not_refused(self, tmp_path: Path) -> None:
+        skill_dir = tmp_path / "skills" / "roles" / "bommed"
+        skill_dir.mkdir(parents=True)
+        content = "---\nname: bommed\ndescription: Use when testing a BOM.\n---\n"
+        (skill_dir / "SKILL.md").write_bytes(b"\xef\xbb\xbf" + content.encode("utf-8"))
+
+        description = gen.skill_description(skill_dir / "SKILL.md")
+
+        assert description == "Use when testing a BOM."
+
+    def test_mutation_reading_plain_utf8_refuses_the_same_file(
+        self, tmp_path: Path
+    ) -> None:
+        """The bug being fixed, proven directly against the file this class
+        uses: reading the exact same bytes with plain `utf-8` instead of
+        `utf-8-sig` must reproduce the refusal."""
+        skill_dir = tmp_path / "skills" / "roles" / "bommed"
+        skill_dir.mkdir(parents=True)
+        content = "---\nname: bommed\ndescription: Use when testing a BOM.\n---\n"
+        skill_md = skill_dir / "SKILL.md"
+        skill_md.write_bytes(b"\xef\xbb\xbf" + content.encode("utf-8"))
+
+        text = skill_md.read_text(encoding="utf-8")
+        assert not text.startswith("---"), (
+            "plain utf-8 must still see the BOM character glued onto the "
+            "fence -- if this assertion itself fails, the mutation no "
+            "longer reproduces the bug it is meant to prove"
+        )
