@@ -1998,6 +1998,12 @@ class TestAiLayerFilesUnderNeverDescendsIntoANestedRepository:
         nested = root / "vendor" / "some-package"
         nested.mkdir(parents=True)
         (nested / ".git").mkdir()
+        # A real git directory always has HEAD — see
+        # test_a_fake_dot_git_directory_with_no_head_is_not_a_boundary for
+        # the case where it does not.
+        (nested / ".git" / "HEAD").write_text(
+            "ref: refs/heads/main\n", encoding="utf-8"
+        )
         (nested / "AGENTS.md").write_text(
             "from inside a nested clone\n", encoding="utf-8"
         )
@@ -2007,6 +2013,82 @@ class TestAiLayerFilesUnderNeverDescendsIntoANestedRepository:
         assert not any("some-package" in f.as_posix() for f in found), (
             f"must never descend into a nested repository. Found: {found}"
         )
+
+    def test_a_fake_dot_git_directory_with_no_head_is_not_a_boundary(
+        self, tmp_path: Path
+    ) -> None:
+        """DG-443 review round 2: a directory merely *named* `.git`, with
+        no `HEAD` inside it, is not a real git marker — the walk must keep
+        going through it (and so must the content scan, since both share
+        this same walk), not silently hide whatever is under it."""
+        root = tmp_path / "proj"
+        root.mkdir()
+        fake_git_dir = root / "hooks" / ".git"
+        fake_git_dir.mkdir(parents=True)
+        (fake_git_dir / "not-a-head-file.txt").write_text("decoy\n", encoding="utf-8")
+        secret_holder = root / "hooks" / "AGENTS.md"
+        secret_holder.write_text(
+            "token = " + "ghp_" + "a" * 36 + "\n", encoding="utf-8"
+        )
+
+        found = layer_copy.ai_layer_files_under(root)
+
+        assert Path("hooks/AGENTS.md") in found, (
+            f"a fake .git directory (no HEAD) must not hide what is under "
+            f"it. Found: {found}"
+        )
+
+    def test_a_fake_dot_git_file_with_unrelated_content_is_not_a_boundary(
+        self, tmp_path: Path
+    ) -> None:
+        """The file-shaped twin of the test above: a plain file named
+        `.git` whose content does not start with `gitdir:` is not a
+        worktree pointer, and must not hide a sibling AI-layer file."""
+        root = tmp_path / "proj"
+        root.mkdir()
+        decoy_dir = root / "notes"
+        decoy_dir.mkdir()
+        (decoy_dir / ".git").write_text(
+            "just some notes, not a pointer\n", encoding="utf-8"
+        )
+        (decoy_dir / "AGENTS.md").write_text("plain instructions\n", encoding="utf-8")
+
+        found = layer_copy.ai_layer_files_under(root)
+
+        assert Path("notes/AGENTS.md") in found, (
+            f"a file merely named .git, with unrelated content, must not "
+            f"hide a sibling file. Found: {found}"
+        )
+
+    def test_a_secret_under_a_fake_git_marker_is_found_by_both_copy_and_the_walk(
+        self, tmp_path: Path
+    ) -> None:
+        """Decision 7's explicit ask: prove the copy path and doctor's
+        read-only re-scan cannot disagree, because both go through this
+        one walk. A fake `.git` directory (no HEAD) must not make a
+        secret file underneath invisible to either."""
+        repo = _init_repo(tmp_path / "project")
+        config_repo = _config_repo(tmp_path)
+        project_folder = config_repo / "sample"
+        fake_git_dir = project_folder / "hooks" / ".git"
+        fake_git_dir.mkdir(parents=True)
+        secret = "ghp_" + "b" * 36
+        (project_folder / "hooks" / "AGENTS.md").write_text(
+            f"token = {secret}\n", encoding="utf-8"
+        )
+
+        with pytest.raises(DrunkenError, match="token"):
+            layer_copy.copy_ai_layer_in(
+                config_repo=config_repo,
+                project_id="sample",
+                project_root=repo,
+                git_root=repo,
+            )
+
+        # The walk itself (what doctor's read-only re-scan also calls)
+        # must report the file too — not just the refusal above.
+        found = layer_copy.ai_layer_files_under(project_folder)
+        assert Path("hooks/AGENTS.md") in found
 
     def test_the_root_itself_having_a_dot_git_is_still_walked(
         self, tmp_path: Path

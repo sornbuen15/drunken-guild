@@ -1767,3 +1767,83 @@ class TestTrackedInstructionFileRefusalUnderAHungGit:
             "exactly like any other refused run — never silently proceed "
             "as though nothing were tracked"
         )
+
+
+class TestContentScanGapsFoundInReviewAreRefusedThroughRealInit:
+    """DG-443 review round 2 (CRITICAL 1-3): the reviewer reproduced each
+    end to end through ``python -m core.init`` — ``scan_text`` returned
+    ``[]`` for a JSON-quoted secret, a PEM private key, and a fine-grained
+    GitHub PAT. Each is exercised here the same way: through the real
+    ``drunken-init --config-repo`` flow, registry absent on refusal."""
+
+    def test_a_json_quoted_secret_in_settings_json_is_refused(self, tmp_path) -> None:
+        checkout = _init_git_repo(tmp_path / "app")
+        config_repo = tmp_path / "config-repo"
+        project_folder = config_repo / "app"
+        claude_dir = project_folder / ".claude"
+        claude_dir.mkdir(parents=True)
+        secret_value = "v3rys3cr3tValueThatIsLong"
+        (claude_dir / "settings.json").write_text(
+            json.dumps({"password": secret_value}), encoding="utf-8"
+        )
+        registry_path = tmp_path / "state" / "projects.json"
+
+        code = run(
+            "--project",
+            "app",
+            "--path",
+            str(checkout),
+            "--config-repo",
+            str(config_repo),
+        )
+
+        assert code == 1
+        assert not registry_path.exists()
+        assert not (checkout / ".claude" / "settings.json").exists()
+
+    def test_a_pem_private_key_in_agents_md_is_refused(self, tmp_path) -> None:
+        checkout = _init_git_repo(tmp_path / "app")
+        config_repo = tmp_path / "config-repo"
+        project_folder = config_repo / "app"
+        project_folder.mkdir(parents=True)
+        dashes = "-" * 5
+        pem_line = f"{dashes}BEGIN RSA PRIVATE KEY{dashes}"
+        (project_folder / "AGENTS.md").write_text(f"{pem_line}\n", encoding="utf-8")
+        registry_path = tmp_path / "state" / "projects.json"
+
+        code = run(
+            "--project",
+            "app",
+            "--path",
+            str(checkout),
+            "--config-repo",
+            str(config_repo),
+        )
+
+        assert code == 1
+        assert not registry_path.exists()
+        assert not (checkout / "AGENTS.md").exists()
+
+    def test_a_github_fine_grained_pat_in_conventions_md_is_refused(
+        self, tmp_path
+    ) -> None:
+        checkout = _init_git_repo(tmp_path / "app")
+        config_repo = tmp_path / "config-repo"
+        project_folder = config_repo / "app"
+        project_folder.mkdir(parents=True)
+        pat = "github_pat_" + "A" * 22 + "_" + "B" * 59
+        (project_folder / "CONVENTIONS.md").write_text(f"{pat}\n", encoding="utf-8")
+        registry_path = tmp_path / "state" / "projects.json"
+
+        code = run(
+            "--project",
+            "app",
+            "--path",
+            str(checkout),
+            "--config-repo",
+            str(config_repo),
+        )
+
+        assert code == 1
+        assert not registry_path.exists()
+        assert not (checkout / "CONVENTIONS.md").exists()

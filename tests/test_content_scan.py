@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import base64
 import json
+import re
 
 import pytest
 
@@ -234,3 +235,225 @@ def test_a_malformed_allowlist_line_is_reported_not_ignored() -> None:
 def test_an_allowlist_comment_and_blank_lines_are_skipped() -> None:
     allow = content_scan.parse_allowlist("# a comment\n\nf.md\ttoken\tXYZ\treason\n")
     assert ("f.md", "token", "XYZ") in allow
+
+
+# ============================================================================
+# DG-443 review round 2 — a parametrized corpus, built at runtime.
+#
+# Every realistic secret shape below is assembled from pieces at test-call
+# time, never a whole literal in this file's own source text, so nothing
+# here is itself something gitleaks (or any other scanner run over this
+# repository's own history) has reason to flag.
+# ============================================================================
+
+
+def _secret_value(length: int = 20) -> str:
+    """A realistic-length, non-placeholder secret *value* — never a key
+    name, which is what every "must flag" row below actually tests."""
+    return "v3rys3cr3tValue" + "x" * (length - 15)
+
+
+def _pem_begin_line(kind: str = "RSA ") -> str:
+    """A PEM private key's BEGIN line, assembled from pieces rather than
+    typed as one literal — ``kind`` is e.g. ``"RSA "``, ``"EC "``, ``""``."""
+    dashes = "-" * 5
+    return f"{dashes}BEGIN {kind}PRIVATE KEY{dashes}"
+
+
+def _github_pat() -> str:
+    return "github_pat_" + "A" * 22 + "_" + "B" * 59
+
+
+def _stripe_key(prefix: str = "sk", env: str = "live") -> str:
+    return f"{prefix}_{env}_" + "C" * 24
+
+
+def _slack_webhook() -> str:
+    return (
+        "https://hooks.slack.com/services/" + "T" * 9 + "/" + "B" * 9 + "/" + "D" * 24
+    )
+
+
+def _google_api_key() -> str:
+    return "AIza" + "E" * 35
+
+
+def _discord_webhook() -> str:
+    return "https://discord.com/api/webhooks/" + "1" * 18 + "/" + "F" * 40
+
+
+def _json_row(key: str, value: str) -> str:
+    return json.dumps({key: value})
+
+
+def _yaml_row(key: str, value: str) -> str:
+    return f"{key}: {value}"
+
+
+def _toml_row(key: str, value: str) -> str:
+    return f'{key} = "{value}"'
+
+
+def _dotenv_row(key: str, value: str) -> str:
+    return f"{key}={value}"
+
+
+def _shell_row(key: str, value: str) -> str:
+    return f"export {key}={value}"
+
+
+def _prose_row(key: str, value: str) -> str:
+    """Deliberately *not* a key=value shape — prose mentioning the word,
+    never followed by a separator and a value. Used only in the "must NOT
+    flag" corpus."""
+    return f"Remember to set your {key.replace('_', ' ').lower()} before deploying."
+
+
+_SENSITIVE_KEY_NAMES = (
+    "password",
+    "api_key",
+    "STRIPE_SECRET_KEY",
+    "DB_PASSWORD",
+    "AWS_SECRET_ACCESS_KEY",
+    "private_key",
+    "credential",
+    "auth_token",
+)
+
+_FORMATS = (
+    ("json", _json_row),
+    ("yaml", _yaml_row),
+    ("toml", _toml_row),
+    ("dotenv", _dotenv_row),
+    ("shell", _shell_row),
+)
+
+
+def _must_flag_generic_rows() -> list[tuple[str, str]]:
+    rows = []
+    for key in _SENSITIVE_KEY_NAMES:
+        for fmt_name, fmt in _FORMATS:
+            rows.append((f"{fmt_name}:{key}", fmt(key, _secret_value())))
+    return rows
+
+
+def _must_flag_dedicated_rows() -> list[tuple[str, str]]:
+    return [
+        ("pem_rsa", _pem_begin_line("RSA ")),
+        ("pem_ec", _pem_begin_line("EC ")),
+        ("pem_openssh", _pem_begin_line("OPENSSH ")),
+        ("pem_generic", _pem_begin_line("")),
+        ("github_pat", _github_pat()),
+        ("stripe_sk_live", _stripe_key("sk", "live")),
+        ("stripe_sk_test", _stripe_key("sk", "test")),
+        ("stripe_rk_live", _stripe_key("rk", "live")),
+        ("slack_webhook", _slack_webhook()),
+        ("google_api_key", _google_api_key()),
+        ("discord_webhook", _discord_webhook()),
+        ("unc_path", r"\\fileserver\share\secrets\keys.json"),
+        ("root_path", "/root/.ssh/id_rsa"),
+        ("mnt_path", "/mnt/c/Users/alice/.drunken/secrets.json"),
+    ]
+
+
+@pytest.mark.parametrize(
+    "case_id,text",
+    _must_flag_generic_rows(),
+    ids=lambda v: v if isinstance(v, str) else v,
+)
+def test_must_flag_generic_key_value_corpus(case_id: str, text: str) -> None:
+    findings = content_scan.scan_text(text, "f")
+    assert findings, f"{case_id!r} ({text!r}) was not flagged at all"
+
+
+@pytest.mark.parametrize("case_id,text", _must_flag_dedicated_rows())
+def test_must_flag_dedicated_pattern_corpus(case_id: str, text: str) -> None:
+    findings = content_scan.scan_text(text, "f")
+    assert findings, f"{case_id!r} ({text!r}) was not flagged at all"
+
+
+def _must_not_flag_rows() -> list[tuple[str, str]]:
+    rows: list[tuple[str, str]] = [
+        ("example_domain_email", "reach us at support@example.com"),
+        ("ssh_user_host", "ssh user@host"),
+        ("home_env_var", "$HOME/x"),
+        ("tilde_path", "~/x"),
+        ("env_reference", "env://JIRA_TOKEN"),
+        ("op_reference", "op://vault/item/field"),
+        ("file_tilde_reference", "file://~/.drunken/secrets.json#jira.alpha"),
+        ("empty_dotenv_value", "API_KEY="),
+        ("empty_json_value", _json_row("password", "")),
+        ("templated_json_value", json.dumps({"password": "${SECRET}"})),
+    ]
+    for key in ("password", "api_key", "STRIPE_SECRET_KEY"):
+        rows.append((f"prose:{key}", _prose_row(key, "")))
+    return rows
+
+
+@pytest.mark.parametrize("case_id,text", _must_not_flag_rows())
+def test_must_not_flag_corpus(case_id: str, text: str) -> None:
+    findings = content_scan.scan_text(text, "f")
+    assert findings == [], f"{case_id!r} ({text!r}) was wrongly flagged: {findings}"
+
+
+# -- mutations: each new pattern, removed, turns its row(s) red -------------
+
+
+def test_mutation_removing_the_generic_assignment_rule_misses_json(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        content_scan, "_GENERIC_ASSIGNMENT_RE", re_compile_never_matches()
+    )
+    text = _json_row("password", _secret_value())
+    assert content_scan.scan_text(text, "f") == []
+
+
+def test_mutation_removing_the_pem_pattern_misses_a_pem_header(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    patterns = tuple(
+        p
+        for p in content_scan._TOKEN_PATTERNS  # noqa: SLF001
+        if "PRIVATE KEY" not in p.pattern
+    )
+    monkeypatch.setattr(content_scan, "_TOKEN_PATTERNS", patterns)
+    assert content_scan.scan_text(_pem_begin_line(), "f") == []
+
+
+def test_mutation_removing_the_github_pat_pattern_misses_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    patterns = tuple(
+        p
+        for p in content_scan._TOKEN_PATTERNS  # noqa: SLF001
+        if "github_pat_" not in p.pattern
+    )
+    monkeypatch.setattr(content_scan, "_TOKEN_PATTERNS", patterns)
+    assert content_scan.scan_text(_github_pat(), "f") == []
+
+
+def test_mutation_removing_the_stripe_pattern_misses_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    patterns = tuple(
+        p
+        for p in content_scan._TOKEN_PATTERNS  # noqa: SLF001
+        if "sk_(?:live" not in p.pattern
+    )
+    monkeypatch.setattr(content_scan, "_TOKEN_PATTERNS", patterns)
+    assert content_scan.scan_text(_stripe_key(), "f") == []
+
+
+def test_mutation_removing_the_mnt_path_alternative_misses_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    narrowed = re.compile(
+        r"(?:(?<![A-Za-z])[A-Za-z]:[\\/][^\s\"'<>]*|/Users/[^\s\"'<>]*|/home/[^\s\"'<>]*)"
+    )
+    monkeypatch.setattr(content_scan, "_PATH_RE", narrowed)
+    assert content_scan.scan_text("/mnt/c/drunken/secrets.json", "f") == []
+
+
+def re_compile_never_matches() -> "re.Pattern[str]":
+    return re.compile(r"(?!)")

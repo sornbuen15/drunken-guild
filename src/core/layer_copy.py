@@ -283,14 +283,17 @@ def ai_layer_files_under(root: Path) -> list[Path]:
     Public (DG-443): the exact same walk :mod:`core.doctor` needs to scan a
     project's *already-copied*, on-disk AI-layer files read-only — reused
     rather than reimplemented, so "never follow a symlink while walking a
-    project's AI layer" has one definition, not two that could drift.
+    project's AI layer" has one definition, not two that could drift. This
+    also means the walk — and so the content scan — is identical for the
+    copy path and doctor's re-scan: neither can be blind to something the
+    other would catch.
 
     **Never descends into a nested repository (DG-443 review).** Every
-    subdirectory other than *root* itself that holds its own ``.git`` (a
-    directory for an ordinary clone, a file for a ``git worktree``) is a
-    separate repository's boundary, not more of this one's tree, and is
-    skipped the same way a symlink already is. This was found the hard
-    way: :data:`core.ai_layer.AI_LAYER_ROOT_DIRS` walks ``.claude`` to any
+    subdirectory other than *root* itself that holds its own real git
+    marker (see :func:`_is_real_git_marker`) is a separate repository's
+    boundary, not more of this one's tree, and is skipped the same way a
+    symlink already is. This was found the hard way:
+    :data:`core.ai_layer.AI_LAYER_ROOT_DIRS` walks ``.claude`` to any
     depth, and Claude Code's own ``git worktree`` feature keeps every
     active worktree *inside* a project's ``.claude/worktrees/`` — each one
     a full, independent checkout with its own dependency tree. Before this
@@ -301,6 +304,19 @@ def ai_layer_files_under(root: Path) -> list[Path]:
     into roughly a million and turning a diagnostic command into a
     multi-minute hang. Nothing about *what counts as AI-layer content*
     changes — only where the walk itself is willing to still be looking.
+
+    **The marker must be a real one, not merely named ``.git`` (DG-443
+    review round 2).** An earlier version of this guard skipped *any*
+    directory entry named ``.git`` at all — directory or plain file,
+    content never inspected. That is exactly backwards for a walk built to
+    catch a leaked secret: a plain text file someone happened to name
+    ``.git`` (not a repository marker at all) would have hidden everything
+    beneath it from both the copy-in scan *and* doctor's re-scan, with no
+    error, no finding, nothing. :func:`_is_real_git_marker` instead reads
+    the entry — a directory only counts if it holds a ``HEAD`` file (what
+    every real ``.git`` directory has), a file only counts if its first
+    line starts with ``gitdir:`` (an ordinary git worktree pointer) —
+    before this walk trusts it as a boundary.
     """
     files: list[Path] = []
     stack = [root]
@@ -311,7 +327,7 @@ def ai_layer_files_under(root: Path) -> list[Path]:
                 # Never followed, file or directory: see the docstring.
                 continue
             if entry.is_dir():
-                if (entry / ".git").exists():
+                if _is_real_git_marker(entry / ".git"):
                     # A nested repository (or worktree) boundary: see the
                     # docstring. `entry` is always a descendant discovered
                     # through `iterdir()`, never *root* itself (root is
@@ -326,6 +342,35 @@ def ai_layer_files_under(root: Path) -> list[Path]:
                 if is_ai_layer_path(relative.as_posix()):
                     files.append(relative)
     return sorted(files)
+
+
+def _is_real_git_marker(candidate: Path) -> bool:
+    """Whether *candidate* (a ``.git`` entry found while walking) is an
+    actual git repository marker, not merely a file or directory that
+    happens to be named ``.git`` — see :func:`ai_layer_files_under`'s
+    docstring for why this distinction matters.
+
+    A directory: real only if it holds a ``HEAD`` file, which every git
+    repository's own ``.git`` directory has (the loose or packed object
+    store, the index and the rest can legitimately be absent — a fresh
+    ``git init`` with nothing committed yet still has ``HEAD``, before a
+    single object exists). A file: real only if its first line starts
+    with ``gitdir:`` — the one-line pointer format `git worktree` writes,
+    and the only shape a real ``.git`` is ever a plain file instead of a
+    directory. Anything else — a directory with no ``HEAD``, a file with
+    different content, or neither existing at all — is not a marker, and
+    this walk keeps going through it.
+    """
+    if candidate.is_dir():
+        return (candidate / "HEAD").is_file()
+    if candidate.is_file():
+        try:
+            with candidate.open("r", encoding="utf-8", errors="replace") as handle:
+                first_line = handle.readline()
+        except OSError:
+            return False
+        return first_line.startswith("gitdir:")
+    return False
 
 
 #: Kept as the name every call site in this module already used before
