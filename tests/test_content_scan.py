@@ -518,12 +518,12 @@ def test_must_not_flag_curl_basic_auth_negatives(case_id: str, text: str) -> Non
 def test_mutation_removing_the_curl_user_pattern_misses_it(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    patterns = tuple(
-        p
-        for p in content_scan._TOKEN_PATTERNS  # noqa: SLF001
-        if "-u|--user" not in p.pattern
-    )
-    monkeypatch.setattr(content_scan, "_TOKEN_PATTERNS", patterns)
+    """DG-443 round 4: the bare `-u`/`--user` check moved from
+    `_TOKEN_PATTERNS` into the dedicated `_CURL_USER_FLAG_RE` (which also
+    now covers short-option clusters like `-su`) — this mutation disables
+    that regex directly rather than the no-longer-relevant token-pattern
+    filter round 3 used."""
+    monkeypatch.setattr(content_scan, "_CURL_USER_FLAG_RE", re.compile(r"(?!)"))
     text = _curl_cmd("-u", " ", _secret_value())
     assert content_scan.scan_text(text, "f") == []
 
@@ -734,3 +734,143 @@ def test_header_and_client_secret_style_keys_already_flag(
 ) -> None:
     findings = content_scan.scan_text(text, "f")
     assert findings, f"{case_id!r} ({text!r}) was not flagged at all"
+
+
+# ============================================================================
+# DG-443 review round 4 — curl/wget short-option clusters ending in "u"
+# (e.g. -su, -sSu, -fsSu), quote-glued forms, and PowerShell literal secrets.
+# Every curl fixture is still built via _curl_cmd's concatenation, never one
+# contiguous "flag + user:pass" literal, for the same gitleaks reason as
+# round 3.
+# ============================================================================
+
+
+def _curl_cmd_quoted(flag: str, value: str, quote: str) -> str:
+    """Like ``_curl_cmd`` but with the value glued directly onto the flag
+    inside *quote* characters and no separator — ``-u"name:pass"`` —
+    still assembled by concatenation, never one contiguous literal."""
+    user_part = "alice" + ":" + value
+    return (
+        "curl "
+        + flag
+        + quote
+        + user_part
+        + quote
+        + " "
+        + "https://example.atlassian.net"
+    )
+
+
+def _curl_short_cluster_rows() -> list[tuple[str, str]]:
+    value = _secret_value()
+    return [
+        ("curl_su", _curl_cmd("-su", " ", value)),
+        ("curl_sSu", _curl_cmd("-sSu", " ", value)),
+        ("curl_fsSu", _curl_cmd("-fsSu", " ", value)),
+        ("curl_sSLu", _curl_cmd("-sSLu", " ", value)),
+        ("curl_user_eq_again", _curl_cmd("--user", "=", value)),
+        ("curl_u_double_quoted", _curl_cmd_quoted("-u", value, '"')),
+        ("curl_u_single_quoted", _curl_cmd_quoted("-u", value, "'")),
+    ]
+
+
+def _curl_short_cluster_negative_rows() -> list[tuple[str, str]]:
+    return [
+        ("ls_dash_u", "ls -u /dir"),
+        ("sort_dash_u", "sort -u file.txt"),
+        ("uniq_dash_u", "uniq -u file.txt"),
+        ("curl_su_dollar_var", "curl -su " + "$" + "PASSWORD https://x"),
+        (
+            "curl_su_colon_dollar_var",
+            "curl -su " + "alice:" + "$" + "PASSWORD https://x",
+        ),
+        (
+            "curl_su_colon_braced_var",
+            "curl -su " + "alice:" + "${PASSWORD}" + " https://x",
+        ),
+        ("curl_su_colon_placeholder", "curl -su " + "alice:<password> https://x"),
+        ("curl_su_colon_empty", "curl -su " + "alice: https://x"),
+    ]
+
+
+@pytest.mark.parametrize("case_id,text", _curl_short_cluster_rows())
+def test_must_flag_curl_short_option_cluster_corpus(case_id: str, text: str) -> None:
+    findings = content_scan.scan_text(text, "f")
+    assert findings, f"{case_id!r} ({text!r}) was not flagged at all"
+
+
+@pytest.mark.parametrize("case_id,text", _curl_short_cluster_negative_rows())
+def test_must_not_flag_curl_short_option_cluster_negatives(
+    case_id: str, text: str
+) -> None:
+    findings = content_scan.scan_text(text, "f")
+    assert findings == [], f"{case_id!r} ({text!r}) was wrongly flagged: {findings}"
+
+
+def test_mutation_removing_the_curl_short_cluster_pattern_misses_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(content_scan, "_CURL_USER_FLAG_RE", re.compile(r"(?!)"))
+    text = _curl_cmd("-sSu", " ", _secret_value())
+    assert content_scan.scan_text(text, "f") == []
+
+
+# -- PowerShell literal secrets ----------------------------------------------
+
+
+def _ps_secure_string_line(value: str) -> str:
+    return "ConvertTo-SecureString " + '"' + value + '"' + " " + "-AsPlainText -Force"
+
+
+def _ps_credential_line(value: str) -> str:
+    return (
+        "New-Object System.Management.Automation.PSCredential("
+        + '"alice", "'
+        + value
+        + '")'
+    )
+
+
+def _powershell_rows() -> list[tuple[str, str]]:
+    value = _secret_value()
+    return [
+        ("ps_convertto_securestring", _ps_secure_string_line(value)),
+        ("ps_pscredential", _ps_credential_line(value)),
+    ]
+
+
+def _powershell_negative_rows() -> list[tuple[str, str]]:
+    return [
+        ("ps_convertto_dollar_var", "ConvertTo-SecureString $password -AsPlainText"),
+        ("ps_read_host", "$cred = Read-Host -AsSecureString"),
+        (
+            "ps_pscredential_vars",
+            "New-Object System.Management.Automation.PSCredential($user, $pass)",
+        ),
+        (
+            "ps_convertto_env_braced",
+            'ConvertTo-SecureString "${env:PASSWORD}" -AsPlainText',
+        ),
+    ]
+
+
+@pytest.mark.parametrize("case_id,text", _powershell_rows())
+def test_must_flag_powershell_corpus(case_id: str, text: str) -> None:
+    findings = content_scan.scan_text(text, "f")
+    assert findings, f"{case_id!r} ({text!r}) was not flagged at all"
+
+
+@pytest.mark.parametrize("case_id,text", _powershell_negative_rows())
+def test_must_not_flag_powershell_negatives(case_id: str, text: str) -> None:
+    findings = content_scan.scan_text(text, "f")
+    assert findings == [], f"{case_id!r} ({text!r}) was wrongly flagged: {findings}"
+
+
+def test_mutation_removing_the_powershell_check_misses_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        content_scan, "_scan_powershell_literal", lambda line, line_number, filename: []
+    )
+    text = _ps_secure_string_line(_secret_value())
+    assert content_scan.scan_text(text, "f") == []

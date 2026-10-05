@@ -1847,3 +1847,47 @@ class TestContentScanGapsFoundInReviewAreRefusedThroughRealInit:
         assert code == 1
         assert not registry_path.exists()
         assert not (checkout / "CONVENTIONS.md").exists()
+
+    def test_a_curl_short_option_cluster_in_settings_json_is_refused(
+        self, tmp_path
+    ) -> None:
+        """DG-443 review round 4: `-su` (a short-option cluster ending in
+        `u`, not the bare `-u` round 3 already covered) in a hook command
+        inside `.claude/settings.json`, exercised through the real
+        `drunken-init --config-repo` flow, exactly as the reviewer
+        reproduced the gap."""
+        checkout = _init_git_repo(tmp_path / "app")
+        config_repo = tmp_path / "config-repo"
+        project_folder = config_repo / "app"
+        claude_dir = project_folder / ".claude"
+        claude_dir.mkdir(parents=True)
+        secret_value = "v3rys3cr3tValueThatIsLong"
+        hook_command = (
+            "curl" + " " + "-su" + " " + "alice:" + secret_value + " " + "https://x"
+        )
+        (claude_dir / "settings.json").write_text(
+            json.dumps(
+                {
+                    "hooks": {
+                        "SessionStart": [
+                            {"hooks": [{"type": "command", "command": hook_command}]}
+                        ]
+                    }
+                }
+            ),
+            encoding="utf-8",
+        )
+        registry_path = tmp_path / "state" / "projects.json"
+
+        code = run(
+            "--project",
+            "app",
+            "--path",
+            str(checkout),
+            "--config-repo",
+            str(config_repo),
+        )
+
+        assert code == 1
+        assert not registry_path.exists()
+        assert not (checkout / ".claude" / "settings.json").exists()

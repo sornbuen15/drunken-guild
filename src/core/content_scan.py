@@ -72,6 +72,26 @@ the only thing standing between a real credential and exposure. Nothing in
 this module's own text, nor any caller's remediation message, should ever
 say or imply "safe" or "clean" about content that passed every pattern
 here — only that no *known* shape was found.
+
+**`-u` is not a substring of `-su` (DG-443 review round 4).** Round 3's
+curl/wget rule matched only the bare `-u`/`--user` flag — a short-option
+*cluster* ending in `u` (`-su`, `-sSu`, `-fsSu`, `-sSLu`, curl/wget's own
+convention for combining single-letter flags) was invisible to it, and
+was reproduced end to end: copied in, unredacted, by `drunken-init
+--config-repo`, with `drunken-doctor` reporting the result clean. Fixed
+by matching any `-[A-Za-z]*u` cluster, not only the two literal flags,
+with a lookbehind so this never fires inside a longer word. The same
+fix also makes the separator between the flag and the value properly
+optional — `-u"name:pass"`, glued on with no space or `=` at all, did
+not match the old pattern either.
+
+**PowerShell literals (DG-443 review round 4), narrowly.** A quoted
+literal next to `ConvertTo-SecureString ... -AsPlainText` or inside a
+`PSCredential(...)` call is exactly as much "a credential typed where
+only a reference belongs" as any other shape here — `$var`/`Read-Host`
+(reading it from the environment or the operator, not typing it) never
+match, because there is no quoted literal on that line for either rule
+to find at all.
 """
 
 from __future__ import annotations
@@ -149,11 +169,6 @@ _TOKEN_PATTERNS: Final[tuple[re.Pattern[str], ...]] = (
     # A PEM private key's own BEGIN line — the line alone is enough; the key
     # material that follows does not need to be present or matched.
     re.compile(r"-----BEGIN (?:RSA |EC |OPENSSH |DSA |ENCRYPTED )?PRIVATE KEY-----"),
-    # curl/wget basic-auth flags (DG-443 review round 3): `-u`/`--user` needs
-    # a `user:password` *value* (colon required) to tell it apart from an
-    # unrelated single-letter flag on another tool (`ls -u`) or `-u` with no
-    # value at all — see the module's "must NOT flag" corpus.
-    re.compile(r"(?:-u|--user)[ =]+[^\s/:]+:(?!//)\S+"),
     re.compile(r"(?i)--(?:http-)?password[ =]+\S{4,}"),
     # Azure (and Azure-shaped SAS) connection strings and signatures — not
     # covered by the generic sensitive-key rule, which only recognises a
@@ -307,6 +322,39 @@ _NETRC_LINE_RE: Final = re.compile(r"(?i)^\s*(?:machine|default|login|password)\
 #: whitespace, never ``:``/``=``).
 _NETRC_PASSWORD_RE: Final = re.compile(r"(?i)\bpassword[ \t]+(\S{4,})")
 
+#: curl/wget basic-auth, as *any* short-option cluster ending in ``u``
+#: (DG-443 review round 4) — ``-u``, ``-su``, ``-sSu``, ``-fsSu``,
+#: ``-sSLu``, ... — not only the bare ``-u`` round 3 caught, since
+#: ``-u`` is not a *substring* of ``-su`` and the earlier pattern missed
+#: every clustered form entirely (reproduced end to end: copied
+#: unredacted by `drunken-init --config-repo`, doctor reported OK). Also
+#: matches ``--user``. The lookbehind keeps this from firing inside a
+#: longer token (so a word that merely *ends* in a hyphen-letter run is
+#: never mistaken for a flag); the separator group is optional so a
+#: quote glued directly onto the flag (``-u"name:pass"``, no space or
+#: ``=``) still matches, not only ``-u name:pass`` / ``-u=name:pass``.
+#: The password half is captured alone, validated the same way as every
+#: other rule (:func:`_looks_like_a_real_value`) before becoming a
+#: finding — a bare ``-u``/``-su`` with no ``user:pass`` shaped value at
+#: all (``ls -u``, ``sort -u file``, ``uniq -u file``) never matches in
+#: the first place, since there is no literal ``:`` for the pattern to
+#: anchor on.
+_CURL_USER_FLAG_RE: Final = re.compile(
+    r"(?<![A-Za-z0-9_-])(?:-[A-Za-z]*u|--user)(?:=|\s+)?"
+    r"[\"']?[^\s\"':]+:(?!//)([^\s\"']+)"
+)
+
+#: A PowerShell literal secret (DG-443 review round 4): either
+#: ``ConvertTo-SecureString`` together with ``-AsPlainText`` on the same
+#: line, or a ``PSCredential(`` constructor call — both only when a
+#: quoted literal is actually present on that line; ``$var``/
+#: ``Read-Host`` (no quoted literal at all, or a quoted reference that
+#: :func:`_looks_like_a_real_value` already rejects) never match.
+_PS_SECURE_STRING_RE: Final = re.compile(r"(?i)ConvertTo-SecureString")
+_PS_AS_PLAIN_TEXT_RE: Final = re.compile(r"(?i)-AsPlainText\b")
+_PS_CREDENTIAL_RE: Final = re.compile(r"(?i)PSCredential\s*\(")
+_PS_QUOTED_LITERAL_RE: Final = re.compile(r"[\"']([^\"']+)[\"']")
+
 
 def _quote_stripped(value: str) -> str:
     """*value* with one matching pair of leading/trailing quote characters
@@ -376,6 +424,37 @@ def _scan_unmasked_line(line: str, line_number: int, filename: str) -> list[Find
     if netrc_match and _looks_like_a_real_value(netrc_match.group(1)):
         findings.append(Finding(filename, line_number, "token", netrc_match.group(1)))
 
+    for match in _CURL_USER_FLAG_RE.finditer(line):
+        password = match.group(1)
+        if _looks_like_a_real_value(password):
+            findings.append(Finding(filename, line_number, "token", password))
+
+    findings.extend(_scan_powershell_literal(line, line_number, filename))
+
+    return findings
+
+
+def _scan_powershell_literal(
+    line: str, line_number: int, filename: str
+) -> list[Finding]:
+    """A quoted literal secret on a PowerShell line (DG-443 review round
+    4): ``ConvertTo-SecureString "..." -AsPlainText`` or
+    ``PSCredential("...", ...)`` — only when a quoted literal is actually
+    present, and only the first one that looks real (see
+    :data:`_PS_SECURE_STRING_RE` for why ``$var``/``Read-Host`` never
+    match at all)."""
+    is_secure_string_line = _PS_SECURE_STRING_RE.search(
+        line
+    ) and _PS_AS_PLAIN_TEXT_RE.search(line)
+    is_credential_line = _PS_CREDENTIAL_RE.search(line)
+    if not (is_secure_string_line or is_credential_line):
+        return []
+
+    findings: list[Finding] = []
+    for literal_match in _PS_QUOTED_LITERAL_RE.finditer(line):
+        value = literal_match.group(1)
+        if _looks_like_a_real_value(value):
+            findings.append(Finding(filename, line_number, "token", value))
     return findings
 
 
