@@ -543,3 +543,73 @@ class TestThisRepositoryIsExempt:
             "if this repository tracked nothing AI-layer-shaped, the "
             "exemption above would be untested by every other case here"
         )
+
+
+class TestLeakedGitEnvironmentDoesNotMisreportTrackedPaths:
+    """DG-451. ``tracked_ai_layer_paths`` ran plain ``git ls-files -z`` with
+    the caller's inherited environment. ``core.exclude.run_git`` /
+    ``git_subprocess_env`` (DG-440/441) already strip every ``GIT_*``
+    variable for exactly this reason: a process with ``GIT_DIR`` /
+    ``GIT_WORK_TREE`` / ``GIT_INDEX_FILE`` set — a git hook, for one —
+    redirects a naive ``git`` subprocess call onto a completely different
+    repository's index, regardless of the ``cwd`` it is given. This proves
+    ``tracked_ai_layer_paths`` now goes through the stripped caller too, by
+    pointing all three at a real, unrelated repository and checking the
+    *project's own* tracked AI-layer paths are still what comes back.
+    """
+
+    def test_leaked_git_dir_index_and_worktree_still_report_this_projects_paths(
+        self, tmp_path, monkeypatch
+    ):
+        unrelated = tmp_path / "unrelated"
+        _init_repo(unrelated)
+        (unrelated / "main.py").write_text("print('unrelated')", encoding="utf-8")
+        _commit_all(unrelated, "unrelated initial")
+
+        project = tmp_path / "proj"
+        _init_repo(project)
+        (project / "AGENTS.md").write_text("instructions", encoding="utf-8")
+        (project / "main.py").write_text("print('hi')", encoding="utf-8")
+        _commit_all(project, "initial")
+
+        monkeypatch.setenv("GIT_DIR", str(unrelated / ".git"))
+        monkeypatch.setenv("GIT_WORK_TREE", str(unrelated))
+        monkeypatch.setenv("GIT_INDEX_FILE", str(unrelated / ".git" / "index"))
+
+        tracked = doctor.tracked_ai_layer_paths(project)
+
+        assert tracked == ["AGENTS.md"], (
+            "a leaked GIT_DIR/GIT_WORK_TREE/GIT_INDEX_FILE must not redirect "
+            "this call onto the unrelated repository found through them — it "
+            f"must still report {project}'s own tracked AI-layer paths. Got "
+            f"{tracked!r}"
+        )
+
+    def test_leaked_git_dir_index_and_worktree_do_not_break_the_full_check(
+        self, tmp_path, monkeypatch
+    ):
+        unrelated = tmp_path / "unrelated"
+        _init_repo(unrelated)
+        (unrelated / "main.py").write_text("print('unrelated')", encoding="utf-8")
+        _commit_all(unrelated, "unrelated initial")
+
+        project = tmp_path / "proj"
+        _init_repo(project)
+        (project / "AGENTS.md").write_text("instructions", encoding="utf-8")
+        (project / "main.py").write_text("print('hi')", encoding="utf-8")
+        _commit_all(project, "initial")
+
+        monkeypatch.setenv("GIT_DIR", str(unrelated / ".git"))
+        monkeypatch.setenv("GIT_WORK_TREE", str(unrelated))
+        monkeypatch.setenv("GIT_INDEX_FILE", str(unrelated / ".git" / "index"))
+
+        report = doctor.run_doctor(
+            registry=_registry(tmp_path, "scratch", project), offline=True
+        )
+
+        check = find(report, "layering.tracked.scratch")
+        assert check.status == "fail", (
+            "the leaked environment must not turn a real, tracked AGENTS.md "
+            f"into a false pass or skip. Got {check.status}: {check.detail}"
+        )
+        assert "AGENTS.md" in check.detail, check.detail
