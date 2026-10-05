@@ -353,7 +353,21 @@ if [ -n "$_orphans" ]; then
           echo "  $_target (link, not touched)"
           continue
         fi
-        echo "  $_target"
+        # The preview and the apply run both name what they are about to
+        # remove whole: a retired directory holding only the SKILL.md this
+        # repository shipped is one thing, and a retired directory a user
+        # dropped their own notes or subfolders into is another -- the old
+        # output said "$_target" either way and removed both the same,
+        # silently, on --prune-apply. `find ... -mindepth 1 -maxdepth 1` lists
+        # exactly what the SKILL.md check compares against: a single file
+        # named SKILL.md and nothing else at the top level.
+        _top_entries=$(find "$_target" -mindepth 1 -maxdepth 1)
+        _total_files=$(find "$_target" -type f | wc -l | tr -d ' ')
+        if [ "$_top_entries" = "$_target/SKILL.md" ] && [ -f "$_target/SKILL.md" ]; then
+          echo "  $_target ($_total_files file)"
+        else
+          echo "  $_target ($_total_files files -- holds more than SKILL.md)"
+        fi
         if [ "$PRUNE_APPLY" = true ]; then
           rm -rf -- "$_target"
         fi
@@ -376,6 +390,35 @@ if [ -n "$_orphans" ]; then
     echo -e "${YELLOW}Installed but not produced here:${NC}"
     echo "$_orphans" | sed 's|^|  ~/.claude/skills/|'
     echo -e "  Left in place. Add to skills/.external if intended. --prune lists what --prune --prune-apply would remove -- only names on $RETIRED_FILE, never anything else."
+  fi
+fi
+
+# A name on the retired list is not guaranteed to be a directory at all: it
+# might be a plain file (an operator's own note, or a leftover from a manual
+# edit) sharing the name of something this repository once shipped. The
+# `_installed` scan above only ever looks for a directory holding SKILL.md or
+# a link, so a plain file here was previously invisible to every list this
+# script prints -- never counted as installed, never reported as an orphan,
+# never reaching this far at all. It is reported, on every --prune run,
+# independently of the orphan set, and never touched: a plain file is not a
+# skill directory, so nothing here decides what it is safe to do with it.
+if [ "$PRUNE" = true ] && [ -n "$_retired" ]; then
+  _retired_file_names=""
+  while IFS= read -r _name; do
+    [ -z "$_name" ] && continue
+    _rtarget="$GLOBAL_SKILLS_DIR/$_name"
+    if [ -f "$_rtarget" ] && [ ! -L "$_rtarget" ]; then
+      _retired_file_names="${_retired_file_names}${_name}
+"
+    fi
+  done <<< "$_retired"
+  if [ -n "$_retired_file_names" ]; then
+    echo ""
+    echo -e "${YELLOW}Retired name on disk as a plain file:${NC}"
+    while IFS= read -r _name; do
+      [ -z "$_name" ] && continue
+      echo "  $GLOBAL_SKILLS_DIR/$_name (not a skill directory, left alone)"
+    done <<< "$_retired_file_names"
   fi
 fi
 
