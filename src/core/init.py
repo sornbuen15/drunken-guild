@@ -33,7 +33,7 @@ import sys
 from pathlib import Path
 from typing import Any, Optional
 
-from . import exclude, layer_copy, paths, scaffold, secrets
+from . import content_scan, exclude, layer_copy, paths, scaffold, secrets
 from .errors import DrunkenError, ValidationError
 from .registry import SCHEMA_VERSION, validate_project_id
 
@@ -371,27 +371,18 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _copy_ai_layer_in(
-    document: dict[str, Any], project_id: Optional[str], args: argparse.Namespace
-) -> tuple[list[str], bool]:
-    """DG-441 (REQ-019/020). Wire :func:`core.layer_copy.copy_ai_layer_in`.
+def _resolve_copy_targets(
+    document: dict[str, Any], project_id: Optional[str]
+) -> tuple[Path, Path]:
+    """*project_id*'s registered ``path`` and resolved git root, or raise —
+    shared by :func:`_validate_config_repo_content` and
+    :func:`_copy_ai_layer_in` so the two can never resolve "where does the
+    AI layer land" differently.
 
     Independent of whether ``--path`` was passed *this* run: a project
     registered earlier already has a ``path`` in the document, and
     ``--config-repo`` should work against it on a later, idempotent call —
     the same shape every other ``drunken-init`` flag already has.
-
-    Returns the stdout report lines, and whether any file was skipped
-    because it already exists *and differs* from the config repo — the
-    second value is what ``main()`` turns into a non-zero exit. An
-    identical existing file is "unchanged" and never drift.
-
-    DG-442 moved AGENTS.md/CLAUDE.md generation (for a project under the
-    guild) into the config repo's own working copy, generated *before* this
-    runs in the same call — so this sees them exactly like any other
-    AI-layer file already sitting in the project folder, never as a
-    checkout-side collision the way they could when ``scaffold.instruction_
-    files()`` used to write them straight into the checkout.
     """
     if not project_id:
         raise ValidationError(
@@ -410,10 +401,152 @@ def _copy_ai_layer_in(
 
     project_root = Path(entry["path"]).expanduser()
     git_root = _resolve_git_root(entry, project_root)
+    return project_root, git_root
+
+
+_JIRA_FRAGMENT_FILENAME = "jira.json"
+
+#: The only keys `jira.json` (DG-443) may hold. No ``email``: the Boss's
+#: rule is "no credential, no identity, no real path" in the config repo,
+#: and an account's e-mail is an identity — it stays machine-local, read
+#: from ``--jira-email`` / an already-registered entry, same as today.
+_JIRA_FRAGMENT_ALLOWED_KEYS = frozenset({"url", "project_key", "credential"})
+
+
+def _read_jira_fragment(project_folder: Path) -> Optional[dict[str, str]]:
+    """``<project_folder>/jira.json`` (DG-443), read, scanned and validated
+    — or ``None`` when there is no fragment at all, which is not an error:
+    a project under the guild need not source its Jira block from the
+    config repo.
+
+    Scanned exactly like any other AI-layer file's content (token, userinfo,
+    path, e-mail) even though it is never copied into a project and never on
+    :mod:`core.ai_layer`'s list — the Boss's content rule does not stop at
+    the files that get copied. ``email`` is refused by key, not only by
+    shape: a value that is not itself e-mail-*shaped* would otherwise slip
+    past the scanner's pattern while still being exactly the identity this
+    ticket's rule names.
+    """
+    path = project_folder / _JIRA_FRAGMENT_FILENAME
+    if not path.is_file():
+        return None
+
+    findings = content_scan.scan_file(path, _JIRA_FRAGMENT_FILENAME)
+    if findings:
+        detail = "; ".join(finding.describe() for finding in findings)
+        raise ValidationError(
+            f"{_JIRA_FRAGMENT_FILENAME} has {len(findings)} finding(s), "
+            f"refusing before any write: {detail}",
+            remediation=(
+                "Replace the value with a reference (env://, file://, "
+                "op://, keyring://), or remove it from the config repo."
+            ),
+        )
+
+    try:
+        raw = path.read_text(encoding="utf-8-sig")
+        data: Any = json.loads(raw)
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ValidationError(
+            f"{_JIRA_FRAGMENT_FILENAME} is not valid JSON: {exc}",
+            remediation=f"Fix {path}'s JSON syntax, or remove the file.",
+        ) from exc
+
+    if not isinstance(data, dict):
+        raise ValidationError(
+            f"{_JIRA_FRAGMENT_FILENAME} is not a JSON object.",
+            remediation=f"Fix {path} to hold a single JSON object.",
+        )
+
+    if "email" in data:
+        raise ValidationError(
+            f"{_JIRA_FRAGMENT_FILENAME} holds an 'email' key, which is not "
+            "allowed — the Jira account e-mail is an identity and stays "
+            "machine-local, never in the config repo.",
+            remediation=(
+                "Remove 'email' from jira.json; set it locally instead with "
+                "--jira-email (it is kept across runs once registered)."
+            ),
+        )
+
+    missing = _JIRA_FRAGMENT_ALLOWED_KEYS - data.keys()
+    if missing:
+        raise ValidationError(
+            f"{_JIRA_FRAGMENT_FILENAME} is missing: {', '.join(sorted(missing))}.",
+            remediation=(
+                f"Add all of {', '.join(sorted(_JIRA_FRAGMENT_ALLOWED_KEYS))} "
+                f"to {path}, or remove the file entirely."
+            ),
+        )
+    extra = set(data.keys()) - _JIRA_FRAGMENT_ALLOWED_KEYS
+    if extra:
+        raise ValidationError(
+            f"{_JIRA_FRAGMENT_FILENAME} has unexpected key(s): "
+            f"{', '.join(sorted(extra))}.",
+            remediation=(
+                f"Only {', '.join(sorted(_JIRA_FRAGMENT_ALLOWED_KEYS))} are "
+                f"allowed in {path}."
+            ),
+        )
+
+    _validate_credential_reference(str(data["credential"]))
+    return {key: str(data[key]) for key in _JIRA_FRAGMENT_ALLOWED_KEYS}
+
+
+def _validate_config_repo_content(
+    document: dict[str, Any], project_id: Optional[str], args: argparse.Namespace
+) -> Optional[dict[str, str]]:
+    """Everything about ``--config-repo``'s own content that must be
+    checked **before any write** (DG-443 review, decision 4): every
+    AI-layer file's text, and ``jira.json``. Returns the Jira block to
+    merge into the registry, or ``None`` when there is no fragment.
+
+    Writes nothing: :func:`core.layer_copy.validate_ai_layer_copy` and
+    :func:`_read_jira_fragment` are both read-only by construction. Called
+    from ``main()`` strictly before ``_write()``, so a refusal here leaves
+    the registry exactly as it found it — absent, for a brand-new project.
+    """
+    project_root, git_root = _resolve_copy_targets(document, project_id)
+    config_repo = Path(args.config_repo).expanduser()
+
+    validated = layer_copy.validate_ai_layer_copy(
+        config_repo=config_repo,
+        project_id=str(project_id),
+        project_root=project_root,
+        git_root=git_root,
+    )
+    return _read_jira_fragment(validated.project_folder)
+
+
+def _copy_ai_layer_in(
+    document: dict[str, Any], project_id: Optional[str], args: argparse.Namespace
+) -> tuple[list[str], bool]:
+    """DG-441 (REQ-019/020). Wire :func:`core.layer_copy.copy_ai_layer_in`.
+
+    Returns the stdout report lines, and whether any file was skipped
+    because it already exists *and differs* from the config repo — the
+    second value is what ``main()`` turns into a non-zero exit. An
+    identical existing file is "unchanged" and never drift.
+
+    DG-442 moved AGENTS.md/CLAUDE.md generation (for a project under the
+    guild) into the config repo's own working copy, generated *before* this
+    runs in the same call — so this sees them exactly like any other
+    AI-layer file already sitting in the project folder, never as a
+    checkout-side collision the way they could when ``scaffold.instruction_
+    files()`` used to write them straight into the checkout.
+
+    DG-443: by the time this runs, ``main()`` has already called
+    :func:`_validate_config_repo_content` once — this re-validates
+    (``copy_ai_layer_in`` always does, on its own) rather than trusting a
+    result computed before the registry write, which is cheap and keeps
+    this function usable on its own, the way every existing test for it
+    already calls it.
+    """
+    project_root, git_root = _resolve_copy_targets(document, project_id)
 
     result = layer_copy.copy_ai_layer_in(
         config_repo=Path(args.config_repo).expanduser(),
-        project_id=project_id,
+        project_id=str(project_id),
         project_root=project_root,
         git_root=git_root,
         overwrite=bool(args.overwrite_ai_layer),
@@ -591,6 +724,21 @@ def main() -> int:
             if project_root is not None and project_id is not None
             else None
         )
+
+        # DG-443 review (comment 11482, decision 4): the config repo's own
+        # content — every AI-layer file's text, and jira.json — is checked
+        # the same way, and just as strictly before `_write()` below: a
+        # refusal here must leave the registry exactly as it found it
+        # (absent, for a brand-new project), not merely the project
+        # checkout. `layer_copy.validate_ai_layer_copy` writes nothing by
+        # construction; `_read_jira_fragment` only reads and validates.
+        jira_fragment = (
+            _validate_config_repo_content(document, project_id, args)
+            if args.config_repo
+            else None
+        )
+        if jira_fragment and project_id:
+            document["projects"][project_id]["jira"] = jira_fragment
 
         home = paths.ensure_home()
         _write(registry_file, document)
