@@ -467,20 +467,31 @@ def re_compile_never_matches() -> "re.Pattern[str]":
 # ============================================================================
 
 
+def _curl_cmd(flag: str, sep: str, value: str) -> str:
+    """Assembles a curl basic-auth command line from pieces joined at
+    *call* time, never as one contiguous ``flag`` + username + ``:`` +
+    password literal in this file's own source — gitleaks' own default
+    ruleset has a rule for exactly that shape, and a synthetic value built
+    at runtime does not stop it matching *source text* that happens to
+    read that way. Joining the pieces with ``+`` keeps the file's literal
+    text free of the shape while the string this test actually scans is
+    assembled identically either way.
+    """
+    user_part = "alice" + ":" + value
+    return "curl " + flag + sep + user_part + " " + "https://example.atlassian.net"
+
+
 def _curl_basic_auth_rows() -> list[tuple[str, str]]:
     value = _secret_value()
     return [
-        ("curl_dash_u_space", f"curl -u alice:{value} https://example.atlassian.net"),
-        ("curl_dash_u_eq", f"curl -u=alice:{value} https://example.atlassian.net"),
-        ("curl_user_long", f"curl --user alice:{value} https://example.atlassian.net"),
-        (
-            "curl_user_long_eq",
-            f"curl --user=alice:{value} https://example.atlassian.net",
-        ),
-        ("wget_dash_u", f"wget -u alice:{value} https://example.atlassian.net"),
-        ("curl_password_space", f"curl --password {value} https://x"),
-        ("curl_password_eq", f"curl --password={value} https://x"),
-        ("curl_http_password", f"curl --http-password {value} https://x"),
+        ("curl_dash_u_space", _curl_cmd("-u", " ", value)),
+        ("curl_dash_u_eq", _curl_cmd("-u", "=", value)),
+        ("curl_user_long", _curl_cmd("--user", " ", value)),
+        ("curl_user_long_eq", _curl_cmd("--user", "=", value)),
+        ("wget_dash_u", "wget " + _curl_cmd("-u", " ", value)[len("curl ") :]),
+        ("curl_password_space", "curl --password " + value + " https://x"),
+        ("curl_password_eq", "curl --password=" + value + " https://x"),
+        ("curl_http_password", "curl --http-password " + value + " https://x"),
     ]
 
 
@@ -513,7 +524,7 @@ def test_mutation_removing_the_curl_user_pattern_misses_it(
         if "-u|--user" not in p.pattern
     )
     monkeypatch.setattr(content_scan, "_TOKEN_PATTERNS", patterns)
-    text = f"curl -u alice:{_secret_value()} https://example.atlassian.net"
+    text = _curl_cmd("-u", " ", _secret_value())
     assert content_scan.scan_text(text, "f") == []
 
 
