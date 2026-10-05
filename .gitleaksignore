@@ -1,0 +1,24 @@
+# gitleaks fingerprints ignored here, and why.
+#
+# DG-443 review round 3: adding the curl/wget basic-auth corpus
+# (tests/test_content_scan.py) first landed as commit 48028f4, which built
+# each fixture as one f-string literal — "curl -u alice:{value}" — and
+# gitleaks' own default ruleset's `curl-auth-user` rule matches that exact
+# shape in committed TEXT, regardless of `{value}` being a synthetic string
+# built at runtime (gitleaks never evaluates it). The very next commit
+# (52a394a) rebuilds every fixture by string concatenation specifically so
+# no committed line ever reads that way again — but gitleaks scans every
+# commit's own diff across this branch's full history, so 48028f4's diff
+# still trips the rule even though the tip no longer does, and the usual
+# fix (force-push to rewrite history) is denied by this repository's own
+# floor (CLAUDE.md: a force push is never authorised, raise it instead).
+#
+# Each fingerprint below is one specific, already-superseded line in that
+# one historical commit, confirmed to be a synthetic value
+# ("v3rys3cr3tValuexxxxx", built in _secret_value()) never a real
+# credential. Narrow on purpose, matching this file's own stated
+# philosophy of self-identifying exceptions over broad locations.
+48028f4621957a1ec103c6ac11410ac425ffffbc:tests/test_content_scan.py:curl-auth-user:473
+48028f4621957a1ec103c6ac11410ac425ffffbc:tests/test_content_scan.py:curl-auth-user:474
+48028f4621957a1ec103c6ac11410ac425ffffbc:tests/test_content_scan.py:curl-auth-user:475
+48028f4621957a1ec103c6ac11410ac425ffffbc:tests/test_content_scan.py:curl-auth-user:478
