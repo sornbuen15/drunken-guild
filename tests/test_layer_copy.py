@@ -826,10 +826,17 @@ _ADVERSARIAL_NAMES: tuple[str, ...] = (
 #: Adversarial basenames NTFS cannot create at all (DG-452) — skipped by
 #: `_create_or_skip`'s capability probe on Windows, run for real on Linux
 #: CI, where they are ordinary filenames.
+#:
+#: A leading colon (``:colon.md``) is deliberately *not* here: Linux can
+#: create that file, but git's own pathspec parser reads a leading ``:`` as
+#: the start of pathspec *magic* syntax (``:(...)``) regardless of ``--``,
+#: so `git add -- ":colon.md"` itself fails with "did not match any
+#: files" — a pre-existing limit of git's CLI, not something either
+#: `_has_staged_content` or `_in_head` could fix, and not what this test is
+#: pinning (confirmed empirically on Linux CI before being removed here).
 _UNCREATABLE_ON_NTFS_NAMES: tuple[str, ...] = (
     "*star.md",
     "?quest.md",
-    ":colon.md",
 )
 
 
