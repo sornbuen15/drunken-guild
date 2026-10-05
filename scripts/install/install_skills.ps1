@@ -56,6 +56,31 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
+# DG-450. A read-only, one-level-at-a-time walk that stops at the first
+# reparse point it finds rather than descending into it. `Get-ChildItem
+# -Recurse` is not used here on purpose: on Windows PowerShell 5.1 it follows
+# a directory symlink or a junction straight into its target, which is the
+# very hazard a scan for a nested link exists to catch rather than trigger.
+# Returns the first nested reparse point's full path, or $null.
+function Find-NestedReparsePoint {
+    param([Parameter(Mandatory)][string]$Directory)
+
+    $pending = [System.Collections.Generic.Queue[string]]::new()
+    $pending.Enqueue($Directory)
+    while ($pending.Count -gt 0) {
+        $current = $pending.Dequeue()
+        foreach ($child in Get-ChildItem -LiteralPath $current -Force) {
+            if ($child.Attributes -band [System.IO.FileAttributes]::ReparsePoint) {
+                return $child.FullName
+            }
+            if ($child.PSIsContainer) {
+                $pending.Enqueue($child.FullName)
+            }
+        }
+    }
+    return $null
+}
+
 if ($IndexOnly -and ($Prune -or $PruneApply)) {
     Write-Host "-IndexOnly writes nothing outside the repo; it has nothing to prune." -ForegroundColor Red
     exit 1
@@ -375,7 +400,39 @@ if ($Orphans.Count -gt 0) {
                     Write-Host "  $target (link, not touched)"
                     continue
                 }
-                Write-Host "  $target"
+
+                # A read-only scan, one level at a time, never `-Recurse`:
+                # that one call follows a reparse point into its target on
+                # Windows PowerShell 5.1 (the hazard this scan exists to
+                # avoid), and on PowerShell Core it skips the target's
+                # contents but still requires a pass to notice the link was
+                # there at all. Walking manually means every directory is
+                # listed before it is ever descended into, and a reparse
+                # point found along the way stops that branch of the walk
+                # rather than being pushed onto it -- its target is never
+                # read, recursed into, or removed. A nested link means the
+                # whole retired directory is reported and left alone, on
+                # both the preview and the apply run.
+                $nestedLink = Find-NestedReparsePoint -Directory $target
+                if ($nestedLink) {
+                    $relative = $nestedLink.Substring($target.Length).TrimStart('\', '/')
+                    Write-Host "  $target (nested link at $relative, skipped -- never recursed into or removed)" -ForegroundColor Yellow
+                    continue
+                }
+
+                # The preview and the apply run both name what they are about
+                # to remove whole: a retired directory holding only the
+                # SKILL.md this repository shipped is one thing, and one a
+                # user dropped their own notes or subfolders into is
+                # another -- the old output said just "$target" either way
+                # and removed both the same, silently, on -PruneApply.
+                $topEntries = @(Get-ChildItem -LiteralPath $target -Force)
+                $totalFiles = @(Get-ChildItem -LiteralPath $target -Recurse -Force -File).Count
+                if ($topEntries.Count -eq 1 -and $topEntries[0].Name -eq "SKILL.md" -and -not $topEntries[0].PSIsContainer) {
+                    Write-Host "  $target ($totalFiles file)"
+                } else {
+                    Write-Host "  $target ($totalFiles files -- holds more than SKILL.md)"
+                }
                 if ($PruneApply) {
                     Remove-Item -LiteralPath $target -Recurse -Force
                 }
@@ -402,5 +459,32 @@ if ($Orphans.Count -gt 0) {
             Write-Host "  $(Join-Path $GlobalSkillsDir $name)"
         }
         Write-Host "  Left in place. Add to skills/.external if intended. -Prune lists what -Prune -PruneApply would remove -- only names on $RetiredFile, never anything else."
+    }
+}
+
+# A name on $RetiredFile is not guaranteed to be a directory at all: it might
+# be a plain file (an operator's own note, or a leftover from a manual edit)
+# sharing the name of something this repository once shipped. $Installed
+# above only ever looks for a directory holding SKILL.md, so a plain file
+# here was previously invisible to every list this script prints -- never
+# counted as installed, never reported as an orphan, never reaching this far
+# at all. It is reported, on every -Prune run, independently of $Orphans, and
+# never touched: a plain file is not a skill directory, so nothing here
+# decides what it is safe to do with it.
+if ($Prune) {
+    $RetiredFiles = @(
+        $Retired | Where-Object {
+            $p = Join-Path $GlobalSkillsDir $_
+            if (-not (Test-Path -LiteralPath $p)) { return $false }
+            $i = Get-Item -LiteralPath $p -Force
+            (-not $i.PSIsContainer) -and -not ($i.Attributes -band [System.IO.FileAttributes]::ReparsePoint)
+        }
+    )
+    if ($RetiredFiles.Count -gt 0) {
+        Write-Host ""
+        Write-Host "Retired name on disk as a plain file:" -ForegroundColor Yellow
+        foreach ($name in $RetiredFiles) {
+            Write-Host "  $(Join-Path $GlobalSkillsDir $name) (not a skill directory, left alone)"
+        }
     }
 }
