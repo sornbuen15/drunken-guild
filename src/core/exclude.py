@@ -66,7 +66,7 @@ import os
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Optional, Sequence
+from typing import Any, Final, Optional, Sequence
 
 from .ai_layer import AI_LAYER_BASENAMES, AI_LAYER_ROOT_DIRS, AI_LAYER_ROOT_FILES
 from .errors import ValidationError
@@ -85,6 +85,34 @@ MARKER_END = "# <<< drunken-guild AI layer (DG-440) <<<"
 #: what `git ls-files` answers without touching resolution at all, and a
 #: fixed list missed it.
 _GIT_ENV_VAR_PREFIX = "GIT_"
+
+#: The default per-call limit :func:`run_git` applies when a caller passes
+#: no *timeout* of its own (DG-454). Every call site in this module, and
+#: both of :mod:`core.layer_copy`'s tracked-file checks, went through
+#: ``run_git`` with no timeout at all until DG-454 — a git waiting on a
+#: lock, a credential prompt, or a slow network filesystem hung
+#: ``drunken-init`` with no message, forever. 30 seconds matches
+#: :mod:`core.doctor`'s own git calls (DG-451, a read-only diagnostic
+#: against a repository it does not control) rather than inventing a
+#: second number: long enough that a merely slow local checkout still
+#: finishes, short enough that a caller gets a clear, fail-closed error
+#: instead of an indefinite hang. A caller that genuinely needs a
+#: different bound (:mod:`core.doctor` already does, for its own read-only
+#: checks) still passes its own *timeout* explicitly; this only changes
+#: what happens when none is given.
+DEFAULT_GIT_TIMEOUT_SECONDS: Final[float] = 30.0
+
+#: Set on every git subprocess this module runs, overriding whatever this
+#: process inherited (or had stripped, since it also starts with ``GIT_``)
+#: — never ``"1"``, the default a locally spawned git otherwise falls back
+#: to in some configurations. A credential prompt is one more way a git
+#: call can block past *timeout*'s "wait, then fail" into "wait, prompt an
+#: unattended process's stdin, and fail anyway" — every caller of
+#: :func:`run_git` already treats a non-zero exit (or a timeout) as
+#: fail-closed, so making git refuse to prompt and exit immediately is
+#: strictly better than letting it burn the whole timeout window asking a
+#: question that no human is there to answer.
+_GIT_TERMINAL_PROMPT_KEY = "GIT_TERMINAL_PROMPT"
 
 
 class NotAGitRepositoryError(ValidationError):
@@ -157,12 +185,21 @@ def git_subprocess_env() -> dict[str, str]:
     invokes git for a repository-resolving command — never a second,
     unstripped ``subprocess.run(["git", ...])`` elsewhere that a leaked
     ``GIT_*`` variable could silently redirect.
+
+    One ``GIT_*`` name is put back deliberately, after every other one is
+    gone: ``GIT_TERMINAL_PROMPT=0`` (DG-454), so git fails fast instead of
+    blocking on a credential prompt an unattended process can never answer.
+    It is this module's own, not a passthrough of anything inherited —
+    whatever this process had set (if anything) was already stripped by
+    the comprehension above, the same as every other ``GIT_*`` name.
     """
-    return {
+    env = {
         key: value
         for key, value in os.environ.items()
         if not key.upper().startswith(_GIT_ENV_VAR_PREFIX)
     }
+    env[_GIT_TERMINAL_PROMPT_KEY] = "0"
+    return env
 
 
 def run_git(
@@ -191,9 +228,14 @@ def run_git(
     path holding a literal ``\\r``, which plain ``str`` decoding with
     ``surrogateescape`` does not.
 
-    *timeout* is ``None`` (no limit) unless a caller passes one — a read-
-    only diagnostic check asking about a project it does not control
-    should not be able to hang a command forever.
+    *timeout* is the per-call limit in seconds. ``None`` (the default) does
+    **not** mean "no limit" — it means "use :data:`DEFAULT_GIT_TIMEOUT_SECONDS`"
+    (DG-454): a caller that passes nothing at all still gets a bound, so a
+    git waiting on a lock, a credential prompt, or a slow network
+    filesystem cannot hang whatever called this forever. A caller that
+    genuinely wants a different bound (:mod:`core.doctor` already does)
+    passes its own *timeout* explicitly; nothing in this codebase currently
+    needs an unbounded wait.
 
     A git failure (a non-zero exit) is *not* raised here — every existing
     caller reads ``returncode``/``stdout`` itself and decides what that
@@ -201,6 +243,7 @@ def run_git(
     permission, or a timeout — raises, so a caller cannot forget to notice
     that git never answered.
     """
+    effective_timeout = DEFAULT_GIT_TIMEOUT_SECONDS if timeout is None else timeout
     try:
         return subprocess.run(
             ["git", *args],
@@ -209,8 +252,21 @@ def run_git(
             text=text,
             check=False,
             env=git_subprocess_env(),
-            timeout=timeout,
+            timeout=effective_timeout,
         )
+    except subprocess.TimeoutExpired as exc:
+        raise NotAGitRepositoryError(
+            f"git {' '.join(args)} in {repo_root} did not finish within "
+            f"{effective_timeout}s and was killed rather than left to hang "
+            "(a lock wait, a credential prompt, or a slow filesystem can "
+            f"all cause this): {exc}",
+            remediation=(
+                "Check whether another git process holds a lock on "
+                f"{repo_root}, whether a credential prompt is waiting, or "
+                "whether the filesystem is unusually slow, then run this "
+                "again."
+            ),
+        ) from exc
     except (OSError, subprocess.SubprocessError) as exc:
         raise NotAGitRepositoryError(
             f"Could not run git ({' '.join(args)}) for {repo_root}: {exc}",
