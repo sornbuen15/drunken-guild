@@ -27,19 +27,25 @@ before a single byte is copied, naming the path — overwriting a committed
 file through this path would be a silent, surprising edit to
 version-controlled content. "Tracked" means **staged with real content,
 or present in ``HEAD``** (:func:`_has_staged_content` and :func:`_in_head`
-respectively) — either one alone is enough to refuse.
-:func:`_has_staged_content` closes the gap a plain index-membership check
-(``git ls-files``) misses: ``git rm --cached`` takes a path out of the
-index while leaving it in ``HEAD`` untouched, and that staged removal is
-exactly what ``git diff --cached`` reports, so a check that only asked
-the index would wrongly answer "not tracked" for a file that one
-``git checkout`` or the next commit would still bring back — the same
-check also catches a brand-new path a plain ``git add`` staged but never
-committed, which has no ``HEAD`` entry at all for :func:`_in_head` to
-find. :func:`_in_head` is needed for the opposite gap: a committed file
-deleted from the working tree *without* that deletion ever being staged —
-the index still matches ``HEAD`` exactly, so ``git diff --cached`` reports
-nothing, and only asking ``HEAD`` directly still finds it tracked. This is
+respectively) — either one alone is enough to refuse, and each closes a
+*different* gap the other cannot: deleting either check from
+:func:`_is_tracked` and keeping only the other still leaves a test that
+exercises nothing but ``git rm --cached`` green, because that one state
+happens to be caught by both. The state that is actually unique to each
+check is what matters here, not a shared example.
+:func:`_has_staged_content` is the only one of the two that catches a
+brand-new path a plain ``git add`` staged but never committed — ``HEAD``
+has no entry for it at all, so :func:`_in_head` alone would wrongly
+answer "not tracked". :func:`_in_head` is the only one of the two that
+catches a committed file deleted from the working tree *without* that
+deletion ever being staged — the index still matches ``HEAD`` exactly, so
+``git diff --cached`` reports nothing staged, and
+:func:`_has_staged_content` alone would wrongly answer "not tracked". A
+staged ``git rm --cached`` (not yet committed) is caught by *both*: the
+staged removal shows up in ``git diff --cached``
+(:func:`_has_staged_content`), and the blob is still in ``HEAD`` until the
+removal itself is committed (:func:`_in_head`) — so it does not, on its
+own, tell a maintainer which check is the one actually needed. This is
 also checked by path, not by whether the destination currently exists on
 disk: copying over either gap would silently turn a ``git status`` clean
 worktree into one reporting a modified file. Only this tracked case is an
@@ -311,14 +317,22 @@ def _has_head(git_root: Path) -> bool:
 
 def _in_head(git_root: Path, relative_to_git_root: str) -> bool:
     """Whether *relative_to_git_root* exists in *git_root*'s ``HEAD`` —
-    catches the gap :func:`_has_staged_content` cannot: a committed file
-    deleted from the working tree *without* that deletion ever being
-    staged. The index still matches ``HEAD`` exactly in that state, so
-    ``git diff --cached`` reports nothing staged at all; only asking
-    ``HEAD`` directly, here, still finds the path tracked. (``git rm
-    --cached`` is a different state — a *staged* removal — and is caught
-    by :func:`_has_staged_content` instead, via the same ``git diff
-    --cached`` it already runs.)
+    the only one of these two checks that catches a committed file deleted
+    from the working tree *without* that deletion ever being staged: the
+    index still matches ``HEAD`` exactly in that state, so ``git diff
+    --cached`` reports nothing staged at all, and only asking ``HEAD``
+    directly, here, still finds the path tracked. A staged ``git rm
+    --cached`` (not yet committed) is caught by *both* this and
+    :func:`_has_staged_content` — the staged removal shows up in ``git
+    diff --cached``, and the blob is still in ``HEAD`` until the removal
+    itself is committed — so that state alone does not tell the two
+    checks apart.
+
+    No ``--`` pathspec separator is needed here, unlike
+    :func:`_has_staged_content`'s ``git diff`` call: *relative_to_git_root*
+    is embedded inside the single ``HEAD:<path>`` object-spec argument,
+    never passed as its own positional argument that a leading ``-`` could
+    be misread as an option for.
 
     ``git cat-file -e HEAD:<path>`` exits 128 for *two* different reasons
     with different messages — "path does not exist in 'HEAD'" and (on an
