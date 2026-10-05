@@ -457,3 +457,269 @@ def test_mutation_removing_the_mnt_path_alternative_misses_it(
 
 def re_compile_never_matches() -> "re.Pattern[str]":
     return re.compile(r"(?!)")
+
+
+# ============================================================================
+# DG-443 review round 3 — curl/wget basic-auth flags, cloud connection
+# strings/headers, multi-line YAML/JSON values, netrc, and the allowlist's
+# quote-style robustness. Same rule as round 2: every secret-shaped input
+# built at test time, nothing real-looking in this file's own source text.
+# ============================================================================
+
+
+def _curl_basic_auth_rows() -> list[tuple[str, str]]:
+    value = _secret_value()
+    return [
+        ("curl_dash_u_space", f"curl -u alice:{value} https://example.atlassian.net"),
+        ("curl_dash_u_eq", f"curl -u=alice:{value} https://example.atlassian.net"),
+        ("curl_user_long", f"curl --user alice:{value} https://example.atlassian.net"),
+        (
+            "curl_user_long_eq",
+            f"curl --user=alice:{value} https://example.atlassian.net",
+        ),
+        ("wget_dash_u", f"wget -u alice:{value} https://example.atlassian.net"),
+        ("curl_password_space", f"curl --password {value} https://x"),
+        ("curl_password_eq", f"curl --password={value} https://x"),
+        ("curl_http_password", f"curl --http-password {value} https://x"),
+    ]
+
+
+def _curl_basic_auth_negative_rows() -> list[tuple[str, str]]:
+    return [
+        ("curl_dash_u_no_value", "curl -u https://example.atlassian.net"),
+        ("ls_dash_u_unrelated_flag", "ls -u /some/directory"),
+        ("curl_user_no_colon", "curl --user aliceonly https://example.atlassian.net"),
+    ]
+
+
+@pytest.mark.parametrize("case_id,text", _curl_basic_auth_rows())
+def test_must_flag_curl_basic_auth_corpus(case_id: str, text: str) -> None:
+    findings = content_scan.scan_text(text, "f")
+    assert findings, f"{case_id!r} ({text!r}) was not flagged at all"
+
+
+@pytest.mark.parametrize("case_id,text", _curl_basic_auth_negative_rows())
+def test_must_not_flag_curl_basic_auth_negatives(case_id: str, text: str) -> None:
+    findings = content_scan.scan_text(text, "f")
+    assert findings == [], f"{case_id!r} ({text!r}) was wrongly flagged: {findings}"
+
+
+def test_mutation_removing_the_curl_user_pattern_misses_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    patterns = tuple(
+        p
+        for p in content_scan._TOKEN_PATTERNS  # noqa: SLF001
+        if "-u|--user" not in p.pattern
+    )
+    monkeypatch.setattr(content_scan, "_TOKEN_PATTERNS", patterns)
+    text = f"curl -u alice:{_secret_value()} https://example.atlassian.net"
+    assert content_scan.scan_text(text, "f") == []
+
+
+def test_mutation_removing_the_curl_password_pattern_misses_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    patterns = tuple(
+        p
+        for p in content_scan._TOKEN_PATTERNS  # noqa: SLF001
+        if "http-)?password" not in p.pattern
+    )
+    monkeypatch.setattr(content_scan, "_TOKEN_PATTERNS", patterns)
+    assert (
+        content_scan.scan_text(f"curl --password {_secret_value()} https://x", "f")
+        == []
+    )
+
+
+# -- cloud connection strings / headers --------------------------------------
+
+
+def _cloud_rows() -> list[tuple[str, str]]:
+    value = "Q" * 32 + "=="
+    return [
+        ("azure_account_key", f"AccountKey={value}"),
+        ("azure_shared_access_key", f"SharedAccessKey={value}"),
+        ("azure_sas_signature_kv", f"SharedAccessSignature={value}"),
+        (
+            "sas_sig_query_string",
+            f"https://x.blob.core.windows.net/c?sig={value}&se=2030",
+        ),
+        (
+            "azure_connection_string",
+            f"DefaultEndpointsProtocol=https;AccountName=acct;AccountKey={value}",
+        ),
+    ]
+
+
+def _cloud_negative_rows() -> list[tuple[str, str]]:
+    return [
+        ("azure_account_key_empty", "AccountKey="),
+        ("sig_as_prose", "the sig looked wrong in the diff, please check it"),
+    ]
+
+
+@pytest.mark.parametrize("case_id,text", _cloud_rows())
+def test_must_flag_cloud_connection_string_corpus(case_id: str, text: str) -> None:
+    findings = content_scan.scan_text(text, "f")
+    assert findings, f"{case_id!r} ({text!r}) was not flagged at all"
+
+
+@pytest.mark.parametrize("case_id,text", _cloud_negative_rows())
+def test_must_not_flag_cloud_connection_string_negatives(
+    case_id: str, text: str
+) -> None:
+    findings = content_scan.scan_text(text, "f")
+    assert findings == [], f"{case_id!r} ({text!r}) was wrongly flagged: {findings}"
+
+
+def test_mutation_removing_the_account_key_pattern_misses_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    patterns = tuple(
+        p
+        for p in content_scan._TOKEN_PATTERNS  # noqa: SLF001
+        if "AccountKey" not in p.pattern
+    )
+    monkeypatch.setattr(content_scan, "_TOKEN_PATTERNS", patterns)
+    assert content_scan.scan_text("AccountKey=" + "Q" * 32, "f") == []
+
+
+def test_mutation_removing_the_sas_sig_pattern_misses_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    patterns = tuple(
+        p
+        for p in content_scan._TOKEN_PATTERNS  # noqa: SLF001
+        if "[?&]sig=" not in p.pattern
+    )
+    monkeypatch.setattr(content_scan, "_TOKEN_PATTERNS", patterns)
+    text = "https://x.blob.core.windows.net/c?sig=" + "Q" * 20
+    assert content_scan.scan_text(text, "f") == []
+
+
+# -- multi-line YAML block scalar / JSON value-on-next-line ------------------
+
+
+def _multiline_rows() -> list[tuple[str, str]]:
+    value = _secret_value()
+    return [
+        ("yaml_block_literal", f"password: |\n  {value}\n"),
+        ("yaml_block_folded_strip", f"api_key: >-\n  {value}\n"),
+        ("json_value_next_line", '"password":\n  "' + value + '"\n'),
+    ]
+
+
+def _multiline_negative_rows() -> list[tuple[str, str]]:
+    return [
+        ("yaml_block_non_sensitive_key", f"description: |\n  {_secret_value()}\n"),
+        ("yaml_block_empty", "password: |\n\nnext_key: fine\n"),
+    ]
+
+
+@pytest.mark.parametrize("case_id,text", _multiline_rows())
+def test_must_flag_multiline_value_corpus(case_id: str, text: str) -> None:
+    findings = content_scan.scan_text(text, "f")
+    assert findings, f"{case_id!r} ({text!r}) was not flagged at all"
+    assert findings[0].line == 1, (
+        f"{case_id!r}: must report the KEY line, not the value line. Got {findings}"
+    )
+
+
+@pytest.mark.parametrize("case_id,text", _multiline_negative_rows())
+def test_must_not_flag_multiline_negatives(case_id: str, text: str) -> None:
+    findings = content_scan.scan_text(text, "f")
+    assert findings == [], f"{case_id!r} ({text!r}) was wrongly flagged: {findings}"
+
+
+def test_mutation_removing_the_lookahead_misses_the_yaml_block_value(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(content_scan, "_KEY_ONLY_RE", re.compile(r"(?!)"))
+    text = f"password: |\n  {_secret_value()}\n"
+    assert content_scan.scan_text(text, "f") == []
+
+
+# -- netrc ---------------------------------------------------------------
+
+
+def _netrc_rows() -> list[tuple[str, str]]:
+    value = _secret_value()
+    return [
+        (
+            "netrc_machine_line",
+            f"machine example.atlassian.net login alice password {value}",
+        ),
+        ("netrc_password_only_line", f"password {value}"),
+        ("netrc_default_line", f"default login alice password {value}"),
+    ]
+
+
+def _netrc_negative_rows() -> list[tuple[str, str]]:
+    return [
+        ("prose_not_netrc_shaped", f"the password manager stored {('x' * 10)} safely"),
+    ]
+
+
+@pytest.mark.parametrize("case_id,text", _netrc_rows())
+def test_must_flag_netrc_corpus(case_id: str, text: str) -> None:
+    findings = content_scan.scan_text(text, "f")
+    assert findings, f"{case_id!r} ({text!r}) was not flagged at all"
+
+
+@pytest.mark.parametrize("case_id,text", _netrc_negative_rows())
+def test_must_not_flag_netrc_negatives(case_id: str, text: str) -> None:
+    findings = content_scan.scan_text(text, "f")
+    assert findings == [], f"{case_id!r} ({text!r}) was wrongly flagged: {findings}"
+
+
+def test_mutation_removing_the_netrc_rule_misses_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(content_scan, "_NETRC_LINE_RE", re.compile(r"(?!)"))
+    text = f"machine example.atlassian.net login alice password {_secret_value()}"
+    assert content_scan.scan_text(text, "f") == []
+
+
+# -- allowlist quote-style robustness ----------------------------------------
+
+
+def test_allowlist_matches_regardless_of_quote_style_on_either_side() -> None:
+    text = _json_row("password", _secret_value())
+    findings = content_scan.scan_text(text, "f.json")
+    assert findings and findings[0].kind == "token"
+
+    # The allowlist entry names the *value*, quoted differently than
+    # scan_text itself stored it internally.
+    allow = content_scan.parse_allowlist(
+        f'f.json\ttoken\t"{_secret_value()}"\treason\n'
+    )
+    assert content_scan.apply_allowlist(findings, allow) == []
+
+
+def test_allowlist_unquoted_entry_matches_a_quoted_finding() -> None:
+    text = _json_row("password", _secret_value())
+    findings = content_scan.scan_text(text, "f.json")
+
+    allow = content_scan.parse_allowlist(f"f.json\ttoken\t{_secret_value()}\treason\n")
+    assert content_scan.apply_allowlist(findings, allow) == []
+
+
+# -- already covered by the existing generic rule (hyphen is already in the
+# key-name prefix/suffix character class) — documented with a test, not a
+# new pattern.
+
+
+@pytest.mark.parametrize(
+    "case_id,text",
+    [
+        ("x_api_key_header", "X-Api-Key: " + _secret_value()),
+        ("x_auth_token_header", "X-Auth-Token: " + _secret_value()),
+        ("client_secret_key", "client_secret: " + _secret_value()),
+    ],
+)
+def test_header_and_client_secret_style_keys_already_flag(
+    case_id: str, text: str
+) -> None:
+    findings = content_scan.scan_text(text, "f")
+    assert findings, f"{case_id!r} ({text!r}) was not flagged at all"
