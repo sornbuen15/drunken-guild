@@ -28,6 +28,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import sys
 from pathlib import Path
 from typing import Any, Optional
 
@@ -154,7 +155,18 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--project", help="Project id to add or update.")
     parser.add_argument("--path", help="Absolute path to the checkout (optional).")
     parser.add_argument(
-        "--git-root", help="Subdirectory holding the git repo, if not the root."
+        "--git-root",
+        help=(
+            "Relative offset from --path to the actual git repository top "
+            "level, joined as --path/--git-root and never resolved by this "
+            "flag itself. Two shapes: a SUBDIRECTORY when --path is an "
+            "outer workspace and the repo is nested inside it (e.g. "
+            "'backend'); or '..' (or '../..') to ASCEND when --path is "
+            "itself registered at a subfolder of a larger repository (a "
+            "monorepo package, say) and the real top level is an ancestor "
+            "directory instead. Either way, exclude writing (--config-repo) "
+            "always targets the resolved git top level, never --path."
+        ),
     )
     parser.add_argument("--description", help="Human-readable description.")
     parser.add_argument("--jira-url", help="e.g. https://your-domain.atlassian.net")
@@ -211,13 +223,25 @@ def build_parser() -> argparse.ArgumentParser:
 
 def _copy_ai_layer_in(
     document: dict[str, Any], project_id: Optional[str], args: argparse.Namespace
-) -> list[str]:
+) -> tuple[list[str], bool]:
     """DG-441 (REQ-019/020). Wire :func:`core.layer_copy.copy_ai_layer_in`.
 
     Independent of whether ``--path`` was passed *this* run: a project
     registered earlier already has a ``path`` in the document, and
     ``--config-repo`` should work against it on a later, idempotent call —
     the same shape every other ``drunken-init`` flag already has.
+
+    Returns the stdout report lines, and whether any file was skipped
+    because it already exists *and differs* from the config repo — the
+    second value is what ``main()`` turns into a non-zero exit. An
+    identical existing file is "unchanged" and never drift: running
+    ``--path`` and ``--config-repo`` together is otherwise easy to miss a
+    collision in — ``scaffold.instruction_files()`` (unchanged by this
+    ticket; see DG-442) writes a default ``AGENTS.md``/``CLAUDE.md`` first
+    when they do not exist yet, and the config-repo copy that follows in
+    the same call then sees them as existing and, by default, leaves them
+    alone. A silent "skipped" line in a long report is exactly how that
+    goes unnoticed; a non-zero exit and a named path on stderr is not.
     """
     if not project_id:
         raise ValidationError(
@@ -257,12 +281,29 @@ def _copy_ai_layer_in(
             f"ai layer        : excluded {len(result.excluded.added)} "
             f"pattern(s) in {result.excluded.exclude_path}"
         )
-    return lines
+
+    drifted = [skip for skip in result.skipped if not skip.identical]
+    for skip in drifted:
+        print(
+            f"error: {project_root / skip.relative} already exists and "
+            "differs from the config repo; not overwritten.",
+            file=sys.stderr,
+        )
+        print(
+            "  -> Reconcile it by hand, then re-run with --overwrite-ai-layer "
+            "to take the config repo's copy, or leave it and wait for DG-442 "
+            "(init stops writing a tracked AGENTS.md/CLAUDE.md on its own).",
+            file=sys.stderr,
+        )
+
+    return lines, bool(drifted)
 
 
 def main() -> int:
     """Entry point for ``drunken-init``."""
     args = build_parser().parse_args()
+
+    config_repo_drifted = False
 
     try:
         home = paths.ensure_home()
@@ -305,7 +346,10 @@ def main() -> int:
                 )
 
         if args.config_repo:
-            written.extend(_copy_ai_layer_in(document, project_id, args))
+            layer_lines, config_repo_drifted = _copy_ai_layer_in(
+                document, project_id, args
+            )
+            written.extend(layer_lines)
     except DrunkenError as exc:
         print(f"error: {exc}")
         if exc.remediation:
@@ -326,7 +370,7 @@ def main() -> int:
     )
     print()
     print("Next: drunken-doctor")
-    return 0
+    return 1 if config_repo_drifted else 0
 
 
 if __name__ == "__main__":

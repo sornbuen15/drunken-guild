@@ -178,6 +178,16 @@ class ProjectContext:
         §1.5: for ALPHA the registered path is not the repository — the repository
         is a subdirectory of it — so every git command issued from the project
         root failed. ``git_root`` records the offset.
+
+        The offset is joined, never resolved, so it carries either
+        direction: a plain name descends into a subdirectory holding the
+        repo (the ALPHA case above); ``".."`` (or ``"../.."``) ascends
+        instead, for a project whose registered ``path`` is itself a
+        subfolder of a larger repository (DG-441 comment (a) — a monorepo
+        package, say). Nothing here validates which; a caller that needs
+        the result to actually be a git top level (``core.exclude``'s own
+        toplevel cross-check, for instance) is what catches a ``git_root``
+        that does not resolve to one.
         """
         root = self.root_path()
         return root / self.config.git_root if self.config.git_root else root

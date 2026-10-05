@@ -11,16 +11,69 @@ the same one list DG-437/DG-440 already read, never a second one.
 
 **Copy, never symlink.** :func:`shutil.copy2` always produces a real file,
 so a config repo moved or deleted later cannot silently break (or empty
-out) a project checkout that depends on it.
+out) a project checkout that depends on it. A config-repo entry that is
+itself a symlink (a file, or a whole directory) is never followed while
+walking the project's folder (:func:`_layer_files` does its own walk with
+``os.DirEntry.is_symlink()`` rather than a recursive glob that might follow
+one) — a symlink there could point anywhere on disk, and copying through
+it, or recursing into it, would read content this call was never told to
+trust. The destination side carries the matching rule: a destination path
+that is *itself* already a symlink — dangling or not, inside the project
+root or escaping it — is refused outright, never written through.
 
 **Nothing is written until every file has been checked.** A destination
-that already exists *and is tracked by the project's own git* aborts the
-whole call before a single byte is copied, naming the path — overwriting a
-committed file through this path would be a silent, surprising edit to
-version-controlled content. An existing file that git does **not** track is
-a softer case: skipped and reported (with whether its content already
-matches the config repo), unless the caller passes ``overwrite=True``. Only
-the git-tracked case is an absolute refusal; nothing lifts it.
+whose path *the project's own git already tracks* aborts the whole call
+before a single byte is copied, naming the path — overwriting a committed
+file through this path would be a silent, surprising edit to
+version-controlled content. "Tracked" means **in the index, or present in
+``HEAD``** — either one alone is enough to refuse. Checking the index
+alone missed a real case: ``git rm --cached`` takes a path out of the
+index while leaving it in ``HEAD`` untouched, so a check that only asked
+the index answered "not tracked" for a file that one ``git checkout`` or
+the next commit would still bring back. This is also checked by path, not
+by whether the destination currently exists on disk: a committed file
+deleted from the working tree is still tracked, and copying over the gap
+it left behind would silently turn a ``git status`` clean worktree into
+one reporting a modified file. Only this tracked case is an absolute
+refusal, with or without ``overwrite=True``.
+
+One thing that is deliberately *not* refused: ``git add -N`` (intent to
+add) stages a placeholder for a brand-new path with no real content yet —
+``git diff --cached`` never lists it, unlike an ordinary staged addition,
+because there is nothing committed or staged there to protect. See
+:func:`_has_staged_content`.
+
+An existing file that is neither in the index (with real content) nor in
+``HEAD`` is a softer case: skipped and reported (with whether its content
+already matches the config repo), unless the caller passes
+``overwrite=True``.
+
+**Both tracked-file checks fail closed.** Whether a path is tracked is
+decided by :func:`core.exclude.run_git` — git with every ``GIT_*``
+environment variable stripped, the same hardening DG-440 already applies,
+reused rather than duplicated: a second, unstripped implementation here
+once answered "not tracked" against an *unrelated* repository reached
+through a leaked ``GIT_DIR``/``GIT_WORK_TREE``/``GIT_INDEX_FILE``, and
+overwrote a committed ``CLAUDE.md``. Each of the two checks (index,
+``HEAD``) reports a small, known set of outcomes by exit code; anything
+outside that set (git missing, a timeout, a corrupted repository) is
+treated as "could not determine," which raises rather than silently
+falling through to "not tracked."
+
+**The exclude entries are written before any file is copied, not after.**
+A call that copies files first and excludes them afterward can leave
+copied, untracked files behind with a dirty ``git status`` if the exclude
+write then fails (a corrupted marker block, say) — exactly the state this
+whole mechanism exists to prevent. :func:`exclude_ai_layer` already
+validates the exclude file and the git root on its own, so running it
+*before* the copy loop means a validation failure there still leaves the
+project tree byte-identical to before the call, the same guarantee the
+tracked-file checks give. If a copy then fails partway through (a real
+I/O error — disk full, a permission problem), the files already copied by
+that point are reported by name rather than lost in a bare exception, and
+re-running after fixing the underlying problem is idempotent: an
+already-copied, now-identical file is skipped as "unchanged," not
+re-copied from scratch.
 
 **Never outside the project root, never outside the config repo.** A
 project id is validated the same way the registry already validates one
@@ -35,7 +88,8 @@ but this does not lean on that alone.
 **Pass the git root, not the project root** (comment (a), DG-441). A
 project registered at a subfolder of its actual repository needs
 ``git_root`` (``core.context.git_root_path`` / the registry's ``git_root``
-offset) for the exclude call — ``exclude_ai_layer`` itself refuses a
+offset — a plain relative path, ``..`` included, see that field's own
+docs) for the exclude call — ``exclude_ai_layer`` itself refuses a
 ``repo_root`` that is not the git top-level, so handing it the project's
 own (possibly nested) root is not merely wrong, it is caught. The caller —
 ``drunken-init`` — resolves which is which; this module just takes both and
@@ -46,14 +100,13 @@ from __future__ import annotations
 
 import filecmp
 import shutil
-import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Sequence
 
 from .ai_layer import is_ai_layer_path
-from .errors import ValidationError
-from .exclude import ExcludeResult, exclude_ai_layer, resolve_info_exclude_path
+from .errors import DrunkenError, ValidationError
+from .exclude import ExcludeResult, exclude_ai_layer, resolve_info_exclude_path, run_git
 from .registry import validate_project_id
 
 
@@ -70,7 +123,8 @@ class ConfigRepoEscapeError(ValidationError):
 
 
 class ProjectRootEscapeError(ValidationError):
-    """A destination resolved outside the project root it was joined onto."""
+    """A destination is unsafe: outside a root it was joined onto, or a
+    symlink this refuses to write through."""
 
     code = "project_root_escape"
 
@@ -81,12 +135,39 @@ class TrackedFileConflictError(ValidationError):
     code = "tracked_file_conflict"
 
 
+class GitTrackedCheckFailedError(ValidationError):
+    """git could not say whether a path is tracked (not: "git said no")."""
+
+    code = "git_tracked_check_failed"
+
+
+class PartialCopyError(DrunkenError):
+    """A real I/O failure stopped the copy partway through.
+
+    Not a :class:`ValidationError`: nothing about the *call* was invalid —
+    every check passed — a filesystem operation itself failed (disk full,
+    a permission problem) after some files were already written. The files
+    copied before the failure are named, both in the message and in
+    ``details``, so a caller is never left guessing what state the project
+    tree is in.
+    """
+
+    code = "partial_copy"
+
+
 @dataclass(frozen=True)
 class SkippedFile:
-    """One file the copy left alone, and why."""
+    """One file the copy left alone, and why.
+
+    ``identical`` is a real field, not left for a caller to re-derive by
+    matching substrings in ``reason`` — the wording of ``reason`` is for a
+    human to read, and must stay free to change without silently breaking
+    something that decided an exit code by parsing it.
+    """
 
     relative: str
     reason: str
+    identical: bool
 
 
 @dataclass(frozen=True)
@@ -141,31 +222,171 @@ def _resolve_project_folder(config_repo: Path, project_id: str) -> Path:
 
 def _layer_files(project_folder: Path) -> list[Path]:
     """Every regular file under *project_folder* that is on the AI-layer
-    list, repo-relative to it. Filtered through
-    :func:`core.ai_layer.is_ai_layer_path` — the one list — so a config repo
-    folder holding something else (a README, a note-to-self) can never be
-    copied in, even by accident.
+    list, repo-relative to it.
+
+    A manual stack-based walk, not ``Path.rglob`` — deliberately: this must
+    never descend into a symlinked directory (a config repo's ``.claude``
+    could be a symlink to anywhere on disk) and never pick up a symlinked
+    file, and relying on whichever symlink-following default a given
+    Python version's ``glob``/``rglob`` happens to ship with is exactly the
+    kind of implicit behaviour this checks for itself instead. Filtered
+    through :func:`core.ai_layer.is_ai_layer_path` — the one list — so a
+    config repo folder holding something else (a README, a note-to-self)
+    can never be copied in, even by accident.
     """
     files: list[Path] = []
-    for path in sorted(project_folder.rglob("*")):
-        if path.is_symlink() or not path.is_file():
-            continue
-        relative = path.relative_to(project_folder)
-        if is_ai_layer_path(relative.as_posix()):
-            files.append(relative)
-    return files
+    stack = [project_folder]
+    while stack:
+        current = stack.pop()
+        for entry in sorted(current.iterdir()):
+            if entry.is_symlink():
+                # Never followed, file or directory: see the docstring.
+                continue
+            if entry.is_dir():
+                stack.append(entry)
+                continue
+            if entry.is_file():
+                relative = entry.relative_to(project_folder)
+                if is_ai_layer_path(relative.as_posix()):
+                    files.append(relative)
+    return sorted(files)
 
 
-def _git_tracks(git_root: Path, relative_to_git_root: str) -> bool:
-    """Whether *git_root*'s own git already tracks *relative_to_git_root*."""
-    result = subprocess.run(
-        ["git", "ls-files", "--error-unmatch", "--", relative_to_git_root],
-        cwd=git_root,
-        capture_output=True,
-        text=True,
-        check=False,
+def _has_staged_content(git_root: Path, relative_to_git_root: str) -> bool:
+    """Whether *relative_to_git_root* has real staged content ahead of
+    ``HEAD`` — deliberately **not** ``git ls-files``, which lists an
+    intent-to-add placeholder (``git add -N``) exactly as if it were an
+    ordinary tracked file even though it has no real content at all.
+    ``git diff --cached --name-only`` draws that distinction on its own
+    (verified empirically: an intent-to-add path never appears in its
+    output, an ordinary staged addition always does), and does so whether
+    or not ``HEAD`` exists yet — it diffs against the empty tree for a
+    repository with no commits, no special-casing needed here for that.
+
+    Fails closed: this diff is not asked to signal "changed" via its exit
+    code (no ``--exit-code``), so exit 0 is the only documented outcome;
+    anything else is "git could not say."
+    """
+    result = run_git(
+        ["diff", "--cached", "--name-only", "--", relative_to_git_root], git_root
     )
-    return result.returncode == 0
+    if result.returncode != 0:
+        raise GitTrackedCheckFailedError(
+            f"git could not determine whether {relative_to_git_root!r} has "
+            f"staged content in {git_root} (exit {result.returncode}): "
+            f"{result.stderr.strip()}",
+            remediation=(
+                "Check git is installed, on PATH, and that this "
+                "repository's index is not corrupted."
+            ),
+        )
+    return bool(result.stdout.strip())
+
+
+def _has_head(git_root: Path) -> bool:
+    """Whether *git_root* has at least one commit — an "unborn" ``HEAD``
+    (a fresh ``git init`` with nothing committed yet) answers no, cleanly,
+    by design of ``--verify -q``: exit 0 means ``HEAD`` resolves, exit 1
+    means it does not. Checked before :func:`_in_head` asks about any one
+    path, rather than inferring "no commits yet" from parsing a git error
+    message, which is not a stable contract across versions or locales.
+    """
+    result = run_git(["rev-parse", "--verify", "-q", "HEAD"], git_root)
+    if result.returncode in (0, 1):
+        return result.returncode == 0
+    raise GitTrackedCheckFailedError(
+        f"git could not determine whether {git_root} has a commit yet "
+        f"(exit {result.returncode}): {result.stderr.strip()}",
+        remediation="Check git is installed and the repository is not corrupted.",
+    )
+
+
+def _in_head(git_root: Path, relative_to_git_root: str) -> bool:
+    """Whether *relative_to_git_root* exists in *git_root*'s ``HEAD`` —
+    catches the gap a plain index check misses: ``git rm --cached`` takes
+    a path out of the index while leaving it in ``HEAD`` exactly as
+    committed.
+
+    ``git cat-file -e HEAD:<path>`` exits 128 for *two* different reasons
+    with different messages — "path does not exist in 'HEAD'" and (on an
+    unborn ``HEAD``) "not a valid object name" — and this never needs to
+    tell them apart by parsing either one: :func:`_has_head` answers "no
+    commits yet" first, on its own, so cat-file is only ever asked about a
+    ``HEAD`` already known to exist. Once that is established, exit 128
+    unambiguously means "not in HEAD," and anything other than 0 or 128 is
+    "could not determine" — fails closed rather than reading an unexpected
+    code as "not present."
+    """
+    if not _has_head(git_root):
+        return False
+
+    result = run_git(["cat-file", "-e", f"HEAD:{relative_to_git_root}"], git_root)
+    if result.returncode == 0:
+        return True
+    if result.returncode == 128:
+        return False
+    raise GitTrackedCheckFailedError(
+        f"git could not determine whether {relative_to_git_root!r} is in "
+        f"HEAD at {git_root} (exit {result.returncode}): "
+        f"{result.stderr.strip()}",
+        remediation="Check git is installed and this repository's HEAD is not corrupted.",
+    )
+
+
+def _is_tracked(git_root: Path, relative_to_git_root: str) -> bool:
+    """Whether *git_root*'s own git already protects *relative_to_git_root*
+    — in the index with real content, or present in ``HEAD``. See the
+    module docstring for why both, and why an intent-to-add placeholder is
+    deliberately not one of them.
+    """
+    return _has_staged_content(git_root, relative_to_git_root) or _in_head(
+        git_root, relative_to_git_root
+    )
+
+
+def _checked_destination(
+    project_root_resolved: Path, git_root_resolved: Path, relative: Path
+) -> tuple[Path, str]:
+    """The nominal destination for *relative*, and its path relative to
+    *git_root_resolved* — or raise, before a single byte moves.
+
+    Three things are refused here, regardless of whether the destination
+    currently exists on disk: the nominal path being *itself* a symlink
+    (dangling or not — copying through one is never attempted, matching
+    "copy, never symlink" on the destination side too); its resolved target
+    landing outside *project_root_resolved*; and its resolved target
+    landing outside *git_root_resolved* (which would make "the path
+    relative to the git root" meaningless for the tracked-file check that
+    follows).
+    """
+    nominal = project_root_resolved / relative
+    if nominal.is_symlink():
+        raise ProjectRootEscapeError(
+            f"{nominal} is already a symlink; refusing to copy through it.",
+            remediation=(
+                "Remove the symlink by hand (or replace it with a real "
+                "file) and run this again."
+            ),
+        )
+
+    resolved = nominal.resolve()
+    try:
+        resolved.relative_to(project_root_resolved)
+    except ValueError:
+        raise ProjectRootEscapeError(
+            f"{resolved} would land outside the project root {project_root_resolved}.",
+            remediation="Check the AI-layer path for '..' segments.",
+        ) from None
+
+    try:
+        rel_to_git_root = resolved.relative_to(git_root_resolved).as_posix()
+    except ValueError:
+        raise ProjectRootEscapeError(
+            f"{resolved} is outside the git root {git_root_resolved}.",
+            remediation=("Check the project's registered path and git_root offset."),
+        ) from None
+
+    return resolved, rel_to_git_root
 
 
 def copy_ai_layer_in(
@@ -184,11 +405,19 @@ def copy_ai_layer_in(
     where an agent reads them from while working.
 
     Refuses, writing nothing, when: *git_root* is not a git repository;
-    *project_id* has no folder in *config_repo*; or any AI-layer file
-    already there is tracked by *git_root*'s own git. An existing untracked
-    file is skipped (reported in ``.skipped``) unless *overwrite* is set.
-    The exclude writer always runs last, against *git_root*, so a clean
-    ``git status`` is never a second manual step.
+    *project_id* has no folder in *config_repo*; any AI-layer path is
+    already tracked by *git_root*'s own git, whether or not it currently
+    exists on disk; or a destination is unsafe (a symlink, or outside
+    either root). An existing, untracked, on-disk file is skipped
+    (reported in ``.skipped``) unless *overwrite* is set.
+
+    The exclude writer runs against *git_root* **before** any file is
+    copied — so a clean ``git status`` is never a second manual step, and
+    a failure there (a corrupted marker block) leaves the project tree
+    exactly as it was, the same guarantee the tracked-file checks give. A
+    real I/O failure partway through the copy itself raises
+    :class:`PartialCopyError`, naming every file copied before it —
+    re-running after fixing the underlying problem is idempotent.
     """
     config_repo = Path(config_repo)
     project_root = Path(project_root)
@@ -205,27 +434,20 @@ def copy_ai_layer_in(
     project_folder = _resolve_project_folder(config_repo, project_id)
     layer_files = _layer_files(project_folder)
 
-    # Phase 1 — validate only, nothing written yet: a destination that
-    # already exists *and* is tracked by the project's own git aborts the
-    # whole call, naming the path, before any file (including an
-    # unrelated, non-conflicting one) is copied.
+    # Phase 1 — validate only, nothing written yet. Checked for *every*
+    # AI-layer path, regardless of whether a destination currently exists
+    # on disk: a committed file deleted from the working tree is still
+    # tracked, and must still refuse.
+    destinations: dict[Path, tuple[Path, str]] = {}
     for relative in layer_files:
-        destination = (project_root_resolved / relative).resolve()
-        if not destination.exists():
-            continue
-        try:
-            rel_to_git_root = destination.relative_to(git_root_resolved).as_posix()
-        except ValueError:
-            raise ProjectRootEscapeError(
-                f"{destination} is outside the git root {git_root_resolved}.",
-                remediation=(
-                    "Check the project's registered path and git_root offset."
-                ),
-            ) from None
-        if _git_tracks(git_root_resolved, rel_to_git_root):
+        resolved, rel_to_git_root = _checked_destination(
+            project_root_resolved, git_root_resolved, relative
+        )
+        destinations[relative] = (resolved, rel_to_git_root)
+        if _is_tracked(git_root_resolved, rel_to_git_root):
             raise TrackedFileConflictError(
-                f"{destination} is already tracked by this project's own "
-                "git; refusing to overwrite it.",
+                f"{resolved} is already tracked by this project's own git; "
+                "refusing to overwrite it.",
                 remediation=(
                     f"Untrack it (git rm --cached {rel_to_git_root}) if it "
                     "should come from the config repo instead, or remove it "
@@ -234,20 +456,17 @@ def copy_ai_layer_in(
                 ),
             )
 
-    # Phase 2 — copy what phase 1 did not refuse.
+    # Phase 2 — the exclude entries, *before* any file is copied: a
+    # malformed marker block (or any other reason this refuses) must leave
+    # the project tree exactly as it was, not copied-but-untracked.
+    excluded = exclude_ai_layer(git_root)
+
+    # Phase 3 — copy what phase 1 did not refuse.
     copied: list[str] = []
     skipped: list[SkippedFile] = []
     for relative in layer_files:
         source = project_folder / relative
-        destination = (project_root_resolved / relative).resolve()
-        try:
-            destination.relative_to(project_root_resolved)
-        except ValueError:
-            raise ProjectRootEscapeError(
-                f"{destination} would land outside the project root "
-                f"{project_root_resolved}.",
-                remediation="Check the AI-layer path for '..' segments.",
-            ) from None
+        destination, _ = destinations[relative]
 
         if destination.exists() and not overwrite:
             identical = filecmp.cmp(source, destination, shallow=False)
@@ -257,15 +476,32 @@ def copy_ai_layer_in(
                     "already exists and matches the config repo"
                     if identical
                     else "already exists and differs from the config repo",
+                    identical=identical,
                 )
             )
             continue
 
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(source, destination)
+        try:
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source, destination)
+        except OSError as exc:
+            raise PartialCopyError(
+                f"Copying {relative.as_posix()} into {project_root_resolved} "
+                f"failed: {exc}. {len(copied)} file(s) were already copied "
+                "before this one: "
+                f"{', '.join(copied) if copied else '(none)'}.",
+                remediation=(
+                    "Fix the underlying problem (disk space, permissions) "
+                    "and run this again — the files already copied are left "
+                    "as is and will be skipped or compared, not re-copied "
+                    "from scratch."
+                ),
+                details={
+                    "copied": list(copied),
+                    "failed_relative": relative.as_posix(),
+                },
+            ) from exc
         copied.append(relative.as_posix())
-
-    excluded = exclude_ai_layer(git_root)
 
     return LayerCopyResult(
         project_root=project_root,
@@ -280,7 +516,9 @@ def copy_ai_layer_in(
 __all__: Sequence[str] = (
     "ConfigRepoEscapeError",
     "ConfigRepoProjectNotFoundError",
+    "GitTrackedCheckFailedError",
     "LayerCopyResult",
+    "PartialCopyError",
     "ProjectRootEscapeError",
     "SkippedFile",
     "TrackedFileConflictError",

@@ -100,12 +100,33 @@ not in the config repo.
   *local* clone of the config repo (the Boss clones it; nothing here does) and the project's
   registered id, copies only the files `core.ai_layer` lists from that project's config-repo folder
   into its registered path, then calls the exclude writer so `git status` stays clean. Copies, never
-  symlinks. An existing file the project's own git already tracks aborts the whole call, naming it,
-  before anything is written; an existing *untracked* file is skipped and reported unless
-  `--overwrite-ai-layer` is passed. Still open: DG-442 (init stops writing a tracked
+  symlinks — never through a destination that is itself a symlink either, and never by following one
+  inside the config repo's own project folder. Checked by *path*, not by whether the destination
+  currently exists: a path the project's own git already tracks — **in the index with real content,
+  or present in `HEAD`** — aborts the whole call, naming it, before anything is written, whether or
+  not it is still present on disk (a committed file deleted from the working tree, or taken out of
+  the index alone by `git rm --cached` while staying in `HEAD`, is still tracked; an intent-to-add
+  placeholder for a never-committed path is deliberately not). The tracked check goes through
+  `core.exclude.run_git` — the one git caller with **every** `GIT_*` environment variable stripped
+  (a fixed three-name list was tried first and missed `GIT_INDEX_FILE`, which redirects what the
+  index check answers without redirecting which repository resolves at all) — and fails closed on
+  anything git does not answer with one of its own documented exit codes. The exclude entries are
+  written **before** any file is copied, not after, so a failure there (a corrupted marker block)
+  leaves the project tree exactly as it was rather than copied-but-untracked; a real I/O failure
+  partway through the copy itself names every file already copied, and re-running after fixing the
+  underlying problem is idempotent. An existing *untracked* file that differs from the config repo is
+  skipped, named on stderr, and fails the run (`exit 1`) unless `--overwrite-ai-layer` is passed;
+  identical is "unchanged" and stays green. Works for a project registered at a subfolder of a larger
+  repository too: `--git-root` is a plain relative offset, either direction — `".."`/`"../.."`
+  ascends to the real top level when `--path` is itself nested inside it, the same field ALPHA's
+  descending case already used (`core.context.ProjectContext.git_root_path`). `core/doctor.py` still
+  runs its own, separate, **read-only** `git ls-files` for an unrelated check (`tracked_ai_layer_paths`)
+  — not routed through `run_git` yet; a read-only check never writes, so it is out of this ticket's
+  scope, left for a follow-up. Still open: DG-442 (init stops writing a tracked
   `AGENTS.md`/`CLAUDE.md` from the packaged template — until then the two can collide on the same
-  files in one run), DG-443 (hooks and Jira configuration — blocked on where a credential lives) and
-  DG-446 (migrating an already-tracked project).
+  files in one run, which is exactly the case the non-zero exit above exists to surface rather than
+  bury), DG-443 (hooks and Jira configuration — blocked on where a credential lives) and DG-446
+  (migrating an already-tracked project).
 
 ## Not built yet
 

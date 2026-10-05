@@ -7,7 +7,7 @@ import stat
 
 import pytest
 
-from core import init, paths
+from core import exclude, init, paths
 
 
 @pytest.fixture(autouse=True)  # type: ignore[misc]
@@ -595,3 +595,121 @@ class TestConfigRepoCopyIn:
 
         agents = (checkout / "AGENTS.md").read_text(encoding="utf-8")
         assert agents == "from the config repo\n"
+
+    def test_path_and_config_repo_together_colliding_on_agents_md_is_non_zero_with_a_warning(
+        self, tmp_path, capsys
+    ) -> None:
+        """MEDIUM-HIGH review finding: --path alone makes
+        scaffold.instruction_files() write a default AGENTS.md first
+        (unchanged by this ticket, DG-442's job); the config-repo copy that
+        follows in the same call then sees it as existing and, finding it
+        different from the config repo's own copy, must not exit 0 with
+        only a buried info line — it must say so loudly and fail the run."""
+        checkout = _init_git_repo(tmp_path / "app")
+        config_repo = tmp_path / "config-repo"
+        project_folder = config_repo / "app"
+        project_folder.mkdir(parents=True)
+        (project_folder / "AGENTS.md").write_text(
+            "from the config repo\n", encoding="utf-8"
+        )
+
+        code = run(
+            "--project",
+            "app",
+            "--path",
+            str(checkout),
+            "--config-repo",
+            str(config_repo),
+        )
+
+        assert code == 1
+        err = capsys.readouterr().err
+        assert str(checkout / "AGENTS.md") in err
+        assert "differs from the config repo" in err
+        assert "--overwrite-ai-layer" in err
+        # The scaffold-written default is still on disk, untouched by the
+        # config repo's own copy — refused, not silently clobbered either
+        # way.
+        agents = (checkout / "AGENTS.md").read_text(encoding="utf-8")
+        assert agents != "from the config repo\n"
+
+    def test_an_identical_existing_file_is_unchanged_and_exits_zero(
+        self, tmp_path
+    ) -> None:
+        """The other half of the same guarantee: once the file on disk
+        actually matches the config repo, re-running must stay green — an
+        idempotent re-run is not "drift"."""
+        checkout = _init_git_repo(tmp_path / "app")
+        config_repo = tmp_path / "config-repo"
+        project_folder = config_repo / "app"
+        project_folder.mkdir(parents=True)
+        (project_folder / "AGENTS.md").write_text(
+            "from the config repo\n", encoding="utf-8"
+        )
+
+        assert (
+            run(
+                "--project",
+                "app",
+                "--path",
+                str(checkout),
+                "--config-repo",
+                str(config_repo),
+                "--overwrite-ai-layer",
+            )
+            == 0
+        )
+
+        # Re-run without --overwrite-ai-layer: the file now on disk already
+        # matches the config repo exactly, so this is "unchanged", not
+        # drift.
+        assert run("--project", "app", "--config-repo", str(config_repo)) == 0
+
+    def test_a_project_registered_at_a_subfolder_copies_there_and_excludes_at_the_real_git_root(
+        self, tmp_path
+    ) -> None:
+        """Review finding #5: the registry's `git_root` offset (see
+        core.context.ProjectContext.git_root_path) is a plain relative
+        join, never resolved or direction-restricted — ".." ascends to a
+        real top level that is an *ancestor* of the registered --path,
+        which is exactly DG-441 comment (a)'s shape (a project registered
+        at a subfolder of a larger repository, a monorepo package)."""
+        repo = _init_git_repo(tmp_path / "monorepo")
+        project_path = repo / "packages" / "sample"
+        project_path.mkdir(parents=True)
+
+        config_repo = tmp_path / "config-repo"
+        project_folder = config_repo / "sample"
+        project_folder.mkdir(parents=True)
+        (project_folder / "AGENTS.md").write_text("instructions\n", encoding="utf-8")
+
+        assert (
+            run(
+                "--project",
+                "sample",
+                "--path",
+                str(project_path),
+                "--git-root",
+                "../..",
+                "--config-repo",
+                str(config_repo),
+                "--overwrite-ai-layer",
+            )
+            == 0
+        )
+
+        # The agent reads AGENTS.md from the registered project path — the
+        # subfolder itself — never from the repository's outer root.
+        assert (project_path / "AGENTS.md").read_text(
+            encoding="utf-8"
+        ) == "instructions\n"
+        # ...but info/exclude is the real repository's own, reached by
+        # ascending via the ".." offset, not something invented under the
+        # subfolder or left unwritten.
+        exclude_text = (repo / ".git" / "info" / "exclude").read_text(encoding="utf-8")
+        assert exclude.MARKER_START in exclude_text
+
+        status = _run_git("status", "--porcelain", cwd=repo)
+        assert status.stdout.strip() == "", (
+            f"git status is not clean after the copy: {status.stdout!r}"
+        )

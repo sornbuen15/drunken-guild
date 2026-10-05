@@ -4,6 +4,7 @@ can never be."""
 
 import json
 import urllib.error
+from pathlib import Path
 from unittest import mock
 
 import pytest
@@ -29,6 +30,7 @@ V2_DOCUMENT = {
             "discord": {"webhook": "env://DISCORD_WEBHOOK_ALPHA"},
         },
         "bare": {"path": "/abs/bare"},
+        "monorepo-package": {"path": "/abs/monorepo/packages/sample", "git_root": ".."},
         "incomplete": {
             "path": "/abs/incomplete",
             "jira": {"url": "https://example.atlassian.net", "project_key": "INC"},
@@ -155,6 +157,28 @@ class TestPaths:
         assert (
             str(ProjectContext.build("bare", registry).git_root_path()) == "/abs/bare"
         )
+
+    def test_git_root_can_ascend_for_a_project_registered_at_a_subfolder(
+        self, registry
+    ) -> None:
+        """DG-441 comment (a): a project whose registered *path* is itself a
+        subfolder of a larger repository (a monorepo package) needs the
+        *opposite* offset from ALPHA's — ascending, not descending. Nothing
+        in ``git_root``'s implementation (a plain ``Path`` join, never
+        resolved here) restricts it to one direction; this is the other
+        one, proven the same way the descending case already is.
+
+        Built with ``Path`` rather than a literal ``"/abs/..."`` string
+        (review finding): on Windows, ``Path("/abs/.../sample") / ".."``
+        renders with backslashes, so a literal forward-slashed expected
+        value fails there for a platform reason that has nothing to do
+        with what this test is actually proving — the ascending join
+        itself, which this now compares against the same construction the
+        code under test performs.
+        """
+        context = ProjectContext.build("monorepo-package", registry)
+        expected = str(Path("/abs/monorepo/packages/sample") / "..")
+        assert str(context.git_root_path()) == expected
 
     def test_board_defaults_to_the_claude_convention(self, registry) -> None:
         assert ProjectContext.build("bare", registry).board_dir_path().name == "board"
