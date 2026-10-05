@@ -302,6 +302,53 @@ class TestThisRepositorySignal:
         assert not (checkout / "AGENTS.md").exists()
         assert "--config-repo" in capsys.readouterr().out
 
+    def test_a_leading_utf8_bom_does_not_defeat_the_signal(self, tmp_path) -> None:
+        """Round 2 review item 4: a leading BOM used to be read as a
+        literal character by the "utf-8" codec, which meant the very first
+        line (`﻿[project]`) never equalled `"[project]"` and the
+        signal silently read as "not this repository"."""
+        checkout = _init_git_repo(tmp_path / "app")
+        (checkout / "pyproject.toml").write_bytes(
+            b"\xef\xbb\xbf" + '[project]\nname = "drunken-guild"\n'.encode("utf-8")
+        )
+
+        assert run("--project", "app", "--path", str(checkout)) == 0
+
+        assert (checkout / "AGENTS.md").exists()
+
+    def test_a_trailing_comment_on_the_name_line_does_not_defeat_the_signal(
+        self, tmp_path
+    ) -> None:
+        """Round 2 review item 4: a bare `strip('"')` only trims the two
+        ends, so `name = "drunken-guild"  # the one and only` left the
+        trailing comment fused onto the value and it never equalled
+        "drunken-guild"."""
+        checkout = _init_git_repo(tmp_path / "app")
+        (checkout / "pyproject.toml").write_text(
+            '[project]\nname = "drunken-guild"  # the one and only\n',
+            encoding="utf-8",
+        )
+
+        assert run("--project", "app", "--path", str(checkout)) == 0
+
+        assert (checkout / "AGENTS.md").exists()
+
+    def test_a_bom_with_a_different_name_is_still_not_treated_as_this_repo(
+        self, tmp_path, capsys
+    ) -> None:
+        """Tolerating the BOM must not loosen the exact-name match — every
+        existing false-positive guard stays in force."""
+        checkout = _init_git_repo(tmp_path / "app")
+        (checkout / "pyproject.toml").write_bytes(
+            b"\xef\xbb\xbf"
+            + '[project]\nname = "some-other-package"  # not us\n'.encode("utf-8")
+        )
+
+        assert run("--project", "app", "--path", str(checkout)) == 0
+
+        assert not (checkout / "AGENTS.md").exists()
+        assert "--config-repo" in capsys.readouterr().out
+
     def test_a_real_checkout_of_this_repository_reports_kept_not_skipped(
         self, capsys
     ) -> None:
@@ -573,8 +620,42 @@ class TestGuildBlockFlagForAProjectUnderTheGuild:
         assert run("--project", "app", "--path", str(checkout), "--guild-block") == 1
 
         out = capsys.readouterr().out
-        assert "--config-repo" in out
+        assert "requires --config-repo" in out, (
+            "no --config-repo at all is a different problem from --config-repo "
+            "given but the folder missing — this message must name the flag "
+            "as simply absent, not point at any particular path"
+        )
         assert not (checkout / "AGENTS.md").exists()
+
+    def test_with_config_repo_but_missing_project_folder_names_the_path(
+        self, tmp_path, capsys
+    ) -> None:
+        """Round 2 review item 3: --config-repo was in fact given — the
+        real problem is that the config repo has no folder for this project
+        yet. The message must say *that*, not repeat the "requires
+        --config-repo" wording from the sibling test above, which would
+        send an operator re-checking a flag that was never the issue."""
+        checkout = _init_git_repo(tmp_path / "app")
+        config_repo = tmp_path / "config-repo"
+        config_repo.mkdir()
+
+        code = run(
+            "--project",
+            "app",
+            "--path",
+            str(checkout),
+            "--config-repo",
+            str(config_repo),
+            "--guild-block",
+        )
+
+        assert code == 1
+        out = capsys.readouterr().out
+        assert "requires --config-repo" not in out
+        assert "app" in out
+        assert str(config_repo / "app") in out
+        assert not (checkout / "AGENTS.md").exists()
+        assert not (config_repo / "app").exists()
 
     def test_an_existing_config_repo_copy_without_a_block_gets_one_and_keeps_every_byte(
         self, tmp_path
@@ -761,6 +842,71 @@ class TestGuildBlockSafety:
         assert "line 2" in out
         assert (project_folder / "AGENTS.md").read_text(encoding="utf-8") == broken
 
+    def test_an_end_marker_before_its_start_is_refused_file_untouched(
+        self, tmp_path, capsys
+    ) -> None:
+        """DG-408, restored by round 2 review item 2 (had been dropped
+        without a reason when this class was retargeted at the config-repo
+        copy): an END marker appearing before any open START is just as
+        malformed as an unclosed START, even with matching counts."""
+        checkout = _init_git_repo(tmp_path / "app")
+        config_repo = tmp_path / "config-repo"
+        project_folder = config_repo / "app"
+        project_folder.mkdir(parents=True)
+        broken = "# ours\n<!-- guild-block:end -->\nstuff\n<!-- guild-block:start -->\n"
+        (project_folder / "AGENTS.md").write_text(broken, encoding="utf-8")
+
+        assert (
+            run(
+                "--project",
+                "app",
+                "--path",
+                str(checkout),
+                "--config-repo",
+                str(config_repo),
+                "--guild-block",
+            )
+            == 1
+        )
+
+        out = capsys.readouterr().out
+        assert "guild-block" in out
+        assert (project_folder / "AGENTS.md").read_text(encoding="utf-8") == broken
+
+    def test_two_start_markers_are_refused_file_untouched(
+        self, tmp_path, capsys
+    ) -> None:
+        """DG-408, restored by round 2 review item 2: two *complete* pairs
+        are still malformed — a second START while one is already open —
+        even though start/end counts match."""
+        checkout = _init_git_repo(tmp_path / "app")
+        config_repo = tmp_path / "config-repo"
+        project_folder = config_repo / "app"
+        project_folder.mkdir(parents=True)
+        broken = (
+            "# ours\n"
+            "<!-- guild-block:start -->\nA\n<!-- guild-block:end -->\n"
+            "<!-- guild-block:start -->\nB\n<!-- guild-block:end -->\n"
+        )
+        (project_folder / "AGENTS.md").write_text(broken, encoding="utf-8")
+
+        assert (
+            run(
+                "--project",
+                "app",
+                "--path",
+                str(checkout),
+                "--config-repo",
+                str(config_repo),
+                "--guild-block",
+            )
+            == 1
+        )
+
+        out = capsys.readouterr().out
+        assert "guild-block:start" in out
+        assert (project_folder / "AGENTS.md").read_text(encoding="utf-8") == broken
+
     def test_a_bom_file_keeps_the_bom_at_byte_0_and_inserts_after_the_heading(
         self, tmp_path
     ) -> None:
@@ -790,6 +936,46 @@ class TestGuildBlockSafety:
         assert "<!-- guild-block:start -->" in merged
         assert "hand-written, keep me" in merged
         assert merged.index("# ours") < merged.index("<!-- guild-block:start -->")
+
+
+class TestGuildBlockSafetyForThisRepository:
+    """DG-408, restored by round 2 review item 2: the same malformed-marker
+    safety, for the *other* target DG-442 kept — this repository's own
+    checkout, merged into directly, never through the config repo. These
+    use the `_stub_this_repository` fixture (a disposable pyproject.toml),
+    never the real repository's own tracked files."""
+
+    def test_an_end_marker_before_its_start_is_refused_file_untouched(
+        self, tmp_path, capsys
+    ) -> None:
+        checkout = _init_git_repo(tmp_path / "app")
+        _stub_this_repository(None, checkout)
+        broken = "# ours\n<!-- guild-block:end -->\nstuff\n<!-- guild-block:start -->\n"
+        (checkout / "AGENTS.md").write_text(broken, encoding="utf-8")
+
+        assert run("--project", "app", "--path", str(checkout), "--guild-block") == 1
+
+        out = capsys.readouterr().out
+        assert "guild-block" in out
+        assert (checkout / "AGENTS.md").read_text(encoding="utf-8") == broken
+
+    def test_two_start_markers_are_refused_file_untouched(
+        self, tmp_path, capsys
+    ) -> None:
+        checkout = _init_git_repo(tmp_path / "app")
+        _stub_this_repository(None, checkout)
+        broken = (
+            "# ours\n"
+            "<!-- guild-block:start -->\nA\n<!-- guild-block:end -->\n"
+            "<!-- guild-block:start -->\nB\n<!-- guild-block:end -->\n"
+        )
+        (checkout / "AGENTS.md").write_text(broken, encoding="utf-8")
+
+        assert run("--project", "app", "--path", str(checkout), "--guild-block") == 1
+
+        out = capsys.readouterr().out
+        assert "guild-block:start" in out
+        assert (checkout / "AGENTS.md").read_text(encoding="utf-8") == broken
 
 
 def _run_git(*cmd_args, cwd):
@@ -1163,3 +1349,68 @@ class TestTrackedInstructionFileRefusal:
         )
 
         assert code == 1
+
+    def test_tracked_claude_md_at_a_git_root_offset_is_still_refused(
+        self, tmp_path
+    ) -> None:
+        """Round 2 review item 5: the same offset coverage as the AGENTS.md
+        case above, for CLAUDE.md — the second of the two files this check
+        must catch, not just the first."""
+        monorepo = _init_git_repo(tmp_path / "monorepo")
+        project_path = monorepo / "packages" / "sample"
+        project_path.mkdir(parents=True)
+        (project_path / "CLAUDE.md").write_bytes(b"@AGENTS.md\n")
+        _run_git("add", "packages/sample/CLAUDE.md", cwd=monorepo)
+        _run_git("commit", "-q", "-m", "tracked claude.md at offset", cwd=monorepo)
+
+        code = run(
+            "--project",
+            "sample",
+            "--path",
+            str(project_path),
+            "--git-root",
+            "../..",
+        )
+
+        assert code == 1
+
+    def test_the_registry_gains_no_entry_on_a_refused_first_run(self, tmp_path) -> None:
+        """Round 2 review item 1: a reviewer reproduced the registry being
+        written *before* the refusal ran, so a refused run still gained a
+        registry entry. Nothing — registry included — may be written when
+        the run is refused."""
+        checkout = _init_git_repo(tmp_path / "app")
+        (checkout / "AGENTS.md").write_text("real, tracked content\n", encoding="utf-8")
+        _run_git("add", "AGENTS.md", cwd=checkout)
+        _run_git("commit", "-q", "-m", "tracked", cwd=checkout)
+        registry_path = tmp_path / "state" / "projects.json"
+        assert not registry_path.exists()
+
+        code = run("--project", "app", "--path", str(checkout))
+
+        assert code == 1
+        assert not registry_path.exists(), (
+            "a refused run must leave no registry file at all behind — "
+            "this is the first run, so 'no entry' means 'no file'"
+        )
+
+    def test_the_registry_is_byte_unchanged_on_a_later_refused_run(
+        self, tmp_path
+    ) -> None:
+        """The other half of the same guarantee: an *already*-registered
+        project whose checkout later starts tracking AGENTS.md must not
+        have its registry entry touched (e.g. a `--description` update
+        silently landing) by a run that goes on to refuse."""
+        checkout = _init_git_repo(tmp_path / "app")
+        assert run("--project", "app", "--path", str(checkout)) == 0
+        registry_path = tmp_path / "state" / "projects.json"
+        before = registry_path.read_bytes()
+
+        (checkout / "AGENTS.md").write_text("real, tracked content\n", encoding="utf-8")
+        _run_git("add", "AGENTS.md", cwd=checkout)
+        _run_git("commit", "-q", "-m", "tracked", cwd=checkout)
+
+        code = run("--project", "app", "--path", str(checkout), "--description", "new")
+
+        assert code == 1
+        assert registry_path.read_bytes() == before

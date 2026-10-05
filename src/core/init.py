@@ -28,6 +28,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sys
 from pathlib import Path
 from typing import Any, Optional
@@ -39,6 +40,25 @@ from .registry import SCHEMA_VERSION, validate_project_id
 #: The declared package name of this repository's own ``pyproject.toml`` —
 #: see :func:`_target_is_this_repository`.
 _THIS_REPOSITORY_PACKAGE_NAME = "drunken-guild"
+
+#: A TOML string value at the start of a line's remainder after ``=``:
+#: either quote style, capturing only what is between the matching pair and
+#: deliberately not anchored at the end — so ``"drunken-guild"  # comment``
+#: still matches the value alone, the trailing comment included. This is
+#: not a general TOML parser (no escape handling); it only has to recognise
+#: the one line shape ``name = "..."`` already relied on elsewhere in this
+#: codebase (``core.doctor.declared_version``), slightly hardened against
+#: the one false negative DG-442 review found: a trailing comment.
+_TOML_STRING_VALUE_RE = re.compile(r"""^\s*(?:"([^"]*)"|'([^']*)')""")
+
+
+def _parse_toml_string_value(raw_value: str) -> Optional[str]:
+    """The quoted value at the start of *raw_value*, or ``None`` when it
+    does not open with a quote at all (unquoted, or empty)."""
+    match = _TOML_STRING_VALUE_RE.match(raw_value)
+    if not match:
+        return None
+    return match.group(1) if match.group(1) is not None else match.group(2)
 
 
 def _validate_credential_reference(reference: str) -> None:
@@ -88,10 +108,23 @@ def _target_is_this_repository(git_root: Path) -> bool:
     by :func:`core.doctor.declared_version` for the sibling question "what
     version does this source tree declare" — reusing that shape rather than
     inventing a second one that every real clone would need to carry too.
+
+    DG-442 review: a leading UTF-8 BOM and an unquoted trailing ``#``
+    comment on the ``name =`` line both used to read as a false negative
+    (misclassifying this repository itself as "a project under the
+    guild"). ``"utf-8-sig"`` quietly strips a BOM when present and is
+    byte-identical to ``"utf-8"`` when there is none, so every file is
+    still read exactly once either way. The value itself is parsed with
+    :func:`_parse_toml_string_value` rather than a bare ``strip('"')``,
+    which only strips from the two ends and left a trailing comment's text
+    fused onto the value. Every false-*positive* guard already in place —
+    exact string equality against ``_THIS_REPOSITORY_PACKAGE_NAME``, no
+    fuzzy or substring matching, no match at all on an unquoted value — is
+    unchanged.
     """
     pyproject = git_root / "pyproject.toml"
     try:
-        lines = pyproject.read_text(encoding="utf-8").splitlines()
+        lines = pyproject.read_text(encoding="utf-8-sig").splitlines()
     except OSError:
         return False
 
@@ -104,7 +137,7 @@ def _target_is_this_repository(git_root: Path) -> bool:
             in_project = stripped == "[project]"
             continue
         if in_project and stripped.startswith("name") and "=" in stripped:
-            name = stripped.split("=", 1)[1].strip().strip('"').strip("'")
+            name = _parse_toml_string_value(stripped.split("=", 1)[1])
             return name == _THIS_REPOSITORY_PACKAGE_NAME
     return False
 
@@ -414,6 +447,18 @@ def _copy_ai_layer_in(
     return lines, bool(drifted)
 
 
+def _config_repo_project_folder(
+    args: argparse.Namespace, project_id: str
+) -> Optional[Path]:
+    """``--config-repo``'s project folder for *project_id*, or ``None`` when
+    ``--config-repo`` was not passed at all — kept separate from "that
+    folder does not exist yet" (checked by the caller via ``is_dir()``) so
+    the two can be told apart in an error message (DG-442 review)."""
+    if not args.config_repo:
+        return None
+    return Path(args.config_repo).expanduser() / str(project_id)
+
+
 def _resolve_instructions_dir(
     document: dict[str, Any],
     project_id: str,
@@ -436,10 +481,8 @@ def _resolve_instructions_dir(
         return project_root
 
     _refuse_if_already_tracked(git_root, project_root)
-    if not args.config_repo:
-        return None
-    candidate = Path(args.config_repo).expanduser() / str(project_id)
-    return candidate if candidate.is_dir() else None
+    candidate = _config_repo_project_folder(args, project_id)
+    return candidate if candidate is not None and candidate.is_dir() else None
 
 
 def _generate_instruction_files(
@@ -463,16 +506,38 @@ def _generate_instruction_files(
     ]
 
 
-def _apply_guild_block(instructions_dir: Optional[Path], existed_before: bool) -> str:
+def _apply_guild_block(
+    instructions_dir: Optional[Path],
+    existed_before: bool,
+    args: argparse.Namespace,
+    project_id: str,
+) -> str:
     """Merge (or report the fresh creation of) the guild block, or refuse
-    when there is nowhere to merge it into yet."""
+    when there is nowhere to merge it into yet.
+
+    DG-442 review: the refusal names the *actual* reason instead of a single
+    generic "requires --config-repo" for both — ``--config-repo`` missing
+    entirely is a different problem from ``--config-repo`` given but that
+    project's folder not existing there yet, and an operator trying to fix
+    the second by re-checking a flag that was already correct gets nowhere.
+    """
     if instructions_dir is None:
+        candidate = _config_repo_project_folder(args, project_id)
+        if candidate is None:
+            raise ValidationError(
+                "--guild-block for a project under the guild requires --config-repo.",
+                remediation=(
+                    "Pass --config-repo together with --guild-block — it "
+                    "merges into the config repo's own copy of AGENTS.md, "
+                    "never the checkout directly — or omit --guild-block."
+                ),
+            )
         raise ValidationError(
-            "--guild-block for a project under the guild requires --config-repo.",
+            f"--guild-block needs the config repo's {project_id!r} folder, "
+            f"which does not exist yet at {candidate}.",
             remediation=(
-                "Pass --config-repo together with --guild-block — it "
-                "merges into the config repo's own copy of AGENTS.md, "
-                "never the checkout directly — or omit --guild-block."
+                f"Create {candidate} in the config repo (see --config-repo's "
+                "own help), or omit --guild-block."
             ),
         )
     agents_path = instructions_dir / "AGENTS.md"
@@ -493,12 +558,10 @@ def main() -> int:
     config_repo_drifted = False
 
     try:
-        home = paths.ensure_home()
         registry_file = args.registry or str(paths.registry_path())
 
         document = _ensure_registry_document(registry_file)
         project_id = _apply_project(document, args) if args.project else None
-        _write(registry_file, document)
 
         project_root = (
             Path(document["projects"][project_id]["path"])
@@ -506,17 +569,31 @@ def main() -> int:
             else None
         )
 
-        # DG-442: where the generated AGENTS.md/CLAUDE.md actually land
-        # depends on whether *project_root* is this repository's own
-        # checkout (unchanged: written straight into the checkout, tracked)
-        # or a project under the guild (generated into the config repo's
-        # working copy, requires --config-repo, never written as a tracked
-        # file into the project). See `_target_is_this_repository`.
+        # DG-442 review: the tracked-file refusal (inside
+        # _resolve_instructions_dir -> _refuse_if_already_tracked) must run
+        # before ANYTHING is written — the state directory, the registry,
+        # instruction files, the guild block, the config-repo copy-in, the
+        # exclude file — so a refused run leaves every one of those exactly
+        # as it found them. A reviewer reproduced the opposite: the registry
+        # used to be written first, so a refused run still gained a
+        # registry entry. This now runs strictly before `paths.ensure_home()`
+        # and `_write()` below, both pure reads/computations until this
+        # point.
+        #
+        # Where the generated AGENTS.md/CLAUDE.md actually land depends on
+        # whether *project_root* is this repository's own checkout
+        # (unchanged: written straight into the checkout, tracked) or a
+        # project under the guild (generated into the config repo's working
+        # copy, requires --config-repo, never written as a tracked file
+        # into the project). See `_target_is_this_repository`.
         instructions_dir: Optional[Path] = (
             _resolve_instructions_dir(document, project_id, project_root, args)
             if project_root is not None and project_id is not None
             else None
         )
+
+        home = paths.ensure_home()
+        _write(registry_file, document)
 
         agents_path = instructions_dir / "AGENTS.md" if instructions_dir else None
         existed_before = bool(agents_path and agents_path.exists())
@@ -527,8 +604,10 @@ def main() -> int:
                 document, project_id, instructions_dir, args
             )
 
-        if args.guild_block and project_root is not None:
-            written.append(_apply_guild_block(instructions_dir, existed_before))
+        if args.guild_block and project_root is not None and project_id is not None:
+            written.append(
+                _apply_guild_block(instructions_dir, existed_before, args, project_id)
+            )
 
         if args.config_repo:
             layer_lines, config_repo_drifted = _copy_ai_layer_in(
