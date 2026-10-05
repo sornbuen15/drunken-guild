@@ -38,6 +38,7 @@ from .config_gen import (
 )
 from .context import ProjectContext
 from .errors import DrunkenError
+from .exclude import NotAGitRepositoryError, run_git
 from .redact import redact
 from .registry import ProjectRegistry
 
@@ -208,17 +209,20 @@ def newest_tag() -> Optional[str]:
 
     Never raises and never reports a missing tag as a problem: a source tarball
     or a shallow CI checkout legitimately has none.
+
+    Routed through :func:`core.exclude.run_git` (DG-451) rather than a second,
+    unstripped ``subprocess.run(["git", ...])`` — this asks about the repository
+    this source tree was loaded from, and the same leaked ``GIT_*`` environment
+    that could redirect :func:`tracked_ai_layer_paths` onto a different
+    repository could redirect this to list another one's tags instead.
     """
     try:
-        result = subprocess.run(  # nosec B603 - fixed argv, no shell
-            ["git", "tag", "--sort=-v:refname"],
-            capture_output=True,
-            text=True,
+        result = run_git(
+            ["tag", "--sort=-v:refname"],
+            Path(__file__).resolve().parent,
             timeout=30,
-            check=False,
-            cwd=Path(__file__).resolve().parent,
         )
-    except (OSError, subprocess.SubprocessError):
+    except NotAGitRepositoryError:
         return None
     if result.returncode != 0:
         return None
@@ -1678,16 +1682,22 @@ def tracked_ai_layer_paths(git_root: Path) -> Optional[list[str]]:
     quoting, so splitting on ``b"\0"`` and decoding (``surrogateescape``, so a
     byte sequence that is not valid UTF-8 becomes an odd ``str`` instead of
     raising) recovers the real path whole.
+
+    Routed through :func:`core.exclude.run_git` (DG-451) rather than a second,
+    unstripped ``subprocess.run(["git", ...])``: this was found running with
+    the caller's full inherited environment, so a process with ``GIT_DIR`` /
+    ``GIT_WORK_TREE`` / ``GIT_INDEX_FILE`` set — a git hook, among others —
+    could make it answer about a different repository's (or a different
+    index's) tracked files than *git_root*'s own. It is read-only, so this
+    misreports rather than damages, but this is exactly the check a person
+    trusts (REQ-019). ``text=False`` keeps the bytes/``-z`` handling above
+    unchanged — ``run_git``'s default ``text=True`` would hand back a ``str``
+    already decoded (and newline-translated) by the subprocess layer itself,
+    which is the same class of silent corruption ``-z`` exists to avoid.
     """
     try:
-        result = subprocess.run(  # nosec B603 - fixed argv, no shell
-            ["git", "ls-files", "-z"],
-            cwd=git_root,
-            capture_output=True,
-            timeout=30,
-            check=False,
-        )
-    except (OSError, subprocess.SubprocessError):
+        result = run_git(["ls-files", "-z"], git_root, text=False, timeout=30)
+    except NotAGitRepositoryError:
         return None
     if result.returncode != 0:
         return None

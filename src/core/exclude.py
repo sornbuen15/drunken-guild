@@ -66,7 +66,7 @@ import os
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Sequence
+from typing import Any, Optional, Sequence
 
 from .ai_layer import AI_LAYER_BASENAMES, AI_LAYER_ROOT_DIRS, AI_LAYER_ROOT_FILES
 from .errors import ValidationError
@@ -165,7 +165,13 @@ def git_subprocess_env() -> dict[str, str]:
     }
 
 
-def run_git(args: Sequence[str], repo_root: Path) -> subprocess.CompletedProcess[str]:
+def run_git(
+    args: Sequence[str],
+    repo_root: Path,
+    *,
+    text: bool = True,
+    timeout: Optional[float] = None,
+) -> subprocess.CompletedProcess[Any]:
     """Run ``git`` with *args* in *repo_root*, env stripped (see above).
 
     Public — and the one hardened git caller every module in this
@@ -175,17 +181,37 @@ def run_git(args: Sequence[str], repo_root: Path) -> subprocess.CompletedProcess
     (DG-441): a tracked-file check that ran unstripped silently answered
     "not tracked" against an *unrelated* repository reached through a
     leaked ``GIT_DIR``/``GIT_WORK_TREE``, and overwrote a committed file.
+    :mod:`core.doctor` (DG-451) is the second: its ``git ls-files -z`` read-
+    only layering check made the same unstripped call.
+
+    *text* defaults to ``True`` (``stdout``/``stderr`` as ``str``, matching
+    every caller before DG-451) but can be set ``False`` for a caller that
+    needs the raw bytes — ``git ls-files -z`` NUL-separates, and decoding
+    that with ``text=True``'s universal-newline translation would mangle a
+    path holding a literal ``\\r``, which plain ``str`` decoding with
+    ``surrogateescape`` does not.
+
+    *timeout* is ``None`` (no limit) unless a caller passes one — a read-
+    only diagnostic check asking about a project it does not control
+    should not be able to hang a command forever.
+
+    A git failure (a non-zero exit) is *not* raised here — every existing
+    caller reads ``returncode``/``stdout`` itself and decides what that
+    means. Only an inability to run the process at all — no binary, no
+    permission, or a timeout — raises, so a caller cannot forget to notice
+    that git never answered.
     """
     try:
         return subprocess.run(
             ["git", *args],
             cwd=repo_root,
             capture_output=True,
-            text=True,
+            text=text,
             check=False,
             env=git_subprocess_env(),
+            timeout=timeout,
         )
-    except OSError as exc:
+    except (OSError, subprocess.SubprocessError) as exc:
         raise NotAGitRepositoryError(
             f"Could not run git ({' '.join(args)}) for {repo_root}: {exc}",
             remediation="Install git and make sure it is on PATH.",
@@ -278,7 +304,7 @@ def resolve_info_exclude_path(repo_root: Path) -> Path:
             ),
         )
 
-    git_path = git_path_result.stdout.strip()
+    git_path: str = git_path_result.stdout.strip()
     if not git_path:
         raise NotAGitRepositoryError(
             f"git reported no path for info/exclude in {repo_root}.",
