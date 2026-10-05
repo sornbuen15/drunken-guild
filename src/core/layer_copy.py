@@ -25,17 +25,25 @@ root or escaping it — is refused outright, never written through.
 whose path *the project's own git already tracks* aborts the whole call
 before a single byte is copied, naming the path — overwriting a committed
 file through this path would be a silent, surprising edit to
-version-controlled content. "Tracked" means **in the index, or present in
-``HEAD``** — either one alone is enough to refuse. Checking the index
-alone missed a real case: ``git rm --cached`` takes a path out of the
-index while leaving it in ``HEAD`` untouched, so a check that only asked
-the index answered "not tracked" for a file that one ``git checkout`` or
-the next commit would still bring back. This is also checked by path, not
-by whether the destination currently exists on disk: a committed file
-deleted from the working tree is still tracked, and copying over the gap
-it left behind would silently turn a ``git status`` clean worktree into
-one reporting a modified file. Only this tracked case is an absolute
-refusal, with or without ``overwrite=True``.
+version-controlled content. "Tracked" means **staged with real content,
+or present in ``HEAD``** (:func:`_has_staged_content` and :func:`_in_head`
+respectively) — either one alone is enough to refuse.
+:func:`_has_staged_content` closes the gap a plain index-membership check
+(``git ls-files``) misses: ``git rm --cached`` takes a path out of the
+index while leaving it in ``HEAD`` untouched, and that staged removal is
+exactly what ``git diff --cached`` reports, so a check that only asked
+the index would wrongly answer "not tracked" for a file that one
+``git checkout`` or the next commit would still bring back — the same
+check also catches a brand-new path a plain ``git add`` staged but never
+committed, which has no ``HEAD`` entry at all for :func:`_in_head` to
+find. :func:`_in_head` is needed for the opposite gap: a committed file
+deleted from the working tree *without* that deletion ever being staged —
+the index still matches ``HEAD`` exactly, so ``git diff --cached`` reports
+nothing, and only asking ``HEAD`` directly still finds it tracked. This is
+also checked by path, not by whether the destination currently exists on
+disk: copying over either gap would silently turn a ``git status`` clean
+worktree into one reporting a modified file. Only this tracked case is an
+absolute refusal, with or without ``overwrite=True``.
 
 One thing that is deliberately *not* refused: ``git add -N`` (intent to
 add) stages a placeholder for a brand-new path with no real content yet —
@@ -303,9 +311,14 @@ def _has_head(git_root: Path) -> bool:
 
 def _in_head(git_root: Path, relative_to_git_root: str) -> bool:
     """Whether *relative_to_git_root* exists in *git_root*'s ``HEAD`` —
-    catches the gap a plain index check misses: ``git rm --cached`` takes
-    a path out of the index while leaving it in ``HEAD`` exactly as
-    committed.
+    catches the gap :func:`_has_staged_content` cannot: a committed file
+    deleted from the working tree *without* that deletion ever being
+    staged. The index still matches ``HEAD`` exactly in that state, so
+    ``git diff --cached`` reports nothing staged at all; only asking
+    ``HEAD`` directly, here, still finds the path tracked. (``git rm
+    --cached`` is a different state — a *staged* removal — and is caught
+    by :func:`_has_staged_content` instead, via the same ``git diff
+    --cached`` it already runs.)
 
     ``git cat-file -e HEAD:<path>`` exits 128 for *two* different reasons
     with different messages — "path does not exist in 'HEAD'" and (on an
