@@ -1139,6 +1139,159 @@ class TestCaseInsensitiveComparisonItself:
         assert layer_copy._is_tracked(repo, "AGENTS.md") is True  # noqa: SLF001
 
 
+class TestCaseInsensitiveComparisonIsWholePathNotBasenameOnly:
+    """DG-453 review (MEDIUM): a mutation narrowing the comparison to the
+    *basename* alone (rather than the whole repo-relative path) passed
+    every existing test unnoticed, because none of them had a tracked
+    path sharing a basename with the destination while living in a
+    different directory. These pin the opposite cases: a shared basename
+    in a different directory must never be enough, in either direction."""
+
+    def test_a_tracked_file_with_the_same_basename_in_a_different_directory_is_not_tracked(
+        self, tmp_path: Path
+    ) -> None:
+        repo = _init_repo(tmp_path / "project")
+        docs_dir = repo / "docs"
+        docs_dir.mkdir()
+        (docs_dir / "AGENTS.md").write_text(
+            "tracked, but a different directory\n", encoding="utf-8"
+        )
+        _run_git("add", "docs/AGENTS.md", cwd=repo)
+        _run_git("commit", "-q", "-m", "tracked docs/AGENTS.md", cwd=repo)
+
+        # A root-level AGENTS.md, same basename, must not be considered
+        # tracked just because *some* file with that basename is tracked
+        # elsewhere in the repository.
+        assert layer_copy._is_tracked(repo, "AGENTS.md") is False  # noqa: SLF001
+
+    def test_a_tracked_nested_file_with_the_same_basename_in_a_different_directory_is_not_tracked(
+        self, tmp_path: Path
+    ) -> None:
+        repo = _init_repo(tmp_path / "project")
+        nested = repo / ".claude" / "x"
+        nested.mkdir(parents=True)
+        (nested / "settings.json").write_text("{}\n", encoding="utf-8")
+        _run_git("add", ".claude/x/settings.json", cwd=repo)
+        _run_git("commit", "-q", "-m", "tracked .claude/x/settings.json", cwd=repo)
+
+        # The layer's own `.claude/settings.json` (one directory level up
+        # from the tracked file) must not be considered tracked either —
+        # same basename, different directory, the other way round from
+        # the test above.
+        assert layer_copy._is_tracked(repo, ".claude/settings.json") is False  # noqa: SLF001
+
+    def test_the_reverse_direction_a_tracked_shallower_path_does_not_cover_a_deeper_one(
+        self, tmp_path: Path
+    ) -> None:
+        repo = _init_repo(tmp_path / "project")
+        claude_dir = repo / ".claude"
+        claude_dir.mkdir()
+        (claude_dir / "settings.json").write_text("{}\n", encoding="utf-8")
+        _run_git("add", ".claude/settings.json", cwd=repo)
+        _run_git("commit", "-q", "-m", "tracked .claude/settings.json", cwd=repo)
+
+        assert layer_copy._is_tracked(repo, ".claude/x/settings.json") is False  # noqa: SLF001
+
+
+class TestAnUndecodableTrackedPathFailsClosedWithATypedError:
+    """DG-453 review (LOW): ``core.exclude.run_git`` always runs git with
+    ``text=True`` and has no keyword yet to ask for raw bytes instead (the
+    sibling change that would add one is not merged) — so a path byte
+    sequence the platform's default encoding cannot decode under
+    ``errors="strict"`` raises a bare ``UnicodeDecodeError`` *inside*
+    ``subprocess.run`` itself, before this module ever sees a
+    ``CompletedProcess``. Without editing ``core.exclude`` (out of scope:
+    DG-355 owns it), the best available fix on this side is to catch that
+    and fail closed with this module's own typed error instead of letting
+    an undocumented ``UnicodeDecodeError`` escape."""
+
+    def test_an_undecodable_head_listing_raises_the_typed_error_not_a_bare_one(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        repo = _init_repo(tmp_path / "project")
+        (repo / "committed.txt").write_text("x\n", encoding="utf-8")
+        _run_git("add", "committed.txt", cwd=repo)
+        _run_git("commit", "-q", "-m", "c", cwd=repo)
+
+        real_run_git = layer_copy.run_git
+
+        def raising_run_git(args, repo_root):
+            if args[:1] == ["ls-tree"]:
+                raise UnicodeDecodeError("utf-8", b"\xff", 0, 1, "simulated")
+            return real_run_git(args, repo_root)
+
+        monkeypatch.setattr(layer_copy, "run_git", raising_run_git)
+
+        with pytest.raises(layer_copy.GitTrackedCheckFailedError):
+            layer_copy._all_head_paths(repo)  # noqa: SLF001
+
+    def test_an_undecodable_staged_listing_raises_the_typed_error_not_a_bare_one(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        repo = _init_repo(tmp_path / "project")
+
+        def raising_run_git(args, repo_root):
+            if args[:1] == ["diff"]:
+                raise UnicodeDecodeError("utf-8", b"\xff", 0, 1, "simulated")
+            return layer_copy.run_git(args, repo_root)
+
+        monkeypatch.setattr(layer_copy, "run_git", raising_run_git)
+
+        with pytest.raises(layer_copy.GitTrackedCheckFailedError):
+            layer_copy._all_staged_content_paths(repo)  # noqa: SLF001
+
+
+class TestTheCasefoldedTrackedSetIsComputedOnceNotPerFile:
+    """DG-453 review (LOW): :func:`_tracked_paths_casefold` is two
+    full-repository git listings — expensive compared with the single-path
+    checks :func:`_is_tracked` tries first. :func:`copy_ai_layer_in` must
+    compute it once per call, never once per layer file."""
+
+    def test_the_two_full_listings_each_run_exactly_once_for_several_layer_files(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        repo = _init_repo(tmp_path / "project")
+        config_repo = _config_repo(tmp_path)
+        project_folder = config_repo / "sample"
+        project_folder.mkdir(parents=True)
+        (project_folder / "AGENTS.md").write_text("a\n", encoding="utf-8")
+        (project_folder / "CLAUDE.md").write_text("b\n", encoding="utf-8")
+        claude_dir = project_folder / ".claude"
+        claude_dir.mkdir()
+        (claude_dir / "settings.json").write_text("{}\n", encoding="utf-8")
+
+        counts = {"ls_tree": 0, "diff_full_listing": 0}
+        real_run_git = layer_copy.run_git
+
+        def counting_run_git(args, repo_root):
+            if args[:1] == ["ls-tree"]:
+                counts["ls_tree"] += 1
+            # The full listing is `diff --cached --name-only -z` with no
+            # pathspec — distinct from the per-path exact-case check
+            # (`diff --cached --name-only -- <path>`, no `-z`), which must
+            # not be counted here.
+            elif args[:1] == ["diff"] and "-z" in args:
+                counts["diff_full_listing"] += 1
+            return real_run_git(args, repo_root)
+
+        monkeypatch.setattr(layer_copy, "run_git", counting_run_git)
+
+        result = layer_copy.copy_ai_layer_in(
+            config_repo=config_repo,
+            project_id="sample",
+            project_root=repo,
+            git_root=repo,
+        )
+
+        assert len(result.copied) == 3
+        # The realistic mutation this guards against: calling
+        # `_tracked_paths_casefold` (or `_is_tracked` without a cached
+        # value) from inside the per-file loop, which would make both
+        # counts scale with the number of layer files instead of staying
+        # at exactly one each.
+        assert counts == {"ls_tree": 1, "diff_full_listing": 1}
+
+
 class TestTheExcludeWriterAlwaysRuns:
     def test_check_ignore_reports_the_copied_files_as_ignored(
         self, tmp_path: Path

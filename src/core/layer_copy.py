@@ -128,9 +128,10 @@ from __future__ import annotations
 
 import filecmp
 import shutil
+import subprocess
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Sequence
+from typing import Callable, Sequence
 
 from .ai_layer import is_ai_layer_path
 from .errors import DrunkenError, ValidationError
@@ -374,6 +375,43 @@ def _in_head(git_root: Path, relative_to_git_root: str) -> bool:
     )
 
 
+def _decode_or_raise(
+    run: Callable[[], subprocess.CompletedProcess[str]],
+    *,
+    git_root: Path,
+    what: str,
+) -> subprocess.CompletedProcess[str]:
+    """Run *run* (a no-arg call to :func:`core.exclude.run_git`), turning a
+    raw ``UnicodeDecodeError`` into this module's own
+    :class:`GitTrackedCheckFailedError` instead of letting it escape bare.
+
+    ``run_git`` always runs git with ``text=True`` (no keyword to ask for
+    raw bytes instead — the one that would add it, in a sibling PR, is not
+    merged), so a path byte sequence ``-z`` kept intact but that the
+    platform's default encoding cannot decode under ``errors="strict"``
+    raises *inside* ``subprocess.run`` itself, before this module ever sees
+    a ``CompletedProcess`` to inspect an exit code on. This cannot decode
+    such a name correctly without editing ``core.exclude`` (out of scope
+    here — DG-355 owns that module); the best available fix on this side
+    is to fail closed with a named, typed error instead of a bare
+    ``UnicodeDecodeError`` a caller was never told to expect from this
+    module.
+    """
+    try:
+        return run()
+    except UnicodeDecodeError as exc:
+        raise GitTrackedCheckFailedError(
+            f"git listed a path while checking {what} in {git_root} that "
+            f"could not be decoded as text ({exc}); core.exclude.run_git "
+            "has no raw-bytes mode to fall back to.",
+            remediation=(
+                "Check git is installed and that the paths in this "
+                "repository's index/HEAD are valid text in the system's "
+                "default encoding."
+            ),
+        ) from exc
+
+
 def _all_head_paths(git_root: Path) -> frozenset[str]:
     """Every path in *git_root*'s own ``HEAD`` tree, repo-relative — the
     same "committed" half of :func:`_is_tracked` as :func:`_in_head`, but
@@ -389,7 +427,11 @@ def _all_head_paths(git_root: Path) -> frozenset[str]:
     """
     if not _has_head(git_root):
         return frozenset()
-    result = run_git(["ls-tree", "-r", "--name-only", "-z", "HEAD"], git_root)
+    result = _decode_or_raise(
+        lambda: run_git(["ls-tree", "-r", "--name-only", "-z", "HEAD"], git_root),
+        git_root=git_root,
+        what="HEAD's tracked paths",
+    )
     if result.returncode != 0:
         raise GitTrackedCheckFailedError(
             f"git could not list HEAD's tracked paths in {git_root} "
@@ -412,7 +454,11 @@ def _all_staged_content_paths(git_root: Path) -> frozenset[str]:
     too, which is not tracked by any definition this module otherwise
     uses.
     """
-    result = run_git(["diff", "--cached", "--name-only", "-z"], git_root)
+    result = _decode_or_raise(
+        lambda: run_git(["diff", "--cached", "--name-only", "-z"], git_root),
+        git_root=git_root,
+        what="staged content",
+    )
     if result.returncode != 0:
         raise GitTrackedCheckFailedError(
             f"git could not list staged content in {git_root} "
@@ -437,13 +483,26 @@ def _tracked_paths_casefold(git_root: Path) -> frozenset[str]:
     differs only in a directory segment's case (a tracked
     ``.Claude/settings.json`` against the layer's
     ``.claude/settings.json``) is caught the same way a basename
-    difference is — no separate per-segment comparison needed.
+    difference is — and, just as importantly, a tracked path that merely
+    *shares a basename* with the destination while living in a different
+    directory (a tracked ``docs/AGENTS.md`` against a root-level layer
+    ``AGENTS.md``) is **not** caught by this at all: the comparison is
+    always of the whole path, never the basename alone.
+
+    Two full-repository listings (:func:`_all_head_paths`,
+    :func:`_all_staged_content_paths`) — call this at most once per
+    :func:`copy_ai_layer_in` call, never once per layer file; see that
+    function for why.
     """
     tracked = _all_head_paths(git_root) | _all_staged_content_paths(git_root)
     return frozenset(path.casefold() for path in tracked)
 
 
-def _is_tracked(git_root: Path, relative_to_git_root: str) -> bool:
+def _is_tracked(
+    git_root: Path,
+    relative_to_git_root: str,
+    tracked_casefold: frozenset[str] | None = None,
+) -> bool:
     """Whether *git_root*'s own git already protects *relative_to_git_root*
     — in the index with real content, or present in ``HEAD``, either
     under the exact same name or (DG-453) a name that differs only in
@@ -451,24 +510,40 @@ def _is_tracked(git_root: Path, relative_to_git_root: str) -> bool:
     an intent-to-add placeholder is deliberately not one of them.
 
     The exact-case checks run first, and alone decide most calls — the
-    case-insensitive comparison only has to list every tracked path when
-    neither of those two already answered yes. git's own index is
-    case-sensitive, so a project that tracks ``agents.md`` has its own
-    git answer "not tracked" for an AI-layer destination spelled
-    ``AGENTS.md`` — exactly the gap that, on a case-insensitive filesystem
-    (NTFS, APFS by default), means the two spellings are the very same
-    on-disk file: without this, ``--overwrite-ai-layer`` would silently
-    overwrite the tracked file's content. This refuses on the *string*
-    comparison alone, deliberately not on whatever the current platform's
-    filesystem actually does with the two spellings — a false refusal on a
-    genuinely case-sensitive filesystem is the safe direction to be wrong
-    in; silently overwriting a tracked file is not.
+    case-insensitive comparison only matters when neither of those two
+    already answered yes. git's own index is case-sensitive, so a project
+    that tracks ``agents.md`` has its own git answer "not tracked" for an
+    AI-layer destination spelled ``AGENTS.md`` — exactly the gap that, on
+    a case-insensitive filesystem (NTFS, APFS by default), means the two
+    spellings are the very same on-disk file: without this,
+    ``--overwrite-ai-layer`` would silently overwrite the tracked file's
+    content. This refuses on the *string* comparison alone, deliberately
+    not on whatever the current platform's filesystem actually does with
+    the two spellings — **this also refuses on a genuinely case-sensitive
+    filesystem, Linux included, where ``agents.md`` and ``AGENTS.md``
+    really are two distinct files.** That is intentional, not an oversight
+    this will be tightened later: a false refusal there is the safe
+    direction to be wrong in; silently overwriting a tracked file is not,
+    and this module has no reliable, inexpensive way to ask "is the
+    destination filesystem itself case-insensitive" before anything is
+    written.
+
+    *tracked_casefold*, when given, is used as-is instead of calling
+    :func:`_tracked_paths_casefold` again — :func:`copy_ai_layer_in`
+    computes it once, before its validation loop, and passes the same
+    value for every layer file, rather than this function re-running two
+    full-repository git listings once per file. Left as ``None`` (the
+    default) for a caller — direct test included — that wants this
+    function's own fail-closed behaviour in isolation without doing that
+    wiring itself.
     """
     if _has_staged_content(git_root, relative_to_git_root) or _in_head(
         git_root, relative_to_git_root
     ):
         return True
-    return relative_to_git_root.casefold() in _tracked_paths_casefold(git_root)
+    if tracked_casefold is None:
+        tracked_casefold = _tracked_paths_casefold(git_root)
+    return relative_to_git_root.casefold() in tracked_casefold
 
 
 def _checked_destination(
@@ -561,6 +636,18 @@ def copy_ai_layer_in(
     project_folder = _resolve_project_folder(config_repo, project_id)
     layer_files = _layer_files(project_folder)
 
+    # Computed once here, never once per layer file below: each of
+    # `_tracked_paths_casefold`'s two listings is a full-repository git
+    # call (`ls-tree`, `diff --cached` with no pathspec), unlike the
+    # exact-case checks `_is_tracked` tries first, which name one path
+    # each. Re-running both listings for every layer file would scale
+    # with the number of files for no benefit — the tracked set they
+    # describe does not change partway through this call. Skipped
+    # entirely when there is nothing to copy.
+    tracked_casefold = (
+        _tracked_paths_casefold(git_root_resolved) if layer_files else frozenset()
+    )
+
     # Phase 1 — validate only, nothing written yet. Checked for *every*
     # AI-layer path, regardless of whether a destination currently exists
     # on disk: a committed file deleted from the working tree is still
@@ -571,7 +658,7 @@ def copy_ai_layer_in(
             project_root_resolved, git_root_resolved, relative
         )
         destinations[relative] = (resolved, rel_to_git_root)
-        if _is_tracked(git_root_resolved, rel_to_git_root):
+        if _is_tracked(git_root_resolved, rel_to_git_root, tracked_casefold):
             raise TrackedFileConflictError(
                 f"{resolved} is already tracked by this project's own git; "
                 "refusing to overwrite it.",
