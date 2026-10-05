@@ -32,9 +32,13 @@ import sys
 from pathlib import Path
 from typing import Any, Optional
 
-from . import layer_copy, paths, scaffold, secrets
+from . import exclude, layer_copy, paths, scaffold, secrets
 from .errors import DrunkenError, ValidationError
 from .registry import SCHEMA_VERSION, validate_project_id
+
+#: The declared package name of this repository's own ``pyproject.toml`` —
+#: see :func:`_target_is_this_repository`.
+_THIS_REPOSITORY_PACKAGE_NAME = "drunken-guild"
 
 
 def _validate_credential_reference(reference: str) -> None:
@@ -45,6 +49,119 @@ def _validate_credential_reference(reference: str) -> None:
     later as a confusing failure inside a server.
     """
     secrets.parse_ref(reference)
+
+
+class TrackedInstructionFileConflictError(ValidationError):
+    """A project's own git already tracks AGENTS.md/CLAUDE.md (DG-442)."""
+
+    code = "tracked_instruction_file_conflict"
+
+
+def _resolve_git_root(entry: dict[str, Any], project_root: Path) -> Path:
+    """*project_root*'s real git top level, applying the registry's
+    ``git_root`` offset the same way :func:`_copy_ai_layer_in` already does —
+    one join, reused here rather than duplicated, so the two never drift on
+    what "the project's real git root" means.
+    """
+    git_root = entry.get("git_root")
+    return project_root / str(git_root) if git_root else project_root
+
+
+def _target_is_this_repository(git_root: Path) -> bool:
+    """Whether *git_root* is this repository's own checkout (DG-442 review).
+
+    Read from *git_root*'s own ``pyproject.toml`` — ``[project] name =
+    "drunken-guild"`` — never from ``__file__``. A ``__file__``-based signal
+    (``core.doctor.source_tree_root()``) answers the wrong question here: it
+    asks "where did *this running copy of the code* come from", which is
+    ``None`` for the installed CLI (``uv tool install`` resolves inside a
+    virtualenv with no ``skills/`` to find) — exactly the only case that
+    matters for a real run. This asks "what does *the target* declare",
+    which is answerable (or not) regardless of how drunken-init itself was
+    started.
+
+    ``pyproject.toml`` over a new marker file: it is already tracked by this
+    repository on purpose (CLAUDE.md: "the AI layer stays in git,
+    deliberately" — and so does the rest of the source tree), it is already
+    the one canonical "what package is this" file, and it is already read
+    this same line-scanned way (``[project]`` section, no TOML dependency)
+    by :func:`core.doctor.declared_version` for the sibling question "what
+    version does this source tree declare" — reusing that shape rather than
+    inventing a second one that every real clone would need to carry too.
+    """
+    pyproject = git_root / "pyproject.toml"
+    try:
+        lines = pyproject.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return False
+
+    in_project = False
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith("["):
+            if in_project:
+                break
+            in_project = stripped == "[project]"
+            continue
+        if in_project and stripped.startswith("name") and "=" in stripped:
+            name = stripped.split("=", 1)[1].strip().strip('"').strip("'")
+            return name == _THIS_REPOSITORY_PACKAGE_NAME
+    return False
+
+
+def _tracked_instruction_files(git_root: Path, project_root: Path) -> list[str]:
+    """AGENTS.md/CLAUDE.md already tracked by *git_root*'s own git, named
+    relative to *git_root* — empty when *git_root* is not a git repository
+    at all (nothing to be tracked by) or when neither file is tracked.
+
+    Reuses :mod:`core.layer_copy`'s own hardened, ``GIT_*``-stripped
+    tracked-check (``_is_tracked``, imported rather than reimplemented —
+    DG-453 owns that module) instead of
+    :func:`core.doctor.tracked_ai_layer_paths`, which runs plain
+    ``git ls-files`` with no environment stripped at all and is already
+    named in DG-440's own module docstring as the wrong shape for exactly
+    this: a leaked ``GIT_INDEX_FILE`` pointing at an empty or alternate index
+    answers "not tracked" for a file that is, in fact, committed.
+    """
+    try:
+        exclude.resolve_info_exclude_path(git_root)
+    except exclude.NotAGitRepositoryError:
+        return []
+
+    git_root_resolved = git_root.resolve()
+    tracked: list[str] = []
+    for name in ("AGENTS.md", "CLAUDE.md"):
+        candidate = (project_root / name).resolve()
+        try:
+            relative = candidate.relative_to(git_root_resolved).as_posix()
+        except ValueError:
+            continue
+        if layer_copy._is_tracked(git_root_resolved, relative):  # noqa: SLF001
+            tracked.append(relative)
+    return tracked
+
+
+def _refuse_if_already_tracked(git_root: Path, project_root: Path) -> None:
+    """Refuse outright, before anything is written, when *project_root*'s
+    own git already tracks AGENTS.md/CLAUDE.md (DG-442, REQ-019/020).
+
+    The migration for an existing project that already tracks these files is
+    an open PRD question and is not attempted here — drunken-init surfaces
+    the conflict instead of silently proceeding as though the project's own
+    git did not already own them.
+    """
+    tracked = _tracked_instruction_files(git_root, project_root)
+    if tracked:
+        raise TrackedInstructionFileConflictError(
+            f"{project_root} already tracks {', '.join(tracked)} in its own "
+            "git; drunken-init no longer writes a project's "
+            "AGENTS.md/CLAUDE.md as a tracked file (REQ-019/REQ-020).",
+            remediation=(
+                "Untrack it first (`git rm --cached <path>`) if it should "
+                "come from the AI layer instead. The migration itself is an "
+                "open PRD question and is not performed by drunken-init."
+            ),
+        )
 
 
 def _build_jira_block(args: argparse.Namespace) -> Optional[dict[str, str]]:
@@ -234,14 +351,14 @@ def _copy_ai_layer_in(
     Returns the stdout report lines, and whether any file was skipped
     because it already exists *and differs* from the config repo — the
     second value is what ``main()`` turns into a non-zero exit. An
-    identical existing file is "unchanged" and never drift: running
-    ``--path`` and ``--config-repo`` together is otherwise easy to miss a
-    collision in — ``scaffold.instruction_files()`` (unchanged by this
-    ticket; see DG-442) writes a default ``AGENTS.md``/``CLAUDE.md`` first
-    when they do not exist yet, and the config-repo copy that follows in
-    the same call then sees them as existing and, by default, leaves them
-    alone. A silent "skipped" line in a long report is exactly how that
-    goes unnoticed; a non-zero exit and a named path on stderr is not.
+    identical existing file is "unchanged" and never drift.
+
+    DG-442 moved AGENTS.md/CLAUDE.md generation (for a project under the
+    guild) into the config repo's own working copy, generated *before* this
+    runs in the same call — so this sees them exactly like any other
+    AI-layer file already sitting in the project folder, never as a
+    checkout-side collision the way they could when ``scaffold.instruction_
+    files()`` used to write them straight into the checkout.
     """
     if not project_id:
         raise ValidationError(
@@ -259,9 +376,7 @@ def _copy_ai_layer_in(
         )
 
     project_root = Path(entry["path"]).expanduser()
-    git_root = (
-        project_root / entry["git_root"] if entry.get("git_root") else project_root
-    )
+    git_root = _resolve_git_root(entry, project_root)
 
     result = layer_copy.copy_ai_layer_in(
         config_repo=Path(args.config_repo).expanduser(),
@@ -299,6 +414,78 @@ def _copy_ai_layer_in(
     return lines, bool(drifted)
 
 
+def _resolve_instructions_dir(
+    document: dict[str, Any],
+    project_id: str,
+    project_root: Path,
+    args: argparse.Namespace,
+) -> Optional[Path]:
+    """Where AGENTS.md/CLAUDE.md should be generated for *project_id*, or
+    ``None`` when there is nowhere to write them yet (DG-442).
+
+    This repository's own checkout: *project_root* itself, unchanged,
+    tracked. Any other project (a project under the guild): refuses outright
+    if it already tracks either file (``_refuse_if_already_tracked``); else
+    the config repo's own ``<project_id>`` folder, but only once that folder
+    already exists — generation never creates one on its own, see
+    :func:`_copy_ai_layer_in`'s own ``ConfigRepoProjectNotFoundError``.
+    """
+    entry = document["projects"][project_id]
+    git_root = _resolve_git_root(entry, project_root)
+    if _target_is_this_repository(git_root):
+        return project_root
+
+    _refuse_if_already_tracked(git_root, project_root)
+    if not args.config_repo:
+        return None
+    candidate = Path(args.config_repo).expanduser() / str(project_id)
+    return candidate if candidate.is_dir() else None
+
+
+def _generate_instruction_files(
+    document: dict[str, Any],
+    project_id: str,
+    instructions_dir: Optional[Path],
+    args: argparse.Namespace,
+) -> list[str]:
+    """The report lines for generating (or skipping) AGENTS.md/CLAUDE.md."""
+    if instructions_dir is not None:
+        jira_key = document["projects"][project_id].get("jira", {}).get("project_key")
+        return scaffold.instruction_files(instructions_dir, project_id, jira_key)
+    if args.config_repo:
+        return [
+            f"AGENTS.md       : skipped, no {project_id!r} folder yet "
+            "in the config repo"
+        ]
+    return [
+        "AGENTS.md       : skipped, pass --config-repo to generate it "
+        "into the AI layer (REQ-019)"
+    ]
+
+
+def _apply_guild_block(instructions_dir: Optional[Path], existed_before: bool) -> str:
+    """Merge (or report the fresh creation of) the guild block, or refuse
+    when there is nowhere to merge it into yet."""
+    if instructions_dir is None:
+        raise ValidationError(
+            "--guild-block for a project under the guild requires --config-repo.",
+            remediation=(
+                "Pass --config-repo together with --guild-block — it "
+                "merges into the config repo's own copy of AGENTS.md, "
+                "never the checkout directly — or omit --guild-block."
+            ),
+        )
+    agents_path = instructions_dir / "AGENTS.md"
+    if existed_before:
+        status = scaffold.merge_guild_block(agents_path)
+        return f"guild block     : {status}, {agents_path}"
+    # instruction_files() just wrote a fresh AGENTS.md from the template,
+    # which already opens with the current block — nothing to merge, but
+    # say so rather than letting it read as "unchanged" next to a file that
+    # did not exist a moment ago.
+    return f"guild block     : created with the block, {agents_path}"
+
+
 def main() -> int:
     """Entry point for ``drunken-init``."""
     args = build_parser().parse_args()
@@ -318,32 +505,30 @@ def main() -> int:
             if project_id and args.path
             else None
         )
-        agents_path = project_root / "AGENTS.md" if project_root else None
-        existed_before = bool(agents_path and agents_path.exists())
 
-        written = (
-            scaffold.instruction_files(
-                project_root,
-                project_id,
-                document["projects"][project_id].get("jira", {}).get("project_key"),
-            )
-            if project_id and args.path and project_root is not None
-            else []
+        # DG-442: where the generated AGENTS.md/CLAUDE.md actually land
+        # depends on whether *project_root* is this repository's own
+        # checkout (unchanged: written straight into the checkout, tracked)
+        # or a project under the guild (generated into the config repo's
+        # working copy, requires --config-repo, never written as a tracked
+        # file into the project). See `_target_is_this_repository`.
+        instructions_dir: Optional[Path] = (
+            _resolve_instructions_dir(document, project_id, project_root, args)
+            if project_root is not None and project_id is not None
+            else None
         )
 
-        if args.guild_block and project_root and agents_path:
-            if existed_before:
-                status = scaffold.merge_guild_block(agents_path)
-                written.append(f"guild block     : {status}, {agents_path}")
-            else:
-                # instruction_files() just wrote a fresh AGENTS.md from the
-                # template, which already opens with the current block —
-                # nothing to merge, but say so rather than letting it read
-                # as "unchanged" next to a file that did not exist a moment
-                # ago.
-                written.append(
-                    f"guild block     : created with the block, {agents_path}"
-                )
+        agents_path = instructions_dir / "AGENTS.md" if instructions_dir else None
+        existed_before = bool(agents_path and agents_path.exists())
+
+        written: list[str] = []
+        if project_id and args.path and project_root is not None:
+            written = _generate_instruction_files(
+                document, project_id, instructions_dir, args
+            )
+
+        if args.guild_block and project_root is not None:
+            written.append(_apply_guild_block(instructions_dir, existed_before))
 
         if args.config_repo:
             layer_lines, config_repo_drifted = _copy_ai_layer_in(
