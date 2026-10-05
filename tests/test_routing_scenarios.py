@@ -28,7 +28,16 @@ def _load() -> list[dict]:
 
 
 def _skills() -> set[str]:
-    return {p.parent.name for p in (ROOT / "skills").rglob("SKILL.md")}
+    """Excludes `skills/roles/` (DG-402): a role lives there as a skill so
+    its own content has one source, but the Boss never asks for it by a
+    plain-language request the way `/build` or `/git-workflow` is asked
+    for -- the manager dispatches `manager`/`worker`/`reviewer` by name, so
+    each is already counted as a `role` scenario below, not a `skill` one."""
+    return {
+        p.parent.name
+        for p in (ROOT / "skills").rglob("SKILL.md")
+        if p.parent.parent.name != "roles"
+    }
 
 
 def _roles() -> set[str]:

@@ -41,7 +41,11 @@ JIRA_TICKETS = REPO_ROOT / "skills" / "workflow" / "jira-tickets" / "SKILL.md"
 BREAKDOWN = REPO_ROOT / "skills" / "flow" / "breakdown" / "SKILL.md"
 README = REPO_ROOT / "README.md"
 GETTING_STARTED = REPO_ROOT / "GETTING_STARTED.md"
-MANAGER = REPO_ROOT / "agents" / "manager.md"
+#: DG-402 moved the manager role's own prose out of `agents/manager.md`
+#: (now a generated adapter carrying no role rule of its own) and into
+#: `skills/roles/manager/SKILL.md` -- the "Break work down" bullet this
+#: file checks lives there now.
+MANAGER = REPO_ROOT / "skills" / "roles" / "manager" / "SKILL.md"
 EXAMPLES_README = REPO_ROOT / "examples" / "README.md"
 SKILL_ANNOTATED = REPO_ROOT / "examples" / "contributing" / "SKILL-annotated.md"
 SERVER_PY = REPO_ROOT / "src" / "jira_mcp" / "server.py"

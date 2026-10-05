@@ -344,11 +344,24 @@ class TestTheAgentInstallerWritesTheSameBytes:
         sandbox = tmp_path / "repo"
         (sandbox / "scripts").mkdir(parents=True)
         shutil.copytree(REPO_ROOT / "agents", sandbox / "agents")
+        # DG-402. install_agents.ps1 now regenerates agents/<role>.md from
+        # skills/roles/<role>/SKILL.md, and refuses to install a role
+        # adapter whose skill is not under $HOME/.claude/skills -- both of
+        # which this sandbox has to satisfy for an unrelated byte-identity
+        # assertion to mean anything.
+        shutil.copytree(REPO_ROOT / "skills", sandbox / "skills")
         shutil.copytree(
             REPO_ROOT / "scripts" / "install", sandbox / "scripts" / "install"
         )
         home = tmp_path / "home"
         home.mkdir()
+        for role in ("manager", "worker", "reviewer"):
+            role_skill_dir = home / ".claude" / "skills" / role
+            role_skill_dir.mkdir(parents=True)
+            (role_skill_dir / "SKILL.md").write_text(
+                f"---\nname: {role}\ndescription: seeded for a sandboxed test.\n---\n",
+                encoding="utf-8",
+            )
 
         script = sandbox / "scripts" / "install" / "install_agents.ps1"
         result = _run_ps_installer_with_canary(script, home)
@@ -402,6 +415,13 @@ class TestTheIndexOnlySwitchTouchesNothingOutsideTheRepo:
         sandbox = tmp_path / "repo"
         (sandbox / "scripts").mkdir(parents=True)
         shutil.copytree(REPO_ROOT / subdir, sandbox / subdir)
+        # DG-402. install_agents.ps1 regenerates agents/<role>.md from
+        # skills/roles/ even under -IndexOnly (it writes only inside the
+        # repo's own agents/, same as -IndexOnly's own INDEX.md write), so
+        # its sandbox needs skills/ present too -- install_skills.ps1's run
+        # here is unaffected.
+        if subdir == "agents":
+            shutil.copytree(REPO_ROOT / "skills", sandbox / "skills")
         shutil.copytree(
             REPO_ROOT / "scripts" / "install", sandbox / "scripts" / "install"
         )
