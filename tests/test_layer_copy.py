@@ -7,6 +7,11 @@ overwrite a file the project's own git already tracks (refused, nothing
 written); an existing *untracked* file is skipped and reported, not
 clobbered, unless the caller explicitly asks to overwrite; the exclude
 writer (DG-440) always runs afterwards so `git status` stays clean.
+
+DG-453: the tracked check also compares case-insensitively, so a project
+tracking `agents.md` still refuses an AI-layer destination spelled
+`AGENTS.md` on a case-insensitive filesystem (NTFS, APFS by default),
+where the two spellings are one on-disk file.
 """
 
 from __future__ import annotations
@@ -939,6 +944,199 @@ class TestATrackedPathNestedUnderATrackedDirectory:
         # ...and nothing written at all, including the untracked sibling
         # that shares its directory.
         assert not (repo / ".claude" / "settings.json").exists()
+
+
+def _case_insensitive_fs_or_skip(probe_dir: Path) -> None:
+    """Skip, honestly, on a filesystem where two names differing only in
+    case are two distinct files — the scenario this guards against cannot
+    occur there at all. Never fakes a pass: this writes a real probe file
+    and reads it back under the other case, the same style as
+    ``_symlink_or_skip`` above."""
+    probe_dir.mkdir(parents=True, exist_ok=True)
+    lower = probe_dir / "dg453-case-probe.tmp"
+    upper = probe_dir / "DG453-CASE-PROBE.TMP"
+    lower.write_text("probe\n", encoding="utf-8")
+    try:
+        same_file = upper.exists() and upper.read_text(encoding="utf-8") == "probe\n"
+    finally:
+        lower.unlink(missing_ok=True)
+    if not same_file:
+        pytest.skip(
+            "this filesystem is case-sensitive; AGENTS.md and agents.md "
+            "are two distinct files here, so this scenario cannot occur"
+        )
+
+
+class TestCaseInsensitiveTrackedFileIsRefused:
+    """DG-453. git's own index is case-sensitive: a project that tracks
+    ``agents.md`` gets "not tracked" from an exact-case lookup for the
+    AI-layer's ``AGENTS.md``. On a case-insensitive filesystem (NTFS,
+    APFS by default) the two spellings are the very same on-disk file, so
+    without a case-insensitive comparison, ``--overwrite-ai-layer``
+    silently overwrites the tracked file's content.
+
+    The tracked file is deleted from the working tree first (still
+    tracked — see ``TestATrackedFileMissingFromTheWorkingTreeIsStillRefused``
+    above) because, empirically, ``pathlib.Path.resolve()`` on a
+    case-insensitive filesystem corrects a differently-cased *existing*
+    path to the real on-disk spelling before this module's exact-case
+    check ever runs — which happens to catch the bug by accident when the
+    file is still physically present. Deleting it (still tracked, not
+    staged for removal) removes that accidental cover and reproduces the
+    actual gap: nothing on disk for ``resolve()`` to correct to, so the
+    nominal, differently-cased path is what the tracked check receives.
+    """
+
+    def test_a_case_different_tracked_file_is_refused_under_overwrite_nothing_written(
+        self, tmp_path: Path
+    ) -> None:
+        _case_insensitive_fs_or_skip(tmp_path / "probe")
+
+        repo = _init_repo(tmp_path / "project")
+        (repo / "agents.md").write_text(
+            "tracked, committed, lower-case\n", encoding="utf-8"
+        )
+        _run_git("add", "agents.md", cwd=repo)
+        _run_git("commit", "-q", "-m", "tracked agents.md (lower-case)", cwd=repo)
+        (repo / "agents.md").unlink()  # still tracked, just missing on disk
+
+        config_repo = _config_repo(tmp_path)
+        project_folder = config_repo / "sample"
+        project_folder.mkdir(parents=True)
+        (project_folder / "AGENTS.md").write_text(
+            "from the config repo\n", encoding="utf-8"
+        )
+
+        with pytest.raises(layer_copy.TrackedFileConflictError):
+            layer_copy.copy_ai_layer_in(
+                config_repo=config_repo,
+                project_id="sample",
+                project_root=repo,
+                git_root=repo,
+                overwrite=True,
+            )
+
+        # Nothing written at all, under either spelling — the realistic
+        # mutation this guards against: writing "AGENTS.md" would, on this
+        # filesystem, be writing into the very same on-disk entry the
+        # tracked, now-deleted "agents.md" occupies.
+        assert not (repo / "AGENTS.md").exists()
+        assert not (repo / "agents.md").exists()
+
+    def test_a_case_different_tracked_directory_segment_is_refused(
+        self, tmp_path: Path
+    ) -> None:
+        """The review's own example: a tracked directory differing only in
+        case (``.Claude`` vs the layer's ``.claude``) must refuse the same
+        way a basename difference does — the comparison is of the whole
+        path, not the basename alone."""
+        _case_insensitive_fs_or_skip(tmp_path / "probe")
+
+        repo = _init_repo(tmp_path / "project")
+        tracked_dir = repo / ".Claude"
+        tracked_dir.mkdir()
+        (tracked_dir / "settings.json").write_text("{}\n", encoding="utf-8")
+        _run_git("add", ".Claude/settings.json", cwd=repo)
+        _run_git("commit", "-q", "-m", "tracked .Claude/settings.json", cwd=repo)
+        (tracked_dir / "settings.json").unlink()
+        # The whole directory too, not just the file inside it: a
+        # differently-cased *directory* that still exists on disk would
+        # itself get case-corrected by `Path.resolve()`, the same
+        # accidental cover the class docstring above describes for a
+        # bare file — this must prove the comparison catches the
+        # directory-case difference on its own, with nothing left on disk
+        # for `resolve()` to correct.
+        tracked_dir.rmdir()
+
+        config_repo = _config_repo(tmp_path)
+        project_folder = config_repo / "sample"
+        project_folder.mkdir(parents=True)
+        nested = project_folder / ".claude"
+        nested.mkdir()
+        (nested / "settings.json").write_text(
+            '{"from": "config repo"}\n', encoding="utf-8"
+        )
+
+        with pytest.raises(layer_copy.TrackedFileConflictError):
+            layer_copy.copy_ai_layer_in(
+                config_repo=config_repo,
+                project_id="sample",
+                project_root=repo,
+                git_root=repo,
+                overwrite=True,
+            )
+
+        assert not (repo / ".claude" / "settings.json").exists()
+        assert not (repo / ".Claude" / "settings.json").exists()
+
+
+class TestCaseInsensitiveComparisonItself:
+    """Linux-runnable unit tests of the comparison :func:`_is_tracked`
+    makes, independent of what the CI host's own filesystem does with two
+    differently-cased names — these exercise the git-side logic and the
+    ``str.casefold()`` comparison directly, never by creating two
+    differently-cased files on disk."""
+
+    def test_a_committed_lower_case_file_is_tracked_under_a_differently_cased_name(
+        self, tmp_path: Path
+    ) -> None:
+        repo = _init_repo(tmp_path / "project")
+        (repo / "agents.md").write_text("tracked, committed\n", encoding="utf-8")
+        _run_git("add", "agents.md", cwd=repo)
+        _run_git("commit", "-q", "-m", "tracked agents.md", cwd=repo)
+
+        assert layer_copy._is_tracked(repo, "AGENTS.md") is True  # noqa: SLF001
+        # The exact-case spelling, and an unrelated name, are unaffected.
+        assert layer_copy._is_tracked(repo, "agents.md") is True  # noqa: SLF001
+        assert layer_copy._is_tracked(repo, "CLAUDE.md") is False  # noqa: SLF001
+
+    def test_a_plain_staged_new_file_is_tracked_under_a_differently_cased_name(
+        self, tmp_path: Path
+    ) -> None:
+        repo = _init_repo(tmp_path / "project")
+        (repo / "claude.md").write_text("staged, never committed\n", encoding="utf-8")
+        _run_git("add", "claude.md", cwd=repo)
+
+        assert layer_copy._is_tracked(repo, "CLAUDE.md") is True  # noqa: SLF001
+
+    def test_an_intent_to_add_differently_cased_name_is_still_not_tracked(
+        self, tmp_path: Path
+    ) -> None:
+        """``git add -N`` stages a placeholder with no real content — not
+        refused under its own exact-case name (see
+        ``TestIntentToAddIsNotRefused`` above), and this must hold for a
+        differently-cased comparison too: ``git ls-files`` would list an
+        intent-to-add path exactly as if it had real content, which is
+        exactly why the full-listing helpers deliberately use
+        ``git diff --cached``/``git ls-tree`` instead."""
+        repo = _init_repo(tmp_path / "project")
+        (repo / "claude.md").write_text("local, never committed\n", encoding="utf-8")
+        _run_git("add", "-N", "claude.md", cwd=repo)
+
+        assert layer_copy._is_tracked(repo, "CLAUDE.md") is False  # noqa: SLF001
+
+    def test_a_tracked_directory_segment_differing_only_in_case_is_tracked(
+        self, tmp_path: Path
+    ) -> None:
+        repo = _init_repo(tmp_path / "project")
+        tracked_dir = repo / ".Claude"
+        tracked_dir.mkdir()
+        (tracked_dir / "settings.json").write_text("{}\n", encoding="utf-8")
+        _run_git("add", ".Claude/settings.json", cwd=repo)
+        _run_git("commit", "-q", "-m", "tracked", cwd=repo)
+
+        assert layer_copy._is_tracked(repo, ".claude/settings.json") is True  # noqa: SLF001
+
+    def test_a_deleted_but_tracked_file_is_still_tracked_under_a_differently_cased_name(
+        self, tmp_path: Path
+    ) -> None:
+        repo = _init_repo(tmp_path / "project")
+        (repo / "agents.md").write_text("tracked, committed\n", encoding="utf-8")
+        _run_git("add", "agents.md", cwd=repo)
+        _run_git("commit", "-q", "-m", "tracked agents.md", cwd=repo)
+        (repo / "agents.md").unlink()
+
+        assert layer_copy._is_tracked(repo, "AGENTS.md") is True  # noqa: SLF001
 
 
 class TestTheExcludeWriterAlwaysRuns:

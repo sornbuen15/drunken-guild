@@ -51,6 +51,20 @@ disk: copying over either gap would silently turn a ``git status`` clean
 worktree into one reporting a modified file. Only this tracked case is an
 absolute refusal, with or without ``overwrite=True``.
 
+**The tracked check is case-insensitive too (DG-453).** git's own index is
+case-sensitive; on a case-insensitive filesystem (NTFS, APFS by default) a
+project that tracks ``agents.md`` and an AI-layer destination spelled
+``AGENTS.md`` are the very same on-disk file, even though an exact-case
+``git diff --cached``/``git cat-file`` lookup for ``AGENTS.md`` answers "not
+tracked." :func:`_is_tracked` therefore also compares every tracked path
+(``HEAD`` and staged-with-content) against the destination case-foldedly,
+by listing paths rather than resolving anything on disk — a committed file
+already deleted from the working tree has nothing on disk to resolve, and
+still must refuse. This is deliberately a plain string comparison, not a
+check of what the current filesystem actually does with the two spellings:
+refusing a pair of names that would, in fact, have been two distinct files
+on a case-sensitive filesystem is the safe direction to be wrong in.
+
 One thing that is deliberately *not* refused: ``git add -N`` (intent to
 add) stages a placeholder for a brand-new path with no real content yet —
 ``git diff --cached`` never lists it, unlike an ordinary staged addition,
@@ -360,15 +374,101 @@ def _in_head(git_root: Path, relative_to_git_root: str) -> bool:
     )
 
 
+def _all_head_paths(git_root: Path) -> frozenset[str]:
+    """Every path in *git_root*'s own ``HEAD`` tree, repo-relative — the
+    same "committed" half of :func:`_is_tracked` as :func:`_in_head`, but
+    listing every path at once instead of asking about one. Used only by
+    :func:`_tracked_paths_casefold`; the exact-case, single-path checks
+    above remain the primary refusal and are tried first.
+
+    An unborn ``HEAD`` has nothing committed at all, checked first via
+    :func:`_has_head` the same way :func:`_in_head` does, rather than
+    reading ``git ls-tree``'s "fatal: Not a valid object name HEAD" (exit
+    128) as "empty" — a locale-dependent message this never needs to
+    parse.
+    """
+    if not _has_head(git_root):
+        return frozenset()
+    result = run_git(["ls-tree", "-r", "--name-only", "-z", "HEAD"], git_root)
+    if result.returncode != 0:
+        raise GitTrackedCheckFailedError(
+            f"git could not list HEAD's tracked paths in {git_root} "
+            f"(exit {result.returncode}): {result.stderr.strip()}",
+            remediation="Check git is installed and this repository's HEAD is not corrupted.",
+        )
+    return frozenset(path for path in result.stdout.split("\x00") if path)
+
+
+def _all_staged_content_paths(git_root: Path) -> frozenset[str]:
+    """Every path with real staged content ahead of ``HEAD`` — the same
+    "staged" half of :func:`_is_tracked` as :func:`_has_staged_content`,
+    but listing every path at once instead of asking about one.
+
+    Deliberately the same ``git diff --cached`` call, just without a
+    pathspec — **not** ``git ls-files``, which lists an intent-to-add
+    placeholder (``git add -N``) exactly as if it had real content (see
+    :func:`_has_staged_content`). Using it here would make a brand-new,
+    content-free intent-to-add path refuse a case-different AI-layer path
+    too, which is not tracked by any definition this module otherwise
+    uses.
+    """
+    result = run_git(["diff", "--cached", "--name-only", "-z"], git_root)
+    if result.returncode != 0:
+        raise GitTrackedCheckFailedError(
+            f"git could not list staged content in {git_root} "
+            f"(exit {result.returncode}): {result.stderr.strip()}",
+            remediation=(
+                "Check git is installed, on PATH, and that this "
+                "repository's index is not corrupted."
+            ),
+        )
+    return frozenset(path for path in result.stdout.split("\x00") if path)
+
+
+def _tracked_paths_casefold(git_root: Path) -> frozenset[str]:
+    """Casefolded form of every path :func:`_is_tracked` would otherwise
+    call tracked — for comparing against one destination path
+    case-insensitively (DG-453).
+
+    ``str.casefold()`` rather than ``.lower()``: the stricter, locale-
+    independent fold appropriate for comparing filesystem paths, closer to
+    what NTFS and APFS (default) themselves use than a simple lower-case
+    would be. Compares *whole* repo-relative paths, so a tracked path that
+    differs only in a directory segment's case (a tracked
+    ``.Claude/settings.json`` against the layer's
+    ``.claude/settings.json``) is caught the same way a basename
+    difference is — no separate per-segment comparison needed.
+    """
+    tracked = _all_head_paths(git_root) | _all_staged_content_paths(git_root)
+    return frozenset(path.casefold() for path in tracked)
+
+
 def _is_tracked(git_root: Path, relative_to_git_root: str) -> bool:
     """Whether *git_root*'s own git already protects *relative_to_git_root*
-    — in the index with real content, or present in ``HEAD``. See the
-    module docstring for why both, and why an intent-to-add placeholder is
-    deliberately not one of them.
+    — in the index with real content, or present in ``HEAD``, either
+    under the exact same name or (DG-453) a name that differs only in
+    case. See the module docstring for why both exact-case checks, and why
+    an intent-to-add placeholder is deliberately not one of them.
+
+    The exact-case checks run first, and alone decide most calls — the
+    case-insensitive comparison only has to list every tracked path when
+    neither of those two already answered yes. git's own index is
+    case-sensitive, so a project that tracks ``agents.md`` has its own
+    git answer "not tracked" for an AI-layer destination spelled
+    ``AGENTS.md`` — exactly the gap that, on a case-insensitive filesystem
+    (NTFS, APFS by default), means the two spellings are the very same
+    on-disk file: without this, ``--overwrite-ai-layer`` would silently
+    overwrite the tracked file's content. This refuses on the *string*
+    comparison alone, deliberately not on whatever the current platform's
+    filesystem actually does with the two spellings — a false refusal on a
+    genuinely case-sensitive filesystem is the safe direction to be wrong
+    in; silently overwriting a tracked file is not.
     """
-    return _has_staged_content(git_root, relative_to_git_root) or _in_head(
+    if _has_staged_content(git_root, relative_to_git_root) or _in_head(
         git_root, relative_to_git_root
-    )
+    ):
+        return True
+    return relative_to_git_root.casefold() in _tracked_paths_casefold(git_root)
 
 
 def _checked_destination(
