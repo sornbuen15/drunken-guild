@@ -753,6 +753,153 @@ class TestIntentToAddIsNotRefused:
         assert "CLAUDE.md" in result.copied
 
 
+class TestAPlainStagedNewFileIsRefused:
+    """DG-452. A plain ``git add`` of a brand-new path (never committed)
+    stages real content — unlike ``git add -N`` (intent-to-add, see
+    ``TestIntentToAddIsNotRefused`` below), ``git diff --cached`` lists it.
+    Nothing exercised this exact state through the public
+    ``copy_ai_layer_in`` entry point before this test: a mutation deleting
+    ``_has_staged_content`` entirely from ``_is_tracked`` left the whole
+    suite green, because every other test's "staged" fixture was either
+    already committed too, or used ``git add -N``."""
+
+    def test_a_plain_staged_new_file_is_refused_nothing_written(
+        self, tmp_path: Path
+    ) -> None:
+        repo = _init_repo(tmp_path / "project")
+        (repo / "CLAUDE.md").write_text(
+            "local, staged, never committed\n", encoding="utf-8"
+        )
+        _run_git("add", "CLAUDE.md", cwd=repo)
+
+        config_repo = _config_repo(tmp_path)
+        project_folder = config_repo / "sample"
+        project_folder.mkdir(parents=True)
+        (project_folder / "CLAUDE.md").write_text(
+            "from the config repo\n", encoding="utf-8"
+        )
+        (project_folder / "AGENTS.md").write_text("instructions\n", encoding="utf-8")
+
+        with pytest.raises(layer_copy.TrackedFileConflictError) as exc_info:
+            layer_copy.copy_ai_layer_in(
+                config_repo=config_repo,
+                project_id="sample",
+                project_root=repo,
+                git_root=repo,
+                # overwrite=True to prove this is the absolute refusal, not
+                # the soft "existing untracked file" skip.
+                overwrite=True,
+            )
+
+        assert str((repo / "CLAUDE.md").resolve()) in str(exc_info.value)
+        # Nothing at all written, including the unrelated, non-conflicting
+        # AGENTS.md.
+        assert (repo / "CLAUDE.md").read_text(encoding="utf-8") == (
+            "local, staged, never committed\n"
+        )
+        assert not (repo / "AGENTS.md").exists()
+
+
+def _create_or_skip(path: Path, content: str) -> None:
+    """Write *content* to *path*, or skip — honestly, not by faking a
+    pass. A name NTFS refuses to represent at all (a literal ``*``, ``?``,
+    or a leading ``:``) proves nothing about literal pathspec handling if
+    it was never actually created; the same names are ordinary, creatable
+    filenames on Linux, where the capability probe lets the test run for
+    real (see DG-452)."""
+    try:
+        path.write_text(content, encoding="utf-8")
+    except OSError as exc:
+        pytest.skip(f"cannot create {path.name!r} on this filesystem: {exc}")
+
+
+#: Adversarial basenames that are ordinary, legal filenames on every
+#: platform this suite runs on (including NTFS) — a leading dash (which
+#: `--` protects from being read as a git option), and pathspec glob/
+#: exclude-magic characters (`[...]`, `!`).
+_ADVERSARIAL_NAMES: tuple[str, ...] = (
+    "[x].md",
+    "!bang.md",
+    "-dash.md",
+)
+
+#: Adversarial basenames NTFS cannot create at all (DG-452) — skipped by
+#: `_create_or_skip`'s capability probe on Windows, run for real on Linux
+#: CI, where they are ordinary filenames.
+#:
+#: A leading colon (``:colon.md``) is deliberately *not* here: Linux can
+#: create that file, but git's own pathspec parser reads a leading ``:`` as
+#: the start of pathspec *magic* syntax (``:(...)``) regardless of ``--``,
+#: so `git add -- ":colon.md"` itself fails with "did not match any
+#: files" — a pre-existing limit of git's CLI, not something either
+#: `_has_staged_content` or `_in_head` could fix, and not what this test is
+#: pinning (confirmed empirically on Linux CI before being removed here).
+_UNCREATABLE_ON_NTFS_NAMES: tuple[str, ...] = (
+    "*star.md",
+    "?quest.md",
+)
+
+
+class TestAdversarialFilenamesAreNeverReadAsPathspecMagic:
+    """DG-452. Both git calls behind ``_is_tracked`` take the destination's
+    path as a literal argument, never shell- or pathspec-expanded magic.
+    A crafted name — a leading dash, a pathspec glob/exclude-magic
+    character, a shell glob character only creatable on Linux — must still
+    be detected as staged or committed, exactly like any ordinary name.
+
+    The realistic mutation this is written to catch: removing the ``--``
+    pathspec separator from ``_has_staged_content``'s git invocation.
+    Without it, ``-dash.md`` is read by git as an unrecognised *option*
+    rather than a path, and the call exits unexpectedly instead of
+    reporting whether the path is staged — raising
+    ``GitTrackedCheckFailedError`` instead of returning ``True``, which
+    turns the ``-dash.md`` case of
+    ``test_a_staged_new_file_is_detected_by_the_staged_content_check`` red.
+    """
+
+    @pytest.mark.parametrize("name", _ADVERSARIAL_NAMES)
+    def test_a_staged_new_file_is_detected_by_the_staged_content_check(
+        self, tmp_path: Path, name: str
+    ) -> None:
+        repo = _init_repo(tmp_path / "project")
+        _create_or_skip(repo / name, "staged, never committed\n")
+        _run_git("add", "--", name, cwd=repo)
+
+        assert layer_copy._has_staged_content(repo, name) is True  # noqa: SLF001
+
+    @pytest.mark.parametrize("name", _ADVERSARIAL_NAMES)
+    def test_a_committed_file_is_detected_by_the_head_check(
+        self, tmp_path: Path, name: str
+    ) -> None:
+        repo = _init_repo(tmp_path / "project")
+        _create_or_skip(repo / name, "committed\n")
+        _run_git("add", "--", name, cwd=repo)
+        _run_git("commit", "-q", "-m", "adversarial name", cwd=repo)
+
+        assert layer_copy._in_head(repo, name) is True  # noqa: SLF001
+
+    @pytest.mark.parametrize("name", _UNCREATABLE_ON_NTFS_NAMES)
+    def test_a_staged_new_file_with_a_shell_glob_character_name_is_detected(
+        self, tmp_path: Path, name: str
+    ) -> None:
+        repo = _init_repo(tmp_path / "project")
+        _create_or_skip(repo / name, "staged, never committed\n")
+        _run_git("add", "--", name, cwd=repo)
+
+        assert layer_copy._has_staged_content(repo, name) is True  # noqa: SLF001
+
+    @pytest.mark.parametrize("name", _UNCREATABLE_ON_NTFS_NAMES)
+    def test_a_committed_file_with_a_shell_glob_character_name_is_detected(
+        self, tmp_path: Path, name: str
+    ) -> None:
+        repo = _init_repo(tmp_path / "project")
+        _create_or_skip(repo / name, "committed\n")
+        _run_git("add", "--", name, cwd=repo)
+        _run_git("commit", "-q", "-m", "adversarial name", cwd=repo)
+
+        assert layer_copy._in_head(repo, name) is True  # noqa: SLF001
+
+
 class TestATrackedPathNestedUnderATrackedDirectory:
     """Review note: "treat a path under a tracked directory correctly."
     Only the *exact* file is checked, never a whole-directory shortcut —
