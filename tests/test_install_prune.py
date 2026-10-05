@@ -99,6 +99,27 @@ def _sandbox(tmp_path: Path, seed: bool = True) -> tuple[Path, Path]:
     return sandbox, home
 
 
+#: A name genuinely on retired_skills.txt that is ALSO shipped today under
+#: plugins/drunken-extras/skills/ in this actual repository -- not a
+#: stand-in, the real thing review finding #1's doctor-side test already
+#: covers (`test_a_retired_name_that_is_also_a_drunken_extras_skill_is_never_prunable`
+#: in tests/test_ai_layer_drift.py). Picked by checking both real files
+#: below, so a future edit to either list fails this loudly rather than
+#: silently testing nothing.
+A_RETIRED_NAME_SHIPPED_UNDER_EXTRAS = "acronym-namer"
+
+
+def _seed_extras_skill(sandbox: Path, name: str) -> None:
+    """Ship *name* under plugins/drunken-extras/skills/ inside *sandbox*,
+    where $PROJECT_ROOT/EXTRAS_DIR actually resolves for an installer run
+    against this sandbox."""
+    extras_dir = sandbox / "plugins" / "drunken-extras" / "skills" / name
+    extras_dir.mkdir(parents=True)
+    (extras_dir / "SKILL.md").write_text(
+        "shipped under drunken-extras\n", encoding="utf-8"
+    )
+
+
 def _skill_path(home: Path, name: str) -> Path:
     return home / ".claude" / "skills" / name
 
@@ -324,6 +345,126 @@ class TestTheShInstallerPrunesOnlyKnownRetiredSkills:
         )
         assert (outside / "do-not-delete-me.txt").exists()
 
+    def test_the_preview_names_the_file_count_and_flags_extra_content(self, tmp_path):
+        """DG-450. The old output said only `"  $target"` for a retired
+        directory about to be removed whole, whether it held the one
+        SKILL.md this repository shipped or a user's own notes and
+        subfolders alongside it -- no count, no warning, for either `--prune`
+        (dry run) or `--prune --prune-apply`."""
+        sandbox, home = _sandbox(tmp_path, seed=False)
+        skills_dir = home / ".claude" / "skills"
+
+        clean_dir = skills_dir / A_RETIRED_NAME
+        clean_dir.mkdir(parents=True)
+        (clean_dir / "SKILL.md").write_text("just this\n", encoding="utf-8")
+
+        preview = _run_sh(sandbox, home, "--prune")
+        assert preview.returncode == 0, preview.stdout + preview.stderr
+        assert (
+            f"{A_RETIRED_NAME} (1 file)" in preview.stdout
+            or (str(clean_dir) + " (1 file)") in preview.stdout
+        )
+        assert "holds more than SKILL.md" not in preview.stdout
+
+        # Now the same retired name, holding something beyond SKILL.md.
+        shutil.rmtree(clean_dir)
+        dirty_dir = skills_dir / A_RETIRED_NAME
+        dirty_dir.mkdir(parents=True)
+        (dirty_dir / "SKILL.md").write_text("plus extra\n", encoding="utf-8")
+        (dirty_dir / "my-notes.txt").write_text("mine\n", encoding="utf-8")
+
+        apply_run = _run_sh(sandbox, home, "--prune", "--prune-apply")
+        assert apply_run.returncode == 0, apply_run.stdout + apply_run.stderr
+        assert "holds more than SKILL.md" in apply_run.stdout
+        assert "(2 files" in apply_run.stdout
+        assert not dirty_dir.exists(), "flagged or not, --prune-apply still removes it"
+
+    def test_a_retired_name_shipped_under_drunken_extras_is_never_pruned(
+        self, tmp_path
+    ):
+        """Review finding #1's extras exclusion (`comm -23` against
+        `$_extras`), already in the script, had no test for the .sh
+        installer at all -- only doctor's own copy of the rule
+        (`test_a_retired_name_that_is_also_a_drunken_extras_skill_is_never_prunable`)
+        was covered. Uses the real name this repository ships under both
+        `retired_skills.txt` and `plugins/drunken-extras/skills/` today, so a
+        drift between the two lists fails this for the right reason."""
+        retired_file = REPO_ROOT / "scripts" / "install" / "retired_skills.txt"
+        assert A_RETIRED_NAME_SHIPPED_UNDER_EXTRAS in retired_file.read_text(
+            encoding="utf-8"
+        ), "fixture premise: this name must still be on retired_skills.txt"
+        assert (
+            REPO_ROOT
+            / "plugins"
+            / "drunken-extras"
+            / "skills"
+            / A_RETIRED_NAME_SHIPPED_UNDER_EXTRAS
+            / "SKILL.md"
+        ).is_file(), "fixture premise: this name must still ship under drunken-extras"
+
+        sandbox, home = _sandbox(tmp_path, seed=False)
+        _seed_extras_skill(sandbox, A_RETIRED_NAME_SHIPPED_UNDER_EXTRAS)
+        skill_dir = _skill_path(home, A_RETIRED_NAME_SHIPPED_UNDER_EXTRAS)
+        skill_dir.mkdir(parents=True)
+        (skill_dir / "SKILL.md").write_text("moved, not retired\n", encoding="utf-8")
+
+        result = _run_sh(sandbox, home, "--prune", "--prune-apply")
+
+        assert result.returncode == 0, result.stdout + result.stderr
+        assert skill_dir.is_dir(), (
+            "a name shipped today under plugins/drunken-extras/skills/ must "
+            "never be pruned, even though it is also on retired_skills.txt"
+        )
+
+    def test_a_differently_cased_name_is_not_matched_to_the_retired_list(
+        self, tmp_path
+    ):
+        """DG-450 finding #2's case-sensitivity gap. `comm` compares byte for
+        byte: an installed directory whose name differs only in case from the
+        retired list entry is a different string, not a match, and must be
+        reported `unrecognised` -- never silently treated as the retired
+        name and pruned out from under an operator who happens to be on a
+        case-preserving filesystem."""
+        sandbox, home = _sandbox(tmp_path, seed=False)
+        skills_dir = home / ".claude" / "skills"
+        differently_cased = A_RETIRED_NAME.upper()
+        assert differently_cased != A_RETIRED_NAME
+        cased_dir = skills_dir / differently_cased
+        cased_dir.mkdir(parents=True)
+        (cased_dir / "SKILL.md").write_text("cased differently\n", encoding="utf-8")
+
+        result = _run_sh(sandbox, home, "--prune", "--prune-apply")
+
+        assert result.returncode == 0, result.stdout + result.stderr
+        assert cased_dir.is_dir(), (
+            "a name that differs only in case from a retired_skills.txt "
+            "entry must never be pruned as if it were the same name"
+        )
+        assert differently_cased in result.stdout
+        assert "Unrecognised" in result.stdout
+
+    def test_a_retired_name_that_is_a_plain_file_is_reported_not_removed(
+        self, tmp_path
+    ):
+        """DG-450 finding #2. `_installed` only ever recognises a directory
+        holding SKILL.md or a link; a plain file sharing a retired name was
+        previously invisible to every list this script prints. It must be
+        named, and never touched, by `--prune`."""
+        sandbox, home = _sandbox(tmp_path, seed=False)
+        skills_dir = home / ".claude" / "skills"
+        skills_dir.mkdir(parents=True)
+        file_path = skills_dir / A_RETIRED_NAME
+        file_path.write_text("I am a plain file, not a skill\n", encoding="utf-8")
+
+        result = _run_sh(sandbox, home, "--prune", "--prune-apply")
+
+        assert result.returncode == 0, result.stdout + result.stderr
+        assert file_path.is_file() and not file_path.is_dir(), (
+            "a plain file sharing a retired name must never be removed"
+        )
+        assert "not a skill directory, left alone" in result.stdout
+        assert A_RETIRED_NAME in result.stdout
+
 
 class TestRetiredListNamesNoCurrentlyShippedSkillDG359:
     def test_no_name_on_the_real_list_is_a_currently_shipped_skill(self):
@@ -455,6 +596,189 @@ class TestThePs1InstallerPrunesConsistentlyWithTheShOne:
             "the junction's target must never be recursed into or deleted"
         )
         assert (outside / "do-not-delete-me.txt").exists()
+
+    def test_a_nested_link_inside_a_retired_directory_makes_it_skipped(self, tmp_path):
+        """DG-450 finding #3. The reparse-point check above only ever looks
+        at the retired name itself; a link ONE LEVEL INSIDE a retired
+        directory -- rather than being the retired name -- was never scanned
+        for at all. `-PruneApply` must never recurse into or remove the
+        whole directory when one is found; it must report why and leave it
+        alone, on both the preview and the apply run.
+
+        Tries a real symbolic link first (works unprivileged on pwsh/Linux,
+        which is where this ticket's own review finding #3 said pwsh was
+        never exercised), falling back to a junction (Windows-only, works
+        unprivileged there) -- skipping honestly, never asserting against a
+        link that was not actually created, if neither can be made."""
+        sandbox, home = _sandbox(tmp_path, seed=False)
+        skills_dir = home / ".claude" / "skills"
+        retired_dir = skills_dir / A_RETIRED_NAME
+        retired_dir.mkdir(parents=True)
+        (retired_dir / "SKILL.md").write_text("has a nested link\n", encoding="utf-8")
+
+        outside = tmp_path / "outside_target"
+        outside.mkdir()
+        (outside / "precious.txt").write_text("do not touch\n", encoding="utf-8")
+        nested_link = retired_dir / "nested-link"
+
+        created = None
+        last_creation = None
+        for item_type in ("SymbolicLink", "Junction"):
+            creation = subprocess.run(
+                [
+                    POWERSHELL,
+                    "-NoProfile",
+                    "-NonInteractive",
+                    "-Command",
+                    f"New-Item -ItemType {item_type} -Path '{nested_link}' "
+                    f"-Target '{outside}' -ErrorAction Stop | Out-Null; "
+                    f"$item = Get-Item -LiteralPath '{nested_link}' -Force; "
+                    'Write-Host "REPARSE:$([bool]($item.Attributes -band '
+                    '[System.IO.FileAttributes]::ReparsePoint))"',
+                ],
+                capture_output=True,
+                text=True,
+            )
+            last_creation = (item_type, creation)
+            if creation.returncode == 0 and "REPARSE:True" in creation.stdout:
+                created = item_type
+                break
+
+        if created is None:
+            item_type, creation = last_creation
+            pytest.skip(
+                "cannot create a real nested link (symlink or junction) on "
+                f"this machine: last tried {item_type}, "
+                f"rc={creation.returncode}\n{creation.stdout}\n{creation.stderr}"
+            )
+
+        preview = _run_ps1(sandbox, home, "-Prune")
+        assert preview.returncode == 0, preview.stdout + preview.stderr
+        assert "nested link" in preview.stdout
+        assert str(retired_dir) in preview.stdout
+
+        result = _run_ps1(sandbox, home, "-Prune -PruneApply")
+
+        assert result.returncode == 0, result.stdout + result.stderr
+        assert "nested link" in result.stdout
+        assert retired_dir.is_dir(), (
+            "a retired directory holding a nested link must never be removed as a whole"
+        )
+        assert nested_link.exists() or nested_link.is_symlink(), (
+            "the nested link itself must survive -- it was never followed"
+        )
+        assert (outside / "precious.txt").exists(), (
+            "the nested link's target must never be recursed into or deleted"
+        )
+
+    def test_the_preview_names_the_file_count_and_flags_extra_content(self, tmp_path):
+        """DG-450. Same gap as the `.sh` test: the old output said only
+        `"  $target"` for a retired directory about to be removed whole,
+        with no count and no warning either for `-Prune` (dry run) or
+        `-Prune -PruneApply`."""
+        sandbox, home = _sandbox(tmp_path, seed=False)
+        skills_dir = home / ".claude" / "skills"
+
+        clean_dir = skills_dir / A_RETIRED_NAME
+        clean_dir.mkdir(parents=True)
+        (clean_dir / "SKILL.md").write_text("just this\n", encoding="utf-8")
+
+        preview = _run_ps1(sandbox, home, "-Prune")
+        assert preview.returncode == 0, preview.stdout + preview.stderr
+        assert "(1 file)" in preview.stdout
+        assert "holds more than SKILL.md" not in preview.stdout
+
+        shutil.rmtree(clean_dir)
+        dirty_dir = skills_dir / A_RETIRED_NAME
+        dirty_dir.mkdir(parents=True)
+        (dirty_dir / "SKILL.md").write_text("plus extra\n", encoding="utf-8")
+        (dirty_dir / "my-notes.txt").write_text("mine\n", encoding="utf-8")
+
+        apply_run = _run_ps1(sandbox, home, "-Prune -PruneApply")
+        assert apply_run.returncode == 0, apply_run.stdout + apply_run.stderr
+        assert "holds more than SKILL.md" in apply_run.stdout
+        assert "(2 files" in apply_run.stdout
+        assert not dirty_dir.exists(), "flagged or not, -PruneApply still removes it"
+
+    def test_a_retired_name_shipped_under_drunken_extras_is_never_pruned(
+        self, tmp_path
+    ):
+        """Review finding #1's extras exclusion (`-notcontains $Extras`),
+        already in the script, had no test for the .ps1 installer at all --
+        only doctor's own copy of the rule was covered. Uses the real name
+        this repository ships under both `retired_skills.txt` and
+        `plugins/drunken-extras/skills/` today."""
+        retired_file = REPO_ROOT / "scripts" / "install" / "retired_skills.txt"
+        assert A_RETIRED_NAME_SHIPPED_UNDER_EXTRAS in retired_file.read_text(
+            encoding="utf-8"
+        ), "fixture premise: this name must still be on retired_skills.txt"
+        assert (
+            REPO_ROOT
+            / "plugins"
+            / "drunken-extras"
+            / "skills"
+            / A_RETIRED_NAME_SHIPPED_UNDER_EXTRAS
+            / "SKILL.md"
+        ).is_file(), "fixture premise: this name must still ship under drunken-extras"
+
+        sandbox, home = _sandbox(tmp_path, seed=False)
+        _seed_extras_skill(sandbox, A_RETIRED_NAME_SHIPPED_UNDER_EXTRAS)
+        skill_dir = _skill_path(home, A_RETIRED_NAME_SHIPPED_UNDER_EXTRAS)
+        skill_dir.mkdir(parents=True)
+        (skill_dir / "SKILL.md").write_text("moved, not retired\n", encoding="utf-8")
+
+        result = _run_ps1(sandbox, home, "-Prune -PruneApply")
+
+        assert result.returncode == 0, result.stdout + result.stderr
+        assert skill_dir.is_dir(), (
+            "a name shipped today under plugins/drunken-extras/skills/ must "
+            "never be pruned, even though it is also on retired_skills.txt"
+        )
+
+    def test_a_differently_cased_name_is_matched_case_insensitively(self, tmp_path):
+        """DG-450 finding #2's case-sensitivity gap, the `.ps1` side.
+        `-contains` compares strings case-insensitively by default -- unlike
+        `comm` in the `.sh` installer -- so a differently-cased installed
+        name here IS treated as the retired one and is prunable. This pins
+        that actual, current behaviour down so a change to case handling (in
+        either direction) is seen rather than silently shipped."""
+        sandbox, home = _sandbox(tmp_path, seed=False)
+        skills_dir = home / ".claude" / "skills"
+        differently_cased = A_RETIRED_NAME.upper()
+        assert differently_cased != A_RETIRED_NAME
+        cased_dir = skills_dir / differently_cased
+        cased_dir.mkdir(parents=True)
+        (cased_dir / "SKILL.md").write_text("cased differently\n", encoding="utf-8")
+
+        result = _run_ps1(sandbox, home, "-Prune -PruneApply")
+
+        assert result.returncode == 0, result.stdout + result.stderr
+        assert not cased_dir.exists(), (
+            "-contains matches case-insensitively today, so a differently-"
+            "cased retired name is pruned the same as an exact match"
+        )
+
+    def test_a_retired_name_that_is_a_plain_file_is_reported_not_removed(
+        self, tmp_path
+    ):
+        """DG-450 finding #2. `$Installed` only ever recognises a directory
+        holding SKILL.md; a plain file sharing a retired name was previously
+        invisible to every list this script prints. It must be named, and
+        never touched, by `-Prune`."""
+        sandbox, home = _sandbox(tmp_path, seed=False)
+        skills_dir = home / ".claude" / "skills"
+        skills_dir.mkdir(parents=True)
+        file_path = skills_dir / A_RETIRED_NAME
+        file_path.write_text("I am a plain file, not a skill\n", encoding="utf-8")
+
+        result = _run_ps1(sandbox, home, "-Prune -PruneApply")
+
+        assert result.returncode == 0, result.stdout + result.stderr
+        assert file_path.is_file() and not file_path.is_dir(), (
+            "a plain file sharing a retired name must never be removed"
+        )
+        assert "not a skill directory, left alone" in result.stdout
+        assert A_RETIRED_NAME in result.stdout
 
     def test_empty_home_and_userprofile_is_refused(self, tmp_path):
         """Review finding #3. Both `$HOME` and `$env:USERPROFILE` emptied in
