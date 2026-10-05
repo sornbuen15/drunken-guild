@@ -129,7 +129,17 @@ def generate(agents_dir: Path, skills_root: Path, sources_json: Path) -> list[Pa
     written: list[Path] = []
     for name in sorted(manifest):
         entry = manifest[name]
-        skill_name = str(entry["skill"])
+        if not isinstance(entry, dict):
+            raise ValueError(f"{sources_json}: {name!r} entry is not an object")
+        skill_name = entry.get("skill")
+        if not isinstance(skill_name, str) or not skill_name.strip():
+            # DG-402, reviewer finding (PR #150, round 2): a role's `skill`
+            # missing, empty or not a string must refuse here too, not only
+            # in `_role_skill.py` -- the generator is a second place the
+            # same manifest mistake could otherwise slip through.
+            raise ValueError(
+                f"{sources_json}: {name!r}'s 'skill' is missing, empty or not a string"
+            )
         skill_dir = resolve_skill_dir(skills_root, skill_name)
         skill_md = skill_dir / "SKILL.md"
         if not skill_md.is_file():

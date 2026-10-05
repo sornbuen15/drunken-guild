@@ -121,11 +121,32 @@ foreach ($AgentFile in $AgentFiles) {
     # $GlobalAgentsDir. That decision only matters for the install messages,
     # which -IndexOnly does not print.
     if (-not $IndexOnly) {
-        $RoleSkill = $null
-        if ($RoleSources -and ($RoleSources.PSObject.Properties.Name -contains $AgentName)) {
-            $RoleSkill = $RoleSources.$AgentName.skill
-        }
-        if ($RoleSkill) {
+        # The manifest's own existence is the coarse gate ($RoleSources is
+        # $null when agents/_sources.json does not exist at all -- nothing
+        # to check then). Once it exists, every agent file is held to it
+        # strictly: no per-role "not managed by the manifest" escape hatch.
+        #
+        # HIGH review finding (PR #150, round 2): the previous version only
+        # refused when $RoleSkill was truthy -- so an agent missing from
+        # the manifest, or present with no `skill` key at all, left
+        # $RoleSkill $null/empty, the `if ($RoleSkill)` check was skipped
+        # entirely, and the adapter installed anyway. Every role adapter
+        # this repository ships needs its own skill, so there is no
+        # "not managed by the manifest" case left once the manifest exists.
+        if ($RoleSources) {
+            $RoleEntry = $null
+            if ($RoleSources.PSObject.Properties.Name -contains $AgentName) {
+                $RoleEntry = $RoleSources.$AgentName
+            }
+            $RoleSkill = $null
+            if ($RoleEntry -and ($RoleEntry.PSObject.Properties.Name -contains "skill")) {
+                $RoleSkill = $RoleEntry.skill
+            }
+            if (-not ($RoleSkill -is [string]) -or [string]::IsNullOrWhiteSpace($RoleSkill)) {
+                Write-Host "  [x] Refusing: $AgentName has no 'skill' entry in $SourcesJson (missing, empty or not a string)." -ForegroundColor Red
+                $MissingRoleSkill = $true
+                continue
+            }
             $RoleSkillFile = Join-Path $GlobalSkillsDir "$RoleSkill\SKILL.md"
             if (-not (Test-Path $RoleSkillFile)) {
                 Write-Host "  [x] Refusing: $AgentName needs the '$RoleSkill' skill, not installed at $RoleSkillFile" -ForegroundColor Red

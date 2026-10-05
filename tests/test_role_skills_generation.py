@@ -299,3 +299,158 @@ class TestABomPrefixedSkillIsReadNotRefused:
             "fence -- if this assertion itself fails, the mutation no "
             "longer reproduces the bug it is meant to prove"
         )
+
+
+class TestNoDependencySentinelWasRemoved:
+    """DG-402, coordinator review, HIGH (round 2). The `-` sentinel for
+    "this role has no skill dependency" was itself a fail-open: a manifest
+    edit that dropped or typo'd a role's `skill` key produced `-`, exit 0,
+    and the installer treated that as "nothing to check" rather than "this
+    is broken". Every role adapter this repository ships needs its own
+    skill, so a missing/empty/non-string `skill` must now refuse, in the
+    generator and in `_role_skill.py` alike -- there is no "no dependency"
+    answer left at all.
+    """
+
+    def _manifest_missing_skill_for(self, tmp_path: Path, role: str) -> Path:
+        data = json.loads(SOURCES_JSON.read_text(encoding="utf-8"))
+        del data[role]["skill"]
+        manifest = tmp_path / "_sources.json"
+        manifest.write_text(json.dumps(data), encoding="utf-8")
+        return manifest
+
+    def test_generator_refuses_when_a_role_is_missing_its_skill_key(
+        self, tmp_path: Path
+    ) -> None:
+        manifest = self._manifest_missing_skill_for(tmp_path, "worker")
+        with pytest.raises(ValueError, match="worker"):
+            gen.generate(tmp_path / "out", SKILLS_ROOT, manifest)
+
+    def test_role_skill_script_exits_non_zero_for_a_role_missing_its_skill_key(
+        self, tmp_path: Path
+    ) -> None:
+        manifest = self._manifest_missing_skill_for(tmp_path, "worker")
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(REPO_ROOT / "scripts" / "install" / "_role_skill.py"),
+                str(manifest),
+                "worker",
+            ],
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode != 0, (
+            "a role missing its 'skill' key must be refused, not printed "
+            f"as the sentinel '-' or any other silent answer\n{result.stdout!r}"
+        )
+        assert result.stdout.strip() != "-", (
+            "the old sentinel must never be printed again"
+        )
+
+    @pytest.mark.parametrize("bad_value", [None, "", "   ", 123, [], {}], ids=repr)
+    def test_role_skill_script_exits_non_zero_for_every_invalid_skill_value(
+        self, tmp_path: Path, bad_value: object
+    ) -> None:
+        data = json.loads(SOURCES_JSON.read_text(encoding="utf-8"))
+        data["worker"]["skill"] = bad_value
+        manifest = tmp_path / "_sources.json"
+        manifest.write_text(json.dumps(data), encoding="utf-8")
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(REPO_ROOT / "scripts" / "install" / "_role_skill.py"),
+                str(manifest),
+                "worker",
+            ],
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode != 0, (
+            f"an invalid 'skill' value ({bad_value!r}) must be refused\n"
+            f"{result.stdout!r}"
+        )
+        assert result.stdout.strip() != "-", (
+            "the old sentinel must never be printed again"
+        )
+
+    def test_mutation_restoring_the_sentinel_branch_is_caught(
+        self, tmp_path: Path
+    ) -> None:
+        """Paste-able proof: restore the exact old sentinel logic over a
+        copy of the real `_role_skill.py` and show it now answers `-`,
+        exit 0, for the same missing-skill-key manifest the tests above
+        refuse -- the precise regression this class exists to catch."""
+        real_script = REPO_ROOT / "scripts" / "install" / "_role_skill.py"
+        text = real_script.read_text(encoding="utf-8")
+        assert "NO_DEPENDENCY" not in text, (
+            "the sentinel constant is already back -- nothing to mutate"
+        )
+
+        mutated = text.replace(
+            "    entry = data.get(role_name)\n"
+            "    if not isinstance(entry, dict):\n"
+            "        print(\n"
+            '            f"{argv[0]}: {role_name!r} has no entry in {sources_json}",\n'
+            "            file=sys.stderr,\n"
+            "        )\n"
+            "        return 1\n"
+            "\n"
+            '    skill = entry.get("skill")\n'
+            "    if not isinstance(skill, str) or not skill.strip():\n"
+            "        print(\n"
+            "            f\"{argv[0]}: {role_name!r}'s 'skill' in {sources_json} is \"\n"
+            '            "missing, empty or not a string",\n'
+            "            file=sys.stderr,\n"
+            "        )\n"
+            "        return 1\n"
+            "\n"
+            "    print(skill)\n"
+            "    return 0",
+            "    entry = data.get(role_name)\n"
+            '    skill = entry.get("skill") if isinstance(entry, dict) else None\n'
+            '    print(skill if skill else "-")\n'
+            "    return 0",
+        )
+        assert mutated != text, "the mutation did not change anything -- fix it"
+
+        mutated_script = tmp_path / "_role_skill.py"
+        mutated_script.write_text(mutated, encoding="utf-8")
+
+        manifest = self._manifest_missing_skill_for(tmp_path, "worker")
+        result = subprocess.run(
+            [sys.executable, str(mutated_script), str(manifest), "worker"],
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode == 0, (
+            "the restored sentinel branch should reproduce the old "
+            f"behaviour (exit 0)\n{result.stdout!r}\n{result.stderr!r}"
+        )
+        assert result.stdout.strip() == "-", (
+            "the restored sentinel branch should print '-' for the same "
+            f"missing-skill-key manifest\n{result.stdout!r}"
+        )
+
+
+class TestTheCommittedManifestResolvesEveryRole:
+    """DG-402, coordinator review (round 2). Pins the actual, committed
+    `agents/_sources.json` down directly -- not a fixture standing in for
+    it -- so a hand-edit that drops or renames a role's `skill` entry is
+    caught here even if nothing else in the suite happens to exercise that
+    exact role."""
+
+    def test_each_shipped_role_names_itself_as_its_own_skill(self) -> None:
+        data = json.loads(SOURCES_JSON.read_text(encoding="utf-8"))
+        for role in ROLES:
+            assert role in data, f"{role} has no entry in {SOURCES_JSON}"
+            assert data[role].get("skill") == role, (
+                f"{role}'s 'skill' in {SOURCES_JSON} is "
+                f"{data[role].get('skill')!r}, not {role!r}"
+            )
+
+    def test_each_shipped_roles_skill_resolves_to_disk(self) -> None:
+        for role in ROLES:
+            resolved = gen.resolve_skill_dir(SKILLS_ROOT, role)
+            assert resolved == SKILLS_ROOT / "roles" / role
+            assert (resolved / "SKILL.md").is_file()

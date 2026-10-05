@@ -128,19 +128,23 @@ MISSING_ROLE_SKILL=false
 # only the first agent file and exited clean, which is a worse failure than
 # a loud one: fewer than three role adapters installed, zero complaint.
 #
-# CRITICAL review finding (PR #150): the previous version of this function
-# ended in `|| true` and the caller refused only on a *non-empty* result,
-# so a helper that failed outright, or printed nothing at all, read as "no
-# dependency" and installed anyway -- fail *open*, the opposite of what a
-# safety gate must do. There is deliberately no `|| true` here any more:
-# this function's own exit status is the caller's signal, and the caller
-# (below) treats a non-zero exit **and** an empty result as refusals in
-# their own right, never as "no dependency".
+# CRITICAL review finding (PR #150, round 1): the previous version of this
+# function ended in `|| true` and the caller refused only on a *non-empty*
+# result, so a helper that failed outright, or printed nothing at all, read
+# as "no dependency" and installed anyway -- fail *open*. There is
+# deliberately no `|| true` here any more: this function's own exit status
+# is the caller's signal.
+#
+# HIGH review finding (PR #150, round 2): the fix above still had a
+# sentinel for "no dependency" (the literal `-`), and that sentinel was
+# itself a second fail-open path -- a manifest edit that dropped or
+# typo'd a role's `skill` key produced `-`, exit 0, and the caller
+# installed the adapter anyway, gate bypassed. Every role adapter this
+# repository ships needs its own skill, so there is no "no dependency"
+# case left: `_role_skill.py` now exits non-zero for a role missing from
+# the manifest or whose `skill` is missing, empty or not a string, same
+# as any other failure. This function has nothing left to special-case.
 _role_skill() {
-  if [ ! -f "$SOURCES_JSON" ]; then
-    printf '%s\n' "-"
-    return 0
-  fi
   python3 "$SCRIPT_DIR/_role_skill.py" "$SOURCES_JSON" "$1" </dev/null
 }
 
@@ -170,7 +174,13 @@ while IFS= read -r agent_file; do
   agent_name="$(basename "$agent_file" .md)"
   TARGET_FILE="$GLOBAL_AGENTS_DIR/$agent_name.md"
 
-  if [ "$INDEX_ONLY" = false ]; then
+  # The manifest's own existence is the coarse gate: no agents/_sources.json
+  # at all means the roles-as-skills mechanism is not in play here (e.g. a
+  # project without it), and there is nothing to check. Once it exists,
+  # every agent file is held to it strictly -- no per-role "not managed by
+  # the manifest" escape hatch, which is exactly what the `-` sentinel this
+  # replaced turned out to be.
+  if [ "$INDEX_ONLY" = false ] && [ -f "$SOURCES_JSON" ]; then
     # `if ROLE_SKILL=$(...); then ... else ...; fi` is the form that keeps
     # `set -e` from killing the whole script on a non-zero exit here, and
     # is also what makes `$?` inside the `else` branch reliably reflect
@@ -182,17 +192,17 @@ while IFS= read -r agent_file; do
     else
       _rc=$?
       echo -e "${RED}  [x] Refusing: could not verify ${agent_name}'s role-skill dependency -- python3 $SCRIPT_DIR/_role_skill.py exited ${_rc}.${NC}" >&2
-      echo -e "${RED}      Check python3 on PATH for a broken shim and re-run install_agents.sh.${NC}" >&2
+      echo -e "${RED}      Check python3 on PATH and ${agent_name}'s entry in $SOURCES_JSON, then re-run install_agents.sh.${NC}" >&2
       MISSING_ROLE_SKILL=true
       continue
     fi
     if [ -z "$ROLE_SKILL" ]; then
-      echo -e "${RED}  [x] Refusing: the check for ${agent_name}'s role-skill dependency printed nothing (expected a skill name or '-').${NC}" >&2
-      echo -e "${RED}      Treating silence as unverifiable, not as \"no dependency\" -- check python3 on PATH and re-run.${NC}" >&2
+      echo -e "${RED}  [x] Refusing: the check for ${agent_name}'s role-skill dependency printed nothing.${NC}" >&2
+      echo -e "${RED}      Treating silence as unverifiable -- check python3 on PATH and re-run.${NC}" >&2
       MISSING_ROLE_SKILL=true
       continue
     fi
-    if [ "$ROLE_SKILL" != "-" ] && [ ! -f "$GLOBAL_SKILLS_DIR/$ROLE_SKILL/SKILL.md" ]; then
+    if [ ! -f "$GLOBAL_SKILLS_DIR/$ROLE_SKILL/SKILL.md" ]; then
       echo -e "${RED}  [x] Refusing: ${agent_name} needs the '${ROLE_SKILL}' skill, not installed at $GLOBAL_SKILLS_DIR/$ROLE_SKILL/SKILL.md${NC}" >&2
       echo -e "${RED}      Run install_skills.sh first, then re-run install_agents.sh.${NC}" >&2
       MISSING_ROLE_SKILL=true

@@ -311,7 +311,7 @@ class TestTheRefusalIsNotAccidentallyRemovable:
         text = script.read_text(encoding="utf-8")
         assert "MISSING_ROLE_SKILL" in text, "the guard itself is already gone"
         mutated = text.replace(
-            'if [ "$ROLE_SKILL" != "-" ] && [ ! -f "$GLOBAL_SKILLS_DIR/$ROLE_SKILL/SKILL.md" ]; then',
+            'if [ ! -f "$GLOBAL_SKILLS_DIR/$ROLE_SKILL/SKILL.md" ]; then',
             "if false; then",
         )
         assert mutated != text, "the mutation did not change anything -- fix it"
@@ -424,7 +424,7 @@ class TestTheGateFailsClosedWhenPython3ItselfMisbehaves:
         )
         fixed_caller_start = '    if ROLE_SKILL="$(_role_skill "$agent_name")"; then'
         fixed_caller_end = (
-            '    if [ "$ROLE_SKILL" != "-" ] && [ ! -f "$GLOBAL_SKILLS_DIR/$ROLE_SKILL/SKILL.md" ]; then\n'
+            '    if [ ! -f "$GLOBAL_SKILLS_DIR/$ROLE_SKILL/SKILL.md" ]; then\n'
             "      echo -e \"${RED}  [x] Refusing: ${agent_name} needs the '${ROLE_SKILL}' skill, not installed at $GLOBAL_SKILLS_DIR/$ROLE_SKILL/SKILL.md${NC}\" >&2\n"
             '      echo -e "${RED}      Run install_skills.sh first, then re-run install_agents.sh.${NC}" >&2\n'
             "      MISSING_ROLE_SKILL=true\n"
@@ -447,4 +447,63 @@ class TestTheGateFailsClosedWhenPython3ItselfMisbehaves:
             "with the swallow reintroduced, manager.md should install "
             "despite a python3 stub that cannot answer the role-skill "
             "check at all -- the exact bug this PR fixes"
+        )
+
+
+class TestBothInstallersRefuseAManifestMissingASkillKey:
+    """DG-402, coordinator review, HIGH (round 2). A manifest edit that
+    drops one role's `skill` key is the realistic mistake the old `-`
+    sentinel let straight through: both installers must refuse that one
+    adapter even though its skill *is* installed -- the defect is the
+    manifest, not a missing skill directory."""
+
+    @staticmethod
+    def _drop_skill_key(sandbox: Path, role: str) -> None:
+        import json
+
+        sources_json = sandbox / "agents" / "_sources.json"
+        data = json.loads(sources_json.read_text(encoding="utf-8"))
+        del data[role]["skill"]
+        sources_json.write_text(json.dumps(data), encoding="utf-8")
+
+    @pytest.mark.skipif(BASH is None, reason="no bash host on this machine")
+    def test_sh_refuses_the_one_adapter_with_the_defective_entry(
+        self, tmp_path: Path
+    ) -> None:
+        sandbox, home = _sandbox(tmp_path)
+        for name in ("manager", "worker", "reviewer"):
+            _seed_skill(home, name)
+        self._drop_skill_key(sandbox, "worker")
+        script = sandbox / "scripts" / "install" / "install_agents.sh"
+
+        result = _run_sh(script, home)
+        _assert_sh_ran_against(result, home)
+
+        combined = result.stdout + result.stderr
+        assert result.returncode != 0, (
+            f"a manifest missing worker's 'skill' key must be refused\n{combined}"
+        )
+        assert not (home / ".claude" / "agents" / "worker.md").exists(), (
+            f"worker.md must not install with a defective manifest entry\n{combined}"
+        )
+
+    @pytest.mark.skipif(POWERSHELL is None, reason="no PowerShell host on this machine")
+    def test_ps1_refuses_the_one_adapter_with_the_defective_entry(
+        self, tmp_path: Path
+    ) -> None:
+        sandbox, home = _sandbox(tmp_path)
+        for name in ("manager", "worker", "reviewer"):
+            _seed_skill(home, name)
+        self._drop_skill_key(sandbox, "worker")
+        script = sandbox / "scripts" / "install" / "install_agents.ps1"
+
+        result = _run_ps(script, home)
+        _assert_ps_canary(result, home)
+
+        combined = result.stdout + result.stderr
+        assert result.returncode != 0, (
+            f"a manifest missing worker's 'skill' key must be refused\n{combined}"
+        )
+        assert not (home / ".claude" / "agents" / "worker.md").exists(), (
+            f"worker.md must not install with a defective manifest entry\n{combined}"
         )
