@@ -33,6 +33,9 @@ $ScriptDir       = $PSScriptRoot
 $LocalAgentsDir  = Resolve-Path (Join-Path $ScriptDir "..\..\agents")
 $GlobalAgentsDir = Join-Path $HOME ".claude\agents"
 $LocalIndex      = Join-Path $LocalAgentsDir "INDEX.md"
+$LocalSkillsDir  = Join-Path $ScriptDir "..\..\skills"
+$GlobalSkillsDir = Join-Path $HOME ".claude\skills"
+$SourcesJson     = Join-Path $LocalAgentsDir "_sources.json"
 
 Write-Host "=================================================" -ForegroundColor Blue
 Write-Host "   Claude Agents Synchronizer                   " -ForegroundColor Blue
@@ -41,6 +44,23 @@ Write-Host "=================================================" -ForegroundColor 
 if (-not (Test-Path $LocalAgentsDir)) {
     Write-Host "Error: agents directory not found at $LocalAgentsDir" -ForegroundColor Red
     exit 1
+}
+
+# DG-402. agents/<role>.md is generated from skills/roles/<role>/SKILL.md +
+# agents/_sources.json (model, tools -- Claude-only concepts no portable skill
+# frontmatter should carry). One Python script, shared with install_agents.sh
+# rather than re-implemented here, is what keeps this byte-identical to the
+# bash output (DG-280/DG-378/DG-380's lesson applied to a new
+# generated-and-committed artefact). This writes only inside the repository's
+# own agents/ -- never under $GlobalAgentsDir -- so it runs in both
+# -IndexOnly and a real install.
+if (Test-Path $SourcesJson) {
+    $GeneratorScript = Join-Path $ScriptDir "_generate_agents.py"
+    & python3 $GeneratorScript $LocalAgentsDir $LocalSkillsDir $SourcesJson
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "Error: regenerating agents\*.md from skills\roles\ failed." -ForegroundColor Red
+        exit 1
+    }
 }
 
 # Everything below this point that writes or creates anything outside the
@@ -58,8 +78,21 @@ Write-Host "Source: $LocalAgentsDir"
 Write-Host "Target: $GlobalAgentsDir"
 Write-Host ""
 
-$NewCount     = 0
-$UpdatedCount = 0
+$NewCount        = 0
+$UpdatedCount    = 0
+$MissingRoleSkill = $false
+
+# DG-402, HIGH review finding. Claude Code skips a subagent's `skills:`
+# preload silently when the named skill is not installed -- "If a listed
+# skill is missing or disabled ... Claude Code skips it and logs a warning
+# to the debug log" (https://code.claude.com/docs/en/subagents) -- so a
+# worker/reviewer/manager installed before its role skill would run with
+# effectively no role prompt and no visible error at all. Refuse per role
+# adapter instead, naming the missing skill and the command to run first.
+$RoleSources = $null
+if (Test-Path $SourcesJson) {
+    $RoleSources = Get-Content -LiteralPath $SourcesJson -Encoding UTF8 -Raw | ConvertFrom-Json
+}
 
 # Collect all .md agent files (top-level only), sorted for deterministic output.
 # INDEX.md is generated below, not an agent -- it lives in agents/ so the repo
@@ -88,6 +121,41 @@ foreach ($AgentFile in $AgentFiles) {
     # $GlobalAgentsDir. That decision only matters for the install messages,
     # which -IndexOnly does not print.
     if (-not $IndexOnly) {
+        # The manifest's own existence is the coarse gate ($RoleSources is
+        # $null when agents/_sources.json does not exist at all -- nothing
+        # to check then). Once it exists, every agent file is held to it
+        # strictly: no per-role "not managed by the manifest" escape hatch.
+        #
+        # HIGH review finding (PR #150, round 2): the previous version only
+        # refused when $RoleSkill was truthy -- so an agent missing from
+        # the manifest, or present with no `skill` key at all, left
+        # $RoleSkill $null/empty, the `if ($RoleSkill)` check was skipped
+        # entirely, and the adapter installed anyway. Every role adapter
+        # this repository ships needs its own skill, so there is no
+        # "not managed by the manifest" case left once the manifest exists.
+        if ($RoleSources) {
+            $RoleEntry = $null
+            if ($RoleSources.PSObject.Properties.Name -contains $AgentName) {
+                $RoleEntry = $RoleSources.$AgentName
+            }
+            $RoleSkill = $null
+            if ($RoleEntry -and ($RoleEntry.PSObject.Properties.Name -contains "skill")) {
+                $RoleSkill = $RoleEntry.skill
+            }
+            if (-not ($RoleSkill -is [string]) -or [string]::IsNullOrWhiteSpace($RoleSkill)) {
+                Write-Host "  [x] Refusing: $AgentName has no 'skill' entry in $SourcesJson (missing, empty or not a string)." -ForegroundColor Red
+                $MissingRoleSkill = $true
+                continue
+            }
+            $RoleSkillFile = Join-Path $GlobalSkillsDir "$RoleSkill\SKILL.md"
+            if (-not (Test-Path $RoleSkillFile)) {
+                Write-Host "  [x] Refusing: $AgentName needs the '$RoleSkill' skill, not installed at $RoleSkillFile" -ForegroundColor Red
+                Write-Host "      Run install_skills.ps1 first, then re-run install_agents.ps1." -ForegroundColor Red
+                $MissingRoleSkill = $true
+                continue
+            }
+        }
+
         $TargetFile = Join-Path $GlobalAgentsDir "$AgentName.md"
         $IsNew      = -not (Test-Path $TargetFile)
 
@@ -138,6 +206,12 @@ foreach ($AgentFile in $AgentFiles) {
     $IndexLines.Add("- ``$AgentName`` (``$Model``) $([char]0x2014) $Desc")
     $IndexLines.Add("  Path: `$HOME/.claude/agents/$AgentName.md")
     $IndexLines.Add("")
+}
+
+if ($MissingRoleSkill) {
+    Write-Host ""
+    Write-Host "Install refused for one or more role adapters -- see above." -ForegroundColor Red
+    exit 1
 }
 
 # The DG-378 write path, for the same reason: this index is committed, so it

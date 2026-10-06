@@ -1,0 +1,456 @@
+# mypy: ignore-errors
+"""DG-402. Manager, worker and reviewer are written once, as skills, under
+``skills/roles/``. ``agents/<role>.md`` is a *generated* adapter, written by
+``scripts/install/_generate_agents.py`` from ``agents/_sources.json`` (the
+Claude-only `model`/`tools` plumbing) plus each skill's own frontmatter
+`description:`. The ticket's own acceptance line is: regenerating the
+adapters from the skills gives the committed bytes.
+
+No PyYAML here either, by design: the generator (and this test module) reads
+`agents/_sources.json` with the standard library's `json`, and a skill's
+`description:` with the same small hand-written frontmatter scan
+`_truncate.py`'s sibling scripts use -- not a YAML parser, since the
+generator has to run under the bare system `python3` an operator's machine
+has, not this project's own `uv` environment.
+"""
+
+from __future__ import annotations
+
+import json
+import subprocess
+import sys
+from pathlib import Path
+
+import pytest
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+AGENTS_DIR = REPO_ROOT / "agents"
+SKILLS_ROOT = REPO_ROOT / "skills"
+SOURCES_JSON = AGENTS_DIR / "_sources.json"
+GENERATOR = REPO_ROOT / "scripts" / "install" / "_generate_agents.py"
+
+sys.path.insert(0, str(GENERATOR.parent))
+import _generate_agents as gen  # noqa: E402
+
+ROLES = ("manager", "worker", "reviewer")
+
+
+def _committed_bytes(rel_path: str) -> bytes:
+    return subprocess.run(
+        ["git", "show", f"HEAD:{rel_path}"],
+        capture_output=True,
+        check=True,
+        cwd=REPO_ROOT,
+    ).stdout
+
+
+def _frontmatter_block(text: str) -> str:
+    assert text.startswith("---"), "adapter has no frontmatter delimiter"
+    parts = text.split("---", 2)
+    assert len(parts) >= 3, "adapter frontmatter is not closed"
+    return parts[1]
+
+
+def _skills_field(text: str) -> list[str]:
+    """The `skills:` YAML list in an adapter's frontmatter -- the field
+    Claude Code's own subagent docs document as preloading a skill's full
+    content into the subagent's context at startup
+    (https://code.claude.com/docs/en/subagents)."""
+    block = _frontmatter_block(text)
+    lines = block.splitlines()
+    names: list[str] = []
+    collecting = False
+    for line in lines:
+        if collecting:
+            stripped = line.strip()
+            if stripped.startswith("- "):
+                names.append(stripped[2:].strip())
+                continue
+            break
+        if line.strip() == "skills:":
+            collecting = True
+    return names
+
+
+def _generated_body(text: str) -> str:
+    """Everything after the adapter's frontmatter -- the part a hand edit
+    could pollute with a role rule the skill does not itself carry."""
+    parts = text.split("---", 2)
+    return parts[2].strip()
+
+
+class TestRegeneratingMatchesCommittedBytes:
+    """The ticket's own acceptance line."""
+
+    @pytest.mark.parametrize("role", ROLES)
+    def test_regenerating_an_adapter_matches_the_committed_bytes(
+        self, tmp_path: Path, role: str
+    ) -> None:
+        out_dir = tmp_path / "agents"
+        out_dir.mkdir()
+        gen.generate(out_dir, SKILLS_ROOT, SOURCES_JSON)
+
+        produced = (out_dir / f"{role}.md").read_bytes()
+        committed = _committed_bytes(f"agents/{role}.md")
+        assert produced == committed, (
+            f"regenerating {role}.md from skills/roles/{role}/SKILL.md does "
+            "not reproduce the committed bytes -- the committed adapter is "
+            "stale against its own source"
+        )
+
+    def test_mutation_a_skill_description_edited_without_regenerating_is_caught(
+        self, tmp_path: Path
+    ) -> None:
+        """The failure mode this class exists to catch: a skill's
+        description changes, but nobody reran the generator, so the
+        committed adapter now disagrees with its own source."""
+        skills_copy = tmp_path / "skills"
+        import shutil
+
+        shutil.copytree(SKILLS_ROOT / "roles", skills_copy / "roles")
+        skill_md = skills_copy / "roles" / "worker" / "SKILL.md"
+        # The mutation has to land in the frontmatter `description:` --
+        # that is the only part of the skill the generator copies into the
+        # adapter. A change to the body prose (the role's own rules) is
+        # real, but it would not move `agents/worker.md`'s bytes at all,
+        # which is a different, correct claim this test must not conflate
+        # with "the mutation did nothing".
+        skill_md.write_text(
+            skill_md.read_text(encoding="utf-8").replace(
+                "Any language, any framework", "Any language at all, any framework"
+            ),
+            encoding="utf-8",
+        )
+
+        out_dir = tmp_path / "agents"
+        out_dir.mkdir()
+        gen.generate(out_dir, skills_copy, SOURCES_JSON)
+
+        produced = (out_dir / "worker.md").read_bytes()
+        committed = _committed_bytes("agents/worker.md")
+        assert produced != committed, (
+            "the mutation did not change the generated bytes -- fix the "
+            "mutation, not the assertion"
+        )
+
+
+class TestAdapterHoldsNoRuleTheSkillLacks:
+    """REQ-014's acceptance line: `agents/<role>.md` holds no role rule its
+    skill lacks. Enforced by construction here -- the generator writes
+    exactly one fixed pointer paragraph and nothing else -- so this checks
+    the generated body is *exactly* that paragraph, never a hand-inserted
+    extra sentence that would otherwise pass a looser "does it mention this
+    phrase" check."""
+
+    @pytest.mark.parametrize("role", ROLES)
+    def test_generated_body_is_only_the_pointer_paragraph(self, role: str) -> None:
+        text = (AGENTS_DIR / f"{role}.md").read_text(encoding="utf-8")
+        body = _generated_body(text)
+        assert body.startswith(f"Loads the `{role}` role skill"), (
+            f"{role}.md's body is not the generated pointer paragraph -- "
+            "something was hand-edited into it"
+        )
+        assert body.count("\n\n") == 0, (
+            f"{role}.md's body has more than one paragraph -- a role rule "
+            "the skill does not itself carry may have been added by hand"
+        )
+
+    def test_mutation_a_hand_inserted_rule_is_caught(self) -> None:
+        text = (AGENTS_DIR / "worker.md").read_text(encoding="utf-8")
+        mutated = text.rstrip("\n") + "\n\nAlso: never use tabs.\n"
+        body = _generated_body(mutated)
+        assert not (
+            body.startswith("Loads the `worker` role skill") and body.count("\n\n") == 0
+        ), "the hand-inserted sentence must be caught, not waved through"
+
+
+class TestAdapterSkillsFieldNamesItsOwnRoleSkill:
+    """Coordinator review, change 2. The `skills:` field is what makes the
+    role's own text reach the subagent at all (see the module docstring's
+    link); an adapter whose `skills:` names the wrong skill -- or none --
+    would run with someone else's role prompt, or none."""
+
+    @pytest.mark.parametrize("role", ROLES)
+    def test_skills_field_names_exactly_its_own_role(self, role: str) -> None:
+        text = (AGENTS_DIR / f"{role}.md").read_text(encoding="utf-8")
+        assert _skills_field(text) == [role], (
+            f"{role}.md's 'skills:' field is {_skills_field(text)!r}, not "
+            f"[{role!r}] -- the subagent would not preload its own role text"
+        )
+
+    def test_mutation_swapping_the_named_skill_is_caught(self) -> None:
+        text = (AGENTS_DIR / "worker.md").read_text(encoding="utf-8")
+        mutated = text.replace("  - worker", "  - reviewer")
+        assert _skills_field(mutated) != ["worker"], (
+            "swapping the named skill must be caught, not waved through"
+        )
+
+
+class TestAdapterSkillsFieldResolvesToAnExistingSkillDirectory:
+    """Coordinator review, change 3 (HIGH). The old doctor-route-check
+    mutation could never go red: AGENTS.md's guild block already names
+    manager/worker/reviewer directly, so `routes.reachable` stayed `ok`
+    regardless of what an adapter's own `skills:` field said. This exercises
+    the actual resolution the generator (and, at runtime, Claude Code's own
+    skill loader) performs, with a mutation that has no other path to
+    passing."""
+
+    @pytest.mark.parametrize("role", ROLES)
+    def test_the_named_skill_resolves_under_skills_root(self, role: str) -> None:
+        text = (AGENTS_DIR / f"{role}.md").read_text(encoding="utf-8")
+        (skill_name,) = _skills_field(text)
+        resolved = gen.resolve_skill_dir(SKILLS_ROOT, skill_name)
+        assert (resolved / "SKILL.md").is_file()
+
+    def test_mutation_a_typo_in_the_manifest_fails_resolution(
+        self, tmp_path: Path
+    ) -> None:
+        mutated_manifest = tmp_path / "_sources.json"
+        data = json.loads(SOURCES_JSON.read_text(encoding="utf-8"))
+        data["worker"]["skill"] = "wroker"  # transposed, the realistic typo
+        mutated_manifest.write_text(json.dumps(data), encoding="utf-8")
+
+        with pytest.raises(ValueError, match="wroker"):
+            gen.generate(tmp_path / "out", SKILLS_ROOT, mutated_manifest)
+
+
+class TestManifestSkillResolutionIsCaseSensitive:
+    """Coordinator review item 4 (originally a 7-line answer): a case-only
+    mismatch between the manifest and the real directory name must not
+    silently resolve on a case-insensitive filesystem (Windows, macOS
+    default)."""
+
+    def test_an_exact_case_match_resolves(self) -> None:
+        resolved = gen.resolve_skill_dir(SKILLS_ROOT, "manager")
+        assert resolved.name == "manager"
+
+    def test_a_case_only_mismatch_is_refused(self, tmp_path: Path) -> None:
+        skills_root = tmp_path / "skills"
+        (skills_root / "roles" / "Manager").mkdir(parents=True)
+        (skills_root / "roles" / "Manager" / "SKILL.md").write_text(
+            "---\nname: Manager\ndescription: x\n---\n", encoding="utf-8"
+        )
+        with pytest.raises(ValueError, match="manager"):
+            gen.resolve_skill_dir(skills_root, "manager")
+
+
+class TestGeneratorRefusesOnMissingOrEmptySkill:
+    def test_a_missing_skill_directory_raises(self, tmp_path: Path) -> None:
+        skills_root = tmp_path / "skills"
+        skills_root.mkdir()
+        manifest = tmp_path / "_sources.json"
+        manifest.write_text(
+            json.dumps({"ghost": {"skill": "ghost", "model": "x", "tools": []}}),
+            encoding="utf-8",
+        )
+        with pytest.raises(ValueError, match="ghost"):
+            gen.generate(tmp_path / "out", skills_root, manifest)
+
+    def test_an_empty_description_raises(self, tmp_path: Path) -> None:
+        skills_root = tmp_path / "skills"
+        skill_dir = skills_root / "roles" / "blank"
+        skill_dir.mkdir(parents=True)
+        (skill_dir / "SKILL.md").write_text(
+            "---\nname: blank\ndescription:\n---\n\nbody\n", encoding="utf-8"
+        )
+        manifest = tmp_path / "_sources.json"
+        manifest.write_text(
+            json.dumps({"blank": {"skill": "blank", "model": "x", "tools": []}}),
+            encoding="utf-8",
+        )
+        with pytest.raises(ValueError, match="empty description"):
+            gen.generate(tmp_path / "out", skills_root, manifest)
+
+
+class TestABomPrefixedSkillIsReadNotRefused:
+    """DG-402, coordinator review, LOW. A leading UTF-8 BOM is invisible in
+    most editors and some tools write one by default on Windows. Read with
+    plain `utf-8`, it survives as a literal `\\ufeff` glued onto the
+    frontmatter fence, so `text.startswith("---")` is false and a
+    perfectly ordinary, BOM-prefixed `SKILL.md` was refused outright rather
+    than read. `utf-8-sig` strips a BOM if present (and is identical to
+    `utf-8` when there is none), so this must now read straight through."""
+
+    def test_a_bom_prefixed_skill_md_is_read_not_refused(self, tmp_path: Path) -> None:
+        skill_dir = tmp_path / "skills" / "roles" / "bommed"
+        skill_dir.mkdir(parents=True)
+        content = "---\nname: bommed\ndescription: Use when testing a BOM.\n---\n"
+        (skill_dir / "SKILL.md").write_bytes(b"\xef\xbb\xbf" + content.encode("utf-8"))
+
+        description = gen.skill_description(skill_dir / "SKILL.md")
+
+        assert description == "Use when testing a BOM."
+
+    def test_mutation_reading_plain_utf8_refuses_the_same_file(
+        self, tmp_path: Path
+    ) -> None:
+        """The bug being fixed, proven directly against the file this class
+        uses: reading the exact same bytes with plain `utf-8` instead of
+        `utf-8-sig` must reproduce the refusal."""
+        skill_dir = tmp_path / "skills" / "roles" / "bommed"
+        skill_dir.mkdir(parents=True)
+        content = "---\nname: bommed\ndescription: Use when testing a BOM.\n---\n"
+        skill_md = skill_dir / "SKILL.md"
+        skill_md.write_bytes(b"\xef\xbb\xbf" + content.encode("utf-8"))
+
+        text = skill_md.read_text(encoding="utf-8")
+        assert not text.startswith("---"), (
+            "plain utf-8 must still see the BOM character glued onto the "
+            "fence -- if this assertion itself fails, the mutation no "
+            "longer reproduces the bug it is meant to prove"
+        )
+
+
+class TestNoDependencySentinelWasRemoved:
+    """DG-402, coordinator review, HIGH (round 2). The `-` sentinel for
+    "this role has no skill dependency" was itself a fail-open: a manifest
+    edit that dropped or typo'd a role's `skill` key produced `-`, exit 0,
+    and the installer treated that as "nothing to check" rather than "this
+    is broken". Every role adapter this repository ships needs its own
+    skill, so a missing/empty/non-string `skill` must now refuse, in the
+    generator and in `_role_skill.py` alike -- there is no "no dependency"
+    answer left at all.
+    """
+
+    def _manifest_missing_skill_for(self, tmp_path: Path, role: str) -> Path:
+        data = json.loads(SOURCES_JSON.read_text(encoding="utf-8"))
+        del data[role]["skill"]
+        manifest = tmp_path / "_sources.json"
+        manifest.write_text(json.dumps(data), encoding="utf-8")
+        return manifest
+
+    def test_generator_refuses_when_a_role_is_missing_its_skill_key(
+        self, tmp_path: Path
+    ) -> None:
+        manifest = self._manifest_missing_skill_for(tmp_path, "worker")
+        with pytest.raises(ValueError, match="worker"):
+            gen.generate(tmp_path / "out", SKILLS_ROOT, manifest)
+
+    def test_role_skill_script_exits_non_zero_for_a_role_missing_its_skill_key(
+        self, tmp_path: Path
+    ) -> None:
+        manifest = self._manifest_missing_skill_for(tmp_path, "worker")
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(REPO_ROOT / "scripts" / "install" / "_role_skill.py"),
+                str(manifest),
+                "worker",
+            ],
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode != 0, (
+            "a role missing its 'skill' key must be refused, not printed "
+            f"as the sentinel '-' or any other silent answer\n{result.stdout!r}"
+        )
+        assert result.stdout.strip() != "-", (
+            "the old sentinel must never be printed again"
+        )
+
+    @pytest.mark.parametrize("bad_value", [None, "", "   ", 123, [], {}], ids=repr)
+    def test_role_skill_script_exits_non_zero_for_every_invalid_skill_value(
+        self, tmp_path: Path, bad_value: object
+    ) -> None:
+        data = json.loads(SOURCES_JSON.read_text(encoding="utf-8"))
+        data["worker"]["skill"] = bad_value
+        manifest = tmp_path / "_sources.json"
+        manifest.write_text(json.dumps(data), encoding="utf-8")
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(REPO_ROOT / "scripts" / "install" / "_role_skill.py"),
+                str(manifest),
+                "worker",
+            ],
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode != 0, (
+            f"an invalid 'skill' value ({bad_value!r}) must be refused\n"
+            f"{result.stdout!r}"
+        )
+        assert result.stdout.strip() != "-", (
+            "the old sentinel must never be printed again"
+        )
+
+    def test_mutation_restoring_the_sentinel_branch_is_caught(
+        self, tmp_path: Path
+    ) -> None:
+        """Paste-able proof: restore the exact old sentinel logic over a
+        copy of the real `_role_skill.py` and show it now answers `-`,
+        exit 0, for the same missing-skill-key manifest the tests above
+        refuse -- the precise regression this class exists to catch."""
+        real_script = REPO_ROOT / "scripts" / "install" / "_role_skill.py"
+        text = real_script.read_text(encoding="utf-8")
+        assert "NO_DEPENDENCY" not in text, (
+            "the sentinel constant is already back -- nothing to mutate"
+        )
+
+        mutated = text.replace(
+            "    entry = data.get(role_name)\n"
+            "    if not isinstance(entry, dict):\n"
+            "        print(\n"
+            '            f"{argv[0]}: {role_name!r} has no entry in {sources_json}",\n'
+            "            file=sys.stderr,\n"
+            "        )\n"
+            "        return 1\n"
+            "\n"
+            '    skill = entry.get("skill")\n'
+            "    if not isinstance(skill, str) or not skill.strip():\n"
+            "        print(\n"
+            "            f\"{argv[0]}: {role_name!r}'s 'skill' in {sources_json} is \"\n"
+            '            "missing, empty or not a string",\n'
+            "            file=sys.stderr,\n"
+            "        )\n"
+            "        return 1\n"
+            "\n"
+            "    print(skill)\n"
+            "    return 0",
+            "    entry = data.get(role_name)\n"
+            '    skill = entry.get("skill") if isinstance(entry, dict) else None\n'
+            '    print(skill if skill else "-")\n'
+            "    return 0",
+        )
+        assert mutated != text, "the mutation did not change anything -- fix it"
+
+        mutated_script = tmp_path / "_role_skill.py"
+        mutated_script.write_text(mutated, encoding="utf-8")
+
+        manifest = self._manifest_missing_skill_for(tmp_path, "worker")
+        result = subprocess.run(
+            [sys.executable, str(mutated_script), str(manifest), "worker"],
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode == 0, (
+            "the restored sentinel branch should reproduce the old "
+            f"behaviour (exit 0)\n{result.stdout!r}\n{result.stderr!r}"
+        )
+        assert result.stdout.strip() == "-", (
+            "the restored sentinel branch should print '-' for the same "
+            f"missing-skill-key manifest\n{result.stdout!r}"
+        )
+
+
+class TestTheCommittedManifestResolvesEveryRole:
+    """DG-402, coordinator review (round 2). Pins the actual, committed
+    `agents/_sources.json` down directly -- not a fixture standing in for
+    it -- so a hand-edit that drops or renames a role's `skill` entry is
+    caught here even if nothing else in the suite happens to exercise that
+    exact role."""
+
+    def test_each_shipped_role_names_itself_as_its_own_skill(self) -> None:
+        data = json.loads(SOURCES_JSON.read_text(encoding="utf-8"))
+        for role in ROLES:
+            assert role in data, f"{role} has no entry in {SOURCES_JSON}"
+            assert data[role].get("skill") == role, (
+                f"{role}'s 'skill' in {SOURCES_JSON} is "
+                f"{data[role].get('skill')!r}, not {role!r}"
+            )
+
+    def test_each_shipped_roles_skill_resolves_to_disk(self) -> None:
+        for role in ROLES:
+            resolved = gen.resolve_skill_dir(SKILLS_ROOT, role)
+            assert resolved == SKILLS_ROOT / "roles" / role
+            assert (resolved / "SKILL.md").is_file()
