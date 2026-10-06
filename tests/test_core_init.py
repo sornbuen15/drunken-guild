@@ -1418,6 +1418,250 @@ class TestTrackedInstructionFileRefusal:
         assert registry_path.read_bytes() == before
 
 
+class TestJiraBlockFromConfigRepo:
+    """DG-443: the Jira block can come from the config repo's own
+    `jira.json`, instead of `--jira-*` flags — credential as a reference
+    only, and no identity (`email`) in the config repo at all."""
+
+    def test_jira_block_is_read_from_the_config_repo_fragment(self, tmp_path) -> None:
+        checkout = _init_git_repo(tmp_path / "app")
+        config_repo = tmp_path / "config-repo"
+        project_folder = config_repo / "app"
+        project_folder.mkdir(parents=True)
+        (project_folder / "jira.json").write_text(
+            json.dumps(
+                {
+                    "url": "https://example.atlassian.net",
+                    "project_key": "ALPHA",
+                    "credential": "env://JIRA_TOKEN_ALPHA",
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        code = run(
+            "--project",
+            "app",
+            "--path",
+            str(checkout),
+            "--config-repo",
+            str(config_repo),
+        )
+
+        assert code == 0
+        jira = registry_contents(tmp_path)["projects"]["app"]["jira"]
+        assert jira == {
+            "url": "https://example.atlassian.net",
+            "project_key": "ALPHA",
+            "credential": "env://JIRA_TOKEN_ALPHA",
+        }
+
+    def test_an_email_key_in_the_jira_fragment_is_refused(self, tmp_path) -> None:
+        checkout = _init_git_repo(tmp_path / "app")
+        config_repo = tmp_path / "config-repo"
+        project_folder = config_repo / "app"
+        project_folder.mkdir(parents=True)
+        (project_folder / "jira.json").write_text(
+            json.dumps(
+                {
+                    "url": "https://example.atlassian.net",
+                    "project_key": "ALPHA",
+                    "credential": "env://JIRA_TOKEN_ALPHA",
+                    "email": "person@realcorp.test",
+                }
+            ),
+            encoding="utf-8",
+        )
+        registry_path = tmp_path / "state" / "projects.json"
+
+        code = run(
+            "--project",
+            "app",
+            "--path",
+            str(checkout),
+            "--config-repo",
+            str(config_repo),
+        )
+
+        assert code == 1
+        assert not registry_path.exists()
+
+    def test_a_literal_token_in_the_jira_fragment_credential_is_refused_before_any_write(
+        self, tmp_path
+    ) -> None:
+        checkout = _init_git_repo(tmp_path / "app")
+        config_repo = tmp_path / "config-repo"
+        project_folder = config_repo / "app"
+        project_folder.mkdir(parents=True)
+        bare_token = "ATATT" + "x" * 24
+        (project_folder / "jira.json").write_text(
+            json.dumps(
+                {
+                    "url": "https://example.atlassian.net",
+                    "project_key": "ALPHA",
+                    "credential": bare_token,
+                }
+            ),
+            encoding="utf-8",
+        )
+        registry_path = tmp_path / "state" / "projects.json"
+
+        code = run(
+            "--project",
+            "app",
+            "--path",
+            str(checkout),
+            "--config-repo",
+            str(config_repo),
+        )
+
+        assert code == 1
+        assert not registry_path.exists()
+
+    def test_a_token_shaped_url_field_in_the_jira_fragment_is_refused(
+        self, tmp_path
+    ) -> None:
+        checkout = _init_git_repo(tmp_path / "app")
+        config_repo = tmp_path / "config-repo"
+        project_folder = config_repo / "app"
+        project_folder.mkdir(parents=True)
+        stray_secret = "ghp_" + "a" * 36
+        (project_folder / "jira.json").write_text(
+            json.dumps(
+                {
+                    "url": f"https://example.atlassian.net/{stray_secret}",
+                    "project_key": "ALPHA",
+                    "credential": "env://JIRA_TOKEN_ALPHA",
+                }
+            ),
+            encoding="utf-8",
+        )
+        registry_path = tmp_path / "state" / "projects.json"
+
+        code = run(
+            "--project",
+            "app",
+            "--path",
+            str(checkout),
+            "--config-repo",
+            str(config_repo),
+        )
+
+        assert code == 1
+        assert not registry_path.exists()
+
+    def test_a_missing_jira_fragment_is_not_an_error(self, tmp_path) -> None:
+        checkout = _init_git_repo(tmp_path / "app")
+        config_repo = tmp_path / "config-repo"
+        project_folder = config_repo / "app"
+        project_folder.mkdir(parents=True)
+        (project_folder / "AGENTS.md").write_text("clean\n", encoding="utf-8")
+
+        code = run(
+            "--project",
+            "app",
+            "--path",
+            str(checkout),
+            "--config-repo",
+            str(config_repo),
+        )
+
+        assert code == 0
+        assert "jira" not in registry_contents(tmp_path)["projects"]["app"]
+
+    def test_a_malformed_jira_fragment_is_reported_not_silently_ignored(
+        self, tmp_path
+    ) -> None:
+        checkout = _init_git_repo(tmp_path / "app")
+        config_repo = tmp_path / "config-repo"
+        project_folder = config_repo / "app"
+        project_folder.mkdir(parents=True)
+        (project_folder / "jira.json").write_text("{not valid json", encoding="utf-8")
+        registry_path = tmp_path / "state" / "projects.json"
+
+        code = run(
+            "--project",
+            "app",
+            "--path",
+            str(checkout),
+            "--config-repo",
+            str(config_repo),
+        )
+
+        assert code == 1
+        assert not registry_path.exists()
+
+    def test_an_earlier_cli_written_jira_block_survives_a_config_repo_run_with_no_fragment(
+        self, tmp_path
+    ) -> None:
+        checkout = _init_git_repo(tmp_path / "app")
+        assert (
+            run(
+                "--project",
+                "app",
+                "--path",
+                str(checkout),
+                "--jira-url",
+                "https://example.atlassian.net",
+                "--jira-email",
+                "person@realcorp.test",
+                "--jira-project-key",
+                "ALPHA",
+                "--jira-credential",
+                "env://JIRA_TOKEN_ALPHA",
+            )
+            == 0
+        )
+        before = registry_contents(tmp_path)["projects"]["app"]["jira"]
+
+        config_repo = tmp_path / "config-repo"
+        project_folder = config_repo / "app"
+        project_folder.mkdir(parents=True)
+        (project_folder / "AGENTS.md").write_text("clean\n", encoding="utf-8")
+
+        code = run(
+            "--project",
+            "app",
+            "--config-repo",
+            str(config_repo),
+            "--overwrite-ai-layer",
+        )
+
+        assert code == 0
+        assert registry_contents(tmp_path)["projects"]["app"]["jira"] == before
+
+
+class TestContentScanRefusalBeforeAnyWriteEndToEnd:
+    """DG-443 review (comment 11482, decision 4): a config-repo content
+    refusal on a *new* project must leave the registry absent, not just
+    the project checkout untouched — the registry write happens strictly
+    after every validation, not before it."""
+
+    def test_a_content_scan_refusal_on_a_new_project_leaves_the_registry_absent(
+        self, tmp_path
+    ) -> None:
+        checkout = _init_git_repo(tmp_path / "app")
+        config_repo = tmp_path / "config-repo"
+        project_folder = config_repo / "app"
+        project_folder.mkdir(parents=True)
+        secret = "ghp_" + "a" * 36
+        (project_folder / "AGENTS.md").write_text(secret, encoding="utf-8")
+        registry_path = tmp_path / "state" / "projects.json"
+
+        code = run(
+            "--project",
+            "app",
+            "--path",
+            str(checkout),
+            "--config-repo",
+            str(config_repo),
+        )
+
+        assert code == 1
+        assert not registry_path.exists()
+        assert not (checkout / "AGENTS.md").exists()
+
+
 def _write_sleepy_git(bin_dir: Path, sleep_seconds: float) -> None:
     """A git stand-in that sleeps for *sleep_seconds* then exits 0, for
     proving a real ``subprocess`` timeout fires rather than a mocked
@@ -1523,3 +1767,178 @@ class TestTrackedInstructionFileRefusalUnderAHungGit:
             "exactly like any other refused run — never silently proceed "
             "as though nothing were tracked"
         )
+
+
+class TestContentScanGapsFoundInReviewAreRefusedThroughRealInit:
+    """DG-443 review round 2 (CRITICAL 1-3): the reviewer reproduced each
+    end to end through ``python -m core.init`` — ``scan_text`` returned
+    ``[]`` for a JSON-quoted secret, a PEM private key, and a fine-grained
+    GitHub PAT. Each is exercised here the same way: through the real
+    ``drunken-init --config-repo`` flow, registry absent on refusal."""
+
+    def test_a_json_quoted_secret_in_settings_json_is_refused(self, tmp_path) -> None:
+        checkout = _init_git_repo(tmp_path / "app")
+        config_repo = tmp_path / "config-repo"
+        project_folder = config_repo / "app"
+        claude_dir = project_folder / ".claude"
+        claude_dir.mkdir(parents=True)
+        secret_value = "v3rys3cr3tValueThatIsLong"
+        (claude_dir / "settings.json").write_text(
+            json.dumps({"password": secret_value}), encoding="utf-8"
+        )
+        registry_path = tmp_path / "state" / "projects.json"
+
+        code = run(
+            "--project",
+            "app",
+            "--path",
+            str(checkout),
+            "--config-repo",
+            str(config_repo),
+        )
+
+        assert code == 1
+        assert not registry_path.exists()
+        assert not (checkout / ".claude" / "settings.json").exists()
+
+    def test_a_pem_private_key_in_agents_md_is_refused(self, tmp_path) -> None:
+        checkout = _init_git_repo(tmp_path / "app")
+        config_repo = tmp_path / "config-repo"
+        project_folder = config_repo / "app"
+        project_folder.mkdir(parents=True)
+        dashes = "-" * 5
+        pem_line = f"{dashes}BEGIN RSA PRIVATE KEY{dashes}"
+        (project_folder / "AGENTS.md").write_text(f"{pem_line}\n", encoding="utf-8")
+        registry_path = tmp_path / "state" / "projects.json"
+
+        code = run(
+            "--project",
+            "app",
+            "--path",
+            str(checkout),
+            "--config-repo",
+            str(config_repo),
+        )
+
+        assert code == 1
+        assert not registry_path.exists()
+        assert not (checkout / "AGENTS.md").exists()
+
+    def test_a_github_fine_grained_pat_in_conventions_md_is_refused(
+        self, tmp_path
+    ) -> None:
+        checkout = _init_git_repo(tmp_path / "app")
+        config_repo = tmp_path / "config-repo"
+        project_folder = config_repo / "app"
+        project_folder.mkdir(parents=True)
+        pat = "github_pat_" + "A" * 22 + "_" + "B" * 59
+        (project_folder / "CONVENTIONS.md").write_text(f"{pat}\n", encoding="utf-8")
+        registry_path = tmp_path / "state" / "projects.json"
+
+        code = run(
+            "--project",
+            "app",
+            "--path",
+            str(checkout),
+            "--config-repo",
+            str(config_repo),
+        )
+
+        assert code == 1
+        assert not registry_path.exists()
+        assert not (checkout / "CONVENTIONS.md").exists()
+
+    def test_a_curl_short_option_cluster_in_settings_json_is_refused(
+        self, tmp_path
+    ) -> None:
+        """DG-443 review round 4: `-su` (a short-option cluster ending in
+        `u`, not the bare `-u` round 3 already covered) in a hook command
+        inside `.claude/settings.json`, exercised through the real
+        `drunken-init --config-repo` flow, exactly as the reviewer
+        reproduced the gap."""
+        checkout = _init_git_repo(tmp_path / "app")
+        config_repo = tmp_path / "config-repo"
+        project_folder = config_repo / "app"
+        claude_dir = project_folder / ".claude"
+        claude_dir.mkdir(parents=True)
+        secret_value = "v3rys3cr3tValueThatIsLong"
+        hook_command = (
+            "curl" + " " + "-su" + " " + "alice:" + secret_value + " " + "https://x"
+        )
+        (claude_dir / "settings.json").write_text(
+            json.dumps(
+                {
+                    "hooks": {
+                        "SessionStart": [
+                            {"hooks": [{"type": "command", "command": hook_command}]}
+                        ]
+                    }
+                }
+            ),
+            encoding="utf-8",
+        )
+        registry_path = tmp_path / "state" / "projects.json"
+
+        code = run(
+            "--project",
+            "app",
+            "--path",
+            str(checkout),
+            "--config-repo",
+            str(config_repo),
+        )
+
+        assert code == 1
+        assert not registry_path.exists()
+        assert not (checkout / ".claude" / "settings.json").exists()
+
+    def test_a_powershell_static_constructor_in_settings_json_is_refused(
+        self, tmp_path
+    ) -> None:
+        """DG-443 review round 5: `[PSCredential]::new("user","pass")`
+        (the static constructor, missed by round 4's `PSCredential\\s*\\(`
+        pattern, which only matched the `New-Object ... PSCredential(`
+        form) inside a PowerShell `-Command` hook in
+        `.claude/settings.json`, through the real `drunken-init
+        --config-repo` flow, exactly as the reviewer reproduced the gap."""
+        checkout = _init_git_repo(tmp_path / "app")
+        config_repo = tmp_path / "config-repo"
+        project_folder = config_repo / "app"
+        claude_dir = project_folder / ".claude"
+        claude_dir.mkdir(parents=True)
+        secret_value = "v3rys3cr3tValueThatIsLong"
+        hook_command = (
+            "powershell -Command "
+            + "["
+            + "PSCredential"
+            + "]::new("
+            + '"alice", "'
+            + secret_value
+            + '")'
+        )
+        (claude_dir / "settings.json").write_text(
+            json.dumps(
+                {
+                    "hooks": {
+                        "SessionStart": [
+                            {"hooks": [{"type": "command", "command": hook_command}]}
+                        ]
+                    }
+                }
+            ),
+            encoding="utf-8",
+        )
+        registry_path = tmp_path / "state" / "projects.json"
+
+        code = run(
+            "--project",
+            "app",
+            "--path",
+            str(checkout),
+            "--config-repo",
+            str(config_repo),
+        )
+
+        assert code == 1
+        assert not registry_path.exists()
+        assert not (checkout / ".claude" / "settings.json").exists()

@@ -29,7 +29,7 @@ from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from typing import Any, Final, Literal, Optional, Sequence
 
-from . import ai_layer, paths, secrets
+from . import ai_layer, content_scan, paths, secrets
 from .config_gen import (
     count_pins,
     export_requirements,
@@ -39,6 +39,7 @@ from .config_gen import (
 from .context import ProjectContext
 from .errors import DrunkenError
 from .exclude import GitTimedOutError, NotAGitRepositoryError, run_git
+from .layer_copy import ai_layer_files_under
 from .redact import redact
 from .registry import ProjectRegistry
 
@@ -1794,6 +1795,95 @@ def _check_project_layering(
     report.add(name, "ok", "no AI-layer paths tracked")
 
 
+def _check_project_content_scan(
+    report: Report,
+    project_id: str,
+    registry: ProjectRegistry,
+    repo_root: Optional[Path],
+) -> None:
+    """DG-443: whether any of *project_id*'s already-copied, on-disk
+    AI-layer files hold a credential-, identity- or path-shaped value.
+
+    Read-only, and a second, independent line of defence behind
+    ``drunken-init``'s own pre-write refusal (:mod:`core.layer_copy`,
+    :mod:`core.content_scan`) — this catches a file hand-edited after the
+    copy, or one copied in by a build that predates this check entirely.
+    Walks the checkout with :func:`core.layer_copy.ai_layer_files_under`,
+    the same symlink-refusing walk ``drunken-init`` itself uses, so a
+    symlinked ``.claude`` pointed outside the project is never read here
+    either — one definition of "walk a project's AI layer", not two.
+
+    A missing checkout, same as :func:`_check_project_layering`, is a
+    **skip**, never a pass — the question was not asked, which is not the
+    same fact as "asked, found clean". This repository's own checkout is
+    exempt for the same reason that check exempts it: here the AI layer is
+    authored, not received from a config repo under this rule.
+    """
+    name = f"content_scan.{project_id}"
+    try:
+        config = registry.get_project_config(project_id)
+    except DrunkenError as exc:
+        report.add_error(name, exc)
+        return
+
+    if not config.path:
+        report.add(
+            name,
+            "skip",
+            "No path declared, so there is no checkout to inspect.",
+        )
+        return
+
+    root = config.resolved_path("this operation")
+    git_root = root / config.git_root if config.git_root else root
+
+    if repo_root is not None and _same_checkout(git_root, repo_root):
+        report.add(
+            name,
+            "skip",
+            f"{git_root} is this repository's own checkout, exempt by rule.",
+        )
+        return
+
+    if not git_root.is_dir():
+        report.add(name, "skip", describe_missing_git_root(git_root))
+        return
+
+    findings = []
+    for relative in ai_layer_files_under(git_root):
+        findings.extend(
+            content_scan.scan_file(git_root / relative, relative.as_posix())
+        )
+
+    if findings:
+        detail = "; ".join(finding.describe() for finding in findings)
+        report.add(
+            name,
+            "fail",
+            f"{len(findings)} finding(s) in the project's own AI-layer "
+            f"content: {detail}",
+            remediation=(
+                "Replace the value with a reference (env://, file://, "
+                "op://, keyring://), or remove it from the project and the "
+                "config repo it was copied from."
+            ),
+        )
+        return
+
+    report.add(name, "ok", "no credential-, identity- or path-shaped content found")
+
+
+def _check_content_scan(
+    report: Report,
+    project_ids: Sequence[str],
+    registry: ProjectRegistry,
+    repo_root: Optional[Path],
+) -> None:
+    """For each registered project, DG-443's read-only content scan."""
+    for project_id in project_ids:
+        _check_project_content_scan(report, project_id, registry, repo_root)
+
+
 def _check_layering(
     report: Report,
     project_ids: Sequence[str],
@@ -1843,6 +1933,7 @@ def run_doctor(
         _check_project(report, project_id, registry, offline)
 
     _check_layering(report, project_ids, registry, source_tree_root())
+    _check_content_scan(report, project_ids, registry, source_tree_root())
 
     _check_deployment(report, source_root=source_tree_root())
     _check_ai_layer(report)

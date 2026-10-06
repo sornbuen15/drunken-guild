@@ -134,6 +134,13 @@ from pathlib import Path
 from typing import Callable, Sequence
 
 from .ai_layer import is_ai_layer_path
+from .content_scan import (
+    ALLOWLIST_FILENAME,
+    apply_allowlist,
+    parse_allowlist,
+    scan_allowlist_file,
+    scan_file,
+)
 from .errors import DrunkenError, ValidationError
 from .exclude import ExcludeResult, exclude_ai_layer, resolve_info_exclude_path, run_git
 from .registry import validate_project_id
@@ -162,6 +169,16 @@ class TrackedFileConflictError(ValidationError):
     """A destination the project's own git already tracks would be overwritten."""
 
     code = "tracked_file_conflict"
+
+
+class ContentScanRefusedError(ValidationError):
+    """A credential-, identity- or path-shaped value sat in the config
+    repo's own AI-layer content (DG-443) — refused before a single byte is
+    copied. Every finding across every file is named at once; see
+    :mod:`core.content_scan`.
+    """
+
+    code = "content_scan_refused"
 
 
 class GitTrackedCheckFailedError(ValidationError):
@@ -249,9 +266,9 @@ def _resolve_project_folder(config_repo: Path, project_id: str) -> Path:
     return project_folder
 
 
-def _layer_files(project_folder: Path) -> list[Path]:
-    """Every regular file under *project_folder* that is on the AI-layer
-    list, repo-relative to it.
+def ai_layer_files_under(root: Path) -> list[Path]:
+    """Every regular file under *root* that is on the AI-layer list,
+    relative to *root*.
 
     A manual stack-based walk, not ``Path.rglob`` — deliberately: this must
     never descend into a symlinked directory (a config repo's ``.claude``
@@ -260,11 +277,49 @@ def _layer_files(project_folder: Path) -> list[Path]:
     Python version's ``glob``/``rglob`` happens to ship with is exactly the
     kind of implicit behaviour this checks for itself instead. Filtered
     through :func:`core.ai_layer.is_ai_layer_path` — the one list — so a
-    config repo folder holding something else (a README, a note-to-self)
-    can never be copied in, even by accident.
+    folder holding something else (a README, a note-to-self) can never be
+    picked up, even by accident.
+
+    Public (DG-443): the exact same walk :mod:`core.doctor` needs to scan a
+    project's *already-copied*, on-disk AI-layer files read-only — reused
+    rather than reimplemented, so "never follow a symlink while walking a
+    project's AI layer" has one definition, not two that could drift. This
+    also means the walk — and so the content scan — is identical for the
+    copy path and doctor's re-scan: neither can be blind to something the
+    other would catch.
+
+    **Never descends into a nested repository (DG-443 review).** Every
+    subdirectory other than *root* itself that holds its own real git
+    marker (see :func:`_is_real_git_marker`) is a separate repository's
+    boundary, not more of this one's tree, and is skipped the same way a
+    symlink already is. This was found the hard way:
+    :data:`core.ai_layer.AI_LAYER_ROOT_DIRS` walks ``.claude`` to any
+    depth, and Claude Code's own ``git worktree`` feature keeps every
+    active worktree *inside* a project's ``.claude/worktrees/`` — each one
+    a full, independent checkout with its own dependency tree. Before this
+    guard, calling this against a real, long-lived project (not a config
+    repo's small, author-controlled folder, the only caller this walk had
+    until doctor's read-only check, DG-443) walked every worktree's entire
+    ``node_modules``/``vendor`` tree too, multiplying a few thousand files
+    into roughly a million and turning a diagnostic command into a
+    multi-minute hang. Nothing about *what counts as AI-layer content*
+    changes — only where the walk itself is willing to still be looking.
+
+    **The marker must be a real one, not merely named ``.git`` (DG-443
+    review round 2).** An earlier version of this guard skipped *any*
+    directory entry named ``.git`` at all — directory or plain file,
+    content never inspected. That is exactly backwards for a walk built to
+    catch a leaked secret: a plain text file someone happened to name
+    ``.git`` (not a repository marker at all) would have hidden everything
+    beneath it from both the copy-in scan *and* doctor's re-scan, with no
+    error, no finding, nothing. :func:`_is_real_git_marker` instead reads
+    the entry — a directory only counts if it holds a ``HEAD`` file (what
+    every real ``.git`` directory has), a file only counts if its first
+    line starts with ``gitdir:`` (an ordinary git worktree pointer) —
+    before this walk trusts it as a boundary.
     """
     files: list[Path] = []
-    stack = [project_folder]
+    stack = [root]
     while stack:
         current = stack.pop()
         for entry in sorted(current.iterdir()):
@@ -272,13 +327,103 @@ def _layer_files(project_folder: Path) -> list[Path]:
                 # Never followed, file or directory: see the docstring.
                 continue
             if entry.is_dir():
+                if _is_real_git_marker(entry / ".git"):
+                    # A nested repository (or worktree) boundary: see the
+                    # docstring. `entry` is always a descendant discovered
+                    # through `iterdir()`, never *root* itself (root is
+                    # only ever pushed directly, never rediscovered this
+                    # way), so this never mistakes root's own `.git` for a
+                    # nested one.
+                    continue
                 stack.append(entry)
                 continue
             if entry.is_file():
-                relative = entry.relative_to(project_folder)
+                relative = entry.relative_to(root)
                 if is_ai_layer_path(relative.as_posix()):
                     files.append(relative)
     return sorted(files)
+
+
+def _is_real_git_marker(candidate: Path) -> bool:
+    """Whether *candidate* (a ``.git`` entry found while walking) is an
+    actual git repository marker, not merely a file or directory that
+    happens to be named ``.git`` — see :func:`ai_layer_files_under`'s
+    docstring for why this distinction matters.
+
+    A directory: real only if it holds a ``HEAD`` file, which every git
+    repository's own ``.git`` directory has (the loose or packed object
+    store, the index and the rest can legitimately be absent — a fresh
+    ``git init`` with nothing committed yet still has ``HEAD``, before a
+    single object exists). A file: real only if its first line starts
+    with ``gitdir:`` — the one-line pointer format `git worktree` writes,
+    and the only shape a real ``.git`` is ever a plain file instead of a
+    directory. Anything else — a directory with no ``HEAD``, a file with
+    different content, or neither existing at all — is not a marker, and
+    this walk keeps going through it.
+    """
+    if candidate.is_dir():
+        return (candidate / "HEAD").is_file()
+    if candidate.is_file():
+        try:
+            with candidate.open("r", encoding="utf-8", errors="replace") as handle:
+                first_line = handle.readline()
+        except OSError:
+            return False
+        return first_line.startswith("gitdir:")
+    return False
+
+
+#: Kept as the name every call site in this module already used before
+#: DG-443 made the walk reusable from :mod:`core.doctor` too.
+_layer_files = ai_layer_files_under
+
+
+def _read_allowlist(project_folder: Path) -> frozenset[tuple[str, str, str]]:
+    """The config repo project folder's own `.drunken-scan-allow`, parsed —
+    empty when there is none. Never part of :func:`ai_layer_files_under`'s
+    result: it is not on :mod:`core.ai_layer`'s list, so it is never copied
+    into a project, by construction, not by a special case here.
+    """
+    allowlist_path = project_folder / ALLOWLIST_FILENAME
+    if not allowlist_path.is_file():
+        return frozenset()
+    text = allowlist_path.read_text(encoding="utf-8-sig")
+    return parse_allowlist(text, source_name=str(allowlist_path))
+
+
+def _scan_layer_files(project_folder: Path, layer_files: Sequence[Path]) -> None:
+    """Scan every AI-layer source file's own content, and the allowlist
+    file's own content, raising one :class:`ContentScanRefusedError` naming
+    every finding across every file — or nothing, before any write.
+
+    DG-443: run from inside the config-repo validation phase, strictly
+    before the exclude write or any copy — the same "nothing written until
+    every file has been checked" guarantee the tracked-file check already
+    gives, extended to a file's *content* rather than only its path.
+    """
+    allow = _read_allowlist(project_folder)
+
+    all_findings = []
+    for relative in layer_files:
+        findings = scan_file(project_folder / relative, relative.as_posix())
+        all_findings.extend(apply_allowlist(findings, allow))
+
+    allowlist_path = project_folder / ALLOWLIST_FILENAME
+    if allowlist_path.is_file():
+        allowlist_findings = scan_allowlist_file(allowlist_path)
+        all_findings.extend(apply_allowlist(allowlist_findings, allow))
+
+    if all_findings:
+        detail = "; ".join(finding.describe() for finding in all_findings)
+        raise ContentScanRefusedError(
+            f"{len(all_findings)} finding(s) in the config repo's own "
+            f"content, refusing before any write: {detail}",
+            remediation=(
+                "Replace the value with a reference (env://, file://, "
+                "op://, keyring://), remove it, or add an exact-text entry "
+                f"to {ALLOWLIST_FILENAME} naming why it is safe."
+            ),
+        )
 
 
 def _has_staged_content(git_root: Path, relative_to_git_root: str) -> bool:
@@ -591,35 +736,35 @@ def _checked_destination(
     return resolved, rel_to_git_root
 
 
-def copy_ai_layer_in(
+@dataclass(frozen=True)
+class ValidatedLayer:
+    """What :func:`validate_ai_layer_copy` found, nothing written yet —
+    handed to :func:`copy_ai_layer_in` so it never re-walks the config repo
+    or re-reads every file's content a second time just to copy it.
+    """
+
+    project_folder: Path
+    layer_files: tuple[Path, ...]
+    destinations: dict[Path, tuple[Path, str]]
+
+
+def validate_ai_layer_copy(
     config_repo: Path,
     project_id: str,
     project_root: Path,
     git_root: Path,
-    overwrite: bool = False,
-) -> LayerCopyResult:
-    """Copy *project_id*'s AI layer from *config_repo* into *project_root*.
+) -> ValidatedLayer:
+    """Everything :func:`copy_ai_layer_in` checks **before** writing
+    anything — the tracked-file check and (DG-443) the content scan of
+    every AI-layer source file's own text — with nothing written as a side
+    effect, so a caller (``drunken-init``) can run this *before* the
+    registry write too, and refuse the whole run, registry included,
+    rather than discovering a bad file only after the registry already
+    named a path to it.
 
-    *git_root* is the repository's real top level — pass
-    ``core.context.git_root_path()`` (or the registry's resolved
-    equivalent), never *project_root* itself when they differ (see the
-    module docstring). *project_root* is where the files actually land —
-    where an agent reads them from while working.
-
-    Refuses, writing nothing, when: *git_root* is not a git repository;
-    *project_id* has no folder in *config_repo*; any AI-layer path is
-    already tracked by *git_root*'s own git, whether or not it currently
-    exists on disk; or a destination is unsafe (a symlink, or outside
-    either root). An existing, untracked, on-disk file is skipped
-    (reported in ``.skipped``) unless *overwrite* is set.
-
-    The exclude writer runs against *git_root* **before** any file is
-    copied — so a clean ``git status`` is never a second manual step, and
-    a failure there (a corrupted marker block) leaves the project tree
-    exactly as it was, the same guarantee the tracked-file checks give. A
-    real I/O failure partway through the copy itself raises
-    :class:`PartialCopyError`, naming every file copied before it —
-    re-running after fixing the underlying problem is idempotent.
+    Raises exactly what :func:`copy_ai_layer_in` raises for the same bad
+    input; the difference is this never reaches the exclude write or the
+    copy loop at all.
     """
     config_repo = Path(config_repo)
     project_root = Path(project_root)
@@ -634,7 +779,12 @@ def copy_ai_layer_in(
     project_root_resolved = project_root.resolve()
 
     project_folder = _resolve_project_folder(config_repo, project_id)
-    layer_files = _layer_files(project_folder)
+    layer_files = ai_layer_files_under(project_folder)
+
+    # DG-443: every AI-layer file's own content, checked before a single
+    # byte is copied — see _scan_layer_files for why this also reads the
+    # allowlist file's own content.
+    _scan_layer_files(project_folder, layer_files)
 
     # Computed once here, never once per layer file below: each of
     # `_tracked_paths_casefold`'s two listings is a full-repository git
@@ -648,10 +798,9 @@ def copy_ai_layer_in(
         _tracked_paths_casefold(git_root_resolved) if layer_files else frozenset()
     )
 
-    # Phase 1 — validate only, nothing written yet. Checked for *every*
-    # AI-layer path, regardless of whether a destination currently exists
-    # on disk: a committed file deleted from the working tree is still
-    # tracked, and must still refuse.
+    # Checked for *every* AI-layer path, regardless of whether a
+    # destination currently exists on disk: a committed file deleted from
+    # the working tree is still tracked, and must still refuse.
     destinations: dict[Path, tuple[Path, str]] = {}
     for relative in layer_files:
         resolved, rel_to_git_root = _checked_destination(
@@ -670,12 +819,63 @@ def copy_ai_layer_in(
                 ),
             )
 
+    return ValidatedLayer(
+        project_folder=project_folder,
+        layer_files=tuple(layer_files),
+        destinations=destinations,
+    )
+
+
+def copy_ai_layer_in(
+    config_repo: Path,
+    project_id: str,
+    project_root: Path,
+    git_root: Path,
+    overwrite: bool = False,
+) -> LayerCopyResult:
+    """Copy *project_id*'s AI layer from *config_repo* into *project_root*.
+
+    *git_root* is the repository's real top level — pass
+    ``core.context.git_root_path()`` (or the registry's resolved
+    equivalent), never *project_root* itself when they differ (see the
+    module docstring). *project_root* is where the files actually land —
+    where an agent reads them from while working.
+
+    Refuses, writing nothing, when: *git_root* is not a git repository;
+    *project_id* has no folder in *config_repo*; any AI-layer path is
+    already tracked by *git_root*'s own git, whether or not it currently
+    exists on disk; a destination is unsafe (a symlink, or outside either
+    root); or (DG-443) any AI-layer file's own content looks like a
+    credential, an identity or a real machine path — see
+    :func:`validate_ai_layer_copy` and :mod:`core.content_scan`. An
+    existing, untracked, on-disk file is skipped (reported in
+    ``.skipped``) unless *overwrite* is set.
+
+    The exclude writer runs against *git_root* **before** any file is
+    copied — so a clean ``git status`` is never a second manual step, and
+    a failure there (a corrupted marker block) leaves the project tree
+    exactly as it was, the same guarantee the tracked-file checks give. A
+    real I/O failure partway through the copy itself raises
+    :class:`PartialCopyError`, naming every file copied before it —
+    re-running after fixing the underlying problem is idempotent.
+    """
+    config_repo = Path(config_repo)
+    project_root = Path(project_root)
+    git_root = Path(git_root)
+
+    project_root_resolved = project_root.resolve()
+
+    validated = validate_ai_layer_copy(config_repo, project_id, project_root, git_root)
+    project_folder = validated.project_folder
+    layer_files = validated.layer_files
+    destinations = validated.destinations
+
     # Phase 2 — the exclude entries, *before* any file is copied: a
     # malformed marker block (or any other reason this refuses) must leave
     # the project tree exactly as it was, not copied-but-untracked.
     excluded = exclude_ai_layer(git_root)
 
-    # Phase 3 — copy what phase 1 did not refuse.
+    # Phase 3 — copy what validation did not refuse.
     copied: list[str] = []
     skipped: list[SkippedFile] = []
     for relative in layer_files:
@@ -730,11 +930,15 @@ def copy_ai_layer_in(
 __all__: Sequence[str] = (
     "ConfigRepoEscapeError",
     "ConfigRepoProjectNotFoundError",
+    "ContentScanRefusedError",
     "GitTrackedCheckFailedError",
     "LayerCopyResult",
     "PartialCopyError",
     "ProjectRootEscapeError",
     "SkippedFile",
     "TrackedFileConflictError",
+    "ValidatedLayer",
+    "ai_layer_files_under",
     "copy_ai_layer_in",
+    "validate_ai_layer_copy",
 )
