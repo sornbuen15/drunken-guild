@@ -318,3 +318,170 @@ class TestDG334TheWriteSideOfTheFloor:
         # the hook stood aside rather than refusing a legitimate write.
         assert decision.permission is None
         assert decision.reason == ""
+
+
+class TestDG465HookFloorDeniesSkippingTheHooks:
+    """DG-465: the third rule of the floor.
+
+    `.claude/settings.json` cannot spell "deny any flag that disables your
+    own gate" -- settings rules match a command by prefix and never see a
+    flag mid-command. This rule is hardcoded in the hook itself, independent
+    of what the settings file says, for exactly the shapes that would let an
+    agent (or an adversarial prompt) turn the gate off rather than go around
+    it honestly.
+
+    No deny rules are configured in `pr.Rules()` below -- these shapes must
+    be denied by the hook floor on its own.
+    """
+
+    NO_RULES = pr.Rules(allow=[], deny=[])
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "git commit --no-verify -m x",
+            "git push --no-verify",
+            "git merge --no-verify branch",
+            "git rebase --no-verify",
+            "git cherry-pick --no-verify abc123",
+            "git am --no-verify patch.mbox",
+            "git revert --no-verify HEAD",
+            "git commit -n -m x",
+            "git -c core.hooksPath=/tmp/empty commit -m x",
+            "git config core.hooksPath /tmp/empty",
+            "git config --global core.hooksPath /tmp/empty",
+            "SKIP=ruff git commit -m x",
+            "DRUNKEN_NO_REGISTERED_PROJECTS=1 git commit -m x",
+            "pre-commit uninstall",
+            "rm -rf .git/hooks",
+            "mv .git/hooks /tmp/hooks-backup",
+            "chmod -R 000 .git/hooks",
+        ],
+    )
+    def test_each_named_shape_is_denied(self, command) -> None:
+        decision = hook.decide(payload(command=command), self.NO_RULES)
+        assert decision.permission == "deny", f"{command!r} should be denied"
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "echo hi && git commit --no-verify -m x",
+            "git status; git push --no-verify",
+            "true | git commit --no-verify -m x",
+            "(git commit --no-verify -m x)",
+            "echo start && (git push --no-verify) && echo end",
+        ],
+    )
+    def test_denied_even_after_an_operator_or_inside_a_subshell(self, command) -> None:
+        decision = hook.decide(payload(command=command), self.NO_RULES)
+        assert decision.permission == "deny", f"{command!r} should be denied"
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            'git commit --no-verify -m "message"',
+            "git   commit   --no-verify",
+            "git -C /some/dir commit --no-verify -m x",
+            "GIT COMMIT --NO-VERIFY -m x",
+            "rm -rf .git\\hooks",
+            "mv .GIT\\HOOKS /tmp/x",
+            "chmod -R 000 .Git/Hooks",
+            "git --no-verify commit -m x",
+            "rm -rf C:\\repo\\.git\\hooks",
+            "FOO=bar SKIP=ruff git commit -m x",
+            "git -c user.name=x -c core.hooksPath=/tmp/empty commit -m x",
+        ],
+    )
+    def test_denied_under_quoting_flag_order_path_and_case_variation(
+        self, command
+    ) -> None:
+        decision = hook.decide(payload(command=command), self.NO_RULES)
+        assert decision.permission == "deny", f"{command!r} should be denied"
+
+    def test_a_write_under_git_hooks_is_denied(self) -> None:
+        decision = hook.decide(
+            payload(tool_name="Write", file_path="/repo/.git/hooks/pre-commit"),
+            self.NO_RULES,
+        )
+        assert decision.permission == "deny"
+
+    def test_an_edit_under_git_hooks_is_denied(self) -> None:
+        decision = hook.decide(
+            payload(tool_name="Edit", path="/repo/.git/hooks/pre-commit"),
+            self.NO_RULES,
+        )
+        assert decision.permission == "deny"
+
+    def test_an_edit_under_git_hooks_windows_backslash_is_denied(self) -> None:
+        decision = hook.decide(
+            payload(tool_name="Edit", path="C:\\repo\\.git\\hooks\\pre-commit"),
+            self.NO_RULES,
+        )
+        assert decision.permission == "deny"
+
+    class TestNotDenied:
+        """Written by the same hand as the bypass attempts above, on purpose:
+        a floor that denies legitimate calls is as broken as one that lets
+        a real bypass through, and nobody is more motivated to notice a false
+        positive than the person who just wrote the true positives."""
+
+        NO_RULES = pr.Rules(allow=[], deny=[])
+
+        def test_a_push_dry_run_is_not_denied(self) -> None:
+            decision = hook.decide(payload(command="git push -n"), self.NO_RULES)
+            assert decision.permission is None
+
+        def test_a_push_dry_run_long_flag_is_not_denied(self) -> None:
+            decision = hook.decide(payload(command="git push --dry-run"), self.NO_RULES)
+            assert decision.permission is None
+
+        def test_a_commit_message_containing_the_words_no_verify_is_not_denied(
+            self,
+        ) -> None:
+            decision = hook.decide(
+                payload(command='git commit -m "no-verify"'), self.NO_RULES
+            )
+            assert decision.permission is None
+
+        def test_a_commit_message_mentioning_no_dash_skip_is_not_denied(self) -> None:
+            decision = hook.decide(
+                payload(command='git commit -m "please do not SKIP= this"'),
+                self.NO_RULES,
+            )
+            assert decision.permission is None
+
+        def test_an_ordinary_commit_is_not_denied(self) -> None:
+            decision = hook.decide(
+                payload(command='git commit -m "fix: thing"'), self.NO_RULES
+            )
+            assert decision.permission is None
+
+        def test_reading_the_hooks_path_config_is_not_a_false_alarm_exemption(
+            self,
+        ) -> None:
+            """Not an exemption -- documented as the same greedy trade-off the
+            deny side already makes everywhere else: a read of
+            core.hooksPath still costs a prompt, not a lockout."""
+            decision = hook.decide(
+                payload(command="git config --get core.hooksPath"), self.NO_RULES
+            )
+            assert decision.permission == "deny"
+
+        def test_an_unrelated_rm_is_not_denied(self) -> None:
+            decision = hook.decide(
+                payload(command="rm -rf /tmp/scratch"), self.NO_RULES
+            )
+            assert decision.permission is None
+
+        def test_an_unrelated_edit_path_is_not_denied(self) -> None:
+            decision = hook.decide(
+                payload(tool_name="Edit", path="/repo/src/hooks/useThing.ts"),
+                self.NO_RULES,
+            )
+            assert decision.permission is None
+
+        def test_pre_commit_run_without_uninstall_is_not_denied(self) -> None:
+            decision = hook.decide(
+                payload(command="pre-commit run --all-files"), self.NO_RULES
+            )
+            assert decision.permission is None
