@@ -37,7 +37,7 @@ from .config_gen import (
     is_drunken_managed,
 )
 from .context import ProjectContext
-from .errors import DrunkenError
+from .errors import DrunkenError, ValidationError
 from .exclude import GitTimedOutError, NotAGitRepositoryError, run_git
 from .layer_copy import ai_layer_files_under
 from .redact import redact
@@ -1929,12 +1929,36 @@ _OPERATOR_INVENTORY_GUARD_MARKER: Final = "check_operator_inventory"
 _DEFAULT_HOOK_TYPES_WHEN_UNDECLARED: Final = ("pre-commit",)
 
 #: `default_install_hook_types: [pre-commit, commit-msg]` — flow-style YAML,
-#: the shape this repository's own config currently uses.
+#: the shape this repository's own config currently uses. Matched only
+#: against a line already stripped of any inline comment, so a trailing
+#: ``# why`` never reaches here as part of the list text.
 _HOOK_TYPES_FLOW: Final = re.compile(r"^default_install_hook_types:\s*\[(.*)\]\s*$")
 
 #: `default_install_hook_types:` with nothing after the colon — block style,
 #: where each type follows on its own `- type` line.
 _HOOK_TYPES_BLOCK_KEY: Final = re.compile(r"^default_install_hook_types:\s*$")
+
+#: The key itself, for recognising a present-but-unrecognised value (an
+#: anchor, an unterminated flow list) apart from the key being absent
+#: entirely — the two must never collapse into the same "use the default"
+#: outcome. See :func:`declared_hook_types`.
+_HOOK_TYPES_KEY_PREFIX: Final = "default_install_hook_types:"
+
+
+class UnparseableHookTypesError(ValidationError):
+    """``default_install_hook_types`` is present but not in a shape this
+    hand-rolled reader recognises (a YAML anchor, an unterminated
+    multi-line flow list, or any other scalar).
+
+    Deliberately **not** read the same as the key being absent: a config
+    that runs the operator-inventory guard and declares hook types in a
+    shape this reader cannot follow must fail loud and name that it could
+    not read the declaration, not quietly narrow scope to pre-commit's
+    bare default and risk reporting a declared ``commit-msg`` or
+    ``pre-push`` hook as never checked at all.
+    """
+
+    code = "unparseable_hook_types"
 
 
 def runs_operator_inventory_guard(config_text: str) -> bool:
@@ -1948,47 +1972,99 @@ def runs_operator_inventory_guard(config_text: str) -> bool:
     return _OPERATOR_INVENTORY_GUARD_MARKER in config_text
 
 
+def _strip_inline_comment(line: str) -> str:
+    """Remove a trailing YAML comment from *line*.
+
+    A ``#`` starts a comment only when it sits outside any quoted string
+    and is either at the very start of the line or preceded by whitespace —
+    the same rule a YAML parser applies, enough of it for the one kind of
+    line this module ever reads (a scalar key, a flow list, or a ``- item``
+    line). Without this, ``default_install_hook_types: [pre-commit,
+    commit-msg]  # wires commit-msg too`` read its own trailing comment as
+    part of the list text, failed to match the flow pattern, and silently
+    fell back to pre-commit's bare default — dropping the declared
+    ``commit-msg`` hook out of the check entirely while still reporting ok.
+    """
+    in_single = False
+    in_double = False
+    for index, char in enumerate(line):
+        if char == "'" and not in_double:
+            in_single = not in_single
+        elif char == '"' and not in_single:
+            in_double = not in_double
+        elif char == "#" and not in_single and not in_double:
+            if index == 0 or line[index - 1].isspace():
+                return line[:index]
+    return line
+
+
 def declared_hook_types(config_text: str) -> list[str]:
     """`default_install_hook_types` exactly as *config_text* declares it.
 
     Reads flow style (``[pre-commit, commit-msg]``) or block style (one
-    ``- type`` per line), and falls back to pre-commit's own default of
-    ``("pre-commit",)`` when the key is absent entirely — never a list this
-    module hardcodes itself, so a config later adding a third or fourth
-    hook type (DG-464, in parallel, is expected to add ``pre-push`` to this
-    very key) is read correctly with no code change here.
+    ``- type`` per line), with an inline comment on either shape stripped
+    first rather than baked into the result. Falls back to pre-commit's own
+    default of ``("pre-commit",)`` **only** when the key is genuinely
+    absent from the file — never a list this module hardcodes itself, so a
+    config later adding a third or fourth hook type (DG-464, in parallel,
+    is expected to add ``pre-push`` to this very key) is read correctly
+    with no code change here.
 
-    Deliberately hand-rolled rather than a YAML parser: this reads one
+    Deliberately hand-rolled rather than a full YAML parser: this reads one
     scalar list, the same shape :func:`declared_version` reads one scalar
     out of ``pyproject.toml`` above, and PyYAML is not a dependency this
     package's own runtime carries — only `pre-commit`'s own dev extra pulls
     it in, and introducing it here for one list would be the second-surface
     mistake this project keeps writing up.
 
-    Malformed or unexpected YAML near the key is read as "not this shape",
-    never raised: a doctor check must not crash on a config it cannot fully
-    parse, and falling back to the documented default is the same fail-safe
-    direction every other parsing helper in this module already takes.
+    A value present but not in a shape this reader recognises — a YAML
+    anchor (``&types``), an unterminated multi-line flow list, or any other
+    scalar — raises :class:`UnparseableHookTypesError` rather than silently
+    reusing the undeclared-key default: the two are different facts, and
+    collapsing "could not read this" into "nothing was declared" is exactly
+    how a real ``commit-msg``/``pre-push`` declaration could drop out of
+    the check while it kept reporting ok.
     """
     lines = config_text.splitlines()
     for index, raw_line in enumerate(lines):
-        stripped = raw_line.strip()
+        stripped = _strip_inline_comment(raw_line).strip()
+        if not stripped.startswith(_HOOK_TYPES_KEY_PREFIX):
+            continue
+
         flow_match = _HOOK_TYPES_FLOW.match(stripped)
         if flow_match:
             items = [
                 item.strip().strip("'\"") for item in flow_match.group(1).split(",")
             ]
             return [item for item in items if item]
+
         if _HOOK_TYPES_BLOCK_KEY.match(stripped):
             types: list[str] = []
             for following in lines[index + 1 :]:
-                item = following.strip()
+                item = _strip_inline_comment(following).strip()
                 if not item:
                     continue
                 if not item.startswith("-"):
                     break
                 types.append(item[1:].strip().strip("'\""))
             return types
+
+        # The key is present but matches neither recognised shape: an
+        # anchor (`&types [...]` / `&types pre-commit`), an unterminated
+        # flow list (`[` with no matching `]` on this line), or any other
+        # scalar. Fail loud rather than silently falling back.
+        raise UnparseableHookTypesError(
+            f"default_install_hook_types is present but not in a "
+            f"recognised shape: {stripped!r}. Expected a flow list "
+            "(`[a, b]`, closed on the same line) or a block list of "
+            "`- type` lines.",
+            remediation=(
+                "Rewrite default_install_hook_types in "
+                ".pre-commit-config.yaml as a single-line flow list or a "
+                "block list of `- type` lines, with no YAML anchor and no "
+                "multi-line flow list — neither is read by this check."
+            ),
+        )
     return list(_DEFAULT_HOOK_TYPES_WHEN_UNDECLARED)
 
 
@@ -2094,7 +2170,12 @@ def _check_git_hooks_for_root(report: Report, name: str, git_root: Path) -> None
         )
         return
 
-    hook_types = declared_hook_types(config_text)
+    try:
+        hook_types = declared_hook_types(config_text)
+    except UnparseableHookTypesError as exc:
+        report.add_error(name, exc)
+        return
+
     missing = missing_hook_types(resolved_hooks_dir, hook_types)
     if missing:
         report.add(

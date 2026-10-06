@@ -13,6 +13,7 @@ that.
 """
 
 import json
+import re
 import subprocess
 import sys
 
@@ -185,6 +186,87 @@ class TestDeclaredHookTypes:
             UNGUARDED_CONFIG.replace("default_install_hook_types: [pre-commit]\n", "")
         ) == ["pre-commit"]
 
+    def test_a_trailing_inline_comment_on_a_flow_line_still_parses(self):
+        """Review finding: this line used to fail to match the flow pattern
+        (the comment was part of the matched text) and silently fall back
+        to pre-commit's bare default — dropping the declared `commit-msg`
+        hook out of the check while still reporting ok."""
+        text = (
+            "default_install_hook_types: [pre-commit, commit-msg]  "
+            "# wires commit-msg too\n"
+        )
+        assert doctor.declared_hook_types(text) == ["pre-commit", "commit-msg"]
+
+    def test_mutation_not_stripping_the_comment_first_is_caught(self):
+        """The pre-fix behaviour, run directly: matching the flow regex
+        against the *unstripped* line. The assertion is that wrong
+        behaviour's own (wrong) outcome — a regex match that fails because
+        the comment is still attached, read here exactly as the old
+        `declared_hook_types` would have read it."""
+        unstripped = (
+            "default_install_hook_types: [pre-commit, commit-msg]  "
+            "# wires commit-msg too"
+        )
+        flow = re.compile(r"^default_install_hook_types:\s*\[(.*)\]\s*$")
+        assert flow.match(unstripped) is None, (
+            "this is the old bug's own (wrong) outcome: the unstripped line "
+            "must fail to match, which is exactly why the real "
+            "implementation strips the comment first"
+        )
+
+    def test_a_trailing_inline_comment_on_a_block_item_is_not_baked_in(self):
+        """Review finding: a block item's own trailing comment must not
+        become part of the hook-type string — that is a permanent false
+        fail, since no installed hook file is ever named
+        'pre-commit  # wired automatically'."""
+        text = (
+            "default_install_hook_types:\n"
+            "  - pre-commit  # wired automatically\n"
+            "  - commit-msg\n"
+        )
+        assert doctor.declared_hook_types(text) == ["pre-commit", "commit-msg"]
+
+    def test_an_anchor_fails_loud(self):
+        """A YAML anchor on the value is a shape this hand-rolled reader
+        does not support — it must say so, not quietly fall back to
+        pre-commit's bare default and risk never checking a declared
+        commit-msg/pre-push hook at all."""
+        text = "default_install_hook_types: &hook_types [pre-commit, commit-msg]\n"
+        with pytest.raises(doctor.UnparseableHookTypesError):
+            doctor.declared_hook_types(text)
+
+    def test_an_unterminated_multiline_flow_list_fails_loud(self):
+        text = "default_install_hook_types: [\n  pre-commit,\n  commit-msg,\n]\n"
+        with pytest.raises(doctor.UnparseableHookTypesError):
+            doctor.declared_hook_types(text)
+
+    def test_mutation_silently_defaulting_on_an_anchor_is_caught(self):
+        """Review's own named mutation: the pre-fix behaviour treated any
+        unrecognised shape the same as an absent key. The assertion below
+        is that wrong behaviour's own (wrong) outcome, reproduced directly
+        rather than by stubbing the real function."""
+        text = "default_install_hook_types: &hook_types [pre-commit, commit-msg]\n"
+
+        def _pre_fix_declared_hook_types(config_text):
+            flow = re.compile(r"^default_install_hook_types:\s*\[(.*)\]\s*$")
+            block_key = re.compile(r"^default_install_hook_types:\s*$")
+            for raw_line in config_text.splitlines():
+                stripped = raw_line.strip()
+                match = flow.match(stripped)
+                if match:
+                    return [item.strip() for item in match.group(1).split(",")]
+                if block_key.match(stripped):
+                    return []
+            return ["pre-commit"]
+
+        result = _pre_fix_declared_hook_types(text)
+        assert result == ["pre-commit"], (
+            "this is the old bug's own (wrong) outcome — silently narrowing "
+            f"an anchor to the bare default. Got: {result!r}"
+        )
+        with pytest.raises(doctor.UnparseableHookTypesError):
+            doctor.declared_hook_types(text)
+
 
 class TestHooksDirHonoursConfigAndWorktrees:
     def test_resolves_the_ordinary_dot_git_hooks_directory(self, tmp_path):
@@ -269,6 +351,84 @@ class TestMissingHookTypes:
 
         assert missing == ["pre-commit"]
 
+    def test_a_hooks_directory_that_does_not_exist_at_all_is_missing(self, tmp_path):
+        """Seen failing first against the mutation below: a checkout whose
+        hooks directory was never created (`core.hooksPath` pointed at a
+        directory nobody made, or the repository is otherwise unusual) must
+        read every declared type as missing, never as an empty, silently
+        clean result."""
+        hooks = tmp_path / "does-not-exist-at-all"
+        assert not hooks.exists()
+
+        missing = doctor.missing_hook_types(hooks, ["pre-commit", "commit-msg"])
+
+        assert missing == ["pre-commit", "commit-msg"]
+
+    def test_mutation_returning_empty_for_a_missing_directory_is_caught(self, tmp_path):
+        """The mutation named in review: `missing_hook_types` short-circuits
+        to `[]` the moment the directory itself is absent, instead of
+        reporting every declared type as missing. The assertion below is
+        that wrong behaviour's own (wrong) expectation."""
+        hooks = tmp_path / "does-not-exist-at-all"
+
+        def _mutated_missing_hook_types(hooks_dir_path, hook_types):
+            if not hooks_dir_path.is_dir():
+                return []
+            return [
+                hook_type
+                for hook_type in hook_types
+                if not (hooks_dir_path / hook_type).is_file()
+            ]
+
+        result = _mutated_missing_hook_types(hooks, ["pre-commit", "commit-msg"])
+
+        assert result == [], (
+            "this is the mutation's own wrong result — the real "
+            f"missing_hook_types must disagree with it. Got: {result!r}"
+        )
+        assert doctor.missing_hook_types(hooks, ["pre-commit", "commit-msg"]) == [
+            "pre-commit",
+            "commit-msg",
+        ], "the real implementation must report both types missing, not []"
+
+    def test_a_directory_occupying_a_hook_path_is_missing(self, tmp_path):
+        """Seen failing first against the mutation below: `pre-commit`
+        (the path) existing as a *directory* — never written by
+        `pre-commit install`, which always writes a file — must count as
+        missing, not present."""
+        hooks = tmp_path / "hooks"
+        hooks.mkdir()
+        (hooks / "pre-commit").mkdir()
+
+        missing = doctor.missing_hook_types(hooks, ["pre-commit"])
+
+        assert missing == ["pre-commit"]
+
+    def test_mutation_using_exists_instead_of_is_file_is_caught(self, tmp_path):
+        """The mutation named in review: swap `is_file()` for `exists()`,
+        which is also true for a directory. The assertion below is that
+        wrong behaviour's own (wrong) expectation."""
+        hooks = tmp_path / "hooks"
+        hooks.mkdir()
+        (hooks / "pre-commit").mkdir()
+
+        def _mutated_missing_hook_types(hooks_dir_path, hook_types):
+            return [
+                hook_type
+                for hook_type in hook_types
+                if not (hooks_dir_path / hook_type).exists()
+            ]
+
+        result = _mutated_missing_hook_types(hooks, ["pre-commit"])
+
+        assert result == [], (
+            "this is the mutation's own wrong result — a directory must "
+            f"not count as a present hook. Got: {result!r}"
+        )
+        assert doctor.missing_hook_types(hooks, ["pre-commit"]) == ["pre-commit"], (
+            "the real implementation must report the directory-occupied path as missing"
+        )
+
 
 # ---------------------------------------------------------------------------
 # Integration: the actual `guard.git_hooks[.project]` checks via run_doctor.
@@ -295,32 +455,6 @@ class TestAMissingDeclaredHookFails:
         assert "commit-msg" in check.detail
         assert check.remediation == "pre-commit install"
 
-    def test_mutation_a_check_that_never_fails_is_caught(self, tmp_path, monkeypatch):
-        """Wiring only, same shape as the layering suite's own mutation
-        tests: stubs `missing_hook_types` so this proves the branch in the
-        doctor check that turns a non-empty result into "fail" actually
-        runs."""
-        root = tmp_path / "proj"
-        _init_repo(root)
-        (root / ".pre-commit-config.yaml").write_text(
-            GUARDED_CONFIG_FLOW, encoding="utf-8"
-        )
-        _commit_all(root, "initial")
-        _write_hook(root / ".git" / "hooks", "pre-commit")
-        _write_hook(root / ".git" / "hooks", "commit-msg")
-        monkeypatch.setattr(doctor, "missing_hook_types", lambda hooks, types: [])
-
-        report = doctor.run_doctor(
-            registry=_registry(tmp_path, "scratch", root), offline=True
-        )
-
-        check = find(report, "guard.git_hooks.scratch")
-        assert check.status == "ok", (
-            "this assertion is the mutation's own 'pass' — the real check "
-            f"must disagree with it when hooks are genuinely missing. Got "
-            f"{check.status}: {check.detail}"
-        )
-
 
 class TestEveryDeclaredHookPresentIsOk:
     def test_both_declared_hooks_present_is_ok(self, tmp_path):
@@ -340,26 +474,25 @@ class TestEveryDeclaredHookPresentIsOk:
         check = find(report, "guard.git_hooks.scratch")
         assert check.status == "ok", check.detail
 
-    def test_mutation_a_check_that_always_fails_is_caught(self, tmp_path, monkeypatch):
+    def test_a_real_missing_hook_flips_the_same_project_to_fail(self, tmp_path):
+        """Exercises the real `missing_hook_types` rather than stubbing
+        it: the same project as above, minus the `commit-msg` hook file,
+        must disagree with the 'ok' assertion directly above."""
         root = tmp_path / "proj"
         _init_repo(root)
         (root / ".pre-commit-config.yaml").write_text(
             GUARDED_CONFIG_FLOW, encoding="utf-8"
         )
         _commit_all(root, "initial")
-        monkeypatch.setattr(
-            doctor, "missing_hook_types", lambda hooks, types: ["pre-commit"]
-        )
+        _write_hook(root / ".git" / "hooks", "pre-commit")
+        # commit-msg deliberately omitted.
 
         report = doctor.run_doctor(
             registry=_registry(tmp_path, "scratch", root), offline=True
         )
 
         check = find(report, "guard.git_hooks.scratch")
-        assert check.status == "fail", (
-            f"the mutation must flip this clean project to fail. Got "
-            f"{check.status}: {check.detail}"
-        )
+        assert check.status == "fail", check.detail
 
 
 class TestALinkedWorktreeIsJudgedByTheSharedHooks:
@@ -490,6 +623,68 @@ class TestRegisteredRootMissingOnDisk:
 
         check = find(report, "guard.git_hooks.scratch")
         assert check.status == "skip", check.detail
+
+
+class TestAnUnparseableDeclarationFailsLoud:
+    """Review requirement: a config that runs the guard but declares
+    `default_install_hook_types` in a shape this reader cannot follow must
+    fail, and name that it could not read the declaration — never narrow
+    silently to the bare default and risk reporting ok while a real
+    `commit-msg`/`pre-push` declaration went unchecked."""
+
+    def test_an_anchor_in_a_guarded_config_fails_the_whole_check(self, tmp_path):
+        root = tmp_path / "proj"
+        _init_repo(root)
+        config = GUARDED_CONFIG_FLOW.replace(
+            "default_install_hook_types: [pre-commit, commit-msg]\n",
+            "default_install_hook_types: &hook_types [pre-commit, commit-msg]\n",
+        )
+        (root / ".pre-commit-config.yaml").write_text(config, encoding="utf-8")
+        _commit_all(root, "initial")
+        _write_hook(root / ".git" / "hooks", "pre-commit")
+        _write_hook(root / ".git" / "hooks", "commit-msg")
+
+        report = doctor.run_doctor(
+            registry=_registry(tmp_path, "scratch", root), offline=True
+        )
+
+        check = find(report, "guard.git_hooks.scratch")
+        assert check.status == "fail", (
+            "an unrecognised declaration shape must fail loud, never read "
+            f"as ok even with every plausible hook file present. Got "
+            f"{check.status}: {check.detail}"
+        )
+        assert "default_install_hook_types" in check.detail
+
+    def test_mutation_silently_defaulting_would_read_ok(self, tmp_path, monkeypatch):
+        """The exact regression this guards against: if
+        `declared_hook_types` silently fell back to `["pre-commit"]` for
+        an anchor instead of raising, and only `pre-commit` were installed
+        (not `commit-msg`), the check would wrongly read ok. The assertion
+        is that wrong behaviour's own (wrong) outcome."""
+        root = tmp_path / "proj"
+        _init_repo(root)
+        config = GUARDED_CONFIG_FLOW.replace(
+            "default_install_hook_types: [pre-commit, commit-msg]\n",
+            "default_install_hook_types: &hook_types [pre-commit, commit-msg]\n",
+        )
+        (root / ".pre-commit-config.yaml").write_text(config, encoding="utf-8")
+        _commit_all(root, "initial")
+        _write_hook(root / ".git" / "hooks", "pre-commit")
+        # commit-msg deliberately never written — the regression this
+        # test exists to catch would silently never check for it at all.
+        monkeypatch.setattr(doctor, "declared_hook_types", lambda text: ["pre-commit"])
+
+        report = doctor.run_doctor(
+            registry=_registry(tmp_path, "scratch", root), offline=True
+        )
+
+        check = find(report, "guard.git_hooks.scratch")
+        assert check.status == "ok", (
+            "this is the regression's own (wrong) outcome — the real "
+            f"implementation must fail loud instead. Got {check.status}: "
+            f"{check.detail}"
+        )
 
 
 class TestMalformedConfigDoesNotCrash:
