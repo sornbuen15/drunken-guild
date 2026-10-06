@@ -169,6 +169,8 @@ permission.
 ## Things that will bite you anywhere
 
 - **English only** — every description, instruction, commit, comment and PR this repository sees.
+- **No registered project id ever enters a commit** (REQ-023). Test data, examples and commit
+  messages use `alpha`, `beta` or `zeta`, never a registered id. Both 2026-09-23 leaks were fixtures.
 - **No secret ever enters a commit.** A reference without a scheme is an error, not a literal: show
   `env://…` or `file://…#key`, never a token, channel id, workspace URL or account email inline.
   gitleaks scans full history and `.env` is deliberately not allowlisted.
