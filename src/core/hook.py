@@ -181,38 +181,93 @@ def _has_word(segment: str, word: str) -> bool:
     return re.search(pattern, segment, re.IGNORECASE) is not None
 
 
-def _mask_quoted_spans(segment: str) -> str:
-    """Blank out everything inside quotes, same length, same positions.
+def _tokenize_shell_words(segment: str) -> list[str]:
+    """Split *segment* into words the way a real shell hands them to argv:
+    quotes group characters into one token and are then removed, rather
+    than creating a word boundary or disappearing the token altogether.
 
-    Flag detection must not fire on text that only *looks* like a flag
-    because it sits inside a `-m "..."` commit message -- ``git commit -m "x
-    -n"`` is an ordinary commit, not `-n`. Path/pattern matching elsewhere in
-    this module stays deliberately quote-blind (a quoted `.git/hooks` is
-    still a real path), so this masking is used only for flag tokenising.
+    DG-465 round 3, twice over. The first version of this masked quoted
+    spans to *spaces* for tokenising, which made ``" ".split()`` drop a
+    quoted ``-C``/``-c`` argument as a token entirely -- ``git -C "."
+    commit --no-verify`` then mis-walked past ``commit`` itself looking for
+    the global option's value, and the whole check missed. Masking to a
+    non-space filler fixed that, but still could not tell ``"git"`` (quoted,
+    but still naming the real git binary) from quoted *content* -- a
+    property check (quote every argument of an already-denied command and
+    confirm it is still denied) caught that masking can never distinguish
+    the two by text alone. Real tokenising does: ``"git"`` becomes the
+    token ``git``, exactly as `_git_subcommand` expects, because that is
+    exactly what the shell would actually run.
+
+    The one case this must *not* resolve literally is a flag-taking value
+    -- ``-m "x -n"`` must keep ``x -n`` as inert text, not a ``-n`` flag.
+    That is handled by position, not by quoting: see
+    :func:`_tokens_eligible_for_flag_matching`.
     """
-    out: list[str] = []
+    tokens: list[str] = []
+    current: list[str] = []
+    in_token = False
     quote: Optional[str] = None
     i = 0
-    while i < len(segment):
+    n = len(segment)
+    while i < n:
         char = segment[i]
         if quote is not None:
-            if char == "\\" and quote == '"' and i + 1 < len(segment):
-                out.append("  ")
+            if char == "\\" and quote == '"' and i + 1 < n:
+                current.append(segment[i + 1])
                 i += 2
                 continue
-            out.append(" " if char != quote else " ")
             if char == quote:
                 quote = None
+                i += 1
+                continue
+            current.append(char)
+            i += 1
+            continue
+        if char.isspace():
+            if in_token:
+                tokens.append("".join(current))
+                current = []
+                in_token = False
             i += 1
             continue
         if char in ("'", '"'):
             quote = char
-            out.append(" ")
+            in_token = True
             i += 1
             continue
-        out.append(char)
+        if char == "\\" and i + 1 < n:
+            current.append(segment[i + 1])
+            in_token = True
+            i += 2
+            continue
+        current.append(char)
+        in_token = True
         i += 1
-    return "".join(out)
+    if in_token:
+        tokens.append("".join(current))
+    return tokens
+
+
+#: Flags whose very next token is opaque content, never a flag, regardless
+#: of what it contains -- `-m "x -n"` passes the commit message `x -n`, not
+#: a `-n` flag, whether or not that message happens to be quoted.
+_MESSAGE_VALUE_FLAGS: Final = ("-m", "--message")
+
+
+def _tokens_eligible_for_flag_matching(tokens: list[str]) -> list[str]:
+    """*tokens* with the value following each :data:`_MESSAGE_VALUE_FLAGS`
+    flag removed, so it is never read as a flag of its own."""
+    eligible: list[str] = []
+    skip_next = False
+    for tok in tokens:
+        if skip_next:
+            skip_next = False
+            continue
+        eligible.append(tok)
+        if tok in _MESSAGE_VALUE_FLAGS:
+            skip_next = True
+    return eligible
 
 
 #: A short-flag cluster: one dash, then only letters -- `-an`, `-nm`, `-am`.
@@ -221,9 +276,17 @@ def _mask_quoted_spans(segment: str) -> str:
 _SHORT_FLAG_CLUSTER: Final = re.compile(r"^-[A-Za-z]+$")
 
 #: git's own global options that consume a separate following token --
-#: `-C <dir>` and `-c <key=val>`. Needed to walk past them when finding the
-#: actual subcommand; see :func:`_git_subcommand`.
-_GIT_GLOBAL_OPTS_WITH_SEPARATE_ARG: Final = ("-C", "-c")
+#: `-C <dir>`, `-c <key=val>`, and the long spellings when given as two
+#: words rather than `--opt=value` (which is already one self-contained
+#: token and needs no special handling). Needed to walk past them when
+#: finding the actual subcommand; see :func:`_git_subcommand`.
+_GIT_GLOBAL_OPTS_WITH_SEPARATE_ARG: Final = (
+    "-C",
+    "-c",
+    "--git-dir",
+    "--work-tree",
+    "--namespace",
+)
 
 
 def _git_subcommand(tokens: list[str]) -> Optional[str]:
@@ -277,12 +340,14 @@ def _denies_no_verify(segment: str) -> bool:
     Gated on the *actual* git subcommand (see :func:`_git_subcommand`), not
     on the word appearing anywhere in the segment -- `git tag -n`, `git
     branch -n` and `git log -n 3` all take a `-n` that has nothing to do
-    with `--no-verify` and must stay undenied. Quoted text is masked out
-    first, so a `-n` or `--no-verify` that is only the *text* of a `-m`
-    message is not mistaken for the flag either.
+    with `--no-verify` and must stay undenied. Tokenised the way a real
+    shell would (:func:`_tokenize_shell_words`), so quoting any argument --
+    including the word ``git`` itself -- changes nothing; the one value
+    this must not read literally, a `-m` message, is excluded by position
+    rather than by quoting (:func:`_tokens_eligible_for_flag_matching`), so
+    `-m "x -n"` stays an ordinary commit either way.
     """
-    masked = _mask_quoted_spans(segment)
-    tokens = masked.split()
+    tokens = _tokenize_shell_words(segment)
     subcommand = _git_subcommand(tokens)
     if subcommand is None:
         return False
@@ -290,12 +355,13 @@ def _denies_no_verify(segment: str) -> bool:
     if subcommand_lower not in _HOOK_SKIPPING_SUBCOMMANDS:
         return False
 
-    if any(_is_no_verify_long_flag(tok) for tok in tokens):
+    scan_tokens = _tokens_eligible_for_flag_matching(tokens)
+    if any(_is_no_verify_long_flag(tok) for tok in scan_tokens):
         return True
     if subcommand_lower != "commit":
         return False
     return any(
-        _SHORT_FLAG_CLUSTER.match(tok) and "n" in tok[1:].lower() for tok in tokens
+        _SHORT_FLAG_CLUSTER.match(tok) and "n" in tok[1:].lower() for tok in scan_tokens
     )
 
 
@@ -325,7 +391,8 @@ def _denies_hooks_path_config(segment: str) -> bool:
 #: assignment in the same place a shell does: right before the command it
 #: applies to, so both are covered by allowing `env`/`export` to lead it.
 _ENV_ASSIGNMENT_PREFIX: Final = re.compile(
-    r"^(?:(?:env|export)\s+)?(?:[A-Za-z_][A-Za-z0-9_]*=\S*\s+)*"
+    r"^(?:(?:env|export)\s+)?"
+    r"(?:[A-Za-z_][A-Za-z0-9_]*=(?:\"[^\"]*\"|'[^']*'|\S*)\s+)*"
 )
 
 
@@ -403,30 +470,119 @@ _CD_INTO_HOOKS_DIR: Final = re.compile(
     r"^cd\s+[\"']?\S*\.git[\\/]+hooks[\"']?/?$", re.IGNORECASE
 )
 
+#: A `cd` (any destination) or `popd` as its own segment -- the only two
+#: words that change (or restore) the shell's working directory, so the
+#: only two that are allowed to *reset* `cwd_is_hooks_dir` in
+#: :func:`_bypasses_hook_floor_bash`.
+_CD_OR_POPD: Final = re.compile(r"^(?:cd|popd)\b", re.IGNORECASE)
+
+#: Same two-char/one-char operator lists :func:`~core.permission_rules.
+#: split_command` splits on, duplicated here because that function's return
+#: shape (a flat list of segment strings) throws away *which* operator
+#: joined each pair -- and round 3 needs exactly that: `|` is the one
+#: operator that actually pipes one segment's output into the next, so it
+#: is the only one a hooks-path-then-`xargs` bypass can ride on. `&&`/`;`/a
+#: subshell boundary do not carry a value forward the same way.
+_TWO_CHAR_SPLIT_OPS: Final = ("&&", "||", "$(")
+_ONE_CHAR_SPLIT_OPS: Final = (";", "|", "&", "\n", "`", "(", ")")
+
+
+def _segments_with_leading_operator(command: str) -> list[tuple[str, str]]:
+    """Quote-aware split into ``(operator, segment)`` pairs -- the operator
+    is ``""`` for the first segment, otherwise the token that preceded it.
+
+    Mirrors :func:`~core.permission_rules.split_command`'s scanning exactly
+    (same operator lists, same quote handling) rather than changing that
+    function's public, shared return shape for one caller's need.
+    """
+    pairs: list[tuple[str, str]] = []
+    current: list[str] = []
+    operator = ""
+    quote: Optional[str] = None
+    i = 0
+    n = len(command)
+    while i < n:
+        char = command[i]
+        if quote is not None:
+            if char == "\\" and quote == '"' and i + 1 < n:
+                current.append(char)
+                current.append(command[i + 1])
+                i += 2
+                continue
+            current.append(char)
+            if char == quote:
+                quote = None
+            i += 1
+            continue
+        if char == "\\" and i + 1 < n:
+            current.append(char)
+            current.append(command[i + 1])
+            i += 2
+            continue
+        if char in ("'", '"'):
+            quote = char
+            current.append(char)
+            i += 1
+            continue
+        pair = command[i : i + 2]
+        if pair in _TWO_CHAR_SPLIT_OPS:
+            pairs.append((operator, "".join(current)))
+            current = []
+            operator = pair
+            i += 2
+            continue
+        if char in _ONE_CHAR_SPLIT_OPS:
+            pairs.append((operator, "".join(current)))
+            current = []
+            operator = char
+            i += 1
+            continue
+        current.append(char)
+        i += 1
+    pairs.append((operator, "".join(current)))
+    return [(op, seg.strip()) for op, seg in pairs if seg.strip()]
+
 
 def _bypasses_hook_floor_bash(command: str) -> bool:
     """Scan every segment a Bash call will actually run.
 
-    :func:`~core.permission_rules.split_command` is quote-aware and already
-    splits on ``&&``, ``;``, ``|``, ``(``/``)`` and command substitution --
-    the same splitting :func:`~core.permission_rules.is_denied` relies on --
-    so a bypass hidden after an operator or inside a subshell is scanned the
-    same as one typed on its own.
+    :func:`_segments_with_leading_operator` is quote-aware and splits on
+    ``&&``, ``;``, ``|``, ``(``/``)`` and command substitution, same as
+    :func:`~core.permission_rules.is_denied` relies on -- so a bypass hidden
+    after an operator or inside a subshell is scanned the same as one typed
+    on its own.
 
-    Two bypasses need state carried *across* segments rather than found in
-    one: an ``export`` that outlives the `;` that follows it (handled
-    inline), and a hooks-dir reference established in an earlier segment
-    that a later, path-free segment then acts on -- ``cd .git/hooks && rm
-    *`` and ``echo .git/hooks | xargs rm -rf``. Both are DG-465 round-2
-    findings; a true variable indirection (``H=.git/hooks; mv $H /tmp/``) is
-    not attempted here -- see the PR body's out-of-scope list.
+    Three kinds of state are carried *across* segments rather than found in
+    one, each scoped no wider than the real shell semantics it is standing
+    in for:
+
+    - An ``export`` outlives the `;` that follows it (unscoped -- a real
+      shell carries it for the rest of the session, not just one segment).
+    - A `cd` into the hooks dir changes the working directory for every
+      later segment *until the next `cd`/`popd`* -- so `cwd_is_hooks_dir` is
+      reset, not just set, by any `cd`/`popd` that is not back into the
+      hooks dir (DG-465 round 3: it previously was never reset, so `cd
+      .git/hooks && cd .. && mv a b` -- which never touches the hooks dir at
+      all -- was wrongly denied).
+    - A hooks-dir path echoed into a pipe only reaches the *next* segment,
+      not every later one -- `echo .git/hooks | xargs rm -rf` is a real
+      bypass, but `cat .git/hooks/pre-commit; find . | xargs mv x y` is an
+      unrelated read followed by an unrelated pipe, and round 3's first
+      version denied it anyway because the flag was never scoped to the
+      `|` that actually carries the value forward.
+
+    A true variable indirection (``H=.git/hooks; mv $H /tmp/``) is not
+    attempted here -- see the PR body's out-of-scope list.
     """
-    segments = pr.split_command(command) or [command]
+    segment_pairs = _segments_with_leading_operator(command) or [("", command)]
     exported_skip_var = False
     cwd_is_hooks_dir = False
-    hooks_path_seen = False
-    for segment in segments:
+    pending_hooks_path = False
+    for operator, segment in segment_pairs:
         stripped = segment.strip()
+        piped_from_hooks_path = pending_hooks_path and operator == "|"
+        pending_hooks_path = False
+
         if _EXPORTED_HOOK_SKIP_VAR.match(stripped):
             exported_skip_var = True
         if (
@@ -443,15 +599,16 @@ def _bypasses_hook_floor_bash(command: str) -> bool:
         ):
             return True
         if (
-            hooks_path_seen
+            piped_from_hooks_path
             and _has_word(segment, "xargs")
             and any(_has_word(segment, verb) for verb in _HOOKS_DIR_MUTATING_VERBS)
         ):
             return True
-        if _CD_INTO_HOOKS_DIR.match(stripped):
-            cwd_is_hooks_dir = True
+
+        if _CD_OR_POPD.match(stripped):
+            cwd_is_hooks_dir = bool(_CD_INTO_HOOKS_DIR.match(stripped))
         if _HOOKS_DIR_PATTERN.search(segment):
-            hooks_path_seen = True
+            pending_hooks_path = True
     return False
 
 

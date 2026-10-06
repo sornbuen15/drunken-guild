@@ -742,3 +742,166 @@ class TestDG465InterpreterAndCrossSegmentBypasses:
             payload(command="echo .git/hooks | xargs -I{} echo {}"), self.NO_RULES
         )
         assert decision.permission is None
+
+
+class TestDG465QuotedGlobalOptionsStillResolveTheSubcommand:
+    """Round-3 adversarial review, CRITICAL regression: quoting a `-C`/`-c`
+    (or `--git-dir`/`--work-tree`) argument used to defeat the whole
+    `--no-verify` check. `_mask_quoted_spans` blanked the quoted span to
+    *spaces*, `masked.split()` then dropped it as a token entirely, and
+    `_git_subcommand`'s two-token skip for `-C`/`-c` landed on `commit`'s own
+    `--no-verify` flag instead of the subcommand -- so the subcommand lookup
+    returned `--no-verify` (not in the skip list) and the whole call fell
+    through to silence. Fixed by masking to a non-space filler instead, so a
+    quoted argument stays exactly one token, in position, like a real shell
+    would see it."""
+
+    NO_RULES = pr.Rules(allow=[], deny=[])
+
+    @pytest.mark.parametrize(
+        "global_opt",
+        [
+            'git -C "." commit --no-verify -m x',
+            "git -C '.' commit --no-verify -m x",
+            'git -C "$DIR" commit --no-verify -m x',
+            'git -C "a b" commit --no-verify -m x',
+            'git -C"dir" commit --no-verify -m x',
+            'git -c "user.name=Agent" commit --no-verify -m x',
+            "git -c 'user.name=Agent' commit --no-verify -m x",
+            'git -c "core.hooksPath=x" commit --no-verify -m x',
+            'git --git-dir="x" commit --no-verify -m x',
+            'git --git-dir "x" commit --no-verify -m x',
+            'git --work-tree="x" commit --no-verify -m x',
+            'git --work-tree "x" commit --no-verify -m x',
+            'git -C "." commit -an',
+            "git -c 'user.name=Agent' commit -an",
+            'git --git-dir="x" commit -an',
+            'git --work-tree="x" commit -an',
+        ],
+    )
+    def test_a_quoted_global_option_argument_still_resolves_to_commit(
+        self, global_opt
+    ) -> None:
+        decision = hook.decide(payload(command=global_opt), self.NO_RULES)
+        assert decision.permission == "deny", f"{global_opt!r} should be denied"
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            'git -C "." log -n 3',
+            "git -c 'a=b' tag -n",
+            'git -C "a b" branch -n',
+            'git --git-dir="x" log -n 3',
+        ],
+    )
+    def test_a_quoted_global_option_does_not_create_a_false_positive(
+        self, command
+    ) -> None:
+        decision = hook.decide(payload(command=command), self.NO_RULES)
+        assert decision.permission is None, f"{command!r} should stay allowed"
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "git commit --no-verify -m x",
+            "git -C dir commit --no-verify -m x",
+            "git -c user.name=Agent commit --no-verify -m x",
+            "git commit -an",
+        ],
+    )
+    def test_quoting_every_argument_never_turns_a_denied_command_into_silence(
+        self, command
+    ) -> None:
+        """Property check: for each command already known to be denied,
+        quoting every space-separated argument (a transformation a real
+        shell treats as a no-op) must never change the verdict to silence."""
+        baseline = hook.decide(payload(command=command), self.NO_RULES)
+        assert baseline.permission == "deny", f"baseline {command!r} must be denied"
+
+        quoted = " ".join(f'"{tok}"' for tok in command.split())
+        quoted_decision = hook.decide(payload(command=quoted), self.NO_RULES)
+        assert quoted_decision.permission == "deny", (
+            f"quoting every argument of {command!r} (-> {quoted!r}) must stay "
+            "denied, not fall through to silence"
+        )
+
+
+class TestDG465CrossSegmentStateIsScopedNotSticky:
+    """Round-3 adversarial review, MEDIUM-HIGH false positive: `cwd_is_hooks_dir`
+    and `hooks_path_seen` were set but never reset, so any mutating verb or
+    `xargs` call anywhere later in the same Bash call -- however unrelated --
+    was wrongly denied by a rule nothing can override."""
+
+    NO_RULES = pr.Rules(allow=[], deny=[])
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "cd .git/hooks && cd .. && mv somefile.txt elsewhere.txt",
+            "cd .git/hooks && ls && cd - && mv dist/ dist_old/",
+            "cd .git/hooks && cd /tmp && mv /tmp/build /tmp/build_old",
+            "cat .git/hooks/pre-commit; find . -name temp | xargs mv /tmp/dest",
+        ],
+    )
+    def test_the_cwd_and_pipe_state_do_not_leak_past_where_they_apply(
+        self, command
+    ) -> None:
+        decision = hook.decide(payload(command=command), self.NO_RULES)
+        assert decision.permission is None, f"{command!r} should stay allowed"
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "cd .git/hooks && rm *",
+            "echo .git/hooks | xargs rm -rf",
+        ],
+    )
+    def test_the_real_cross_segment_bypasses_are_still_denied(self, command) -> None:
+        decision = hook.decide(payload(command=command), self.NO_RULES)
+        assert decision.permission == "deny", f"{command!r} should be denied"
+
+
+class TestDG465EnvAssignmentWithAQuotedValue:
+    """Looking for one more place quoting could open a hole: `SKIP="a b" git
+    commit` has a space inside the quoted value, which the old
+    `_ENV_ASSIGNMENT_PREFIX` pattern (`\\S*` for the value) could not consume
+    as one token -- it would stop at the first space inside the quotes."""
+
+    NO_RULES = pr.Rules(allow=[], deny=[])
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            'SKIP="ruff mypy" git commit -m x',
+            "SKIP='ruff mypy' git commit -m x",
+        ],
+    )
+    def test_a_quoted_env_value_with_a_space_is_still_denied(self, command) -> None:
+        decision = hook.decide(payload(command=command), self.NO_RULES)
+        assert decision.permission == "deny", f"{command!r} should be denied"
+
+
+class TestDG465QuotingTheCommandWordItselfIsNotABypass:
+    """Found while writing the property test above: masking a quoted span to
+    any filler still cannot tell `"git"` (quoted, but still naming the real
+    git binary -- a shell runs it identically either way) from quoted
+    *content*. Real tokenising resolves `"git"` to the token `git`, exactly
+    as `_git_subcommand` expects, so quoting the command word itself is not
+    a way past this check."""
+
+    NO_RULES = pr.Rules(allow=[], deny=[])
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            '"git" commit --no-verify -m x',
+            'git "commit" --no-verify -m x',
+            'git commit "--no-verify" -m x',
+            '"git" "commit" "--no-verify" -m x',
+        ],
+    )
+    def test_quoting_the_git_word_or_the_subcommand_or_the_flag_is_still_denied(
+        self, command
+    ) -> None:
+        decision = hook.decide(payload(command=command), self.NO_RULES)
+        assert decision.permission == "deny", f"{command!r} should be denied"
