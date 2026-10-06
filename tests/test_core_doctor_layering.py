@@ -9,12 +9,14 @@ mocked git would only prove the test author's own assumption about that.
 """
 
 import json
+import os
+import shutil
 import subprocess
 import sys
 
 import pytest
 
-from core import ai_layer, doctor
+from core import ai_layer, doctor, exclude
 from core.registry import ProjectRegistry
 
 GIT_IDENTITY = ["-c", "user.name=test", "-c", "user.email=test@example.invalid"]
@@ -493,6 +495,92 @@ class TestGitFailingInsideARealCheckoutIsASkipNeverOkOrFail:
             "this is the mutation's own wrong outcome — the real "
             f"implementation must skip, never pass, when git fails. Got "
             f"{check.status}: {check.detail}"
+        )
+
+
+def _write_sleepy_git(bin_dir, sleep_seconds: float) -> None:
+    """A git stand-in that sleeps for *sleep_seconds* then exits 0, for
+    proving a real ``subprocess`` timeout fires rather than a mocked
+    return value. Duplicated from ``tests/test_exclude.py``'s identical
+    helper — see that copy's docstring for why Windows needs a copy of
+    the current interpreter plus a ``sitecustomize.py`` rather than a
+    ``.bat``/``.cmd`` file."""
+    bin_dir.mkdir(parents=True, exist_ok=True)
+    if sys.platform == "win32":
+        git_path = bin_dir / "git.exe"
+        shutil.copy2(sys.executable, git_path)
+        (bin_dir / "sitecustomize.py").write_text(
+            f"import time, os\ntime.sleep({sleep_seconds})\nos._exit(0)\n",
+            encoding="utf-8",
+        )
+    else:
+        git_path = bin_dir / "git"
+        git_path.write_text(
+            f"#!/bin/sh\nsleep {sleep_seconds}\nexit 0\n", encoding="utf-8"
+        )
+        git_path.chmod(0o755)
+
+
+def _prepend_sleepy_git_to_path(monkeypatch, bin_dir) -> None:
+    monkeypatch.setenv("PATH", f"{bin_dir}{os.pathsep}{os.environ.get('PATH', '')}")
+    if sys.platform == "win32":
+        monkeypatch.setenv(
+            "PYTHONPATH", f"{bin_dir}{os.pathsep}{os.environ.get('PYTHONPATH', '')}"
+        )
+
+
+class TestGitTimingOutInsideARealCheckoutIsASkipNeverOk:
+    """DG-454 review: the same claim as
+    :class:`TestGitFailingInsideARealCheckoutIsASkipNeverOkOrFail` above,
+    but for a *timeout* specifically rather than a corrupted repository —
+    ``tracked_ai_layer_paths`` must read a hung ``git ls-files`` as "could
+    not ask" (``None`` -> skip), never silently as "ran, found nothing"
+    (``[]`` -> ok). A real sleeping git stand-in, not a mocked return
+    value, so this proves the actual timeout plumbing."""
+
+    def test_tracked_ai_layer_paths_returns_none_not_empty(self, tmp_path, monkeypatch):
+        root = tmp_path / "proj"
+        _init_repo(root)
+        (root / "AGENTS.md").write_text("instructions", encoding="utf-8")
+        _commit_all(root, "initial")
+
+        bin_dir = tmp_path / "fakebin"
+        _write_sleepy_git(bin_dir, sleep_seconds=2)
+        _prepend_sleepy_git_to_path(monkeypatch, bin_dir)
+
+        # doctor.tracked_ai_layer_paths passes its own timeout=30
+        # explicitly, so the stand-in must sleep past *that* value, not
+        # the real 30s — override it here rather than waiting it out.
+        def _tiny_timeout_run_git(args, repo_root, **kwargs):
+            kwargs["timeout"] = 0.2
+            return exclude.run_git(args, repo_root, **kwargs)
+
+        monkeypatch.setattr(doctor, "run_git", _tiny_timeout_run_git)
+
+        result = doctor.tracked_ai_layer_paths(root)
+
+        assert result is None, (
+            "a hung git must read as 'could not ask' (None), never as "
+            f"'ran, found nothing' ([]). Got: {result!r}"
+        )
+
+    def test_the_doctor_check_itself_reports_skip_not_ok(self, tmp_path, monkeypatch):
+        root = tmp_path / "proj"
+        _init_repo(root)
+        (root / "AGENTS.md").write_text("instructions", encoding="utf-8")
+        _commit_all(root, "initial")
+
+        monkeypatch.setattr(doctor, "tracked_ai_layer_paths", lambda git_root: None)
+
+        report = doctor.run_doctor(
+            registry=_registry(tmp_path, "scratch", root), offline=True
+        )
+
+        check = find(report, "layering.tracked.scratch")
+        assert check.status == "skip", (
+            "a hung git reported as None by tracked_ai_layer_paths must "
+            f"surface as a skip, never a pass. Got {check.status}: "
+            f"{check.detail}"
         )
 
 

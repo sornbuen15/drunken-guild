@@ -38,7 +38,7 @@ from .config_gen import (
 )
 from .context import ProjectContext
 from .errors import DrunkenError
-from .exclude import NotAGitRepositoryError, run_git
+from .exclude import GitTimedOutError, NotAGitRepositoryError, run_git
 from .redact import redact
 from .registry import ProjectRegistry
 
@@ -215,6 +215,12 @@ def newest_tag() -> Optional[str]:
     this source tree was loaded from, and the same leaked ``GIT_*`` environment
     that could redirect :func:`tracked_ai_layer_paths` onto a different
     repository could redirect this to list another one's tags instead.
+
+    Both ways :func:`run_git` can fail to answer at all —
+    :class:`NotAGitRepositoryError` and :class:`GitTimedOutError` (DG-454
+    review) — are equally "no tag to report" *here*: this is a benign
+    version-check diagnostic with nothing to protect, unlike
+    :func:`tracked_ai_layer_paths` below, which must tell the two apart.
     """
     try:
         result = run_git(
@@ -222,7 +228,7 @@ def newest_tag() -> Optional[str]:
             Path(__file__).resolve().parent,
             timeout=30,
         )
-    except NotAGitRepositoryError:
+    except (NotAGitRepositoryError, GitTimedOutError):
         return None
     if result.returncode != 0:
         return None
@@ -1697,7 +1703,12 @@ def tracked_ai_layer_paths(git_root: Path) -> Optional[list[str]]:
     """
     try:
         result = run_git(["ls-files", "-z"], git_root, text=False, timeout=30)
-    except NotAGitRepositoryError:
+    except (NotAGitRepositoryError, GitTimedOutError):
+        # Both ways run_git can fail to answer at all (DG-454 review) land
+        # here as the same None: the docstring above already promises a
+        # timeout is one of the reasons, and the caller
+        # (_check_project_layering) already reads None as "skip", never
+        # as "ran, and tracks nothing" — the two must stay tellable apart.
         return None
     if result.returncode != 0:
         return None

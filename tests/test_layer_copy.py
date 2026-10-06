@@ -17,7 +17,9 @@ where the two spellings are one on-disk file.
 from __future__ import annotations
 
 import os
+import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -1717,3 +1719,108 @@ class TestConfigRepoSymlinksAreNeverFollowed:
 
         assert not (repo / "AGENTS.md").exists()
         assert "AGENTS.md" not in result.copied
+
+
+def _write_sleepy_git(bin_dir: Path, sleep_seconds: float) -> None:
+    """A git stand-in that sleeps for *sleep_seconds* then exits 0, for
+    proving a real ``subprocess`` timeout fires rather than a mocked
+    return value. Bounded: this never sleeps forever, so a test exercising
+    it is bounded by *sleep_seconds* even if the timeout under test fails
+    to apply at all.
+
+    Duplicated from ``tests/test_exclude.py``'s identical helper rather
+    than imported across test modules — see that copy's docstring for why
+    Windows needs a copy of the current interpreter plus a
+    ``sitecustomize.py`` rather than a ``.bat``/``.cmd`` file: a bare name
+    with no extension only gets ``.exe`` auto-appended by Windows'
+    ``CreateProcess``, so a batch file here would be invisible to the
+    lookup and silently fall through to the real ``git.exe`` elsewhere on
+    ``PATH``.
+    """
+    bin_dir.mkdir(parents=True, exist_ok=True)
+    if sys.platform == "win32":
+        git_path = bin_dir / "git.exe"
+        shutil.copy2(sys.executable, git_path)
+        (bin_dir / "sitecustomize.py").write_text(
+            f"import time, os\ntime.sleep({sleep_seconds})\nos._exit(0)\n",
+            encoding="utf-8",
+        )
+    else:
+        git_path = bin_dir / "git"
+        git_path.write_text(
+            f"#!/bin/sh\nsleep {sleep_seconds}\nexit 0\n", encoding="utf-8"
+        )
+        git_path.chmod(0o755)
+
+
+def _prepend_sleepy_git_to_path(monkeypatch: pytest.MonkeyPatch, bin_dir: Path) -> None:
+    """``monkeypatch.setenv`` specifically, not a one-off ``env=`` dict
+    built for a single subprocess call: Windows' ``CreateProcess``
+    resolves which executable a bare name like ``"git"`` finds using the
+    *calling* process's own environment, not whatever is later passed as
+    ``env=`` — ``monkeypatch.setenv`` mutates this process's real
+    ``os.environ``, which is what that lookup actually reads."""
+    monkeypatch.setenv("PATH", f"{bin_dir}{os.pathsep}{os.environ.get('PATH', '')}")
+    if sys.platform == "win32":
+        monkeypatch.setenv(
+            "PYTHONPATH", f"{bin_dir}{os.pathsep}{os.environ.get('PYTHONPATH', '')}"
+        )
+
+
+class TestCopyInRefusesWhenGitHangs:
+    """DG-454: copy-in must never proceed as though a path were untracked
+    just because git could not answer within the timeout. A real git
+    stand-in that sleeps past the timeout — not a mocked ``run_git`` — is
+    used here so this proves the ``subprocess.run(timeout=...)`` plumbing
+    actually fires; see ``tests/test_exclude.py::TestRunGitTimeout`` for
+    the same mechanism proven in isolation, against ``run_git`` directly."""
+
+    def test_copy_in_refuses_and_writes_nothing_when_git_hangs(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        repo = _init_repo(tmp_path / "project")
+        config_repo = _config_repo(tmp_path)
+        project_folder = config_repo / "sample"
+        project_folder.mkdir(parents=True)
+        (project_folder / "AGENTS.md").write_text("instructions\n", encoding="utf-8")
+
+        # A tiny timeout for *this test*, not the real
+        # DEFAULT_GIT_TIMEOUT_SECONDS — the suite must not wait out the
+        # real 30s default. copy_ai_layer_in passes no timeout of its own
+        # to any of its run_git calls, so it is this default that must
+        # bound it.
+        monkeypatch.setattr(exclude, "DEFAULT_GIT_TIMEOUT_SECONDS", 0.2)
+        bin_dir = tmp_path / "fakebin"
+        _write_sleepy_git(bin_dir, sleep_seconds=2)
+        _prepend_sleepy_git_to_path(monkeypatch, bin_dir)
+
+        with pytest.raises(exclude.GitTimedOutError):
+            layer_copy.copy_ai_layer_in(
+                config_repo=config_repo,
+                project_id="sample",
+                project_root=repo,
+                git_root=repo,
+            )
+
+        assert not (repo / "AGENTS.md").exists(), (
+            "a hung git must refuse before a single byte is copied, not "
+            'silently treat the timeout as "not tracked" and proceed'
+        )
+
+    def test_a_tracked_check_timeout_raises_rather_than_answering_not_tracked(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # Targets the tracked-check layer directly, bypassing
+        # resolve_info_exclude_path's own earlier git calls (which would
+        # otherwise be the first thing to hit the hung stand-in) — this is
+        # the specific claim the SCOPE names: a timeout inside a
+        # tracked-file check must never fall through to "not tracked".
+        repo = _init_repo(tmp_path / "project")
+
+        monkeypatch.setattr(exclude, "DEFAULT_GIT_TIMEOUT_SECONDS", 0.2)
+        bin_dir = tmp_path / "fakebin"
+        _write_sleepy_git(bin_dir, sleep_seconds=2)
+        _prepend_sleepy_git_to_path(monkeypatch, bin_dir)
+
+        with pytest.raises(exclude.GitTimedOutError):
+            layer_copy._has_staged_content(repo, "AGENTS.md")  # noqa: SLF001
