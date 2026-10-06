@@ -8,14 +8,31 @@ project key went back in twice that way. This runs where the mistake is made:
 
     pre-commit stage   the staged content of every added or modified file
     commit-msg stage   the commit message (``--message <file>``)
+    pre-push stage     the added lines and the message of every commit this push
+                       would make public for the first time (``--push``)
     CI                 every tracked file (``--tree``) and every commit message in
                        the pushed range (``--messages A..B``)
 
 Locally the ids come from this machine's registry; no registry means nothing to
-leak, and nothing is blocked. CI has no registry, so there they come from the
-OPERATOR_PROJECT_IDS repository secret, and ``--require-ids`` makes an unset
-secret a failure rather than a pass. Output names the place, never the id: it
-lands in terminals and logs.
+leak, and nothing is blocked -- except at push (DG-464): CI checks after the
+push, and by then GitHub already keeps the commit under ``refs/pull/*`` for
+good even if the PR closes unmerged, so pre-push is the last point before that
+and an unchecked push is refused unless ``DRUNKEN_NO_REGISTERED_PROJECTS=1``.
+CI has no registry, so there they come from the OPERATOR_PROJECT_IDS repository
+secret, and ``--require-ids`` makes an unset secret a failure rather than a
+pass. Output names the place, never the id: it lands in terminals and logs.
+
+``--push`` reads the range from ``PRE_COMMIT_FROM_REF`` / ``PRE_COMMIT_TO_REF``:
+pre-commit's own pre-push stage sets these (it reads the hook's stdin itself
+and does not forward it), computed per the standard git pre-push protocol --
+``TO`` is what is being pushed, ``FROM`` is what the remote ref already has, or
+unset for a ref the remote does not have yet. The scan is ``TO --not FROM
+--remotes``: every commit reachable from ``TO`` that is not already reachable
+from ``FROM`` *or from any remote-tracking ref*, so a commit already public on
+some other branch is never re-flagged just because this ref's own remote
+tracking has not moved past it. Merge commits are read with ``--cc`` so a
+conflict resolution written directly into the merge is seen too, not just
+what either parent already had.
 """
 
 from __future__ import annotations
@@ -106,6 +123,49 @@ def _messages(rev_range: str) -> List[tuple[str, str]]:
     return out
 
 
+def _unpublished_commit_sources(
+    to_ref: str, from_ref: str | None
+) -> List[tuple[str, str]]:
+    """Message and added lines of every commit in ``TO --not FROM --remotes``.
+
+    ``--remotes`` excludes anything already reachable from any remote-tracking
+    ref, on top of ``FROM``: a commit already public on another branch is not
+    re-flagged just because this ref's own tracking has not moved past it.
+    Merge commits are read with ``--cc`` so a conflict resolution written
+    directly into the merge -- not present verbatim in either parent's own
+    diff -- is still seen.
+    """
+    log_args = ["git", "log", "--format=%H", to_ref, "--not"]
+    if from_ref:
+        log_args.append(from_ref)
+    log_args.append("--remotes")
+    result = subprocess.run(log_args, capture_output=True)
+    if result.returncode != 0:
+        return []
+
+    hashes = [h for h in result.stdout.decode("utf-8", "replace").split("\n") if h]
+    out: List[tuple[str, str]] = []
+    for sha in hashes:
+        show = subprocess.run(
+            # "%x00" is git's own escape for the byte, substituted in the
+            # *output*; putting the literal NUL character in argv instead
+            # breaks CreateProcess on Windows (DG-464).
+            ["git", "show", "--cc", "--format=%B%x00", sha],
+            capture_output=True,
+        )
+        text = show.stdout.decode("utf-8", "replace")
+        message, _, diff = text.partition(NUL)
+        short = sha[:12]
+        out.append((f"commit {short} message", message))
+        added = "\n".join(
+            line[1:]
+            for line in diff.split("\n")
+            if line.startswith("+") and not line.startswith("+++")
+        )
+        out.append((f"commit {short} added lines", added))
+    return out
+
+
 def offenders(sources: List[tuple[str, str]], ids: List[str]) -> List[str]:
     patterns = [pattern(i) for i in ids]
     return [
@@ -116,17 +176,62 @@ def offenders(sources: List[tuple[str, str]], ids: List[str]) -> List[str]:
     ]
 
 
+def _main_push() -> int:
+    """``--push``: refuse unless there are ids to check, or the opt-out is set.
+
+    Unlike the pre-commit and commit-msg stages, no registry here does not
+    mean nothing to leak -- a push that nobody checked is not a clean one, so
+    it is refused rather than passed, unless DRUNKEN_NO_REGISTERED_PROJECTS=1
+    says that is deliberate (an operator with nothing registered yet, or CI's
+    own smoke run of this hook).
+    """
+    ids = registered_ids()
+    if not ids:
+        if os.environ.get("DRUNKEN_NO_REGISTERED_PROJECTS") == "1":
+            return 0
+        print(
+            "No project ids to check this push against. Set "
+            "DRUNKEN_NO_REGISTERED_PROJECTS=1 if that is deliberate; an "
+            "unchecked push is not a clean one."
+        )
+        return 1
+
+    to_ref = os.environ.get("PRE_COMMIT_TO_REF") or "HEAD"
+    from_ref = os.environ.get("PRE_COMMIT_FROM_REF") or None
+    sources = _unpublished_commit_sources(to_ref, from_ref)
+
+    found = offenders(sources, ids)
+    if not found:
+        return 0
+    print(
+        "A registered project id is in a commit this push would make public. "
+        "This repository is public. Use alpha/beta, or describe the role "
+        "instead of naming it:"
+    )
+    for place in found:
+        print(f"  {place}")
+    return 1
+
+
 def main(argv: List[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     parser.add_argument("--message", help="commit message file (commit-msg stage)")
     parser.add_argument("--tree", action="store_true", help="every tracked file (CI)")
     parser.add_argument("--messages", default="", help="commit range A..B (CI)")
     parser.add_argument(
+        "--push",
+        action="store_true",
+        help="unpublished commits in PRE_COMMIT_FROM_REF..PRE_COMMIT_TO_REF (pre-push stage)",
+    )
+    parser.add_argument(
         "--require-ids",
         action="store_true",
         help="fail when there are no ids to check against (CI)",
     )
     args = parser.parse_args(argv)
+
+    if args.push:
+        return _main_push()
 
     ids = registered_ids()
     if not ids:
