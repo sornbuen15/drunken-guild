@@ -41,7 +41,17 @@ def _description(skill: Path) -> str:
 
 
 def _skills() -> list[Path]:
-    return sorted(SKILLS.glob("*/*/SKILL.md"))
+    """Every `SKILL.md` an agent *picks by this description*, which excludes
+    `skills/roles/` (DG-402): a role skill is never chosen from its
+    description at all -- the manager dispatches `manager`/`worker`/
+    `reviewer` by name through the Task tool, and the Claude subagent's own
+    `skills:` frontmatter field preloads it deterministically. REQ-010's
+    "the agent picks a skill from its description" does not describe how a
+    role skill is ever reached, so it is exempt from the shape this file
+    checks."""
+    return sorted(
+        p for p in SKILLS.glob("*/*/SKILL.md") if p.parent.parent.name != "roles"
+    )
 
 
 def test_the_skills_are_found() -> None:

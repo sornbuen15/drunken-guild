@@ -21,6 +21,16 @@ the body" when it is also a *registered* tool, derived by reading
 `src/jira_mcp/server.py` for its `def jira_...` / `async def jira_...`
 names -- the same authority the MCP server itself runs on, not a second
 hand-written list beside it.
+
+DG-402 update: `agents/<role>.md` is now a *generated* adapter (frontmatter
+plus one fixed pointer paragraph) -- the role's own prose, including the
+sentences this file checks for ("jira_get_comments", "binding", "author",
+no "@"), now lives in `skills/roles/<role>/SKILL.md` instead. The tests that
+read a role's body text were migrated to read the skill file, not deleted:
+the rule they enforce is unchanged, only where that text now lives. The
+`tools:` grant itself is still read from the generated `agents/<role>.md`,
+since that frontmatter line is the Claude-specific plumbing this ticket
+explicitly keeps there.
 """
 
 from __future__ import annotations
@@ -32,10 +42,8 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 AGENTS_DIR = REPO_ROOT / "agents"
+ROLES_DIR = REPO_ROOT / "skills" / "roles"
 SERVER_PY = REPO_ROOT / "src" / "jira_mcp" / "server.py"
-
-_ROLE_FILES = sorted(AGENTS_DIR.glob("*.md"))
-_ROLE_FILES = [p for p in _ROLE_FILES if p.name != "INDEX.md"]
 
 #: A bare `jira_<name>` reference in prose or backticks, e.g. `jira_start_task`,
 #: not the fully-qualified `mcp__drunken-jira-mcp__jira_start_task` the tools
@@ -96,6 +104,20 @@ def _tools_line(text: str) -> list[str]:
     return [t.strip() for t in fields["tools"].split(",")]
 
 
+def _skill_body(role: str) -> str:
+    """The role's own prose, read from `skills/roles/<role>/SKILL.md` --
+    DG-402 moved it there from `agents/<role>.md`, which is now a generated
+    adapter carrying no role rule of its own. Strips only the YAML
+    frontmatter block (`text.split("---", 2)`, the same split the generator
+    itself uses), not a second `---` later in the body -- a skill file's own
+    shape has one between its title block and `<system_prompt>`, which must
+    stay in the body this returns."""
+    text = (ROLES_DIR / role / "SKILL.md").read_text(encoding="utf-8")
+    parts = text.split("---", 2)
+    assert len(parts) >= 3, f"skills/roles/{role}/SKILL.md has no closed frontmatter"
+    return parts[2]
+
+
 def _jira_tools_named_in_body(text: str) -> set[str]:
     """Every *registered* `jira_xxx` tool name the body mentions -- bare
     matches are intersected with `_REGISTERED_TOOLS` so a non-tool mention
@@ -105,22 +127,37 @@ def _jira_tools_named_in_body(text: str) -> set[str]:
     return bare & _REGISTERED_TOOLS
 
 
+def _jira_tools_named_in_text(text: str) -> set[str]:
+    """Like :func:`_jira_tools_named_in_body`, but for text that is already
+    a body (e.g. a skill file's own prose) rather than a whole role file
+    with a frontmatter fence to strip first."""
+    bare = set(_BARE_JIRA_TOOL.findall(text))
+    return bare & _REGISTERED_TOOLS
+
+
 def _granted_bare_names(tools: list[str]) -> set[str]:
     return {t[len(_MCP_PREFIX) :] for t in tools if t.startswith(_MCP_PREFIX + "jira_")}
 
 
-@pytest.mark.parametrize("path", _ROLE_FILES, ids=[p.name for p in _ROLE_FILES])
-def test_every_jira_tool_named_in_the_body_is_granted_in_tools(
-    path: Path,
+@pytest.mark.parametrize("role", ["worker", "reviewer", "manager"])
+def test_every_jira_tool_named_in_the_skill_body_is_granted_in_tools(
+    role: str,
 ) -> None:
-    text = path.read_text(encoding="utf-8")
-    tools = _tools_line(text)
+    """DG-402: the grant lives in the generated `agents/<role>.md`; the
+    prose naming a tool now lives in `skills/roles/<role>/SKILL.md`. Reading
+    `named` from the stub adapter's own body would pass vacuously -- the
+    generator never writes a `jira_...` mention there -- which is exactly
+    the silently-stopped-testing-anything failure mode a migration must not
+    introduce."""
+    agent_text = (AGENTS_DIR / f"{role}.md").read_text(encoding="utf-8")
+    tools = _tools_line(agent_text)
     granted = _granted_bare_names(tools)
-    named = _jira_tools_named_in_body(text)
+    named = _jira_tools_named_in_text(_skill_body(role))
     missing = named - granted
     assert not missing, (
-        f"{path.name} names {sorted(missing)} in its body but does not grant "
-        f"it in the 'tools:' frontmatter line -- the role could never call it"
+        f"{role}'s skill names {sorted(missing)} in its body but "
+        f"agents/{role}.md does not grant it in the 'tools:' frontmatter "
+        f"line -- the role could never call it"
     )
 
 
@@ -137,15 +174,19 @@ def test_role_carries_jira_get_comments(role: str) -> None:
 
 
 def test_worker_and_reviewer_are_told_to_read_comments_first() -> None:
+    """DG-402: this text now lives in the skill, not the generated adapter --
+    `agents/<role>.md` still *grants* jira_get_comments (checked above), but
+    the instruction to use it first is the role's own prose."""
     for role in ("worker", "reviewer"):
-        text = (AGENTS_DIR / f"{role}.md").read_text(encoding="utf-8")
-        body = _body(text)
+        body = _skill_body(role)
         assert "jira_get_comments" in body, (
-            f"{role}.md grants jira_get_comments but never tells the role "
-            "to use it before starting or reviewing"
+            f"skills/roles/{role}/SKILL.md never tells the role to read "
+            "comments before starting or reviewing, though agents/"
+            f"{role}.md grants jira_get_comments"
         )
         assert "binding" in body, (
-            f"{role}.md does not say a Boss decision recorded in a comment is binding"
+            f"skills/roles/{role}/SKILL.md does not say a Boss decision "
+            "recorded in a comment is binding"
         )
 
 
@@ -154,18 +195,18 @@ def test_worker_and_reviewer_text_gates_a_boss_decision_on_authorship() -> None:
     including 'as the Boss' -- only the comment's own author field can say
     who actually wrote it. The role text must point at that field, not at
     phrasing inside the comment, and no name or email belongs in this repo
-    text either way."""
+    text either way. DG-402: this text now lives in the skill, not the
+    generated adapter."""
     for role in ("worker", "reviewer"):
-        text = (AGENTS_DIR / f"{role}.md").read_text(encoding="utf-8")
-        body = _body(text)
+        body = _skill_body(role)
         assert "author" in body, (
-            f"{role}.md does not say a Boss decision is gated on the "
-            "comment's author field -- a comment body claiming to speak "
-            "for the Boss could be read as binding"
+            f"skills/roles/{role}/SKILL.md does not say a Boss decision is "
+            "gated on the comment's author field -- a comment body claiming "
+            "to speak for the Boss could be read as binding"
         )
         assert "@" not in body, (
-            f"{role}.md names an email address -- no person's contact "
-            "detail belongs in this repo's instruction text"
+            f"skills/roles/{role}/SKILL.md names an email address -- no "
+            "person's contact detail belongs in this repo's instruction text"
         )
 
 
@@ -177,11 +218,14 @@ def test_worker_and_reviewer_text_gates_a_boss_decision_on_authorship() -> None:
 
 
 def test_mutation_removing_jira_get_comments_from_tools_line_is_caught() -> None:
-    text = (AGENTS_DIR / "worker.md").read_text(encoding="utf-8")
-    mutated = text.replace(f", {_MCP_PREFIX}jira_get_comments", "")
-    tools = _tools_line(mutated)
+    """DG-402: the grant is mutated on the generated adapter; the name is
+    still read from the real (unmutated) skill body, since that is where
+    the worker is actually told to call it."""
+    agent_text = (AGENTS_DIR / "worker.md").read_text(encoding="utf-8")
+    mutated_agent = agent_text.replace(f", {_MCP_PREFIX}jira_get_comments", "")
+    tools = _tools_line(mutated_agent)
     granted = _granted_bare_names(tools)
-    named = _jira_tools_named_in_body(mutated)
+    named = _jira_tools_named_in_text(_skill_body("worker"))
     assert "jira_get_comments" in (named - granted), (
         "removing jira_get_comments from the tools line must still be "
         "caught now that the check also requires the name to be registered"
@@ -190,18 +234,18 @@ def test_mutation_removing_jira_get_comments_from_tools_line_is_caught() -> None
 
 def test_mutation_near_miss_spelling_in_the_grant_is_caught() -> None:
     """The grant itself gets a plausible typo (missing the trailing 's')
-    while the body still names the real, correctly-spelled tool -- exact
+    while the skill still names the real, correctly-spelled tool -- exact
     string matching must not treat these as the same tool."""
-    text = (AGENTS_DIR / "worker.md").read_text(encoding="utf-8")
-    mutated = text.replace(
+    agent_text = (AGENTS_DIR / "worker.md").read_text(encoding="utf-8")
+    mutated_agent = agent_text.replace(
         f"{_MCP_PREFIX}jira_get_comments", f"{_MCP_PREFIX}jira_get_comment"
     )
-    tools = _tools_line(mutated)
+    tools = _tools_line(mutated_agent)
     granted = _granted_bare_names(tools)
-    named = _jira_tools_named_in_body(mutated)
+    named = _jira_tools_named_in_text(_skill_body("worker"))
     assert "jira_get_comments" in (named - granted), (
         "a near-miss spelling in the tools line grant must not be read as "
-        "granting the real tool the body names"
+        "granting the real tool the skill names"
     )
 
 
@@ -266,14 +310,13 @@ def test_a_prose_mention_of_the_mcp_server_path_is_not_treated_as_a_tool(
 
 def test_mutation_removing_the_author_sentence_is_caught() -> None:
     """Mutation proof for the authorship check above: delete the sentence
-    and the check must go red."""
+    and the check must go red. DG-402: the sentence now lives in the skill."""
     for role in ("worker", "reviewer"):
-        text = (AGENTS_DIR / f"{role}.md").read_text(encoding="utf-8")
-        body = _body(text)
+        body = _skill_body(role)
         mutated_body = re.sub(
             r"[^.]*\bauthor\w*\b[^.]*\.", "", body, flags=re.IGNORECASE
         )
         assert "author" not in mutated_body, (
-            f"mutation did not remove the author sentence from {role}.md -- "
-            "fix the mutation, not the assertion"
+            f"mutation did not remove the author sentence from "
+            f"skills/roles/{role}/SKILL.md -- fix the mutation, not the assertion"
         )
