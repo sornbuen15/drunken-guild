@@ -8,7 +8,7 @@ Accepted by the Boss, 2026-09-23. Built from `.ai/PRD.md` (REQ-001–022; REQ-00
 |---|---|---|
 | **Flow** | REQ-001, REQ-004, REQ-012, REQ-016, REQ-017, REQ-018, REQ-021 | The ordered steps from requirement to validation, how each step hands to the next, and the checks — including a schedule independent of any step, such as a dependency audit — that keep the work trustworthy |
 | **Routing** | REQ-002, REQ-010, REQ-011, REQ-013 | How an agent decides, unprompted, which skill, role or MCP tool a situation needs, and proof that it does |
-| **Instructions** | REQ-006, REQ-007, REQ-015 | The one instruction file every agent reads, and the adapters that lead each agent to it |
+| **Instructions** | REQ-006, REQ-007, REQ-015, REQ-023 | The one instruction file every agent reads, the adapters that lead each agent to it, and the floor an agent cannot talk its way past, including the guard that keeps a registered id out of the repository |
 | **Layering** | REQ-019, REQ-020 | Where a project's AI layer lives and how it gets there: kept out of the project's repository, held in one private config repo, put in place by init |
 | **Distribution** | REQ-003, REQ-008, REQ-009, REQ-014, REQ-022 | The one source of skills and roles, and installing it into each supported agent its own way |
 
