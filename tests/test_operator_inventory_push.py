@@ -72,14 +72,16 @@ def repo(tmp_path: Path, monkeypatch) -> Path:
     return work
 
 
-def _run(repo: Path, extra_env: dict | None = None) -> subprocess.CompletedProcess:
+def _run(
+    repo: Path, extra_env: dict | None = None, cwd: Path | None = None
+) -> subprocess.CompletedProcess:
     import os
 
     env = os.environ.copy()
     env.update(extra_env or {})
     return subprocess.run(
         [sys.executable, str(SCRIPT), "--push"],
-        cwd=repo,
+        cwd=cwd if cwd is not None else repo,
         capture_output=True,
         text=True,
         env=env,
@@ -217,6 +219,61 @@ def test_git_dir_env_does_not_confuse_the_scan(repo: Path, monkeypatch) -> None:
             "GIT_WORK_TREE": str(repo),
         },
     )
+
+    assert result.returncode == 1
+
+
+def test_an_unresolvable_from_ref_refuses_rather_than_passes(repo: Path) -> None:
+    """A `git log` failure must never read as "nothing unpublished"."""
+    to_sha = _commit(repo, "a.txt", f"{FAKE.upper()}-1\n", "wip")
+
+    result = _run(
+        repo, {"PRE_COMMIT_FROM_REF": "not-a-real-ref-zzz", "PRE_COMMIT_TO_REF": to_sha}
+    )
+
+    assert result.returncode == 1
+    assert FAKE not in (result.stdout + result.stderr).lower()
+
+
+def test_a_bogus_to_ref_refuses_rather_than_passes(repo: Path) -> None:
+    _commit(repo, "a.txt", f"{FAKE.upper()}-1\n", "wip")
+
+    result = _run(repo, {"PRE_COMMIT_TO_REF": "not-a-real-sha-zzz"})
+
+    assert result.returncode == 1
+    assert FAKE not in (result.stdout + result.stderr).lower()
+
+
+def test_running_outside_a_repo_refuses(repo: Path, tmp_path: Path) -> None:
+    to_sha = _commit(repo, "a.txt", f"{FAKE.upper()}-1\n", "wip")
+    outside = tmp_path / "not-a-repo"
+    outside.mkdir()
+
+    result = _run(repo, {"PRE_COMMIT_TO_REF": to_sha}, cwd=outside)
+
+    assert result.returncode == 1
+    assert FAKE not in (result.stdout + result.stderr).lower()
+
+
+def test_a_branch_deletion_passes(repo: Path) -> None:
+    """TO is the all-zero SHA: nothing is being pushed, so there is nothing to
+    scan -- the one case where no range at all is legitimately a pass."""
+    _commit(repo, "a.txt", f"{FAKE.upper()}-1\n", "wip")  # history exists, irrelevant
+
+    result = _run(repo, {"PRE_COMMIT_TO_REF": "0" * 40})
+
+    assert result.returncode == 0
+
+
+def test_an_absent_to_ref_refuses_rather_than_scanning_head_or_passing(
+    repo: Path,
+) -> None:
+    """Run by hand, outside pre-commit's own pre-push stage, PRE_COMMIT_TO_REF
+    is simply not set. There is no safe guess for what is being pushed, so
+    this must fail closed -- not silently scan HEAD, and not silently pass."""
+    _commit(repo, "a.txt", "clean\n", "base")  # HEAD is clean; must not matter
+
+    result = _run(repo)  # no PRE_COMMIT_TO_REF at all
 
     assert result.returncode == 1
 

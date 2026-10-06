@@ -32,7 +32,16 @@ from ``FROM`` *or from any remote-tracking ref*, so a commit already public on
 some other branch is never re-flagged just because this ref's own remote
 tracking has not moved past it. Merge commits are read with ``--cc`` so a
 conflict resolution written directly into the merge is seen too, not just
-what either parent already had.
+what either parent already had. Any failure to resolve the range -- an
+unknown ``FROM``/``TO``, running outside a git checkout at all -- refuses the
+push; it is never read as "nothing to scan". ``TO`` as the all-zero SHA (a
+branch deletion: nothing is being pushed) is the one case that legitimately
+needs no scan at all, and is the only one.
+
+Known limits, not covered here: an annotated tag's own message (set with
+``git tag -a -m``) lives on the tag object, not on any commit, so walking
+commits never reads it; and, like ``_staged``/``_tracked`` already choose,
+binary content is not read for a name either.
 """
 
 from __future__ import annotations
@@ -55,6 +64,19 @@ MIN_ID_LENGTH = 3
 #: Separators git is asked to put between fields and between log entries.
 NUL = chr(0)
 SOH = chr(1)
+
+#: git's own all-zero SHA, meaning "no commit here" on either side of a
+#: pre-push ref update (a branch deletion when it is TO).
+ZERO_SHA = "0" * 40
+
+
+class ScanFailed(Exception):
+    """git could not resolve the push range at all.
+
+    Not a sign that there is nothing to scan: a failure here must refuse the
+    push, the same as every other failure mode this file treats as
+    fail-closed, never fall through to a silent pass (DG-464 review).
+    """
 
 
 def registered_ids() -> List[str]:
@@ -139,20 +161,25 @@ def _unpublished_commit_sources(
     if from_ref:
         log_args.append(from_ref)
     log_args.append("--remotes")
-    result = subprocess.run(log_args, capture_output=True)
-    if result.returncode != 0:
-        return []
+    try:
+        result = subprocess.run(log_args, capture_output=True, check=True)
+    except subprocess.CalledProcessError as exc:
+        raise ScanFailed("git log could not resolve the push range") from exc
 
     hashes = [h for h in result.stdout.decode("utf-8", "replace").split("\n") if h]
     out: List[tuple[str, str]] = []
     for sha in hashes:
-        show = subprocess.run(
-            # "%x00" is git's own escape for the byte, substituted in the
-            # *output*; putting the literal NUL character in argv instead
-            # breaks CreateProcess on Windows (DG-464).
-            ["git", "show", "--cc", "--format=%B%x00", sha],
-            capture_output=True,
-        )
+        try:
+            show = subprocess.run(
+                # "%x00" is git's own escape for the byte, substituted in the
+                # *output*; putting the literal NUL character in argv instead
+                # breaks CreateProcess on Windows (DG-464).
+                ["git", "show", "--cc", "--format=%B%x00", sha],
+                capture_output=True,
+                check=True,
+            )
+        except subprocess.CalledProcessError as exc:
+            raise ScanFailed(f"git show failed for {sha[:12]}") from exc
         text = show.stdout.decode("utf-8", "replace")
         message, _, diff = text.partition(NUL)
         short = sha[:12]
@@ -196,9 +223,37 @@ def _main_push() -> int:
         )
         return 1
 
-    to_ref = os.environ.get("PRE_COMMIT_TO_REF") or "HEAD"
+    to_ref = os.environ.get("PRE_COMMIT_TO_REF")
+    if not to_ref:
+        # Not set at all: this is meant to run as pre-commit's own pre-push
+        # stage, which always sets it when anything is being pushed. Run by
+        # hand, or under some other invocation that does not set it, there is
+        # no safe guess for what "the push" is -- not HEAD, not a pass.
+        print(
+            "PRE_COMMIT_TO_REF is not set. This runs as pre-commit's own "
+            "pre-push hook, which sets it; refusing rather than guessing "
+            "what is being pushed."
+        )
+        return 1
+
+    if to_ref == ZERO_SHA:
+        # A branch deletion: nothing is being pushed, so there is nothing to
+        # scan. The one case where no range at all is legitimately a pass.
+        return 0
+
     from_ref = os.environ.get("PRE_COMMIT_FROM_REF") or None
-    sources = _unpublished_commit_sources(to_ref, from_ref)
+    if from_ref == ZERO_SHA:
+        from_ref = None
+
+    try:
+        sources = _unpublished_commit_sources(to_ref, from_ref)
+    except ScanFailed:
+        print(
+            "Could not determine which commits this push would make public "
+            "(git could not resolve the range). Refusing rather than passing "
+            "an unchecked push."
+        )
+        return 1
 
     found = offenders(sources, ids)
     if not found:
