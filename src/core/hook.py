@@ -181,6 +181,68 @@ def _has_word(segment: str, word: str) -> bool:
     return re.search(pattern, segment, re.IGNORECASE) is not None
 
 
+def _line_continuation_length(text: str, i: int) -> int:
+    """0 unless ``text[i]`` starts a backslash line continuation, in which
+    case how many characters it spans: 2 for ``\\`` + ``\n``, 3 for ``\\`` +
+    ``\r\n``.
+
+    DG-465 round 4: a line continuation is not an escaped newline -- both
+    characters vanish entirely, joining the two physical lines with nothing
+    in between, not even a space. The operator's shell is Windows, so the
+    CRLF spelling needs the same treatment as a bare ``\n``; a lone ``\r``
+    with no following ``\n`` is not a continuation and falls through to
+    ordinary escape handling.
+    """
+    n = len(text)
+    if i >= n or text[i] != "\\":
+        return 0
+    if i + 1 < n and text[i + 1] == "\n":
+        return 2
+    if i + 2 < n and text[i + 1] == "\r" and text[i + 2] == "\n":
+        return 3
+    return 0
+
+
+def _consume_inside_quotes(
+    segment: str, i: int, quote: str
+) -> tuple[int, Optional[str], bool]:
+    """Advance past one unit of *segment* while inside *quote*, starting at
+    *i*. Returns ``(new_i, literal_to_append, quote_just_ended)`` --
+    *literal_to_append* is ``None`` for a line continuation or the closing
+    quote itself, neither of which becomes part of the token's text.
+
+    Split out of :func:`_tokenize_shell_words` to keep that function's own
+    branching under the project's complexity limit; the two line-
+    continuation and double-quote-escape checks live here instead of inline.
+    """
+    n = len(segment)
+    char = segment[i]
+    if quote == '"':
+        span = _line_continuation_length(segment, i)
+        if span:
+            return i + span, None, False
+        if char == "\\" and i + 1 < n:
+            return i + 2, segment[i + 1], False
+    if char == quote:
+        return i + 1, None, True
+    return i + 1, char, False
+
+
+def _consume_quoted_token_char(
+    segment: str, i: int, quote: str, current: list[str]
+) -> tuple[int, Optional[str]]:
+    """:func:`_consume_inside_quotes`, applied -- appends to *current* in
+    place and returns ``(new_i, still_the_same_quote_or_None)``. Folds that
+    function's three-part result into the two things
+    :func:`_tokenize_shell_words`'s own loop needs, keeping its branching
+    under the project's complexity limit.
+    """
+    new_i, literal, ended = _consume_inside_quotes(segment, i, quote)
+    if literal is not None:
+        current.append(literal)
+    return new_i, (None if ended else quote)
+
+
 def _tokenize_shell_words(segment: str) -> list[str]:
     """Split *segment* into words the way a real shell hands them to argv:
     quotes group characters into one token and are then removed, rather
@@ -203,6 +265,14 @@ def _tokenize_shell_words(segment: str) -> list[str]:
     -- ``-m "x -n"`` must keep ``x -n`` as inert text, not a ``-n`` flag.
     That is handled by position, not by quoting: see
     :func:`_tokens_eligible_for_flag_matching`.
+
+    A backslash line continuation (:func:`_line_continuation_length`)
+    vanishes entirely rather than being read as an escaped newline, both
+    unquoted and inside double quotes -- ``--no-ver`` + a continuation +
+    ``ify`` is one token, ``--no-verify``, split across two physical lines
+    exactly as git's own command line would see it. Single quotes are
+    unaffected: a backslash has no special meaning there at all, so both
+    the backslash and the newline stay in the token literally, inert.
     """
     tokens: list[str] = []
     current: list[str] = []
@@ -213,16 +283,11 @@ def _tokenize_shell_words(segment: str) -> list[str]:
     while i < n:
         char = segment[i]
         if quote is not None:
-            if char == "\\" and quote == '"' and i + 1 < n:
-                current.append(segment[i + 1])
-                i += 2
-                continue
-            if char == quote:
-                quote = None
-                i += 1
-                continue
-            current.append(char)
-            i += 1
+            i, quote = _consume_quoted_token_char(segment, i, quote, current)
+            continue
+        span = _line_continuation_length(segment, i)
+        if span:
+            i += span
             continue
         if char.isspace():
             if in_token:
@@ -487,13 +552,48 @@ _TWO_CHAR_SPLIT_OPS: Final = ("&&", "||", "$(")
 _ONE_CHAR_SPLIT_OPS: Final = (";", "|", "&", "\n", "`", "(", ")")
 
 
+def _consume_inside_quotes_keeping_delimiters(
+    command: str, i: int, quote: str
+) -> tuple[int, str, bool]:
+    """Like :func:`_consume_inside_quotes`, but keeps the quote characters
+    (and the escaping backslash) in the text returned rather than stripping
+    them -- :func:`_segments_with_leading_operator` hands back segment text
+    a human would recognise, so every per-segment regex check elsewhere in
+    this module still sees the command the way it was written, quotes and
+    all. A line continuation still vanishes either way.
+
+    Split out to keep that function's own branching under the project's
+    complexity limit.
+    """
+    n = len(command)
+    char = command[i]
+    if quote == '"':
+        span = _line_continuation_length(command, i)
+        if span:
+            return i + span, "", False
+        if char == "\\" and i + 1 < n:
+            return i + 2, char + command[i + 1], False
+    return i + 1, char, char == quote
+
+
 def _segments_with_leading_operator(command: str) -> list[tuple[str, str]]:
     """Quote-aware split into ``(operator, segment)`` pairs -- the operator
     is ``""`` for the first segment, otherwise the token that preceded it.
 
-    Mirrors :func:`~core.permission_rules.split_command`'s scanning exactly
-    (same operator lists, same quote handling) rather than changing that
-    function's public, shared return shape for one caller's need.
+    Mirrors :func:`~core.permission_rules.split_command`'s scanning (same
+    operator lists, same quote handling) rather than changing that
+    function's public, shared return shape for one caller's need -- with
+    one deliberate divergence, added in DG-465 round 4:
+    :func:`~core.permission_rules.split_command` treats a backslash
+    line continuation as an ordinary escaped character, which leaves the
+    literal backslash and newline sitting inside the segment text it
+    returns. That is a latent gap in the shared matcher too, but fixing it
+    here only -- rather than in a module this hook does not own and other
+    deny-list matching depends on -- keeps this ticket's change where it
+    was scoped to land. Here, a continuation vanishes outside quotes and
+    inside double quotes, so it can never fragment a literal path like
+    ``.git/hooks`` across two physical lines and defeat the regex matching
+    every per-segment check in this file does on the result.
     """
     pairs: list[tuple[str, str]] = []
     current: list[str] = []
@@ -504,15 +604,16 @@ def _segments_with_leading_operator(command: str) -> list[tuple[str, str]]:
     while i < n:
         char = command[i]
         if quote is not None:
-            if char == "\\" and quote == '"' and i + 1 < n:
-                current.append(char)
-                current.append(command[i + 1])
-                i += 2
-                continue
-            current.append(char)
-            if char == quote:
+            i, text, ended = _consume_inside_quotes_keeping_delimiters(
+                command, i, quote
+            )
+            current.append(text)
+            if ended:
                 quote = None
-            i += 1
+            continue
+        span = _line_continuation_length(command, i)
+        if span:
+            i += span
             continue
         if char == "\\" and i + 1 < n:
             current.append(char)

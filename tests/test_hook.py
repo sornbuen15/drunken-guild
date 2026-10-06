@@ -905,3 +905,125 @@ class TestDG465QuotingTheCommandWordItselfIsNotABypass:
     ) -> None:
         decision = hook.decide(payload(command=command), self.NO_RULES)
         assert decision.permission == "deny", f"{command!r} should be denied"
+
+
+class TestDG465BackslashLineContinuationIsNotABypass:
+    """Round-4 adversarial review: a backslash line continuation (`\\` then
+    a newline, or on this Windows operator's shell, `\\` then CRLF) vanishes
+    entirely in a real shell -- it is not an escaped newline, and the two
+    physical lines join with nothing in between, not even a space. The
+    tokenizer previously copied the newline into the token like any other
+    escaped character, so a continuation right after `commit \\` or right
+    before `--no-verify` broke the token stream and the whole call fell
+    through to silence."""
+
+    NO_RULES = pr.Rules(allow=[], deny=[])
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "git commit \\\n--no-verify -m x",
+            "git commit\\\n --no-verify -m x",
+            "git commit \\\r\n--no-verify -m x",
+            "git commit\\\r\n --no-verify -m x",
+            "git commit --no-ver\\\nify -m x",
+            "git commit --no-ver\\\r\nify -m x",
+            "git commit -a\\\nn",
+            "git commit -a\\\r\nn",
+        ],
+    )
+    def test_the_two_reviewer_repros_and_their_crlf_and_split_flag_variants(
+        self, command
+    ) -> None:
+        decision = hook.decide(payload(command=command), self.NO_RULES)
+        assert decision.permission == "deny", f"{command!r} should be denied"
+
+    def test_a_continuation_inside_double_quotes_still_resolves_the_subcommand(
+        self,
+    ) -> None:
+        decision = hook.decide(
+            payload(command='git -C "a\\\nb" commit --no-verify -m x'),
+            self.NO_RULES,
+        )
+        assert decision.permission == "deny"
+
+    def test_a_continuation_inside_single_quotes_stays_literal_and_inert(
+        self,
+    ) -> None:
+        """Single quotes give a backslash no special meaning at all -- the
+        backslash and the newline both stay in the value literally, and an
+        ordinary commit message containing them is still just a message."""
+        decision = hook.decide(
+            payload(command="git commit -m 'hello\\\nworld'"), self.NO_RULES
+        )
+        assert decision.permission is None
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "git commit --no-verify -m x",
+            "git -C dir commit --no-verify -m x",
+            "git commit -an",
+        ],
+    )
+    def test_a_continuation_never_turns_a_denied_command_into_silence(
+        self, command
+    ) -> None:
+        """Property check, same shape as round 3's quoting one: splicing a
+        backslash line continuation into every gap between characters of an
+        already-denied command must never change the verdict to silence."""
+        baseline = hook.decide(payload(command=command), self.NO_RULES)
+        assert baseline.permission == "deny", f"baseline {command!r} must be denied"
+
+        spliced = "\\\n".join(command)
+        spliced_decision = hook.decide(payload(command=spliced), self.NO_RULES)
+        assert spliced_decision.permission == "deny", (
+            f"splicing a line continuation into every gap of {command!r} "
+            f"(-> {spliced!r}) must stay denied, not fall through to silence"
+        )
+
+    def test_a_continuation_split_hooks_path_is_still_denied(self) -> None:
+        """The segment-splitting level, not just the word tokenizer: before
+        this fix, a bare backslash-newline outside quotes was kept literally
+        in the segment text `_denies_hooks_dir_mutation` scans, so a
+        continuation landing in the middle of `.git/hooks` fragmented the
+        literal substring the pattern looks for and the call was missed."""
+        decision = hook.decide(
+            payload(command="rm -rf .git/hoo\\\nks/pre-commit"), self.NO_RULES
+        )
+        assert decision.permission == "deny"
+
+
+class TestDG465OtherInterTokenWhitespaceStaysSane:
+    """Round-4 adversarial review asked for one more look: any other
+    character the tokenizer or segment splitter might treat specially
+    between tokens. `\\t`, a bare `\\r` (no following `\\n`, so not a line
+    continuation), a form feed, and a non-breaking space are all Unicode
+    whitespace by Python's own `str.isspace()`, so the word tokenizer
+    already treats them as ordinary word separators -- the same substance
+    as a plain space, nothing more. These are not continuations, so they do
+    not vanish; they just separate words, which is what lets the following
+    stay correctly denied or, for the last one, correctly undenied."""
+
+    NO_RULES = pr.Rules(allow=[], deny=[])
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "git\tcommit\t--no-verify\t-m\tx",
+            "git commit --no-verify\r-m x",
+            "git commit --no-verify\x0c-m x",
+        ],
+    )
+    def test_tab_bare_cr_and_form_feed_between_tokens_still_deny(self, command) -> None:
+        decision = hook.decide(payload(command=command), self.NO_RULES)
+        assert decision.permission == "deny", f"{command!r} should be denied"
+
+    def test_a_non_breaking_space_does_not_glue_two_words_into_a_bypass(
+        self,
+    ) -> None:
+        """A literal NBSP between `commit` and `-an` is whitespace to the
+        tokenizer (and so denied, same as a plain space would be) -- the
+        character is not being given some other, unsafe meaning."""
+        decision = hook.decide(payload(command="git commit -an"), self.NO_RULES)
+        assert decision.permission == "deny"
