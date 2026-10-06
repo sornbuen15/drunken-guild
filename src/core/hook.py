@@ -88,13 +88,37 @@ _HOOK_SKIPPING_SUBCOMMANDS: Final = (
     "revert",
 )
 
-#: `rm`, `mv` and `chmod` are the ways a shell command removes or defuses the
-#: hooks directory outright, short of editing a hook file in place.
-_HOOKS_DIR_MUTATING_VERBS: Final = ("rm", "mv", "chmod")
+#: The shortest prefix of ``--no-verify`` the real git binary resolves without
+#: complaint (verified by hand against git on this host, recorded in
+#: ``tests/test_hook.py``): ``--no-ver`` is still ambiguous with
+#: ``--no-verbose``, ``--no-veri`` is not. Git's own unambiguous-prefix
+#: matching means ``--no-verif`` skips the hook exactly like the full
+#: spelling, so a settings-shaped exact-string rule could never catch it --
+#: this has to walk the same prefix rule git does.
+_NO_VERIFY_SHORTEST_PREFIX: Final = "--no-veri"
+_NO_VERIFY_FULL: Final = "--no-verify"
+
+#: Verbs that overwrite, replace or relocate a file or directory in place,
+#: beyond `rm`/`mv`/`chmod`: adversarial review (DG-465 follow-up) found a
+#: hook file can be silently defused by any of these too, with `.git/hooks`
+#: as the destination rather than an argument `rm` et al. take directly.
+_HOOKS_DIR_MUTATING_VERBS: Final = (
+    "rm",
+    "mv",
+    "cp",
+    "chmod",
+    "ln",
+    "tee",
+    "install",
+    "rsync",
+    "truncate",
+)
 
 #: Env vars that make `pre-commit` or the registry guard stand aside for one
 #: invocation. Matched only when a `git` command rides along in the same
 #: shell segment -- see the module docstring on why that scope is the point.
+#: Compared case-insensitively: Windows environment variable names are
+#: case-insensitive, so `skip=x` disables the same hook `SKIP=x` does there.
 _HOOK_SKIPPING_ENV_VARS: Final = ("SKIP", "DRUNKEN_NO_REGISTERED_PROJECTS")
 
 #: `.git/hooks` or `.git\hooks`, any case, matched in a path or a shell
@@ -102,6 +126,11 @@ _HOOK_SKIPPING_ENV_VARS: Final = ("SKIP", "DRUNKEN_NO_REGISTERED_PROJECTS")
 #: case-insensitive on its filesystem, so both have to be caught here rather
 #: than assumed away as "the same thing someone else normalises".
 _HOOKS_DIR_PATTERN: Final = re.compile(r"\.git[\\/]+hooks", re.IGNORECASE)
+
+#: `.git/config` (or `.git\config`), any case -- where `core.hooksPath` is
+#: actually stored, so an in-place edit of the file is the same bypass as
+#: `git config core.hooksPath` without ever naming git.
+_GIT_CONFIG_FILE_PATTERN: Final = re.compile(r"\.git[\\/]+config", re.IGNORECASE)
 
 
 def _has_word(segment: str, word: str) -> bool:
@@ -118,29 +147,97 @@ def _has_word(segment: str, word: str) -> bool:
     return re.search(pattern, segment, re.IGNORECASE) is not None
 
 
+def _mask_quoted_spans(segment: str) -> str:
+    """Blank out everything inside quotes, same length, same positions.
+
+    Flag detection must not fire on text that only *looks* like a flag
+    because it sits inside a `-m "..."` commit message -- ``git commit -m "x
+    -n"`` is an ordinary commit, not `-n`. Path/pattern matching elsewhere in
+    this module stays deliberately quote-blind (a quoted `.git/hooks` is
+    still a real path), so this masking is used only for flag tokenising.
+    """
+    out: list[str] = []
+    quote: Optional[str] = None
+    i = 0
+    while i < len(segment):
+        char = segment[i]
+        if quote is not None:
+            if char == "\\" and quote == '"' and i + 1 < len(segment):
+                out.append("  ")
+                i += 2
+                continue
+            out.append(" " if char != quote else " ")
+            if char == quote:
+                quote = None
+            i += 1
+            continue
+        if char in ("'", '"'):
+            quote = char
+            out.append(" ")
+            i += 1
+            continue
+        out.append(char)
+        i += 1
+    return "".join(out)
+
+
+#: A short-flag cluster: one dash, then only letters -- `-an`, `-nm`, `-am`.
+#: Deliberately excludes `--` long options and anything with `=`, so it never
+#: collides with the long-flag check below.
+_SHORT_FLAG_CLUSTER: Final = re.compile(r"^-[A-Za-z]+$")
+
+
+def _is_no_verify_long_flag(token: str) -> bool:
+    """Whether *token* is ``--no-verify`` or an unambiguous prefix of it that
+    the real git binary accepts (see :data:`_NO_VERIFY_SHORTEST_PREFIX`)."""
+    lowered = token.lower()
+    if len(lowered) < len(_NO_VERIFY_SHORTEST_PREFIX):
+        return False
+    return _NO_VERIFY_FULL.startswith(lowered)
+
+
 def _denies_no_verify(segment: str) -> bool:
-    """``--no-verify`` on commit/push/merge/rebase/cherry-pick/am/revert, or
-    ``git commit -n``. Flag order and surrounding flags do not matter --
-    only that a git command, one of the seven subcommands, and the skipping
-    flag all appear somewhere in the same shell segment."""
-    if not _has_word(segment, "git"):
+    """``--no-verify`` (or its unambiguous prefix) on commit/push/merge/
+    rebase/cherry-pick/am/revert, or `-n` -- alone or bundled into a short-
+    flag cluster like ``-an``/``-nm``/``-anm`` -- on ``commit`` specifically.
+
+    Flag order and surrounding flags do not matter -- only that a git
+    command, one of the seven subcommands, and the skipping flag all appear
+    somewhere in the same shell segment. Quoted text is masked out first, so
+    a `-n` or `--no-verify` that is only the *text* of a `-m` message is not
+    mistaken for the flag.
+    """
+    masked = _mask_quoted_spans(segment)
+    if not _has_word(masked, "git"):
         return False
-    if not any(_has_word(segment, sub) for sub in _HOOK_SKIPPING_SUBCOMMANDS):
+    if not any(_has_word(masked, sub) for sub in _HOOK_SKIPPING_SUBCOMMANDS):
         return False
-    if _has_word(segment, "--no-verify"):
+
+    tokens = masked.split()
+    if any(_is_no_verify_long_flag(tok) for tok in tokens):
         return True
-    return _has_word(segment, "commit") and _has_word(segment, "-n")
+    if not _has_word(masked, "commit"):
+        return False
+    return any(
+        _SHORT_FLAG_CLUSTER.match(tok) and "n" in tok[1:].lower() for tok in tokens
+    )
 
 
 def _denies_hooks_path_config(segment: str) -> bool:
-    """``git -c core.hooksPath=…`` or ``git config [--global] core.hooksPath``.
+    """``git -c core.hooksPath=…`` or ``git config [--global] core.hooksPath``,
+    or editing ``core.hooksPath`` out of ``.git/config`` directly -- a ``sed
+    -i`` targeting the file never has to spell ``core.``, so a bare
+    ``hooksPath`` is enough when the same segment targets ``.git/config``.
 
     Greedy about read vs. write on purpose: a bare ``git config --get
     core.hooksPath`` is denied too rather than carved out as an exemption --
     the deny side of this module always trades a possible extra prompt for
     not missing a real bypass.
     """
-    return _has_word(segment, "git") and "core.hookspath" in segment.lower()
+    lowered = segment.lower()
+    if "core.hookspath" in lowered and _has_word(segment, "git"):
+        return True
+    return "hookspath" in lowered and bool(_GIT_CONFIG_FILE_PATTERN.search(segment))
 
 
 #: Matches the run of ``VAR=value`` assignments a shell allows before the
@@ -148,28 +245,66 @@ def _denies_hooks_path_config(segment: str) -> bool:
 #: actually take effect. Anchored to the start of the segment on purpose: a
 #: commit message that happens to contain the text ``SKIP=`` is not a bypass
 #: attempt, and matching the whole segment indiscriminately would deny it.
-_ENV_ASSIGNMENT_PREFIX: Final = re.compile(r"^(?:[A-Za-z_][A-Za-z0-9_]*=\S*\s+)*")
+#: ``env VAR=value cmd`` and a leading ``export VAR=value;`` both put the
+#: assignment in the same place a shell does: right before the command it
+#: applies to, so both are covered by allowing `env`/`export` to lead it.
+_ENV_ASSIGNMENT_PREFIX: Final = re.compile(
+    r"^(?:(?:env|export)\s+)?(?:[A-Za-z_][A-Za-z0-9_]*=\S*\s+)*"
+)
 
 
 def _denies_env_skip(segment: str) -> bool:
-    """``SKIP=`` or ``DRUNKEN_NO_REGISTERED_PROJECTS=`` on a git command."""
+    """``SKIP=`` or ``DRUNKEN_NO_REGISTERED_PROJECTS=`` on a git command,
+    plain, via ``env``, or via a leading ``export`` -- compared
+    case-insensitively, since Windows environment variable names are."""
     if not _has_word(segment, "git"):
         return False
     prefix = _ENV_ASSIGNMENT_PREFIX.match(segment)
-    leading = prefix.group(0) if prefix else ""
-    return any(f"{var}=" in leading for var in _HOOK_SKIPPING_ENV_VARS)
+    leading = (prefix.group(0) if prefix else "").lower()
+    return any(f"{var.lower()}=" in leading for var in _HOOK_SKIPPING_ENV_VARS)
 
 
 def _denies_precommit_uninstall(segment: str) -> bool:
     return re.search(r"pre-commit\s+uninstall", segment, re.IGNORECASE) is not None
 
 
+#: Output redirected into the hooks dir: `>`, `>>`, or `dd`'s `of=`. Not tied
+#: to any particular command -- `echo`, `cat`, `printf`, anything -- because
+#: the redirection operator is what writes, not the command in front of it.
+_HOOKS_DIR_REDIRECT_PATTERN: Final = re.compile(
+    r">>?\s*[\"']?\S*\.git[\\/]+hooks", re.IGNORECASE
+)
+_HOOKS_DIR_DD_OF_PATTERN: Final = re.compile(
+    r"\bof=[\"']?\S*\.git[\\/]+hooks", re.IGNORECASE
+)
+
+
 def _denies_hooks_dir_mutation(segment: str) -> bool:
-    """``rm``, ``mv`` or ``chmod`` with ``.git/hooks`` (or ``.git\\hooks``,
-    any case) somewhere in the same segment."""
+    """Any shape that overwrites, relocates or defuses `.git/hooks` or a file
+    in it -- `rm`/`mv`/`chmod`/`ln`/`tee`/`install`/`rsync`/`truncate` with
+    the path as an argument, output redirected (`>`, `>>`, `dd of=`) into it,
+    or `sed -i` editing a file under it in place. A read -- `cat
+    .git/hooks/pre-commit`, `ls .git/hooks` -- matches none of these and
+    stays undenied."""
+    if _HOOKS_DIR_REDIRECT_PATTERN.search(segment):
+        return True
+    if _HOOKS_DIR_DD_OF_PATTERN.search(segment):
+        return True
     if not _HOOKS_DIR_PATTERN.search(segment):
         return False
+    if _has_word(segment, "sed") and re.search(r"-i\b", segment):
+        return True
     return any(_has_word(segment, verb) for verb in _HOOKS_DIR_MUTATING_VERBS)
+
+
+#: ``export VAR=value`` as its own segment, rather than leading a command
+#: it shares a segment with. `export SKIP=ruff; git commit` is two segments
+#: once `split_command` sees the `;` -- the assignment outlives it in a real
+#: shell, so this is tracked across segments rather than within one.
+_EXPORTED_HOOK_SKIP_VAR: Final = re.compile(
+    r"^export\s+(?:" + "|".join(_HOOK_SKIPPING_ENV_VARS) + r")=",
+    re.IGNORECASE,
+)
 
 
 def _bypasses_hook_floor_bash(command: str) -> bool:
@@ -182,14 +317,20 @@ def _bypasses_hook_floor_bash(command: str) -> bool:
     same as one typed on its own.
     """
     segments = pr.split_command(command) or [command]
-    return any(
-        _denies_no_verify(segment)
-        or _denies_hooks_path_config(segment)
-        or _denies_env_skip(segment)
-        or _denies_precommit_uninstall(segment)
-        or _denies_hooks_dir_mutation(segment)
-        for segment in segments
-    )
+    exported_skip_var = False
+    for segment in segments:
+        if _EXPORTED_HOOK_SKIP_VAR.match(segment.strip()):
+            exported_skip_var = True
+        if (
+            _denies_no_verify(segment)
+            or _denies_hooks_path_config(segment)
+            or _denies_env_skip(segment)
+            or (exported_skip_var and _has_word(segment, "git"))
+            or _denies_precommit_uninstall(segment)
+            or _denies_hooks_dir_mutation(segment)
+        ):
+            return True
+    return False
 
 
 def _bypasses_hook_floor_edit(tool_input: dict[str, Any]) -> bool:

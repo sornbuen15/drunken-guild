@@ -485,3 +485,127 @@ class TestDG465HookFloorDeniesSkippingTheHooks:
                 payload(command="pre-commit run --all-files"), self.NO_RULES
             )
             assert decision.permission is None
+
+
+class TestDG465AdversarialReviewFollowUps:
+    """The adversarial reviewer found five more shapes the first pass missed.
+
+    Same rule, same no-settings-rules setup: the hook floor must catch these
+    on its own.
+    """
+
+    NO_RULES = pr.Rules(allow=[], deny=[])
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            # 1. Overwriting a hook file without `rm`/`mv`/`chmod`.
+            "cp evil.sh .git/hooks/pre-commit",
+            "echo '' > .git/hooks/pre-commit",
+            "echo malicious >> .git/hooks/pre-commit",
+            "tee .git/hooks/pre-commit",
+            "tee -a .git/hooks/pre-commit",
+            "sed -i 's/exit 1/exit 0/' .git/hooks/pre-commit",
+            "truncate -s0 .git/hooks/pre-commit",
+            "dd of=.git/hooks/pre-commit",
+            "install -m755 evil.sh .git/hooks/pre-commit",
+            "rsync evil.sh .git/hooks/",
+            "cat evil.sh > .git/hooks/pre-commit",
+            # 2. `ln` pointing a symlink into/at the hooks dir.
+            "ln -sf /tmp/empty .git/hooks",
+            "ln -sf /tmp/empty .git/hooks/pre-commit",
+            # 3. Bundled short flags that include `n` on `git commit`.
+            "git commit -an -m x",
+            "git commit -nm x",
+            "git commit -anm x",
+        ],
+    )
+    def test_each_new_bypass_shape_is_denied(self, command) -> None:
+        decision = hook.decide(payload(command=command), self.NO_RULES)
+        assert decision.permission == "deny", f"{command!r} should be denied"
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "env SKIP=x git commit -m x",
+            "export SKIP=ruff; git commit -m x",
+            "sed -i '/hooksPath/d' .git/config",
+            "sed -i '/hooksPath/d' .git\\config",
+            "git config --unset core.hooksPath",
+        ],
+    )
+    def test_env_and_config_file_editing_shapes_are_denied(self, command) -> None:
+        decision = hook.decide(payload(command=command), self.NO_RULES)
+        assert decision.permission == "deny", f"{command!r} should be denied"
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "skip=x git commit -m x",
+            "Skip=x git commit -m x",
+            "drunken_no_registered_projects=1 git commit -m x",
+        ],
+    )
+    def test_the_skip_env_vars_are_denied_case_insensitively(self, command) -> None:
+        decision = hook.decide(payload(command=command), self.NO_RULES)
+        assert decision.permission == "deny", f"{command!r} should be denied"
+
+    def test_the_unambiguous_no_verify_prefix_git_itself_accepts_is_denied(
+        self,
+    ) -> None:
+        """Verified against the real git binary (git 2.x on this host): `git
+        commit --no-verif -m x` runs -- unambiguous, so git accepts it exactly
+        like `--no-verify` -- while `--no-ver` is rejected as ambiguous with
+        `--no-verbose`. The shortest prefix git itself resolves without
+        complaint is `--no-veri`; this is denied from there down to the full
+        spelling, not stricter and not looser than what git really does."""
+        decision = hook.decide(
+            payload(command="git commit --no-verif -m x"), self.NO_RULES
+        )
+        assert decision.permission == "deny"
+
+    class TestStillNotDenied:
+        """The same widening must not start catching legitimate calls."""
+
+        NO_RULES = pr.Rules(allow=[], deny=[])
+
+        def test_reading_a_hook_file_is_not_denied(self) -> None:
+            decision = hook.decide(
+                payload(command="cat .git/hooks/pre-commit"), self.NO_RULES
+            )
+            assert decision.permission is None
+
+        def test_listing_the_hooks_dir_is_not_denied(self) -> None:
+            decision = hook.decide(payload(command="ls .git/hooks"), self.NO_RULES)
+            assert decision.permission is None
+
+        def test_a_push_dry_run_still_is_not_denied(self) -> None:
+            decision = hook.decide(payload(command="git push -n"), self.NO_RULES)
+            assert decision.permission is None
+
+        def test_no_n_in_the_am_cluster_still_is_not_denied(self) -> None:
+            """`-am` commits all tracked changes -- no `n` in the cluster, no
+            reason to deny it."""
+            decision = hook.decide(payload(command="git commit -am x"), self.NO_RULES)
+            assert decision.permission is None
+
+        def test_an_n_flag_quoted_inside_the_commit_message_is_not_denied(
+            self,
+        ) -> None:
+            """The `-n` here is text inside the `-m` argument, not a flag --
+            a naive substring scan over the raw command text cannot tell the
+            difference; the hook has to actually respect the quoting."""
+            decision = hook.decide(
+                payload(command='git commit -m "x -n"'), self.NO_RULES
+            )
+            assert decision.permission is None
+
+        def test_an_unrelated_cp_is_not_denied(self) -> None:
+            decision = hook.decide(payload(command="cp a.txt b.txt"), self.NO_RULES)
+            assert decision.permission is None
+
+        def test_redirecting_output_away_from_the_hooks_dir_is_not_denied(self) -> None:
+            decision = hook.decide(
+                payload(command="echo hi > /tmp/not-a-hook"), self.NO_RULES
+            )
+            assert decision.permission is None
