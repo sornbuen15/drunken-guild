@@ -26,6 +26,15 @@ Map task keywords to their absolute skill file paths. Load ONLY the relevant ski
 - `replan` (`/replan`) — Use when a requirement is added, cut or changed after the backlog exists — "we also need…", "drop REQ-… and the tickets under it", "the customer changed their m
   Path: $HOME/.claude/skills/replan/SKILL.md
 
+- `manager` — This is the body of the manager Claude subagent, dispatched by name through the Task tool — not a skill to invoke directly. The team's manager role. Use to turn
+  Path: $HOME/.claude/skills/manager/SKILL.md
+
+- `reviewer` — This is the body of the reviewer Claude subagent, dispatched by name through the Task tool — not a skill to invoke directly. The team's reviewer role — quality
+  Path: $HOME/.claude/skills/reviewer/SKILL.md
+
+- `worker` — This is the body of the worker Claude subagent, dispatched by name through the Task tool — not a skill to invoke directly. The team's worker role. Use to implem
+  Path: $HOME/.claude/skills/worker/SKILL.md
+
 - `ask-boss` (`/ask-boss`) — Use when an action is destructive, irreversible or merge-worthy and needs the Boss's OK — "you need my approval before dropping that database", "I'm away this a
   Path: $HOME/.claude/skills/ask-boss/SKILL.md
 
