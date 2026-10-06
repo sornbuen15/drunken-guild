@@ -102,6 +102,11 @@ _NO_VERIFY_FULL: Final = "--no-verify"
 #: beyond `rm`/`mv`/`chmod`: adversarial review (DG-465 follow-up) found a
 #: hook file can be silently defused by any of these too, with `.git/hooks`
 #: as the destination rather than an argument `rm` et al. take directly.
+#: Round 2 adds the Windows-native verbs (`cmd.exe`'s `del`/`erase`/`rd`/
+#: `rmdir`/`ren`/`move`/`copy`/`xcopy`/`mklink`) and the PowerShell cmdlets
+#: an operator on this platform would actually reach for -- the first pass
+#: only covered POSIX. All compared case-insensitively via `_has_word`, so
+#: `Remove-Item` and `remove-item` are the same check.
 _HOOKS_DIR_MUTATING_VERBS: Final = (
     "rm",
     "mv",
@@ -112,6 +117,35 @@ _HOOKS_DIR_MUTATING_VERBS: Final = (
     "install",
     "rsync",
     "truncate",
+    "del",
+    "erase",
+    "rd",
+    "rmdir",
+    "ren",
+    "move",
+    "copy",
+    "xcopy",
+    "mklink",
+    "remove-item",
+    "move-item",
+    "rename-item",
+    "copy-item",
+    "set-content",
+    "add-content",
+    "out-file",
+    "new-item",
+    "clear-content",
+)
+
+#: Interpreters whose `-c`/one-liner form can rewrite a file without ever
+#: naming `rm`/`cp`/etc. Gated on a write-signal token too (below), not on
+#: presence alone -- `python -c "print(1+1)"` must stay undenied even though
+#: `python` is an interpreter.
+_INTERPRETER_WORDS: Final = ("python", "python3", "ruby", "node", "perl", "awk")
+
+#: A write, open-for-write or unlink call inside an interpreter one-liner.
+_INTERPRETER_WRITE_SIGNAL: Final = re.compile(
+    r"open\s*\([^)]*[\"'][waxWAX]|os\.(remove|unlink)|\.unlink\(|\.write\(|truncate\(",
 )
 
 #: Env vars that make `pre-commit` or the registry guard stand aside for one
@@ -186,6 +220,45 @@ def _mask_quoted_spans(segment: str) -> str:
 #: collides with the long-flag check below.
 _SHORT_FLAG_CLUSTER: Final = re.compile(r"^-[A-Za-z]+$")
 
+#: git's own global options that consume a separate following token --
+#: `-C <dir>` and `-c <key=val>`. Needed to walk past them when finding the
+#: actual subcommand; see :func:`_git_subcommand`.
+_GIT_GLOBAL_OPTS_WITH_SEPARATE_ARG: Final = ("-C", "-c")
+
+
+def _git_subcommand(tokens: list[str]) -> Optional[str]:
+    """The git subcommand *tokens* actually invokes -- the first non-option
+    token after ``git`` and git's own global options.
+
+    DG-465 round 2: matching ``commit`` or ``-n`` anywhere in the segment
+    denied ``git log --grep=commit -n 1``, an ordinary read-only log command
+    that only happens to mention the word "commit" and take a `-n` count.
+    Deny rules cannot be overridden, so a false positive here is not a
+    prompt -- it is a lockout, and this is the fix: find the real
+    subcommand rather than scanning the whole segment for the word.
+
+    A git global option not in :data:`_GIT_GLOBAL_OPTS_WITH_SEPARATE_ARG`
+    (``--no-pager``, or even a nonsense one) is assumed to take no separate
+    argument and is skipped on its own -- greedy on purpose, same as the
+    rest of this module: skipping too much costs a missed subcommand
+    (silence), skipping too little costs a prompt.
+    """
+    try:
+        idx = next(i for i, tok in enumerate(tokens) if tok.lower() == "git")
+    except StopIteration:
+        return None
+    i = idx + 1
+    while i < len(tokens):
+        tok = tokens[i]
+        if tok in _GIT_GLOBAL_OPTS_WITH_SEPARATE_ARG:
+            i += 2
+            continue
+        if tok.startswith("-"):
+            i += 1
+            continue
+        return tok
+    return None
+
 
 def _is_no_verify_long_flag(token: str) -> bool:
     """Whether *token* is ``--no-verify`` or an unambiguous prefix of it that
@@ -201,22 +274,25 @@ def _denies_no_verify(segment: str) -> bool:
     rebase/cherry-pick/am/revert, or `-n` -- alone or bundled into a short-
     flag cluster like ``-an``/``-nm``/``-anm`` -- on ``commit`` specifically.
 
-    Flag order and surrounding flags do not matter -- only that a git
-    command, one of the seven subcommands, and the skipping flag all appear
-    somewhere in the same shell segment. Quoted text is masked out first, so
-    a `-n` or `--no-verify` that is only the *text* of a `-m` message is not
-    mistaken for the flag.
+    Gated on the *actual* git subcommand (see :func:`_git_subcommand`), not
+    on the word appearing anywhere in the segment -- `git tag -n`, `git
+    branch -n` and `git log -n 3` all take a `-n` that has nothing to do
+    with `--no-verify` and must stay undenied. Quoted text is masked out
+    first, so a `-n` or `--no-verify` that is only the *text* of a `-m`
+    message is not mistaken for the flag either.
     """
     masked = _mask_quoted_spans(segment)
-    if not _has_word(masked, "git"):
+    tokens = masked.split()
+    subcommand = _git_subcommand(tokens)
+    if subcommand is None:
         return False
-    if not any(_has_word(masked, sub) for sub in _HOOK_SKIPPING_SUBCOMMANDS):
+    subcommand_lower = subcommand.lower()
+    if subcommand_lower not in _HOOK_SKIPPING_SUBCOMMANDS:
         return False
 
-    tokens = masked.split()
     if any(_is_no_verify_long_flag(tok) for tok in tokens):
         return True
-    if not _has_word(masked, "commit"):
+    if subcommand_lower != "commit":
         return False
     return any(
         _SHORT_FLAG_CLUSTER.match(tok) and "n" in tok[1:].lower() for tok in tokens
@@ -281,11 +357,16 @@ _HOOKS_DIR_DD_OF_PATTERN: Final = re.compile(
 
 def _denies_hooks_dir_mutation(segment: str) -> bool:
     """Any shape that overwrites, relocates or defuses `.git/hooks` or a file
-    in it -- `rm`/`mv`/`chmod`/`ln`/`tee`/`install`/`rsync`/`truncate` with
-    the path as an argument, output redirected (`>`, `>>`, `dd of=`) into it,
-    or `sed -i` editing a file under it in place. A read -- `cat
-    .git/hooks/pre-commit`, `ls .git/hooks` -- matches none of these and
-    stays undenied."""
+    in it: the verbs in :data:`_HOOKS_DIR_MUTATING_VERBS` (POSIX, Windows-
+    native, and PowerShell) with the path as an argument -- including inside
+    a `powershell -Command "..."`/`pwsh -c`/`cmd /c "..."` wrapper, since this
+    check is deliberately quote-blind -- output redirected (`>`, `>>`, `dd
+    of=`) into it, `sed -i`/`perl -pi`/`awk -i inplace` editing a file under
+    it in place, or an interpreter one-liner (`python -c "..."`) that opens,
+    writes or unlinks a path under it. A read -- `cat .git/hooks/pre-commit`,
+    `ls .git/hooks`, `Get-Content .git/hooks/pre-commit`, `type
+    .git\\hooks\\pre-commit` -- matches none of these and stays undenied.
+    """
     if _HOOKS_DIR_REDIRECT_PATTERN.search(segment):
         return True
     if _HOOKS_DIR_DD_OF_PATTERN.search(segment):
@@ -293,6 +374,14 @@ def _denies_hooks_dir_mutation(segment: str) -> bool:
     if not _HOOKS_DIR_PATTERN.search(segment):
         return False
     if _has_word(segment, "sed") and re.search(r"-i\b", segment):
+        return True
+    if _has_word(segment, "perl") and re.search(r"-\w*i\b", segment):
+        return True
+    if _has_word(segment, "awk") and _has_word(segment, "inplace"):
+        return True
+    if any(_has_word(segment, word) for word in _INTERPRETER_WORDS) and (
+        _INTERPRETER_WRITE_SIGNAL.search(segment)
+    ):
         return True
     return any(_has_word(segment, verb) for verb in _HOOKS_DIR_MUTATING_VERBS)
 
@@ -307,6 +396,14 @@ _EXPORTED_HOOK_SKIP_VAR: Final = re.compile(
 )
 
 
+#: ``cd .git/hooks`` (or the Windows-path spelling) as its own segment.
+#: Matched on the whole segment, not just a word -- the point is that this
+#: segment's only job is to change directory into the hooks dir.
+_CD_INTO_HOOKS_DIR: Final = re.compile(
+    r"^cd\s+[\"']?\S*\.git[\\/]+hooks[\"']?/?$", re.IGNORECASE
+)
+
+
 def _bypasses_hook_floor_bash(command: str) -> bool:
     """Scan every segment a Bash call will actually run.
 
@@ -315,11 +412,22 @@ def _bypasses_hook_floor_bash(command: str) -> bool:
     the same splitting :func:`~core.permission_rules.is_denied` relies on --
     so a bypass hidden after an operator or inside a subshell is scanned the
     same as one typed on its own.
+
+    Two bypasses need state carried *across* segments rather than found in
+    one: an ``export`` that outlives the `;` that follows it (handled
+    inline), and a hooks-dir reference established in an earlier segment
+    that a later, path-free segment then acts on -- ``cd .git/hooks && rm
+    *`` and ``echo .git/hooks | xargs rm -rf``. Both are DG-465 round-2
+    findings; a true variable indirection (``H=.git/hooks; mv $H /tmp/``) is
+    not attempted here -- see the PR body's out-of-scope list.
     """
     segments = pr.split_command(command) or [command]
     exported_skip_var = False
+    cwd_is_hooks_dir = False
+    hooks_path_seen = False
     for segment in segments:
-        if _EXPORTED_HOOK_SKIP_VAR.match(segment.strip()):
+        stripped = segment.strip()
+        if _EXPORTED_HOOK_SKIP_VAR.match(stripped):
             exported_skip_var = True
         if (
             _denies_no_verify(segment)
@@ -330,6 +438,20 @@ def _bypasses_hook_floor_bash(command: str) -> bool:
             or _denies_hooks_dir_mutation(segment)
         ):
             return True
+        if cwd_is_hooks_dir and any(
+            _has_word(segment, verb) for verb in _HOOKS_DIR_MUTATING_VERBS
+        ):
+            return True
+        if (
+            hooks_path_seen
+            and _has_word(segment, "xargs")
+            and any(_has_word(segment, verb) for verb in _HOOKS_DIR_MUTATING_VERBS)
+        ):
+            return True
+        if _CD_INTO_HOOKS_DIR.match(stripped):
+            cwd_is_hooks_dir = True
+        if _HOOKS_DIR_PATTERN.search(segment):
+            hooks_path_seen = True
     return False
 
 

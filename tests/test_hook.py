@@ -609,3 +609,136 @@ class TestDG465AdversarialReviewFollowUps:
                 payload(command="echo hi > /tmp/not-a-hook"), self.NO_RULES
             )
             assert decision.permission is None
+
+
+class TestDG465WindowsNativeAndPowerShellBypasses:
+    """Round-2 adversarial review: the operator's shell is PowerShell, and
+    the first two passes only covered POSIX verbs."""
+
+    NO_RULES = pr.Rules(allow=[], deny=[])
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "del .git\\hooks\\pre-commit",
+            "erase .git\\hooks\\pre-commit",
+            "rd /s /q .git\\hooks",
+            "rmdir /s /q .git\\hooks",
+            "ren .git\\hooks\\pre-commit pre-commit.bak",
+            "move .git\\hooks\\pre-commit C:\\tmp\\",
+            "copy evil.ps1 .git\\hooks\\pre-commit",
+            "xcopy evil.ps1 .git\\hooks\\pre-commit",
+            "mklink .git\\hooks\\pre-commit C:\\tmp\\empty",
+            'powershell -Command "Remove-Item .git/hooks -Recurse -Force"',
+            'powershell -Command "Move-Item .git\\hooks C:\\tmp\\hooks-bak"',
+            'pwsh -c "Rename-Item .git/hooks/pre-commit pre-commit.bak"',
+            'pwsh -c "Copy-Item evil.ps1 .git/hooks/pre-commit"',
+            "powershell -Command \"Set-Content -Path .git/hooks/pre-commit -Value ''\"",
+            "powershell -Command \"Add-Content -Path .git/hooks/pre-commit -Value 'exit 0'\"",
+            "powershell -Command \"'' | Out-File .git/hooks/pre-commit\"",
+            'powershell -Command "New-Item -ItemType SymbolicLink -Path .git/hooks -Target C:\\tmp\\empty"',
+            'powershell -Command "Clear-Content .git/hooks/pre-commit"',
+            'cmd /c "del .git\\hooks\\pre-commit"',
+            'cmd /c "echo off > .git\\hooks\\pre-commit"',
+        ],
+    )
+    def test_windows_native_and_powershell_mutation_is_denied(self, command) -> None:
+        decision = hook.decide(payload(command=command), self.NO_RULES)
+        assert decision.permission == "deny", f"{command!r} should be denied"
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "Get-Content .git/hooks/pre-commit",
+            "type .git\\hooks\\pre-commit",
+            "dir .git\\hooks",
+            "ls .git/hooks",
+            'powershell -Command "Get-Content .git/hooks/pre-commit"',
+        ],
+    )
+    def test_windows_native_and_powershell_reads_stay_allowed(self, command) -> None:
+        decision = hook.decide(payload(command=command), self.NO_RULES)
+        assert decision.permission is None, f"{command!r} should stay allowed"
+
+
+class TestDG465GitSubcommandPrecision:
+    """Round-2 adversarial review: `commit` and `-n` were matched anywhere in
+    the segment, so `git log --grep=commit -n 1` -- an ordinary, read-only
+    log command that merely mentions the word "commit" and takes a `-n`
+    count -- was wrongly denied by a deny rule nothing can override. The
+    fix: find the actual git subcommand (the first non-option token after
+    `git` and its own global options such as `-C dir`/`-c k=v`), and gate on
+    that rather than on the word appearing anywhere."""
+
+    NO_RULES = pr.Rules(allow=[], deny=[])
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "git log --grep=commit -n 1",
+            "git log --oneline -n 3 -- src/commit.py",
+            "git tag -n",
+            "git branch -n",
+            "git log -n 3",
+            "git stash list -n",
+        ],
+    )
+    def test_unrelated_subcommands_mentioning_commit_or_dash_n_stay_allowed(
+        self, command
+    ) -> None:
+        decision = hook.decide(payload(command=command), self.NO_RULES)
+        assert decision.permission is None, f"{command!r} should stay allowed"
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "git commit -an",
+            "git -C some/dir commit -an",
+            "git commit --no-verify",
+        ],
+    )
+    def test_the_real_subcommand_is_still_denied(self, command) -> None:
+        decision = hook.decide(payload(command=command), self.NO_RULES)
+        assert decision.permission == "deny", f"{command!r} should be denied"
+
+
+class TestDG465InterpreterAndCrossSegmentBypasses:
+    """Round-2 adversarial review: interpreter one-liners that rewrite a hook
+    file without naming any of the verbs above, and a bypass built across two
+    shell segments (`cd` into the hooks dir, then a bare mutating verb; or a
+    path piped into `xargs`). Variable indirection (`H=.git/hooks; mv $H
+    /tmp/`) is explicitly out of scope -- see the PR body."""
+
+    NO_RULES = pr.Rules(allow=[], deny=[])
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "python -c \"open('.git/hooks/pre-commit','w').write('')\"",
+            "python3 -c \"open('.git/hooks/pre-commit','w').close()\"",
+            "perl -pi -e 's/exit 1/exit 0/' .git/hooks/pre-commit",
+            "awk -i inplace '{gsub(/exit 1/,\"exit 0\")}1' .git/hooks/pre-commit",
+            "cd .git/hooks && rm *",
+            "cd .git\\hooks && del pre-commit",
+            "echo .git/hooks | xargs rm -rf",
+        ],
+    )
+    def test_interpreter_and_cross_segment_bypasses_are_denied(self, command) -> None:
+        decision = hook.decide(payload(command=command), self.NO_RULES)
+        assert decision.permission == "deny", f"{command!r} should be denied"
+
+    def test_an_unrelated_python_one_liner_is_not_denied(self) -> None:
+        decision = hook.decide(payload(command='python -c "print(1+1)"'), self.NO_RULES)
+        assert decision.permission is None
+
+    def test_cd_elsewhere_then_rm_is_not_denied(self) -> None:
+        decision = hook.decide(payload(command="cd /tmp && rm somefile"), self.NO_RULES)
+        assert decision.permission is None
+
+    def test_reading_the_hooks_path_in_a_commit_message_then_unrelated_echo_is_not_denied(
+        self,
+    ) -> None:
+        decision = hook.decide(
+            payload(command="echo .git/hooks | xargs -I{} echo {}"), self.NO_RULES
+        )
+        assert decision.permission is None
