@@ -37,7 +37,7 @@ from .config_gen import (
     is_drunken_managed,
 )
 from .context import ProjectContext
-from .errors import DrunkenError
+from .errors import DrunkenError, ValidationError
 from .exclude import GitTimedOutError, NotAGitRepositoryError, run_git
 from .layer_copy import ai_layer_files_under
 from .redact import redact
@@ -1913,6 +1913,355 @@ def _check_layering(
         _check_project_layering(report, project_id, registry, repo_root)
 
 
+#: The substring proving a `.pre-commit-config.yaml` actually runs DG-317's
+#: operator-inventory guard, rather than merely declaring hook types a
+#: *different* set of hooks would use. Matched as a raw substring over the
+#: whole file rather than parsed hook-by-hook: the hook's `entry` line
+#: (``entry: python scripts/check_operator_inventory.py``) and its `id`
+#: (``check-operator-inventory``) spell the same guard two different ways,
+#: and a substring catches either without this file growing a second,
+#: hook-shape YAML parser it does not otherwise need.
+_OPERATOR_INVENTORY_GUARD_MARKER: Final = "check_operator_inventory"
+
+#: What `pre-commit install` wires when a config declares no
+#: `default_install_hook_types` of its own — pre-commit's own documented
+#: default, not this project's invention.
+_DEFAULT_HOOK_TYPES_WHEN_UNDECLARED: Final = ("pre-commit",)
+
+#: `default_install_hook_types: [pre-commit, commit-msg]` — flow-style YAML,
+#: the shape this repository's own config currently uses. Matched only
+#: against a line already stripped of any inline comment, so a trailing
+#: ``# why`` never reaches here as part of the list text.
+_HOOK_TYPES_FLOW: Final = re.compile(r"^default_install_hook_types:\s*\[(.*)\]\s*$")
+
+#: `default_install_hook_types:` with nothing after the colon — block style,
+#: where each type follows on its own `- type` line.
+_HOOK_TYPES_BLOCK_KEY: Final = re.compile(r"^default_install_hook_types:\s*$")
+
+#: The key itself, for recognising a present-but-unrecognised value (an
+#: anchor, an unterminated flow list) apart from the key being absent
+#: entirely — the two must never collapse into the same "use the default"
+#: outcome. See :func:`declared_hook_types`.
+_HOOK_TYPES_KEY_PREFIX: Final = "default_install_hook_types:"
+
+
+class UnparseableHookTypesError(ValidationError):
+    """``default_install_hook_types`` is present but not in a shape this
+    hand-rolled reader recognises (a YAML anchor, an unterminated
+    multi-line flow list, or any other scalar).
+
+    Deliberately **not** read the same as the key being absent: a config
+    that runs the operator-inventory guard and declares hook types in a
+    shape this reader cannot follow must fail loud and name that it could
+    not read the declaration, not quietly narrow scope to pre-commit's
+    bare default and risk reporting a declared ``commit-msg`` or
+    ``pre-push`` hook as never checked at all.
+    """
+
+    code = "unparseable_hook_types"
+
+
+def runs_operator_inventory_guard(config_text: str) -> bool:
+    """Whether *config_text* (a `.pre-commit-config.yaml`'s contents) runs
+    DG-317's operator-inventory guard at all.
+
+    A repository whose config does not run this guard is not this check's
+    business — see :func:`_check_git_hooks_for_root`, which reads this as
+    "nothing to verify here" rather than a defect.
+    """
+    return _OPERATOR_INVENTORY_GUARD_MARKER in config_text
+
+
+def _strip_inline_comment(line: str) -> str:
+    """Remove a trailing YAML comment from *line*.
+
+    A ``#`` starts a comment only when it sits outside any quoted string
+    and is either at the very start of the line or preceded by whitespace —
+    the same rule a YAML parser applies, enough of it for the one kind of
+    line this module ever reads (a scalar key, a flow list, or a ``- item``
+    line). Without this, ``default_install_hook_types: [pre-commit,
+    commit-msg]  # wires commit-msg too`` read its own trailing comment as
+    part of the list text, failed to match the flow pattern, and silently
+    fell back to pre-commit's bare default — dropping the declared
+    ``commit-msg`` hook out of the check entirely while still reporting ok.
+    """
+    in_single = False
+    in_double = False
+    for index, char in enumerate(line):
+        if char == "'" and not in_double:
+            in_single = not in_single
+        elif char == '"' and not in_single:
+            in_double = not in_double
+        elif char == "#" and not in_single and not in_double:
+            if index == 0 or line[index - 1].isspace():
+                return line[:index]
+    return line
+
+
+def declared_hook_types(config_text: str) -> list[str]:
+    """`default_install_hook_types` exactly as *config_text* declares it.
+
+    Reads flow style (``[pre-commit, commit-msg]``) or block style (one
+    ``- type`` per line), with an inline comment on either shape stripped
+    first rather than baked into the result. Falls back to pre-commit's own
+    default of ``("pre-commit",)`` **only** when the key is genuinely
+    absent from the file — never a list this module hardcodes itself, so a
+    config later adding a third or fourth hook type (DG-464, in parallel,
+    is expected to add ``pre-push`` to this very key) is read correctly
+    with no code change here.
+
+    Deliberately hand-rolled rather than a full YAML parser: this reads one
+    scalar list, the same shape :func:`declared_version` reads one scalar
+    out of ``pyproject.toml`` above, and PyYAML is not a dependency this
+    package's own runtime carries — only `pre-commit`'s own dev extra pulls
+    it in, and introducing it here for one list would be the second-surface
+    mistake this project keeps writing up.
+
+    A value present but not in a shape this reader recognises — a YAML
+    anchor (``&types``), an unterminated multi-line flow list, or any other
+    scalar — raises :class:`UnparseableHookTypesError` rather than silently
+    reusing the undeclared-key default: the two are different facts, and
+    collapsing "could not read this" into "nothing was declared" is exactly
+    how a real ``commit-msg``/``pre-push`` declaration could drop out of
+    the check while it kept reporting ok.
+    """
+    lines = config_text.splitlines()
+    for index, raw_line in enumerate(lines):
+        stripped = _strip_inline_comment(raw_line).strip()
+        if not stripped.startswith(_HOOK_TYPES_KEY_PREFIX):
+            continue
+
+        flow_match = _HOOK_TYPES_FLOW.match(stripped)
+        if flow_match:
+            items = [
+                item.strip().strip("'\"") for item in flow_match.group(1).split(",")
+            ]
+            return [item for item in items if item]
+
+        if _HOOK_TYPES_BLOCK_KEY.match(stripped):
+            types: list[str] = []
+            for following in lines[index + 1 :]:
+                item = _strip_inline_comment(following).strip()
+                if not item:
+                    continue
+                if not item.startswith("-"):
+                    break
+                types.append(item[1:].strip().strip("'\""))
+            return types
+
+        # The key is present but matches neither recognised shape: an
+        # anchor (`&types [...]` / `&types pre-commit`), an unterminated
+        # flow list (`[` with no matching `]` on this line), or any other
+        # scalar. Fail loud rather than silently falling back.
+        raise UnparseableHookTypesError(
+            f"default_install_hook_types is present but not in a "
+            f"recognised shape: {stripped!r}. Expected a flow list "
+            "(`[a, b]`, closed on the same line) or a block list of "
+            "`- type` lines.",
+            remediation=(
+                "Rewrite default_install_hook_types in "
+                ".pre-commit-config.yaml as a single-line flow list or a "
+                "block list of `- type` lines, with no YAML anchor and no "
+                "multi-line flow list — neither is read by this check."
+            ),
+        )
+    return list(_DEFAULT_HOOK_TYPES_WHEN_UNDECLARED)
+
+
+def hooks_dir(git_root: Path) -> Optional[Path]:
+    """Where git itself says *git_root*'s hooks live, or ``None`` if git
+    could not answer at all.
+
+    Resolved with ``git rev-parse --git-path hooks`` rather than assumed as
+    ``<git_root>/.git/hooks`` — the same reasoning as
+    :func:`core.exclude.resolve_info_exclude_path`, and verified directly:
+    this honours ``core.hooksPath`` when a repository sets one, and in a
+    `git worktree` it resolves to the *main* checkout's shared
+    ``.git/hooks`` even though the worktree's own ``.git`` is a file, not a
+    directory — exactly the "a linked worktree is judged by the shared
+    hooks" requirement, satisfied by git's own resolution rather than a
+    second, hand-rolled worktree-detection path here.
+
+    Routed through :func:`core.exclude.run_git` (DG-451) rather than a raw
+    ``subprocess.run(["git", ...])`` — this module's own git calls
+    (:func:`newest_tag`, :func:`tracked_ai_layer_paths`) already learned
+    that lesson: a process with ``GIT_DIR``/``GIT_WORK_TREE`` leaked into
+    its environment (a git hook, among others) can redirect an unstripped
+    call onto a completely different repository, silently. ``None`` covers
+    both ways :func:`run_git` can fail to answer at all —
+    :class:`NotAGitRepositoryError` and :class:`GitTimedOutError` — the
+    same "could not ask" outcome :func:`newest_tag` already gives those two
+    for this read-only diagnostic.
+    """
+    try:
+        result = run_git(["rev-parse", "--git-path", "hooks"], git_root, timeout=30)
+    except (NotAGitRepositoryError, GitTimedOutError):
+        return None
+    if result.returncode != 0:
+        return None
+    raw: str = str(result.stdout).strip()
+    if not raw:
+        return None
+    return (git_root / raw).resolve()
+
+
+def missing_hook_types(hooks_dir_path: Path, hook_types: Sequence[str]) -> list[str]:
+    """Which of *hook_types* have no usable hook file in *hooks_dir_path*.
+
+    "Usable" means present *and*, on a platform where the bit means
+    anything, executable: ``git`` invokes a hook file directly rather than
+    through an interpreter it chooses, so a `pre-commit install`-written
+    hook that lost its execute bit — a careless ``chmod``, an archive that
+    does not preserve permissions — is silently never run, which is the
+    same failure as the file not existing at all. Skipped on Windows,
+    where ``os.access(..., os.X_OK)`` reports every file executable
+    regardless of any real permission bit, so checking it there would only
+    ever read "fine" and prove nothing.
+    """
+    missing: list[str] = []
+    for hook_type in hook_types:
+        hook_file = hooks_dir_path / hook_type
+        if not hook_file.is_file():
+            missing.append(hook_type)
+            continue
+        if sys.platform != "win32" and not os.access(hook_file, os.X_OK):
+            missing.append(hook_type)
+    return missing
+
+
+def _check_git_hooks_for_root(report: Report, name: str, git_root: Path) -> None:
+    """`guard.git_hooks`: see :func:`declared_hook_types` and
+    :func:`hooks_dir` for the two questions this answers in turn — what the
+    config declares, and what git itself reports as installed.
+
+    A config that does not exist, or exists but never runs the
+    operator-inventory guard, is a **skip**: this check's whole premise is
+    "a repository that runs this guard also needs the hooks that run it
+    installed", and a repository with no stake in that guard is not this
+    check's business at all (SCOPE: "a repository without the guard is not
+    checked").
+    """
+    config_path = git_root / ".pre-commit-config.yaml"
+    try:
+        config_text = config_path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        report.add(
+            name,
+            "skip",
+            f"No readable .pre-commit-config.yaml at {config_path}.",
+        )
+        return
+
+    if not runs_operator_inventory_guard(config_text):
+        report.add(
+            name,
+            "skip",
+            f"{config_path} does not run check_operator_inventory, so this "
+            "checkout carries no guard for this check to verify.",
+        )
+        return
+
+    resolved_hooks_dir = hooks_dir(git_root)
+    if resolved_hooks_dir is None:
+        report.add(
+            name,
+            "skip",
+            f"`git rev-parse --git-path hooks` could not be answered for {git_root}.",
+        )
+        return
+
+    try:
+        hook_types = declared_hook_types(config_text)
+    except UnparseableHookTypesError as exc:
+        report.add_error(name, exc)
+        return
+
+    missing = missing_hook_types(resolved_hooks_dir, hook_types)
+    if missing:
+        report.add(
+            name,
+            "fail",
+            f"{', '.join(missing)} hook(s) declared in default_install_hook_types "
+            f"({', '.join(hook_types)}) are missing from {resolved_hooks_dir} — "
+            "a checkout that runs check_operator_inventory but never installed "
+            "the hooks that run it is not actually guarded.",
+            remediation="pre-commit install",
+        )
+        return
+
+    report.add(
+        name,
+        "ok",
+        f"all {len(hook_types)} declared hook type(s) ({', '.join(hook_types)}) "
+        f"present in {resolved_hooks_dir}",
+    )
+
+
+def _check_git_hooks(
+    report: Report,
+    project_ids: Sequence[str],
+    registry: ProjectRegistry,
+    repo_root: Optional[Path],
+) -> None:
+    """DG-466: for the source tree and every registered project whose
+    ``.pre-commit-config.yaml`` runs DG-317's operator-inventory guard,
+    confirm the hooks that guard depends on are actually installed.
+
+    Checking registered roots matters on its own, independent of the
+    source-tree check above: an *installed* ``drunken-doctor`` has no
+    source tree at all (:func:`source_tree_root` returns ``None``), so a
+    check that only ever looked at the source tree would always skip for
+    exactly the deployment this check most needs to answer about.
+    """
+    if repo_root is not None:
+        _check_git_hooks_for_root(report, "guard.git_hooks", repo_root)
+    else:
+        report.add(
+            "guard.git_hooks",
+            "skip",
+            "Running from an installed package, so there is no source tree "
+            "to check hooks against.",
+        )
+
+    for project_id in project_ids:
+        name = f"guard.git_hooks.{project_id}"
+        try:
+            config = registry.get_project_config(project_id)
+        except DrunkenError as exc:
+            report.add_error(name, exc)
+            continue
+
+        if not config.path:
+            report.add(
+                name,
+                "skip",
+                "No path declared, so there is no checkout to inspect.",
+            )
+            continue
+
+        # Same expanduser-through-resolved_path() as every other per-project
+        # check in this module (DG-445) — a registered "~/checkout" must be
+        # inspected, not silently skipped as a checkout that "does not
+        # exist" under its literal "~" name.
+        root = config.resolved_path("this operation")
+        git_root = root / config.git_root if config.git_root else root
+
+        if repo_root is not None and _same_checkout(git_root, repo_root):
+            report.add(
+                name,
+                "skip",
+                f"{git_root} is this repository's own checkout, already "
+                "checked as guard.git_hooks.",
+            )
+            continue
+
+        if not git_root.is_dir() or not (git_root / ".git").exists():
+            report.add(name, "skip", describe_missing_git_root(git_root))
+            continue
+
+        _check_git_hooks_for_root(report, name, git_root)
+
+
 def run_doctor(
     project: Optional[str] = None,
     registry: Optional[ProjectRegistry] = None,
@@ -1934,6 +2283,7 @@ def run_doctor(
 
     _check_layering(report, project_ids, registry, source_tree_root())
     _check_content_scan(report, project_ids, registry, source_tree_root())
+    _check_git_hooks(report, project_ids, registry, source_tree_root())
 
     _check_deployment(report, source_root=source_tree_root())
     _check_ai_layer(report)
