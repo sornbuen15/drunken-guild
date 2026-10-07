@@ -182,8 +182,7 @@ permission.
   `uv tool install`, not a copy into an agent's own config directory. Say what to run and hand it
   over; merging is not deploying, and `drunken-doctor` reports the gap.
 - **Do not touch `~/Projects/drunken-team` or `~/Projects/ai-team-toolkit`** (the fallback until
-  this repo is released) **or another agent's own state** — `~/.gemini/` included; editing a file
-  there is an install.
+  this repo is released) **or another agent's own state**, `~/.gemini/` included: editing it is an install.
 
 ---
 
