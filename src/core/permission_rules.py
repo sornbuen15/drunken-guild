@@ -83,6 +83,56 @@ class UnparseableRule(ValueError):
     """
 
 
+def line_continuation_length(text: str, i: int) -> int:
+    """0 unless ``text[i]`` starts a backslash line continuation, in which
+    case how many characters it spans: 2 for ``\\`` + ``\n``, 3 for ``\\`` +
+    ``\r\n``.
+
+    DG-467 (DG-465 round 4 found the same thing for `hook.py`'s own copy of
+    this check -- this is the shared home the two matchers were missing). A
+    line continuation is not an escaped newline: both characters vanish
+    entirely, joining the two physical lines with nothing in between, not
+    even a space. An operator on Windows types CRLF, so that spelling needs
+    the same treatment as a bare ``\n``; a lone ``\r`` with no following
+    ``\n`` is not a continuation and falls through to ordinary escape
+    handling.
+    """
+    n = len(text)
+    if i >= n or text[i] != "\\":
+        return 0
+    if i + 1 < n and text[i + 1] == "\n":
+        return 2
+    if i + 2 < n and text[i + 1] == "\r" and text[i + 2] == "\n":
+        return 3
+    return 0
+
+
+def _consume_quoted_char(
+    command: str, i: int, quote: str, current: list[str]
+) -> tuple[int, Optional[str]]:
+    """Advance past one unit of *command* while inside *quote*, starting at
+    *i*, appending to *current* in place. Returns ``(new_i, still_the_same_
+    quote_or_None)``.
+
+    Split out of :func:`split_command` to keep that function's own
+    branching under the project's complexity limit.
+    """
+    char = command[i]
+    # Inside single quotes a backslash is literal, so only honour the
+    # escape -- or a continuation -- in double quotes, otherwise 'a\' ends
+    # the quote early.
+    if quote == '"':
+        span = line_continuation_length(command, i)
+        if span:
+            return i + span, quote
+        if char == "\\" and i + 1 < len(command):
+            current.append(char)
+            current.append(command[i + 1])
+            return i + 2, quote
+    current.append(char)
+    return i + 1, (None if char == quote else quote)
+
+
 def split_command(command: str) -> list[str]:
     """Split a shell command into the commands it will actually run.
 
@@ -90,6 +140,14 @@ def split_command(command: str) -> list[str]:
     it would invent a second that was never run. Command substitutions are
     split out rather than skipped -- ``echo $(rm -rf /)`` runs the ``rm``, and
     a scan that only sees ``echo`` is not a scan.
+
+    A backslash line continuation (:func:`line_continuation_length`)
+    vanishes entirely -- both outside quotes and inside double quotes -- so a
+    deny rule that matches by prefix still sees the command the way the
+    shell will actually run it, not fragmented across two physical lines
+    (DG-467). Single quotes are unaffected: a backslash has no special
+    meaning there at all, so both the backslash and the newline stay in the
+    segment literally, inert.
 
     This is a scanner, not a shell parser. It does not understand here-docs,
     process substitution or nested quoting inside substitutions. That is the
@@ -103,17 +161,12 @@ def split_command(command: str) -> list[str]:
         char = command[i]
 
         if quote is not None:
-            # Inside single quotes a backslash is literal, so only honour the
-            # escape in double quotes -- otherwise 'a\' ends the quote early.
-            if char == "\\" and quote == '"' and i + 1 < len(command):
-                current.append(char)
-                current.append(command[i + 1])
-                i += 2
-                continue
-            current.append(char)
-            if char == quote:
-                quote = None
-            i += 1
+            i, quote = _consume_quoted_char(command, i, quote, current)
+            continue
+
+        span = line_continuation_length(command, i)
+        if span:
+            i += span
             continue
 
         if char == "\\" and i + 1 < len(command):
