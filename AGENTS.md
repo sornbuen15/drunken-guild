@@ -159,6 +159,7 @@ why no sentence typed in chat has ever been able to redirect it. `drunken-hook` 
    does not turn off the floor.
 2. **A call carrying no command and no path → denied**, so a call nobody can read cannot fall past
    the floor it was meant to hit (DG-321).
+3. **A call that would skip or disable the git hooks → denied** (DG-465): `--no-verify`/`git commit -n`, `core.hooksPath`, `SKIP=`/`DRUNKEN_NO_REGISTERED_PROJECTS=` on a git command, `pre-commit uninstall`, or `rm`/`mv`/`chmod`/`Write`/`Edit` on `.git/hooks` — hardcoded here, since a settings rule can't see a flag mid-command.
 
 Everything else gets **silence** — no decision, so the harness prompts exactly as it would have.
 Silence is not `allow`: the floor can refuse and it can stand aside, and it never widens
@@ -169,6 +170,7 @@ permission.
 ## Things that will bite you anywhere
 
 - **English only** — every description, instruction, commit, comment and PR this repository sees.
+- **No registered id in a commit** (REQ-023): fixtures, examples, messages use alpha, beta, zeta.
 - **No secret ever enters a commit.** A reference without a scheme is an error, not a literal: show
   `env://…` or `file://…#key`, never a token, channel id, workspace URL or account email inline.
   gitleaks scans full history and `.env` is deliberately not allowlisted.

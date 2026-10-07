@@ -199,6 +199,15 @@ major release with a changelog, and a status command says what has changed, befo
 updating easy, and updating should cost no tokens unless the way of working itself has a new
 version. Channel for now: GitHub tags (see REQ-008).
 
+### REQ-023 — A registered project id never reaches this repository
+**Class:** Must
+**Acceptance:** An operator's registered project ids never appear in this public repository, in
+content or in a commit message. A commit that would carry one is refused before it is pushed, and
+a push with no ids to check against is refused too; a checkout missing the git hook that does this
+is a `drunken-doctor` failure; and an agent cannot skip or disable the git hooks.
+**Decided:** 2026-10-06 — the Boss, after the 2026-09-23 leak (#89, #93) was found still
+uncleaned. Both leaks were test fixtures.
+
 ## Inferred — not yet accepted
 - (none — all accepted by the Boss, 2026-09-23)
 - A user-level SessionStart hook that tells the agent to run init in a folder the guild does not
