@@ -169,6 +169,7 @@ permission.
 ## Things that will bite you anywhere
 
 - **English only** — every description, instruction, commit, comment and PR this repository sees.
+- **No registered id in a commit** (REQ-023): fixtures, examples, messages use alpha, beta, zeta.
 - **No secret ever enters a commit.** A reference without a scheme is an error, not a literal: show
   `env://…` or `file://…#key`, never a token, channel id, workspace URL or account email inline.
   gitleaks scans full history and `.env` is deliberately not allowlisted.
