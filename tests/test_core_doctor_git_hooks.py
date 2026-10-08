@@ -335,47 +335,173 @@ class TestDeclaredHookTypesReadsOnlyTheTopLevelKey:
     def test_an_empty_file_defaults_to_pre_commit_alone(self):
         assert doctor.declared_hook_types("") == ["pre-commit"]
 
-    def test_mutation_matching_the_key_as_plain_text_is_caught(self):
-        """The pre-fix behaviour, run directly: matching the key as a bare
-        substring/strip with no regard for indentation at all. The
-        assertion is that wrong behaviour's own (wrong) outcome — reading
-        the nested occurrence as the declaration."""
-
-        def _pre_fix_declared_hook_types(config_text):
-            flow = re.compile(r"^default_install_hook_types:\s*\[(.*)\]\s*$")
-            block_key = re.compile(r"^default_install_hook_types:\s*$")
-            lines = config_text.splitlines()
-            for index, raw_line in enumerate(lines):
-                stripped = raw_line.strip()
-                match = flow.match(stripped)
-                if match:
-                    return [
-                        item.strip().strip("'\"") for item in match.group(1).split(",")
-                    ]
-                if block_key.match(stripped):
-                    types = []
-                    for following in lines[index + 1 :]:
-                        item = following.strip()
-                        if not item.startswith("-"):
-                            break
-                        types.append(item[1:].strip())
-                    return types
-            return ["pre-commit"]
-
+    def test_a_nested_occurrence_before_the_top_level_declaration_still_loses(self):
+        """Mutation-catching: a scanner that stops at the *first* top-level
+        match, or that raises as soon as it sees a nested occurrence
+        instead of flagging and continuing, both happen to agree with the
+        real implementation whenever the nested line comes *after* the
+        top-level one (every other test above puts it there). Reversing
+        the order is what actually exercises "keep scanning, top level
+        wins whenever it is found"."""
         text = (
             "repos:\n"
             "  - repo: local\n"
             "    hooks:\n"
             "      - id: some-hook\n"
             "        default_install_hook_types: [post-checkout]\n"
+            "default_install_hook_types: [pre-commit, commit-msg]\n"
         )
-        result = _pre_fix_declared_hook_types(text)
-        assert result == ["post-checkout"], (
-            "this is the old bug's own (wrong) outcome — a nested "
-            f"occurrence read as the top-level declaration. Got: {result!r}"
+        assert doctor.declared_hook_types(text) == ["pre-commit", "commit-msg"]
+
+    def test_mutation_raising_immediately_on_a_nested_occurrence_is_caught(self):
+        """The mutation named in review: raise on the *first* nested
+        occurrence seen instead of flagging it and continuing to scan for
+        a later top-level one. The assertion is that wrong behaviour's own
+        (wrong) outcome, reproduced directly rather than by stubbing the
+        real function — it only disagrees with the real implementation
+        when the nested line comes before the top-level one."""
+        text = (
+            "repos:\n"
+            "  - repo: local\n"
+            "    hooks:\n"
+            "      - id: some-hook\n"
+            "        default_install_hook_types: [post-checkout]\n"
+            "default_install_hook_types: [pre-commit, commit-msg]\n"
+        )
+
+        def _mutated_find_top_level(lines):
+            for index, raw_line in enumerate(lines):
+                normalized = doctor._normalized_hook_types_declaration(raw_line)
+                if normalized is None:
+                    continue
+                comment_stripped = doctor._strip_inline_comment(raw_line)
+                if comment_stripped.lstrip(" \t") != comment_stripped:
+                    raise doctor.UnparseableHookTypesError("nested, mutated")
+                return index, normalized
+            return None
+
+        with pytest.raises(doctor.UnparseableHookTypesError):
+            _mutated_find_top_level(text.splitlines())
+
+        assert doctor.declared_hook_types(text) == ["pre-commit", "commit-msg"], (
+            "the real implementation must keep scanning past the nested "
+            "occurrence and read the later top-level declaration"
+        )
+
+    def test_a_duplicate_top_level_key_reads_the_last_one(self):
+        """DG-469 review: PyYAML (the `SafeLoader` pre-commit itself loads
+        the config with) is last-key-wins for a duplicate mapping key, not
+        an error. Reading the first one, as the original scanner did,
+        disagrees with what pre-commit itself would actually install."""
+        text = (
+            "default_install_hook_types: [pre-commit]\n"
+            "repos: []\n"
+            "default_install_hook_types: [commit-msg]\n"
+        )
+        assert doctor.declared_hook_types(text) == ["commit-msg"]
+
+    def test_a_quoted_key_is_still_the_top_level_declaration(self):
+        """DG-469 review: `"default_install_hook_types": [...]` is valid
+        YAML, read by pre-commit identically to the unquoted key."""
+        text = '"default_install_hook_types": [pre-commit, commit-msg]\nrepos: []\n'
+        assert doctor.declared_hook_types(text) == ["pre-commit", "commit-msg"]
+
+    def test_a_single_quoted_key_is_still_the_top_level_declaration(self):
+        text = "'default_install_hook_types': [pre-commit, commit-msg]\nrepos: []\n"
+        assert doctor.declared_hook_types(text) == ["pre-commit", "commit-msg"]
+
+    def test_a_space_before_the_colon_is_still_the_top_level_declaration(self):
+        """DG-469 review: `default_install_hook_types : [...]` (space
+        before the colon) is valid YAML, read by pre-commit identically to
+        the unspaced key."""
+        text = "default_install_hook_types : [pre-commit, commit-msg]\nrepos: []\n"
+        assert doctor.declared_hook_types(text) == ["pre-commit", "commit-msg"]
+
+    def test_a_quoted_key_with_a_space_before_the_colon_also_parses(self):
+        text = '"default_install_hook_types" : [pre-commit, commit-msg]\nrepos: []\n'
+        assert doctor.declared_hook_types(text) == ["pre-commit", "commit-msg"]
+
+    def test_mismatched_quotes_around_the_key_are_not_the_declaration(self):
+        """`'default_install_hook_types"` is not a valid YAML plain or
+        quoted key at all — the opening and closing quote characters must
+        match — so this must not be read as a match either."""
+        text = "'default_install_hook_types\": [pre-commit]\nrepos: []\n"
+        assert doctor.declared_hook_types(text) == ["pre-commit"]
+
+    def test_a_multiline_double_quoted_scalar_folding_onto_column_zero_fails_loud(
+        self,
+    ):
+        """DG-469 review (HIGH): a double-quoted YAML scalar may continue
+        on a following line with *no* indentation at all — unlike a block
+        mapping, which always requires more indentation than its parent.
+        A continuation line that happens to start with
+        `default_install_hook_types:` reads, to this line-based scanner,
+        exactly like a clean top-level declaration, even though the parsed
+        document has no such key anywhere. PyYAML is only a dev dependency
+        here (pre-commit's own), not a runtime one, so this reader cannot
+        resolve the ambiguity by actually parsing — it must fail loud
+        instead of guessing."""
+        text = (
+            'description: "foo\n'
+            "default_install_hook_types: [pre-push]\n"
+            'bar"\n'
+            "repos: []\n"
         )
         with pytest.raises(doctor.UnparseableHookTypesError):
             doctor.declared_hook_types(text)
+
+    def test_a_multiline_single_quoted_scalar_folding_onto_column_zero_fails_loud(
+        self,
+    ):
+        text = (
+            "description: 'foo\n"
+            "default_install_hook_types: [pre-push]\n"
+            "bar'\n"
+            "repos: []\n"
+        )
+        with pytest.raises(doctor.UnparseableHookTypesError):
+            doctor.declared_hook_types(text)
+
+    def test_a_closed_quoted_value_on_one_line_does_not_trigger_the_ambiguity_guard(
+        self,
+    ):
+        """The ambiguity guard above is about a quote left *open* across a
+        line boundary — an ordinary quoted value, fully closed on the same
+        line, must still parse normally."""
+        text = 'description: "default_install_hook_types: not this"\nrepos: []\n'
+        assert doctor.declared_hook_types(text) == ["pre-commit"]
+
+    def test_windows_line_endings_with_a_quoted_key_still_parse(self):
+        text = '"default_install_hook_types": [pre-commit, commit-msg]\r\nrepos: []\r\n'
+        assert doctor.declared_hook_types(text) == ["pre-commit", "commit-msg"]
+
+    def test_a_leading_bom_with_a_quoted_key_still_parses(self):
+        text = (
+            chr(0xFEFF)
+            + '"default_install_hook_types": [pre-commit, commit-msg]\n'
+            + "repos: []\n"
+        )
+        assert doctor.declared_hook_types(text) == ["pre-commit", "commit-msg"]
+
+    def test_an_alias_value_fails_loud_rather_than_resolving_it(self):
+        """DG-469 review probe: `*name` referencing an anchor defined
+        elsewhere is a shape this hand-rolled reader cannot resolve
+        without a real YAML parser — it must fail loud, never read as the
+        bare default and risk silently narrowing a real declaration."""
+        text = (
+            "shared: &shared_types [pre-commit, commit-msg]\n"
+            "default_install_hook_types: *shared_types\n"
+            "repos: []\n"
+        )
+        with pytest.raises(doctor.UnparseableHookTypesError):
+            doctor.declared_hook_types(text)
+
+    def test_a_document_marker_before_the_declaration_still_parses(self):
+        """DG-469 review probe: a leading `---` document marker is neither
+        the key nor indentation — it must not interfere with an otherwise
+        clean, unambiguous top-level declaration after it."""
+        text = "---\ndefault_install_hook_types: [pre-commit, commit-msg]\nrepos: []\n"
+        assert doctor.declared_hook_types(text) == ["pre-commit", "commit-msg"]
 
 
 class TestHooksDirHonoursConfigAndWorktrees:
