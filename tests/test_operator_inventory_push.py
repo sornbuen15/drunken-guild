@@ -417,13 +417,28 @@ def test_binary_added_content_naming_an_id_is_scanned(repo: Path) -> None:
 
 
 def test_a_branch_deletion_passes(repo: Path) -> None:
-    """TO is the all-zero SHA: nothing is being pushed, so there is nothing to
-    scan -- the one case where no range at all is legitimately a pass."""
-    _commit(repo, "a.txt", f"{FAKE.upper()}-1\n", "wip")  # history exists, irrelevant
+    """TO is the all-zero SHA: nothing of its own is being pushed by this
+    ref update. With nothing else locally unpublished either, there is
+    nothing to refuse (DG-468 round 2's global scan still runs -- it just
+    finds nothing)."""
+    _commit(repo, "a.txt", "clean\n", "wip")  # history exists, but is clean
 
     result = _run(repo, {"PRE_COMMIT_TO_REF": "0" * 40})
 
     assert result.returncode == 0
+
+
+def test_a_branch_deletion_with_a_dirty_tag_elsewhere_still_refuses(
+    repo: Path,
+) -> None:
+    """A deletion of one ref must not be read as "nothing to scan" while a
+    dirty tag sits on the same push (DG-468 round 2, reviewer item 1)."""
+    _commit(repo, "a.txt", "clean\n", "base")
+    _git(repo, "tag", "-a", "-m", f"touches {FAKE}", "v1")
+
+    result = _run(repo, {"PRE_COMMIT_TO_REF": "0" * 40})
+
+    assert result.returncode == 1
 
 
 def test_an_absent_to_ref_refuses_rather_than_scanning_head_or_passing(
@@ -455,3 +470,187 @@ def test_the_config_wires_the_pre_push_stage() -> None:
         r"check_operator_inventory\.py --push[\s\S]{0,200}stages:\s*\[pre-push\]",
         config,
     )
+
+
+# --- DG-468 round 2 (adversarial review, Jira comment on DG-468) ----------
+#
+# pre-commit's own pre-push wrapper reports only the first non-delete ref of
+# a push with more than one (confirmed against a real `pre-commit install
+# --hook-type pre-push` in a scratch repo: `git push origin feature v1`
+# with an id only in v1's annotated tag message passed and the id reached
+# the remote). PRE_COMMIT_TO_REF/FROM_REF describe only that first ref,
+# exactly as they do in these tests -- a second local branch or tag is
+# never named by them at all, matching what pre-commit actually hands the
+# hook for a multi-ref push.
+
+
+def test_a_second_unpublished_branch_is_caught_though_to_ref_names_only_the_first(
+    repo: Path,
+) -> None:
+    """Two branches pushed together: PRE_COMMIT_TO_REF names only the one
+    pre-commit happened to report first; the other's dirty commit must
+    still be caught."""
+    base = _commit(repo, "a.txt", "clean\n", "base")
+    _git(repo, "checkout", "-q", "-b", "other")
+    _commit(repo, "b.txt", f"{FAKE.upper()}-1\n", "dirty on the other branch")
+    _git(repo, "checkout", "-q", "-")
+    clean_tip = _commit(repo, "c.txt", "clean too\n", "clean on the first branch")
+
+    result = _run(repo, {"PRE_COMMIT_FROM_REF": base, "PRE_COMMIT_TO_REF": clean_tip})
+
+    assert result.returncode == 1
+
+
+def test_an_unpublished_tag_is_caught_though_to_ref_names_only_the_branch(
+    repo: Path,
+) -> None:
+    """`git push origin feature v1`: PRE_COMMIT_TO_REF names the branch tip
+    only (pre-commit's first-ref-only report), but the tag pushed alongside
+    it is still read."""
+    base = _commit(repo, "a.txt", "clean\n", "base")
+    clean_tip = _commit(repo, "b.txt", "clean too\n", "a clean branch tip")
+    _git(repo, "tag", "-a", "-m", f"touches {FAKE}", "v1")
+
+    result = _run(repo, {"PRE_COMMIT_FROM_REF": base, "PRE_COMMIT_TO_REF": clean_tip})
+
+    assert result.returncode == 1
+
+
+def test_a_dirty_unrelated_local_branch_blocks_an_otherwise_clean_push(
+    repo: Path,
+) -> None:
+    """The accepted over-inclusion cost, made explicit: a local-only branch
+    naming an id blocks a push of something else entirely unrelated to it.
+    The escape is fixing or removing the offending local ref -- there are
+    ids registered here, so DRUNKEN_NO_REGISTERED_PROJECTS=1 (the escape
+    for *no* ids to check against) does not apply to this case."""
+    base = _commit(repo, "a.txt", "clean\n", "base")
+    _git(repo, "checkout", "-q", "-b", "unrelated")
+    _commit(repo, "z.txt", f"{FAKE.upper()}-1\n", "sitting around, unrelated")
+    _git(repo, "checkout", "-q", "-")
+    clean_tip = _commit(repo, "c.txt", "clean too\n", "what is actually being pushed")
+
+    blocked = _run(repo, {"PRE_COMMIT_FROM_REF": base, "PRE_COMMIT_TO_REF": clean_tip})
+    assert blocked.returncode == 1
+
+    _git(repo, "branch", "-D", "unrelated")  # the actual escape: remove it
+
+    escaped = _run(repo, {"PRE_COMMIT_FROM_REF": base, "PRE_COMMIT_TO_REF": clean_tip})
+    assert escaped.returncode == 0
+
+
+def test_utf16_binary_content_naming_an_id_is_still_caught(repo: Path) -> None:
+    """DG-468 round 2 item 2: a latin-1 decode of UTF-16 content interleaves
+    NULs between every character and the id never matches. A NUL-stripped
+    decode must still catch it, LE or BE, with or without a BOM."""
+    _commit(repo, "a.txt", "clean\n", "base")
+    text = f"touches {FAKE.upper()}-1"
+    le_no_bom = text.encode("utf-16-le")
+    be_with_bom = b"\xfe\xff" + text.encode("utf-16-be")
+    for name, data in (("le.bin", le_no_bom), ("be_bom.bin", be_with_bom)):
+        (repo / name).write_bytes(data)
+    _git(repo, "add", "le.bin", "be_bom.bin")
+    _git(repo, "commit", "-q", "-m", "add utf-16 binaries")
+    to_sha = _git_out(repo, "rev-parse", "HEAD")
+
+    result = _run(repo, {"PRE_COMMIT_TO_REF": to_sha})
+
+    assert result.returncode == 1
+    assert FAKE not in (result.stdout + result.stderr).lower()
+
+
+def test_an_id_split_by_nuls_in_binary_content_is_still_caught(repo: Path) -> None:
+    """Every other byte NUL (UTF-16LE of a plain-ASCII id) must not hide it."""
+    _commit(repo, "a.txt", "clean\n", "base")
+    split = bytes()
+    for ch in f"{FAKE.upper()}-1":
+        split += ch.encode("ascii") + b"\x00"
+    (repo / "split.bin").write_bytes(b"\x00\x01" + split + b"\x02")
+    _git(repo, "add", "split.bin")
+    _git(repo, "commit", "-q", "-m", "add nul-split binary")
+    to_sha = _git_out(repo, "rev-parse", "HEAD")
+
+    result = _run(repo, {"PRE_COMMIT_TO_REF": to_sha})
+
+    assert result.returncode == 1
+
+
+def test_an_oversized_binary_blob_refuses_naming_the_path_not_the_content(
+    repo: Path,
+) -> None:
+    """DG-468 round 2 item 4: above the cap, this must refuse closed rather
+    than read an unbounded blob into memory on every push -- and name the
+    path, never the content, in doing so."""
+    _commit(repo, "a.txt", "clean\n", "base")
+    from scripts import check_operator_inventory as coi
+
+    oversized = coi.MAX_BINARY_BYTES + 1
+    (repo / "huge.bin").write_bytes(b"\x00\x01" + (b"\xff" * oversized))
+    _git(repo, "add", "huge.bin")
+    _git(repo, "commit", "-q", "-m", "add an oversized binary")
+    to_sha = _git_out(repo, "rev-parse", "HEAD")
+
+    result = _run(repo, {"PRE_COMMIT_TO_REF": to_sha})
+
+    assert result.returncode == 1
+    assert "huge.bin" in (result.stdout + result.stderr)
+
+
+def test_a_slow_or_unreachable_remote_does_not_hang_and_never_prints_its_url(
+    repo: Path,
+) -> None:
+    """DG-468 round 2 item 3: `git ls-remote` must never be left free to
+    hang this hook, and a failure there (timeout or otherwise) must never
+    print the remote's URL -- it can carry a token. The fake remote hangs
+    for 20s, well past this file's own remote-query timeout; a push taking
+    anywhere near that proves the timeout did not actually apply."""
+    import socket
+    import threading
+    import time
+
+    listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    listener.bind(("127.0.0.1", 0))
+    listener.listen(1)
+    port = listener.getsockname()[1]
+    secret_marker = "s3cr3t-token-marker"
+
+    stop = threading.Event()
+
+    def _accept_and_hang() -> None:
+        listener.settimeout(1)
+        while not stop.is_set():
+            try:
+                conn, _ = listener.accept()
+            except OSError:
+                continue
+            # Accept the connection and never answer: a real hang, not a
+            # fast refusal, is the point of this test.
+            stop.wait(20)
+            conn.close()
+            return
+
+    thread = threading.Thread(target=_accept_and_hang, daemon=True)
+    thread.start()
+    try:
+        _git(
+            repo,
+            "remote",
+            "add",
+            "slow",
+            f"git://127.0.0.1:{port}/{secret_marker}.git",
+        )
+        to_sha = _commit(repo, "a.txt", "clean\n", "base")
+
+        started = time.monotonic()
+        result = _run(repo, {"PRE_COMMIT_TO_REF": to_sha})
+        elapsed = time.monotonic() - started
+
+        assert secret_marker not in (result.stdout + result.stderr)
+        assert elapsed < 15, (
+            f"took {elapsed:.1f}s against a remote that only ever hangs -- "
+            "the timeout did not apply"
+        )
+    finally:
+        stop.set()
+        listener.close()
+        thread.join(timeout=2)
