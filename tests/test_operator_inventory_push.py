@@ -310,6 +310,17 @@ def _annotated_tag(repo: Path, name: str, message: str, target: str = "HEAD") ->
     return _git_out(repo, "rev-parse", name)
 
 
+# The tests below invoke the script directly with PRE_COMMIT_TO_REF/FROM_REF
+# already set, as every test in this file does -- they prove this file scans
+# a tag's message correctly *when the hook actually runs*. They do NOT prove
+# pre-commit invokes the hook for every push that moves a tag: a solo
+# annotated tag pushed onto an already-public commit never reaches this
+# script at all (DG-479; see
+# test_a_solo_tag_on_an_already_public_commit_never_reaches_the_scanner_dg479
+# near the end of this file, which documents that gap against a real
+# installed hook rather than hiding it).
+
+
 def test_an_annotated_tag_message_naming_an_id_is_refused(repo: Path) -> None:
     _commit(repo, "a.txt", "clean\n", "base")
     tag_sha = _annotated_tag(repo, "v1", f"release notes mention {FAKE.upper()}-1")
@@ -539,6 +550,35 @@ def test_a_dirty_unrelated_local_branch_blocks_an_otherwise_clean_push(
     assert escaped.returncode == 0
 
 
+def test_the_over_inclusive_refusal_names_the_offending_ref_and_sha_not_the_id(
+    repo: Path,
+) -> None:
+    """DG-468 round 3, friction: a refusal caused by a local ref that is not
+    even part of this push must say which ref to drop or amend (by name,
+    with a commit short sha) before anything else -- never the id, and
+    before any mention of an escape hatch."""
+    base = _commit(repo, "a.txt", "clean\n", "base")
+    _git(repo, "checkout", "-q", "-b", "unrelated")
+    dirty_sha = _commit(
+        repo, "z.txt", f"{FAKE.upper()}-1\n", "sitting around, unrelated"
+    )
+    _git(repo, "checkout", "-q", "-")
+    clean_tip = _commit(repo, "c.txt", "clean too\n", "what is actually being pushed")
+
+    result = _run(repo, {"PRE_COMMIT_FROM_REF": base, "PRE_COMMIT_TO_REF": clean_tip})
+
+    output = result.stdout + result.stderr
+    assert result.returncode == 1
+    assert "refs/heads/unrelated" in output
+    assert dirty_sha[:12] in output
+    assert FAKE not in output.lower()
+    # The fix-it guidance (naming the ref) must come before any mention of
+    # the separate opt-out, never after or instead of it.
+    fix_at = output.index("refs/heads/unrelated")
+    escape_at = output.find("DRUNKEN_NO_REGISTERED_PROJECTS")
+    assert escape_at == -1 or fix_at < escape_at
+
+
 def test_utf16_binary_content_naming_an_id_is_still_caught(repo: Path) -> None:
     """DG-468 round 2 item 2: a latin-1 decode of UTF-16 content interleaves
     NULs between every character and the id never matches. A NUL-stripped
@@ -654,3 +694,100 @@ def test_a_slow_or_unreachable_remote_does_not_hang_and_never_prints_its_url(
         stop.set()
         listener.close()
         thread.join(timeout=2)
+
+
+# --- DG-479: pre-commit never invokes this hook for some pushes ----------
+#
+# pre_commit.commands.hook_impl._pre_push_ns returns None ("nothing to
+# push") when every pushed ref either deletes something or already points
+# at a commit reachable from a remote-tracking ref -- and when it returns
+# None, hook_impl returns immediately, before this script (or any hook)
+# ever runs. No amount of scanning inside check_operator_inventory.py can
+# close this: the process is never started. This is a real installed
+# pre-push hook against a real bare remote, not the direct-invocation style
+# of every other test in this file, because the gap is specifically in
+# whether pre-commit invokes the hook at all.
+
+
+def _install_real_pre_push_hook(repo: Path, registry_path: Path) -> None:
+    registry_path.write_text(
+        json.dumps({"version": 2, "projects": {"drunken-guild": {}, FAKE: {}}}),
+        encoding="utf-8",
+    )
+    python = sys.executable.replace("\\", "/")
+    script = str(SCRIPT).replace("\\", "/")
+    (repo / ".pre-commit-config.yaml").write_text(
+        "default_install_hook_types: [pre-push]\n"
+        "repos:\n"
+        "  - repo: local\n"
+        "    hooks:\n"
+        "      - id: operator-inventory-push\n"
+        "        name: operator inventory (push)\n"
+        f"        entry: {python} {script} --push\n"
+        "        language: system\n"
+        "        pass_filenames: false\n"
+        "        always_run: true\n"
+        "        stages: [pre-push]\n",
+        encoding="utf-8",
+    )
+    _git(repo, "add", ".pre-commit-config.yaml")
+    _git(repo, "commit", "-q", "-m", "add pre-commit config")
+    subprocess.run(
+        [sys.executable, "-m", "pre_commit", "install", "--hook-type", "pre-push"],
+        cwd=repo,
+        check=True,
+        capture_output=True,
+    )
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason="DG-479: pre-commit's own hook_impl never invokes this hook for a "
+    "solo tag pushed onto an already-public commit -- fix is a design "
+    "decision for the Boss, not something check_operator_inventory.py can "
+    "do on its own.",
+)
+def test_a_solo_tag_on_an_already_public_commit_never_reaches_the_scanner_dg479(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.delenv("PRE_COMMIT_FROM_REF", raising=False)
+    monkeypatch.delenv("PRE_COMMIT_TO_REF", raising=False)
+
+    remote = tmp_path / "remote.git"
+    _git(tmp_path, "init", "-q", "--bare", str(remote))
+
+    repo = tmp_path / "work"
+    repo.mkdir()
+    _git(repo, "init", "-q")
+    _git(repo, "config", "user.email", "t@example.invalid")
+    _git(repo, "config", "user.name", "t")
+    _git(repo, "remote", "add", "origin", str(remote))
+
+    monkeypatch.setenv("DRUNKEN_REGISTRY_PATH", str(tmp_path / "projects.json"))
+    _install_real_pre_push_hook(repo, tmp_path / "projects.json")
+
+    # Bootstrap: get a commit onto the remote while the hook isn't yet a
+    # concern for that step -- it is clean, so a correctly-running hook
+    # would pass it anyway; this just establishes "already public".
+    public_sha = _commit(repo, "a.txt", "clean\n", "base")
+    _git(repo, "push", "-q", "origin", "HEAD:main")
+
+    # A solo annotated tag on that already-public commit, with a fake id in
+    # its own message -- exactly what the scanner exists to catch.
+    _git(repo, "tag", "-a", "-m", f"touches {FAKE}", "v1", public_sha)
+
+    result = subprocess.run(
+        ["git", "push", "origin", "v1"],
+        cwd=repo,
+        capture_output=True,
+        text=True,
+    )
+
+    # Desired behaviour: the hook runs and refuses this push. Today
+    # pre-commit never invokes it at all for this case, so the push
+    # succeeds -- this assertion fails, and xfail(strict=True) is what
+    # turns that red the day DG-479 actually fixes it.
+    assert result.returncode != 0, (
+        "the push of a solo tag naming an id succeeded -- the scanner was "
+        "never invoked for it (DG-479)"
+    )

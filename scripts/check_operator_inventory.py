@@ -86,6 +86,30 @@ escape is fixing or removing the offending local ref; when there is nothing
 registered to check against at all, ``DRUNKEN_NO_REGISTERED_PROJECTS=1``
 already covers that separately, as it did before this file read any tag or
 local-only ref at all.
+
+**What this covers, stated exactly, so "tags are scanned" is never read as
+unconditional:** when this hook runs, it reads every commit unpublished on
+every local branch and tag (not just the one ref FROM/TO describe), the
+message of every local annotated tag not already on a remote, and binary
+content up to ``MAX_BINARY_BYTES``, decoded as plain bytes, NUL-stripped,
+and UTF-16/32.
+
+**What it does not cover, because pre-commit never invokes it at all for
+these:** ``hook_impl._pre_push_ns`` returns "nothing to push" -- and this
+script is never run, with no output -- when every pushed ref either deletes
+something or points at a commit already reachable from a remote-tracking
+ref. A solo annotated tag pushed onto an *already-public* commit
+(``git tag -a v1 -m "<id>" && git push origin v1``), a ref deletion pushed
+alongside a new ref (``git push origin :old v3``), and any push that is
+*entirely* deletions or already-public commits all leak an unscanned tag
+message this way -- the global scan above never runs, because the hook
+itself never runs. This is DG-479: whether the real fix is a native
+always-on pre-push hook outside pre-commit, a separate gate, or an accepted
+limit is a design decision for the Boss, and is explicitly out of this
+file's scope. ``refs/notes/*`` and any ref outside ``refs/heads``/``refs/tags``
+are likewise not specifically read (they are not walked by ``--branches
+--tags``, though a note's own commit content, if reachable some other way,
+still is).
 """
 
 from __future__ import annotations
@@ -534,6 +558,79 @@ def offenders(sources: List[tuple[str, str]], ids: List[str]) -> List[str]:
     ]
 
 
+#: Extracts the short sha and kind out of an `offenders()` place string
+#: ("commit abc123def456 message", "tag abc123def456 message", ...) --
+#: never the matched line's content, which `offenders()` never carries
+#: this far to begin with.
+_PLACE_RE = re.compile(r"^(commit|tag) ([0-9a-f]{7,40}) ")
+
+
+def _refs_containing_commit(short_sha: str) -> List[str]:
+    try:
+        result = subprocess.run(
+            [
+                "git",
+                "for-each-ref",
+                "--contains",
+                short_sha,
+                "refs/heads",
+                "refs/tags",
+                "--format=%(refname)",
+            ],
+            capture_output=True,
+            check=True,
+        )
+    except subprocess.CalledProcessError:
+        return []
+    return [
+        r.strip()
+        for r in result.stdout.decode("utf-8", "replace").split("\n")
+        if r.strip()
+    ]
+
+
+def _refs_pointing_at(short_sha: str) -> List[str]:
+    try:
+        result = subprocess.run(
+            [
+                "git",
+                "for-each-ref",
+                "--points-at",
+                short_sha,
+                "refs/tags",
+                "--format=%(refname)",
+            ],
+            capture_output=True,
+            check=True,
+        )
+    except subprocess.CalledProcessError:
+        return []
+    return [
+        r.strip()
+        for r in result.stdout.decode("utf-8", "replace").split("\n")
+        if r.strip()
+    ]
+
+
+def _describe_offense(place: str) -> tuple[str, List[str]]:
+    """Enrich a `place` string with the local ref name(s) it is reachable
+    from (a commit) or pointed at by (a tag object) -- so a refusal caused
+    by the over-inclusive global scan (DG-468 round 2) says which ref to
+    drop or amend, not just an opaque sha (DG-468 round 3, friction). Never
+    the id, never the matched line's content -- `place` never carried
+    either. Best-effort: a lookup failure here only means a plainer
+    message, never a different refusal decision.
+    """
+    match = _PLACE_RE.match(place)
+    if not match:
+        return place, []
+    kind, short = match.group(1), match.group(2)
+    refs = _refs_pointing_at(short) if kind == "tag" else _refs_containing_commit(short)
+    if not refs:
+        return place, []
+    return f"{place} (on {', '.join(refs)})", refs
+
+
 def _main_push() -> int:
     """``--push``: refuse unless there are ids to check, or the opt-out is set.
 
@@ -596,13 +693,22 @@ def _main_push() -> int:
     found = offenders(sources, ids)
     if not found:
         return 0
+    described = [_describe_offense(place) for place in found]
+    offending_refs = sorted({ref for _, refs in described for ref in refs})
     print(
-        "A registered project id is in a commit this push would make public. "
+        "A registered project id is in something this push would make public. "
         "This repository is public. Use alpha/beta, or describe the role "
         "instead of naming it:"
     )
-    for place in found:
-        print(f"  {place}")
+    for line, _ in described:
+        print(f"  {line}")
+    if offending_refs:
+        print(
+            "Drop or amend the offending ref(s) to fix this: "
+            + ", ".join(offending_refs)
+            + ". DRUNKEN_NO_REGISTERED_PROJECTS=1 is the separate escape for "
+            "nothing registered to check against at all -- not for this."
+        )
     return 1
 
 
