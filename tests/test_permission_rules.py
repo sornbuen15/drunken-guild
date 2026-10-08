@@ -13,9 +13,11 @@ strength of its first two words.
 """
 
 import json
+from typing import Final
 
 import pytest
 
+from core import hook
 from core import permission_rules as pr
 
 
@@ -262,3 +264,147 @@ class TestDG334FileWritingToolsAreOneFamily:
         was written for even though Claude Code no longer consults it."""
         rule = pr.Rule.parse("Write(**/.env)")
         assert rule.matches("Edit", {"file_path": "/repo/.env"})
+
+
+def _splice_continuation(command: str, gap: int, newline: str) -> str:
+    """*command* with a backslash + *newline* ("\\n" or "\\r\\n") spliced at
+    character gap *gap* (0 is before the first character, len(command) is
+    after the last). A real shell joins the two halves with nothing else in
+    between, so this is exactly what DG-465's reviewer found defeats a
+    prefix-matching deny rule."""
+    return command[:gap] + "\\" + newline + command[gap:]
+
+
+#: The five settings.json deny rules DG-467 names, each with a command that
+#: would be caught by it today -- unspliced -- and the specifier text
+#: `_matches_command` strips to a prefix.
+_DENY_RULE_COMMANDS: Final = [
+    ("Bash(git push --force:*)", "git push --force origin main"),
+    ("Bash(git push -f:*)", "git push -f origin main"),
+    ("Bash(git reset --hard:*)", "git reset --hard HEAD~1"),
+    ("Bash(git clean -fd:*)", "git clean -fd"),
+    ("Bash(rm -rf:*)", "rm -rf /tmp/x"),
+]
+
+
+class TestLineContinuationCannotDefeatADenyRule:
+    """DG-467. A backslash + newline (or backslash + CRLF) spliced into a
+    denied command is a real, ordinary shell line continuation -- it is not
+    an evasion technique, and the deny rules must see the command the way
+    the shell will actually run it, not the way it is spelled across two
+    physical lines."""
+
+    @pytest.mark.parametrize("rule_text,command", _DENY_RULE_COMMANDS)
+    @pytest.mark.parametrize("newline", ["\n", "\r\n"])
+    def test_denied_with_a_continuation_at_every_gap(
+        self, rule_text: str, command: str, newline: str
+    ) -> None:
+        rule = pr.Rule.parse(rule_text)
+        for gap in range(len(command) + 1):
+            spliced = _splice_continuation(command, gap, newline)
+            assert pr.is_denied("Bash", {"command": spliced}, [rule]), (
+                f"gap={gap} newline={newline!r} spliced={spliced!r}"
+            )
+
+    def test_continuation_inside_single_quotes_stays_literal(self) -> None:
+        """Single quotes give a backslash no special meaning in a real
+        shell, so a continuation spliced inside one is not a continuation at
+        all -- it is two literal characters that belong to the quoted text,
+        and the command's verdict must not change because of them."""
+        rules = [pr.Rule.parse("Bash(grep:*)")]
+        plain = "grep 'a && b' file"
+        spliced = "grep 'a \\\n&& b' file"
+        assert pr.is_allowed("Bash", {"command": plain}, rules)
+        assert pr.is_allowed("Bash", {"command": spliced}, rules)
+        # The literal backslash+newline must still be inside the one segment
+        # split_command returns -- not treated as a real newline separator.
+        assert pr.split_command(spliced) == [spliced.strip()]
+
+    def test_dot_env_rules_are_unaffected(self, tmp_path) -> None:
+        """Path rules never go through split_command at all, so this change
+        must not touch them."""
+        rule = pr.Rule.parse("Read(**/.env)")
+        assert rule.matches("Read", {"file_path": "/repo/.env"})
+
+    def test_force_with_lease_keeps_todays_verdict(self) -> None:
+        """Deny matching has no word boundary (`TestDenyIsDeliberatelyGreedier`),
+        so `Bash(git push --force:*)` already matches `--force-with-lease` by
+        plain prefix today, splice or no splice. The fix must not change that
+        verdict in either direction -- a continuation is not a new reason for
+        the matcher to look harder or more leniently at the text around it."""
+        rule = pr.Rule.parse("Bash(git push --force:*)")
+        plain = "git push --force-with-lease origin main"
+        baseline = pr.is_denied("Bash", {"command": plain}, [rule])
+        for gap in range(len(plain) + 1):
+            spliced = _splice_continuation(plain, gap, "\n")
+            assert pr.is_denied("Bash", {"command": spliced}, [rule]) == baseline, (
+                f"gap={gap} spliced={spliced!r}"
+            )
+
+    def test_trailing_backslash_with_no_following_character_is_literal(
+        self,
+    ) -> None:
+        """A backslash at the very end of the input starts nothing -- there
+        is no newline after it to vanish with it, so it must be kept as an
+        ordinary trailing character, not dropped."""
+        assert pr.split_command("echo hi\\") == ["echo hi\\"]
+
+    def test_escaped_backslash_then_a_real_newline_still_splits(self) -> None:
+        """`\\\\` is an escaped backslash -- one literal backslash -- and the
+        newline that follows it is an ordinary separator, not part of a
+        continuation. Must not be confused with `\\` + newline."""
+        command = "echo hi\\\\\nrm -rf /tmp/x"
+        rules = [pr.Rule.parse("Bash(rm -rf:*)")]
+        assert pr.is_denied("Bash", {"command": command}, rules)
+        # The escape pair keeps both the backslash and the character it
+        # escaped (itself a backslash here) -- this module scans text and
+        # never drops a backslash the way a real shell's argv would.
+        assert pr.split_command(command) == ["echo hi\\\\", "rm -rf /tmp/x"]
+
+    def test_continuation_inside_command_substitution_is_removed(self) -> None:
+        rules = [pr.Rule.parse("Bash(rm -rf:*)")]
+        assert pr.is_denied("Bash", {"command": "echo $(rm -r\\\nf /tmp/x)"}, rules)
+        assert pr.is_denied("Bash", {"command": "echo `rm -r\\\nf /tmp/x`"}, rules)
+
+    def test_continuation_mid_verb(self) -> None:
+        rules = [pr.Rule.parse("Bash(git push -f:*)")]
+        assert pr.is_denied("Bash", {"command": "gi\\\nt push -f origin main"}, rules)
+
+    def test_continuation_mid_flag(self) -> None:
+        rules = [pr.Rule.parse("Bash(git push --force:*)")]
+        assert pr.is_denied(
+            "Bash", {"command": "git push --for\\\nce origin main"}, rules
+        )
+
+
+class TestHookAndPermissionRulesAgreeOnSegments:
+    """DG-467's other half: there must be exactly one implementation of this
+    scan, not two that can quietly disagree. `hook.decide` does not keep its
+    own splitter -- it calls straight into `permission_rules.is_denied` --
+    so this pins that down rather than assuming it from reading the source.
+    """
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "git push --force origin main",
+            "git push --for\\\nce origin main",
+            "git push --for\\\r\nce origin main",
+            "rm -rf /tmp/x",
+            "echo hi && rm -r\\\nf /tmp/x",
+            "grep 'a \\\n&& b' file",
+            "git status",
+        ],
+    )
+    def test_hook_decide_agrees_with_is_denied(self, command: str) -> None:
+        rule_text = "Bash(rm -rf:*), Bash(git push --force:*)"
+        rules = pr.Rules(
+            deny=[
+                pr.Rule.parse("Bash(rm -rf:*)"),
+                pr.Rule.parse("Bash(git push --force:*)"),
+            ]
+        )
+        direct = pr.is_denied("Bash", {"command": command}, rules.deny)
+        payload = {"tool_name": "Bash", "tool_input": {"command": command}}
+        via_hook = hook.decide(payload, rules).permission == "deny"
+        assert direct == via_hook, rule_text
