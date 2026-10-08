@@ -268,6 +268,116 @@ class TestDeclaredHookTypes:
             doctor.declared_hook_types(text)
 
 
+class TestDeclaredHookTypesReadsOnlyTheTopLevelKey:
+    """DG-469: DG-466's own matcher read `default_install_hook_types:` as
+    plain text with no regard for indentation, so a nested occurrence —
+    under a `repos:` hook entry, or under any other unrelated key — was
+    read as the top-level declaration. pre-commit itself only honours the
+    key at the top level of the mapping; a nested line is never the real
+    declaration."""
+
+    def test_a_nested_occurrence_inside_a_repos_entry_fails_loud(self):
+        text = (
+            "repos:\n"
+            "  - repo: local\n"
+            "    hooks:\n"
+            "      - id: some-hook\n"
+            "        name: some-hook\n"
+            "        default_install_hook_types: [pre-commit]\n"
+            "        language: system\n"
+        )
+        with pytest.raises(doctor.UnparseableHookTypesError):
+            doctor.declared_hook_types(text)
+
+    def test_a_nested_occurrence_under_an_unrelated_key_fails_loud(self):
+        text = "some_other_key:\n  default_install_hook_types: [pre-commit]\n"
+        with pytest.raises(doctor.UnparseableHookTypesError):
+            doctor.declared_hook_types(text)
+
+    def test_a_top_level_declaration_wins_over_a_nested_occurrence(self):
+        text = (
+            "default_install_hook_types: [pre-commit, commit-msg]\n"
+            "repos:\n"
+            "  - repo: local\n"
+            "    hooks:\n"
+            "      - id: some-hook\n"
+            "        default_install_hook_types: [post-checkout]\n"
+        )
+        assert doctor.declared_hook_types(text) == ["pre-commit", "commit-msg"]
+
+    def test_a_column_zero_declaration_still_parses_flow_style(self):
+        text = "repos: []\ndefault_install_hook_types: [pre-commit, commit-msg]\n"
+        assert doctor.declared_hook_types(text) == ["pre-commit", "commit-msg"]
+
+    def test_a_column_zero_declaration_still_parses_block_style(self):
+        text = (
+            "repos: []\ndefault_install_hook_types:\n  - pre-commit\n  - commit-msg\n"
+        )
+        assert doctor.declared_hook_types(text) == ["pre-commit", "commit-msg"]
+
+    def test_a_commented_out_top_level_line_is_not_taken_as_the_declaration(self):
+        text = "# default_install_hook_types: [commit-msg]\n"
+        assert doctor.declared_hook_types(text) == ["pre-commit"]
+
+    def test_a_tab_indented_occurrence_is_not_top_level(self):
+        text = "foo:\n\tdefault_install_hook_types: [pre-commit]\n"
+        with pytest.raises(doctor.UnparseableHookTypesError):
+            doctor.declared_hook_types(text)
+
+    def test_windows_line_endings_still_parse_a_top_level_declaration(self):
+        text = "default_install_hook_types: [pre-commit, commit-msg]\r\nrepos: []\r\n"
+        assert doctor.declared_hook_types(text) == ["pre-commit", "commit-msg"]
+
+    def test_a_leading_bom_does_not_hide_a_top_level_declaration(self):
+        text = "﻿default_install_hook_types: [pre-commit, commit-msg]\nrepos: []\n"
+        assert doctor.declared_hook_types(text) == ["pre-commit", "commit-msg"]
+
+    def test_an_empty_file_defaults_to_pre_commit_alone(self):
+        assert doctor.declared_hook_types("") == ["pre-commit"]
+
+    def test_mutation_matching_the_key_as_plain_text_is_caught(self):
+        """The pre-fix behaviour, run directly: matching the key as a bare
+        substring/strip with no regard for indentation at all. The
+        assertion is that wrong behaviour's own (wrong) outcome — reading
+        the nested occurrence as the declaration."""
+
+        def _pre_fix_declared_hook_types(config_text):
+            flow = re.compile(r"^default_install_hook_types:\s*\[(.*)\]\s*$")
+            block_key = re.compile(r"^default_install_hook_types:\s*$")
+            lines = config_text.splitlines()
+            for index, raw_line in enumerate(lines):
+                stripped = raw_line.strip()
+                match = flow.match(stripped)
+                if match:
+                    return [
+                        item.strip().strip("'\"") for item in match.group(1).split(",")
+                    ]
+                if block_key.match(stripped):
+                    types = []
+                    for following in lines[index + 1 :]:
+                        item = following.strip()
+                        if not item.startswith("-"):
+                            break
+                        types.append(item[1:].strip())
+                    return types
+            return ["pre-commit"]
+
+        text = (
+            "repos:\n"
+            "  - repo: local\n"
+            "    hooks:\n"
+            "      - id: some-hook\n"
+            "        default_install_hook_types: [post-checkout]\n"
+        )
+        result = _pre_fix_declared_hook_types(text)
+        assert result == ["post-checkout"], (
+            "this is the old bug's own (wrong) outcome — a nested "
+            f"occurrence read as the top-level declaration. Got: {result!r}"
+        )
+        with pytest.raises(doctor.UnparseableHookTypesError):
+            doctor.declared_hook_types(text)
+
+
 class TestHooksDirHonoursConfigAndWorktrees:
     def test_resolves_the_ordinary_dot_git_hooks_directory(self, tmp_path):
         root = tmp_path / "proj"

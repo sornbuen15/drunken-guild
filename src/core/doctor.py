@@ -1998,6 +1998,45 @@ def _strip_inline_comment(line: str) -> str:
     return line
 
 
+def _find_top_level_hook_types_line(lines: list[str]) -> Optional[int]:
+    """The index of the line declaring `default_install_hook_types` at
+    column 0 of the top-level mapping, or ``None`` if it is absent there.
+
+    Raises :class:`UnparseableHookTypesError` when the key appears only
+    nested — under a `repos:` hook entry or any other unrelated key — since
+    that is never the declaration pre-commit itself reads, and treating it
+    as silently absent risks the same "could not read this" versus
+    "nothing was declared" collapse :func:`declared_hook_types` already
+    guards against for an unrecognised value.
+    """
+    nested_only = False
+    for index, raw_line in enumerate(lines):
+        comment_stripped = _strip_inline_comment(raw_line)
+        stripped = comment_stripped.strip()
+        if not stripped.startswith(_HOOK_TYPES_KEY_PREFIX):
+            continue
+        if comment_stripped.lstrip(" \t") != comment_stripped:
+            # Indented under something else — never the top-level
+            # declaration pre-commit itself reads.
+            nested_only = True
+            continue
+        return index
+
+    if nested_only:
+        raise UnparseableHookTypesError(
+            "default_install_hook_types is present but only nested under "
+            "another key, not at the top level of .pre-commit-config.yaml, "
+            "where pre-commit itself reads it.",
+            remediation=(
+                "Move default_install_hook_types to column 0 of "
+                ".pre-commit-config.yaml's top-level mapping, or remove "
+                "the nested occurrence if it was not meant as this "
+                "declaration."
+            ),
+        )
+    return None
+
+
 def declared_hook_types(config_text: str) -> list[str]:
     """`default_install_hook_types` exactly as *config_text* declares it.
 
@@ -2024,48 +2063,64 @@ def declared_hook_types(config_text: str) -> list[str]:
     collapsing "could not read this" into "nothing was declared" is exactly
     how a real ``commit-msg``/``pre-push`` declaration could drop out of
     the check while it kept reporting ok.
+
+    Read only at column 0 of the top-level mapping — pre-commit itself only
+    ever honours the key there. The key matched as plain text with no
+    regard for indentation would read a `default_install_hook_types:` line
+    nested inside a `repos:` hook entry, or under any other unrelated key,
+    as the top-level declaration, which is never what pre-commit itself
+    does with it. A declaration that appears only nested is not silently
+    treated as absent either — it fails loud via
+    :class:`UnparseableHookTypesError`, the same as any other shape this
+    reader cannot follow, since a config carrying the string only
+    indented could just as easily be a real declaration broken by a stray
+    indent as an unrelated use of the same words, and the two must not
+    collapse into "use the default" either.
+
+    A leading BOM (U+FEFF) is stripped before scanning: `str.strip()`
+    does not remove it, and it otherwise hides a genuine column-0
+    declaration on the first line behind what looks like leading
+    whitespace that is not " " or "\\t" either.
     """
-    lines = config_text.splitlines()
-    for index, raw_line in enumerate(lines):
-        stripped = _strip_inline_comment(raw_line).strip()
-        if not stripped.startswith(_HOOK_TYPES_KEY_PREFIX):
-            continue
+    lines = config_text.lstrip(chr(0xFEFF)).splitlines()
+    top_level_index = _find_top_level_hook_types_line(lines)
+    if top_level_index is None:
+        return list(_DEFAULT_HOOK_TYPES_WHEN_UNDECLARED)
 
-        flow_match = _HOOK_TYPES_FLOW.match(stripped)
-        if flow_match:
-            items = [
-                item.strip().strip("'\"") for item in flow_match.group(1).split(",")
-            ]
-            return [item for item in items if item]
+    stripped = _strip_inline_comment(lines[top_level_index]).strip()
 
-        if _HOOK_TYPES_BLOCK_KEY.match(stripped):
-            types: list[str] = []
-            for following in lines[index + 1 :]:
-                item = _strip_inline_comment(following).strip()
-                if not item:
-                    continue
-                if not item.startswith("-"):
-                    break
-                types.append(item[1:].strip().strip("'\""))
-            return types
+    flow_match = _HOOK_TYPES_FLOW.match(stripped)
+    if flow_match:
+        items = [item.strip().strip("'\"") for item in flow_match.group(1).split(",")]
+        return [item for item in items if item]
 
-        # The key is present but matches neither recognised shape: an
-        # anchor (`&types [...]` / `&types pre-commit`), an unterminated
-        # flow list (`[` with no matching `]` on this line), or any other
-        # scalar. Fail loud rather than silently falling back.
-        raise UnparseableHookTypesError(
-            f"default_install_hook_types is present but not in a "
-            f"recognised shape: {stripped!r}. Expected a flow list "
-            "(`[a, b]`, closed on the same line) or a block list of "
-            "`- type` lines.",
-            remediation=(
-                "Rewrite default_install_hook_types in "
-                ".pre-commit-config.yaml as a single-line flow list or a "
-                "block list of `- type` lines, with no YAML anchor and no "
-                "multi-line flow list — neither is read by this check."
-            ),
-        )
-    return list(_DEFAULT_HOOK_TYPES_WHEN_UNDECLARED)
+    if _HOOK_TYPES_BLOCK_KEY.match(stripped):
+        types: list[str] = []
+        for following in lines[top_level_index + 1 :]:
+            item = _strip_inline_comment(following).strip()
+            if not item:
+                continue
+            if not item.startswith("-"):
+                break
+            types.append(item[1:].strip().strip("'\""))
+        return types
+
+    # The key is present but matches neither recognised shape: an
+    # anchor (`&types [...]` / `&types pre-commit`), an unterminated
+    # flow list (`[` with no matching `]` on this line), or any other
+    # scalar. Fail loud rather than silently falling back.
+    raise UnparseableHookTypesError(
+        f"default_install_hook_types is present but not in a "
+        f"recognised shape: {stripped!r}. Expected a flow list "
+        "(`[a, b]`, closed on the same line) or a block list of "
+        "`- type` lines.",
+        remediation=(
+            "Rewrite default_install_hook_types in "
+            ".pre-commit-config.yaml as a single-line flow list or a "
+            "block list of `- type` lines, with no YAML anchor and no "
+            "multi-line flow list — neither is read by this check."
+        ),
+    )
 
 
 def hooks_dir(git_root: Path) -> Optional[Path]:
