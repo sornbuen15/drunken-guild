@@ -255,6 +255,167 @@ def test_running_outside_a_repo_refuses(repo: Path, tmp_path: Path) -> None:
     assert FAKE not in (result.stdout + result.stderr).lower()
 
 
+def _corrupt_blob(repo: Path, commit_sha: str, path: str) -> None:
+    """Make ``git cat-file``/``git show`` fail for the blob ``path`` has at
+    ``commit_sha``, by overwriting its loose object with garbage (DG-470's
+    corrupted-object repro) -- never packed, so the loose file is still the
+    one git reads."""
+    import os
+    import stat
+
+    blob = _git_out(repo, "rev-parse", f"{commit_sha}:{path}")
+    object_path = repo / ".git" / "objects" / blob[:2] / blob[2:]
+    assert object_path.is_file(), f"expected a loose object at {object_path}"
+    os.chmod(
+        object_path, stat.S_IWRITE | stat.S_IREAD
+    )  # git writes loose objects read-only
+    object_path.write_bytes(b"not a valid zlib stream at all, corrupted on purpose")
+
+
+def test_a_failing_git_show_for_one_commit_among_several_is_refused(
+    repo: Path,
+) -> None:
+    """DG-470: a `git show --cc` failure for one commit out of several in the
+    range must refuse the push outright, not merely skip that one commit and
+    judge the push clean on what is left. Seen failing first by reverting
+    the `raise ScanFailed(...)` this guards to a `continue` -- with that
+    change, the corrupted commit is silently skipped, the two clean commits
+    either side of it are all that remain to judge, and the push passes."""
+    # All three commits are made while the object store is intact -- `git
+    # add`/`git status` on an unrelated path can themselves need to read a
+    # nearby blob (a racily-clean stat cache forces a content check), so the
+    # corruption happens only once nothing further will touch the repo
+    # except the scan itself.
+    base = _commit(repo, "a.txt", "clean\n", "base")
+    corrupt_sha = _commit(repo, "b.txt", "also clean\n", "will be corrupted")
+    tip = _commit(repo, "c.txt", "clean too\n", "a clean commit after it")
+    _corrupt_blob(repo, corrupt_sha, "b.txt")
+
+    result = _run(repo, {"PRE_COMMIT_FROM_REF": base, "PRE_COMMIT_TO_REF": tip})
+
+    # Every commit in the range is clean of ids -- the only reason to refuse
+    # is that the range could not be fully read. A `continue` here would
+    # judge the push by what is left after skipping the corrupted commit,
+    # i.e. two clean commits, and wrongly pass it.
+    assert result.returncode == 1
+    assert FAKE not in (result.stdout + result.stderr).lower()
+
+
+def _annotated_tag(repo: Path, name: str, message: str, target: str = "HEAD") -> str:
+    """Create an annotated tag and return the tag *object's own* id -- what
+    PRE_COMMIT_TO_REF holds for a real push of just this tag (pre-commit's
+    pre-push wrapper sets it to the ref's direct target, and an annotated
+    tag's ref points at the tag object, not at the commit it names)."""
+    _git(repo, "tag", "-a", "-m", message, name, target)
+    return _git_out(repo, "rev-parse", name)
+
+
+def test_an_annotated_tag_message_naming_an_id_is_refused(repo: Path) -> None:
+    _commit(repo, "a.txt", "clean\n", "base")
+    tag_sha = _annotated_tag(repo, "v1", f"release notes mention {FAKE.upper()}-1")
+
+    result = _run(repo, {"PRE_COMMIT_TO_REF": tag_sha})
+
+    assert result.returncode == 1
+
+
+def test_the_tag_refusal_does_not_print_the_id(repo: Path) -> None:
+    _commit(repo, "a.txt", "clean\n", "base")
+    tag_sha = _annotated_tag(repo, "v1", f"touches {FAKE}")
+
+    result = _run(repo, {"PRE_COMMIT_TO_REF": tag_sha})
+
+    assert FAKE not in (result.stdout + result.stderr).lower()
+
+
+def test_a_tag_already_on_a_remote_is_not_reflagged(repo: Path) -> None:
+    """The tag's own message is excluded once it is verified present on a
+    remote (`git ls-remote --tags`) -- not merely because its target commit
+    is old -- so re-running the scan against the same tag object does not
+    re-flag it."""
+    _commit(repo, "a.txt", "clean\n", "base")
+    tag_sha = _annotated_tag(repo, "v1", f"touches {FAKE}")
+    _git(repo, "push", "-q", "origin", "HEAD:main", "v1")
+
+    result = _run(repo, {"PRE_COMMIT_TO_REF": tag_sha})
+
+    assert result.returncode == 0
+
+
+def test_a_lightweight_tag_is_not_an_error(repo: Path) -> None:
+    """A lightweight tag's ref points directly at the commit -- there is no
+    tag object and so no message; it must be scanned exactly like a normal
+    commit push, never treated as an error."""
+    to_sha = _commit(repo, "a.txt", "clean\n", "base")
+    _git(repo, "tag", "lw", to_sha)
+
+    result = _run(repo, {"PRE_COMMIT_TO_REF": _git_out(repo, "rev-parse", "lw")})
+
+    assert result.returncode == 0
+
+
+def test_a_lightweight_tag_still_catches_a_dirty_commit(repo: Path) -> None:
+    to_sha = _commit(repo, "a.txt", f"{FAKE.upper()}-1\n", "wip")
+    _git(repo, "tag", "lw", to_sha)
+
+    result = _run(repo, {"PRE_COMMIT_TO_REF": _git_out(repo, "rev-parse", "lw")})
+
+    assert result.returncode == 1
+
+
+def test_a_tag_pointing_at_another_tag_is_walked(repo: Path) -> None:
+    """A tag can tag another tag (``git tag -a v2 v1``); every tag object in
+    the chain is read, not just the outermost one."""
+    _commit(repo, "a.txt", "clean\n", "base")
+    inner_sha = _annotated_tag(repo, "v1", f"touches {FAKE}")
+    outer_sha = _annotated_tag(repo, "v2", "wraps v1", target="v1")
+    assert inner_sha != outer_sha
+
+    result = _run(repo, {"PRE_COMMIT_TO_REF": outer_sha})
+
+    assert result.returncode == 1
+
+
+def test_a_tag_pointing_at_a_tree_refuses_rather_than_crashing(repo: Path) -> None:
+    """A tag need not point at a commit at all -- git allows tagging a tree
+    or a blob directly. There is no commit range to walk from there; this
+    must refuse cleanly, never crash and never pass silently."""
+    _commit(repo, "a.txt", "clean\n", "base")
+    tree_sha = _git_out(repo, "rev-parse", "HEAD^{tree}")
+    tag_sha = _annotated_tag(repo, "v1", "tags a tree, not a commit", target=tree_sha)
+
+    result = _run(repo, {"PRE_COMMIT_TO_REF": tag_sha})
+
+    assert result.returncode == 1
+
+
+def test_a_tag_message_with_crlf_is_still_scanned(repo: Path) -> None:
+    _commit(repo, "a.txt", "clean\n", "base")
+    tag_sha = _annotated_tag(repo, "v1", f"line one\r\ntouches {FAKE}\r\n")
+
+    result = _run(repo, {"PRE_COMMIT_TO_REF": tag_sha})
+
+    assert result.returncode == 1
+
+
+def test_binary_added_content_naming_an_id_is_scanned(repo: Path) -> None:
+    """DG-468's binary decision: added bytes are read for ids too (not
+    skipped as out of scope), because `git show`'s unified diff never shows
+    the bytes of a binary file at all -- only "Binary files ... differ" --
+    so without reading the blob directly, a binary file is a free pass for
+    anything hidden in it."""
+    _commit(repo, "a.txt", "clean\n", "base")
+    (repo / "b.bin").write_bytes(b"\x00\x01" + FAKE.upper().encode() + b"-1\x02\x03")
+    _git(repo, "add", "b.bin")
+    _git(repo, "commit", "-q", "-m", "add binary")
+    to_sha = _git_out(repo, "rev-parse", "HEAD")
+
+    result = _run(repo, {"PRE_COMMIT_TO_REF": to_sha})
+
+    assert result.returncode == 1
+    assert FAKE not in (result.stdout + result.stderr).lower()
+
+
 def test_a_branch_deletion_passes(repo: Path) -> None:
     """TO is the all-zero SHA: nothing is being pushed, so there is nothing to
     scan -- the one case where no range at all is legitimately a pass."""

@@ -38,10 +38,27 @@ push; it is never read as "nothing to scan". ``TO`` as the all-zero SHA (a
 branch deletion: nothing is being pushed) is the one case that legitimately
 needs no scan at all, and is the only one.
 
-Known limits, not covered here: an annotated tag's own message (set with
-``git tag -a -m``) lives on the tag object, not on any commit, so walking
-commits never reads it; and, like ``_staged``/``_tracked`` already choose,
-binary content is not read for a name either.
+An annotated tag's own message (set with ``git tag -a -m``) lives on the tag
+object, not on any commit, so walking commits never reads it (DG-468). When
+``TO`` is itself a tag object -- what a real push of just a tag sets it to,
+since the ref points at the tag object and not at the commit it names -- its
+message is read too, following a chain of tags pointing at tags down to the
+first non-tag object. A tag already confirmed present on a remote (``git
+ls-remote --tags``) is not re-flagged; that confirmation is best-effort and
+failing it only means scanning a tag that may already be public, never the
+reverse. A lightweight tag has no object of its own -- its ref points
+directly at the commit -- so it is simply scanned as that commit, not
+specially and not as an error. A tag pointing at a tree or a blob instead of
+a commit has no commit range to walk; that refuses rather than reads as
+nothing to scan, the same as every other unresolvable range here.
+
+Binary content added by a pushed commit *is* read for ids (DG-468): unlike
+``_staged``/``_tracked``, which read a file's current content and skip what
+will not decode, ``--push`` reads a unified diff, where a binary file's
+changed bytes never appear at all -- git prints only "Binary files ...
+differ" -- so without reading the blob directly a binary file would be a
+free pass for anything hidden in it. The blob is decoded as ``latin-1``
+(never fails, and preserves any ASCII id byte-for-byte) rather than skipped.
 """
 
 from __future__ import annotations
@@ -190,7 +207,143 @@ def _unpublished_commit_sources(
             if line.startswith("+") and not line.startswith("+++")
         )
         out.append((f"commit {short} added lines", added))
+        for path in BINARY_DIFF.finditer(diff):
+            new_path = path.group("path")
+            if not new_path:
+                continue  # the binary side removed, nothing added to read
+            try:
+                blob = subprocess.run(
+                    ["git", "show", f"{sha}:{new_path}"],
+                    capture_output=True,
+                    check=True,
+                )
+            except subprocess.CalledProcessError as exc:
+                raise ScanFailed(f"git show failed for {short}:{new_path}") from exc
+            # latin-1 never fails to decode and maps byte-for-byte, so any
+            # plain-ASCII id in the binary content still matches (DG-468's
+            # binary decision: read it, rather than skip it as out of scope).
+            out.append(
+                (
+                    f"commit {short} added binary {new_path}",
+                    blob.stdout.decode("latin-1"),
+                )
+            )
     return out
+
+
+#: A binary file's changed bytes never appear in a unified diff -- only this
+#: marker line does. The "to" side names the path with content to read; a
+#: deletion's "to" side is /dev/null and has nothing added to read.
+BINARY_DIFF = re.compile(
+    r"^Binary files (?:a/.+|/dev/null) and (?:b/(?P<path>.+)|/dev/null) differ$",
+    re.MULTILINE,
+)
+
+#: A tag can point at another tag; object ids are content-addressed so a
+#: true cycle cannot occur, but a chain must still be bounded defensively.
+MAX_TAG_CHAIN = 50
+
+
+def _object_kind(ref: str) -> str:
+    try:
+        return (
+            subprocess.run(
+                ["git", "cat-file", "-t", ref], capture_output=True, check=True
+            )
+            .stdout.decode("utf-8", "replace")
+            .strip()
+        )
+    except subprocess.CalledProcessError as exc:
+        raise ScanFailed(f"git cat-file -t failed for {ref[:12]}") from exc
+
+
+def _already_public_tag_shas() -> set[str]:
+    """Annotated tag object ids confirmed present on some configured remote.
+
+    Best-effort, and deliberately asymmetric with the rest of this file's
+    fail-closed rule: failing to confirm a tag is already public only means
+    it gets scanned again (over-inclusive, never a missed leak), so a remote
+    that cannot be reached does not refuse the whole push over an exclusion
+    that is a convenience, not the detection itself.
+    """
+    try:
+        remotes = (
+            subprocess.run(["git", "remote"], capture_output=True, check=True)
+            .stdout.decode("utf-8", "replace")
+            .split()
+        )
+    except subprocess.CalledProcessError:
+        return set()
+    shas: set[str] = set()
+    for remote in remotes:
+        try:
+            out = subprocess.run(
+                ["git", "ls-remote", "--tags", remote],
+                capture_output=True,
+                check=True,
+            )
+        except subprocess.CalledProcessError:
+            continue
+        for line in out.stdout.decode("utf-8", "replace").split("\n"):
+            sha, _, _ref = line.partition("\t")
+            sha = sha.strip()
+            if sha:
+                shas.add(sha.lower())
+    return shas
+
+
+def _tag_chain_messages(
+    start_sha: str, already_public: set[str]
+) -> List[tuple[str, str]]:
+    """The message of every annotated tag object from ``start_sha`` down to
+    the first non-tag object -- a tag can point at another tag -- skipping
+    any tag object already confirmed public."""
+    out: List[tuple[str, str]] = []
+    sha = start_sha
+    for _ in range(MAX_TAG_CHAIN):
+        kind = _object_kind(sha)
+        if kind != "tag":
+            return out
+        try:
+            body = subprocess.run(
+                ["git", "cat-file", "-p", sha], capture_output=True, check=True
+            ).stdout.decode("utf-8", "replace")
+        except subprocess.CalledProcessError as exc:
+            raise ScanFailed(f"git cat-file -p failed for {sha[:12]}") from exc
+        header, _, message = body.partition("\n\n")
+        if sha.lower() not in already_public:
+            out.append((f"tag {sha[:12]} message", message))
+        next_sha = ""
+        for line in header.split("\n"):
+            if line.startswith("object "):
+                next_sha = line[len("object ") :].strip()
+                break
+        if not next_sha:
+            raise ScanFailed(f"tag object {sha[:12]} has no object field")
+        sha = next_sha
+    raise ScanFailed("tag chain too deep to resolve safely")
+
+
+def _push_sources(to_ref: str, from_ref: str | None) -> List[tuple[str, str]]:
+    """Everything this push would make public for the first time: commit
+    messages and added lines, plus -- when ``TO`` is itself a tag object --
+    every annotated tag message in its chain (DG-468)."""
+    tag_sources: List[tuple[str, str]] = []
+    if _object_kind(to_ref) == "tag":
+        tag_sources = _tag_chain_messages(to_ref, _already_public_tag_shas())
+        # The chain can end at a tree or a blob -- git allows tagging either
+        # directly -- and `git log` on such a ref silently finds no commits
+        # rather than erroring, which would read as "nothing to scan". Force
+        # the peel so that case refuses instead.
+        try:
+            subprocess.run(
+                ["git", "rev-parse", "--verify", f"{to_ref}^{{commit}}"],
+                capture_output=True,
+                check=True,
+            )
+        except subprocess.CalledProcessError as exc:
+            raise ScanFailed(f"tag {to_ref[:12]} does not resolve to a commit") from exc
+    return _unpublished_commit_sources(to_ref, from_ref) + tag_sources
 
 
 def offenders(sources: List[tuple[str, str]], ids: List[str]) -> List[str]:
@@ -246,7 +399,7 @@ def _main_push() -> int:
         from_ref = None
 
     try:
-        sources = _unpublished_commit_sources(to_ref, from_ref)
+        sources = _push_sources(to_ref, from_ref)
     except ScanFailed:
         print(
             "Could not determine which commits this push would make public "
