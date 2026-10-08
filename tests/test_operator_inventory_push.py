@@ -709,11 +709,11 @@ def test_a_slow_or_unreachable_remote_does_not_hang_and_never_prints_its_url(
 # whether pre-commit invokes the hook at all.
 
 
-def _install_real_pre_push_hook(repo: Path, registry_path: Path) -> None:
-    registry_path.write_text(
-        json.dumps({"version": 2, "projects": {"drunken-guild": {}, FAKE: {}}}),
-        encoding="utf-8",
-    )
+def _write_real_pre_push_config(repo: Path) -> None:
+    """Write the hook config to disk only -- pre-commit reads it straight
+    off the working directory, so it need not be committed, and must not be
+    installed yet either: that happens after the remote is seeded (see the
+    test below for why)."""
     python = sys.executable.replace("\\", "/")
     script = str(SCRIPT).replace("\\", "/")
     (repo / ".pre-commit-config.yaml").write_text(
@@ -730,8 +730,9 @@ def _install_real_pre_push_hook(repo: Path, registry_path: Path) -> None:
         "        stages: [pre-push]\n",
         encoding="utf-8",
     )
-    _git(repo, "add", ".pre-commit-config.yaml")
-    _git(repo, "commit", "-q", "-m", "add pre-commit config")
+
+
+def _install_real_pre_push_hook(repo: Path) -> None:
     subprocess.run(
         [sys.executable, "-m", "pre_commit", "install", "--hook-type", "pre-push"],
         cwd=repo,
@@ -764,16 +765,41 @@ def test_a_solo_tag_on_an_already_public_commit_never_reaches_the_scanner_dg479(
     _git(repo, "remote", "add", "origin", str(remote))
 
     monkeypatch.setenv("DRUNKEN_REGISTRY_PATH", str(tmp_path / "projects.json"))
-    _install_real_pre_push_hook(repo, tmp_path / "projects.json")
+    (tmp_path / "projects.json").write_text(
+        json.dumps({"version": 2, "projects": {"drunken-guild": {}, FAKE: {}}}),
+        encoding="utf-8",
+    )
+    _write_real_pre_push_config(repo)
 
-    # Bootstrap: get a commit onto the remote while the hook isn't yet a
-    # concern for that step -- it is clean, so a correctly-running hook
-    # would pass it anyway; this just establishes "already public".
+    # Seed the remote BEFORE the hook is installed at all. A brand-new
+    # repo's first push leaves PRE_COMMIT_FROM_REF/TO_REF unset entirely
+    # (pre-commit's "all_files" path for a from-scratch push -- a third,
+    # separate pre-commit path, DG-480) and this script correctly refuses
+    # that rather than guessing. That is a real, separate limit, not what
+    # this test is about -- so the hook must not even be installed yet
+    # when this push happens, and its success is asserted explicitly so a
+    # setup failure here can never be mistaken for the DG-479 failure this
+    # test exists to pin down.
     public_sha = _commit(repo, "a.txt", "clean\n", "base")
-    _git(repo, "push", "-q", "origin", "HEAD:main")
+    bootstrap = subprocess.run(
+        ["git", "push", "-q", "origin", "HEAD:main"],
+        cwd=repo,
+        capture_output=True,
+        text=True,
+    )
+    assert bootstrap.returncode == 0, (
+        "the seed push failed before the hook was even installed -- a "
+        f"setup failure, not DG-479: {bootstrap.stderr}"
+    )
 
-    # A solo annotated tag on that already-public commit, with a fake id in
-    # its own message -- exactly what the scanner exists to catch.
+    _install_real_pre_push_hook(repo)
+
+    # A solo annotated tag on that now-already-public commit, with a fake
+    # id in its own message -- exactly what the scanner exists to catch.
+    # pre-commit's own `git push` of a tag whose target commit is already
+    # reachable via refs/remotes/origin/* (git push updates those locally
+    # by default) finds no ancestors needing it and reports "nothing to
+    # push" -- the hook, installed and otherwise correct, never runs.
     _git(repo, "tag", "-a", "-m", f"touches {FAKE}", "v1", public_sha)
 
     result = subprocess.run(
