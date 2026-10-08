@@ -318,3 +318,712 @@ class TestDG334TheWriteSideOfTheFloor:
         # the hook stood aside rather than refusing a legitimate write.
         assert decision.permission is None
         assert decision.reason == ""
+
+
+class TestDG465HookFloorDeniesSkippingTheHooks:
+    """DG-465: the third rule of the floor.
+
+    `.claude/settings.json` cannot spell "deny any flag that disables your
+    own gate" -- settings rules match a command by prefix and never see a
+    flag mid-command. This rule is hardcoded in the hook itself, independent
+    of what the settings file says, for exactly the shapes that would let an
+    agent (or an adversarial prompt) turn the gate off rather than go around
+    it honestly.
+
+    No deny rules are configured in `pr.Rules()` below -- these shapes must
+    be denied by the hook floor on its own.
+    """
+
+    NO_RULES = pr.Rules(allow=[], deny=[])
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "git commit --no-verify -m x",
+            "git push --no-verify",
+            "git merge --no-verify branch",
+            "git rebase --no-verify",
+            "git cherry-pick --no-verify abc123",
+            "git am --no-verify patch.mbox",
+            "git revert --no-verify HEAD",
+            "git commit -n -m x",
+            "git -c core.hooksPath=/tmp/empty commit -m x",
+            "git config core.hooksPath /tmp/empty",
+            "git config --global core.hooksPath /tmp/empty",
+            "SKIP=ruff git commit -m x",
+            "DRUNKEN_NO_REGISTERED_PROJECTS=1 git commit -m x",
+            "pre-commit uninstall",
+            "rm -rf .git/hooks",
+            "mv .git/hooks /tmp/hooks-backup",
+            "chmod -R 000 .git/hooks",
+        ],
+    )
+    def test_each_named_shape_is_denied(self, command) -> None:
+        decision = hook.decide(payload(command=command), self.NO_RULES)
+        assert decision.permission == "deny", f"{command!r} should be denied"
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "echo hi && git commit --no-verify -m x",
+            "git status; git push --no-verify",
+            "true | git commit --no-verify -m x",
+            "(git commit --no-verify -m x)",
+            "echo start && (git push --no-verify) && echo end",
+        ],
+    )
+    def test_denied_even_after_an_operator_or_inside_a_subshell(self, command) -> None:
+        decision = hook.decide(payload(command=command), self.NO_RULES)
+        assert decision.permission == "deny", f"{command!r} should be denied"
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            'git commit --no-verify -m "message"',
+            "git   commit   --no-verify",
+            "git -C /some/dir commit --no-verify -m x",
+            "GIT COMMIT --NO-VERIFY -m x",
+            "rm -rf .git\\hooks",
+            "mv .GIT\\HOOKS /tmp/x",
+            "chmod -R 000 .Git/Hooks",
+            "git --no-verify commit -m x",
+            "rm -rf C:\\repo\\.git\\hooks",
+            "FOO=bar SKIP=ruff git commit -m x",
+            "git -c user.name=x -c core.hooksPath=/tmp/empty commit -m x",
+        ],
+    )
+    def test_denied_under_quoting_flag_order_path_and_case_variation(
+        self, command
+    ) -> None:
+        decision = hook.decide(payload(command=command), self.NO_RULES)
+        assert decision.permission == "deny", f"{command!r} should be denied"
+
+    def test_a_write_under_git_hooks_is_denied(self) -> None:
+        decision = hook.decide(
+            payload(tool_name="Write", file_path="/repo/.git/hooks/pre-commit"),
+            self.NO_RULES,
+        )
+        assert decision.permission == "deny"
+
+    def test_an_edit_under_git_hooks_is_denied(self) -> None:
+        decision = hook.decide(
+            payload(tool_name="Edit", path="/repo/.git/hooks/pre-commit"),
+            self.NO_RULES,
+        )
+        assert decision.permission == "deny"
+
+    def test_an_edit_under_git_hooks_windows_backslash_is_denied(self) -> None:
+        decision = hook.decide(
+            payload(tool_name="Edit", path="C:\\repo\\.git\\hooks\\pre-commit"),
+            self.NO_RULES,
+        )
+        assert decision.permission == "deny"
+
+    class TestNotDenied:
+        """Written by the same hand as the bypass attempts above, on purpose:
+        a floor that denies legitimate calls is as broken as one that lets
+        a real bypass through, and nobody is more motivated to notice a false
+        positive than the person who just wrote the true positives."""
+
+        NO_RULES = pr.Rules(allow=[], deny=[])
+
+        def test_a_push_dry_run_is_not_denied(self) -> None:
+            decision = hook.decide(payload(command="git push -n"), self.NO_RULES)
+            assert decision.permission is None
+
+        def test_a_push_dry_run_long_flag_is_not_denied(self) -> None:
+            decision = hook.decide(payload(command="git push --dry-run"), self.NO_RULES)
+            assert decision.permission is None
+
+        def test_a_commit_message_containing_the_words_no_verify_is_not_denied(
+            self,
+        ) -> None:
+            decision = hook.decide(
+                payload(command='git commit -m "no-verify"'), self.NO_RULES
+            )
+            assert decision.permission is None
+
+        def test_a_commit_message_mentioning_no_dash_skip_is_not_denied(self) -> None:
+            decision = hook.decide(
+                payload(command='git commit -m "please do not SKIP= this"'),
+                self.NO_RULES,
+            )
+            assert decision.permission is None
+
+        def test_an_ordinary_commit_is_not_denied(self) -> None:
+            decision = hook.decide(
+                payload(command='git commit -m "fix: thing"'), self.NO_RULES
+            )
+            assert decision.permission is None
+
+        def test_reading_the_hooks_path_config_is_not_a_false_alarm_exemption(
+            self,
+        ) -> None:
+            """Not an exemption -- documented as the same greedy trade-off the
+            deny side already makes everywhere else: a read of
+            core.hooksPath still costs a prompt, not a lockout."""
+            decision = hook.decide(
+                payload(command="git config --get core.hooksPath"), self.NO_RULES
+            )
+            assert decision.permission == "deny"
+
+        def test_an_unrelated_rm_is_not_denied(self) -> None:
+            decision = hook.decide(
+                payload(command="rm -rf /tmp/scratch"), self.NO_RULES
+            )
+            assert decision.permission is None
+
+        def test_an_unrelated_edit_path_is_not_denied(self) -> None:
+            decision = hook.decide(
+                payload(tool_name="Edit", path="/repo/src/hooks/useThing.ts"),
+                self.NO_RULES,
+            )
+            assert decision.permission is None
+
+        def test_pre_commit_run_without_uninstall_is_not_denied(self) -> None:
+            decision = hook.decide(
+                payload(command="pre-commit run --all-files"), self.NO_RULES
+            )
+            assert decision.permission is None
+
+
+class TestDG465AdversarialReviewFollowUps:
+    """The adversarial reviewer found five more shapes the first pass missed.
+
+    Same rule, same no-settings-rules setup: the hook floor must catch these
+    on its own.
+    """
+
+    NO_RULES = pr.Rules(allow=[], deny=[])
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            # 1. Overwriting a hook file without `rm`/`mv`/`chmod`.
+            "cp evil.sh .git/hooks/pre-commit",
+            "echo '' > .git/hooks/pre-commit",
+            "echo malicious >> .git/hooks/pre-commit",
+            "tee .git/hooks/pre-commit",
+            "tee -a .git/hooks/pre-commit",
+            "sed -i 's/exit 1/exit 0/' .git/hooks/pre-commit",
+            "truncate -s0 .git/hooks/pre-commit",
+            "dd of=.git/hooks/pre-commit",
+            "install -m755 evil.sh .git/hooks/pre-commit",
+            "rsync evil.sh .git/hooks/",
+            "cat evil.sh > .git/hooks/pre-commit",
+            # 2. `ln` pointing a symlink into/at the hooks dir.
+            "ln -sf /tmp/empty .git/hooks",
+            "ln -sf /tmp/empty .git/hooks/pre-commit",
+            # 3. Bundled short flags that include `n` on `git commit`.
+            "git commit -an -m x",
+            "git commit -nm x",
+            "git commit -anm x",
+        ],
+    )
+    def test_each_new_bypass_shape_is_denied(self, command) -> None:
+        decision = hook.decide(payload(command=command), self.NO_RULES)
+        assert decision.permission == "deny", f"{command!r} should be denied"
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "env SKIP=x git commit -m x",
+            "export SKIP=ruff; git commit -m x",
+            "sed -i '/hooksPath/d' .git/config",
+            "sed -i '/hooksPath/d' .git\\config",
+            "git config --unset core.hooksPath",
+        ],
+    )
+    def test_env_and_config_file_editing_shapes_are_denied(self, command) -> None:
+        decision = hook.decide(payload(command=command), self.NO_RULES)
+        assert decision.permission == "deny", f"{command!r} should be denied"
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "skip=x git commit -m x",
+            "Skip=x git commit -m x",
+            "drunken_no_registered_projects=1 git commit -m x",
+        ],
+    )
+    def test_the_skip_env_vars_are_denied_case_insensitively(self, command) -> None:
+        decision = hook.decide(payload(command=command), self.NO_RULES)
+        assert decision.permission == "deny", f"{command!r} should be denied"
+
+    def test_the_unambiguous_no_verify_prefix_git_itself_accepts_is_denied(
+        self,
+    ) -> None:
+        """Verified against the real git binary (git 2.x on this host): `git
+        commit --no-verif -m x` runs -- unambiguous, so git accepts it exactly
+        like `--no-verify` -- while `--no-ver` is rejected as ambiguous with
+        `--no-verbose`. The shortest prefix git itself resolves without
+        complaint is `--no-veri`; this is denied from there down to the full
+        spelling, not stricter and not looser than what git really does."""
+        decision = hook.decide(
+            payload(command="git commit --no-verif -m x"), self.NO_RULES
+        )
+        assert decision.permission == "deny"
+
+    class TestStillNotDenied:
+        """The same widening must not start catching legitimate calls."""
+
+        NO_RULES = pr.Rules(allow=[], deny=[])
+
+        def test_reading_a_hook_file_is_not_denied(self) -> None:
+            decision = hook.decide(
+                payload(command="cat .git/hooks/pre-commit"), self.NO_RULES
+            )
+            assert decision.permission is None
+
+        def test_listing_the_hooks_dir_is_not_denied(self) -> None:
+            decision = hook.decide(payload(command="ls .git/hooks"), self.NO_RULES)
+            assert decision.permission is None
+
+        def test_a_push_dry_run_still_is_not_denied(self) -> None:
+            decision = hook.decide(payload(command="git push -n"), self.NO_RULES)
+            assert decision.permission is None
+
+        def test_no_n_in_the_am_cluster_still_is_not_denied(self) -> None:
+            """`-am` commits all tracked changes -- no `n` in the cluster, no
+            reason to deny it."""
+            decision = hook.decide(payload(command="git commit -am x"), self.NO_RULES)
+            assert decision.permission is None
+
+        def test_an_n_flag_quoted_inside_the_commit_message_is_not_denied(
+            self,
+        ) -> None:
+            """The `-n` here is text inside the `-m` argument, not a flag --
+            a naive substring scan over the raw command text cannot tell the
+            difference; the hook has to actually respect the quoting."""
+            decision = hook.decide(
+                payload(command='git commit -m "x -n"'), self.NO_RULES
+            )
+            assert decision.permission is None
+
+        def test_an_unrelated_cp_is_not_denied(self) -> None:
+            decision = hook.decide(payload(command="cp a.txt b.txt"), self.NO_RULES)
+            assert decision.permission is None
+
+        def test_redirecting_output_away_from_the_hooks_dir_is_not_denied(self) -> None:
+            decision = hook.decide(
+                payload(command="echo hi > /tmp/not-a-hook"), self.NO_RULES
+            )
+            assert decision.permission is None
+
+
+class TestDG465WindowsNativeAndPowerShellBypasses:
+    """Round-2 adversarial review: the operator's shell is PowerShell, and
+    the first two passes only covered POSIX verbs."""
+
+    NO_RULES = pr.Rules(allow=[], deny=[])
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "del .git\\hooks\\pre-commit",
+            "erase .git\\hooks\\pre-commit",
+            "rd /s /q .git\\hooks",
+            "rmdir /s /q .git\\hooks",
+            "ren .git\\hooks\\pre-commit pre-commit.bak",
+            "move .git\\hooks\\pre-commit C:\\tmp\\",
+            "copy evil.ps1 .git\\hooks\\pre-commit",
+            "xcopy evil.ps1 .git\\hooks\\pre-commit",
+            "mklink .git\\hooks\\pre-commit C:\\tmp\\empty",
+            'powershell -Command "Remove-Item .git/hooks -Recurse -Force"',
+            'powershell -Command "Move-Item .git\\hooks C:\\tmp\\hooks-bak"',
+            'pwsh -c "Rename-Item .git/hooks/pre-commit pre-commit.bak"',
+            'pwsh -c "Copy-Item evil.ps1 .git/hooks/pre-commit"',
+            "powershell -Command \"Set-Content -Path .git/hooks/pre-commit -Value ''\"",
+            "powershell -Command \"Add-Content -Path .git/hooks/pre-commit -Value 'exit 0'\"",
+            "powershell -Command \"'' | Out-File .git/hooks/pre-commit\"",
+            'powershell -Command "New-Item -ItemType SymbolicLink -Path .git/hooks -Target C:\\tmp\\empty"',
+            'powershell -Command "Clear-Content .git/hooks/pre-commit"',
+            'cmd /c "del .git\\hooks\\pre-commit"',
+            'cmd /c "echo off > .git\\hooks\\pre-commit"',
+        ],
+    )
+    def test_windows_native_and_powershell_mutation_is_denied(self, command) -> None:
+        decision = hook.decide(payload(command=command), self.NO_RULES)
+        assert decision.permission == "deny", f"{command!r} should be denied"
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "Get-Content .git/hooks/pre-commit",
+            "type .git\\hooks\\pre-commit",
+            "dir .git\\hooks",
+            "ls .git/hooks",
+            'powershell -Command "Get-Content .git/hooks/pre-commit"',
+        ],
+    )
+    def test_windows_native_and_powershell_reads_stay_allowed(self, command) -> None:
+        decision = hook.decide(payload(command=command), self.NO_RULES)
+        assert decision.permission is None, f"{command!r} should stay allowed"
+
+
+class TestDG465GitSubcommandPrecision:
+    """Round-2 adversarial review: `commit` and `-n` were matched anywhere in
+    the segment, so `git log --grep=commit -n 1` -- an ordinary, read-only
+    log command that merely mentions the word "commit" and takes a `-n`
+    count -- was wrongly denied by a deny rule nothing can override. The
+    fix: find the actual git subcommand (the first non-option token after
+    `git` and its own global options such as `-C dir`/`-c k=v`), and gate on
+    that rather than on the word appearing anywhere."""
+
+    NO_RULES = pr.Rules(allow=[], deny=[])
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "git log --grep=commit -n 1",
+            "git log --oneline -n 3 -- src/commit.py",
+            "git tag -n",
+            "git branch -n",
+            "git log -n 3",
+            "git stash list -n",
+        ],
+    )
+    def test_unrelated_subcommands_mentioning_commit_or_dash_n_stay_allowed(
+        self, command
+    ) -> None:
+        decision = hook.decide(payload(command=command), self.NO_RULES)
+        assert decision.permission is None, f"{command!r} should stay allowed"
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "git commit -an",
+            "git -C some/dir commit -an",
+            "git commit --no-verify",
+        ],
+    )
+    def test_the_real_subcommand_is_still_denied(self, command) -> None:
+        decision = hook.decide(payload(command=command), self.NO_RULES)
+        assert decision.permission == "deny", f"{command!r} should be denied"
+
+
+class TestDG465InterpreterAndCrossSegmentBypasses:
+    """Round-2 adversarial review: interpreter one-liners that rewrite a hook
+    file without naming any of the verbs above, and a bypass built across two
+    shell segments (`cd` into the hooks dir, then a bare mutating verb; or a
+    path piped into `xargs`). Variable indirection (`H=.git/hooks; mv $H
+    /tmp/`) is explicitly out of scope -- see the PR body."""
+
+    NO_RULES = pr.Rules(allow=[], deny=[])
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "python -c \"open('.git/hooks/pre-commit','w').write('')\"",
+            "python3 -c \"open('.git/hooks/pre-commit','w').close()\"",
+            "perl -pi -e 's/exit 1/exit 0/' .git/hooks/pre-commit",
+            "awk -i inplace '{gsub(/exit 1/,\"exit 0\")}1' .git/hooks/pre-commit",
+            "cd .git/hooks && rm *",
+            "cd .git\\hooks && del pre-commit",
+            "echo .git/hooks | xargs rm -rf",
+        ],
+    )
+    def test_interpreter_and_cross_segment_bypasses_are_denied(self, command) -> None:
+        decision = hook.decide(payload(command=command), self.NO_RULES)
+        assert decision.permission == "deny", f"{command!r} should be denied"
+
+    def test_an_unrelated_python_one_liner_is_not_denied(self) -> None:
+        decision = hook.decide(payload(command='python -c "print(1+1)"'), self.NO_RULES)
+        assert decision.permission is None
+
+    def test_cd_elsewhere_then_rm_is_not_denied(self) -> None:
+        decision = hook.decide(payload(command="cd /tmp && rm somefile"), self.NO_RULES)
+        assert decision.permission is None
+
+    def test_reading_the_hooks_path_in_a_commit_message_then_unrelated_echo_is_not_denied(
+        self,
+    ) -> None:
+        decision = hook.decide(
+            payload(command="echo .git/hooks | xargs -I{} echo {}"), self.NO_RULES
+        )
+        assert decision.permission is None
+
+
+class TestDG465QuotedGlobalOptionsStillResolveTheSubcommand:
+    """Round-3 adversarial review, CRITICAL regression: quoting a `-C`/`-c`
+    (or `--git-dir`/`--work-tree`) argument used to defeat the whole
+    `--no-verify` check. `_mask_quoted_spans` blanked the quoted span to
+    *spaces*, `masked.split()` then dropped it as a token entirely, and
+    `_git_subcommand`'s two-token skip for `-C`/`-c` landed on `commit`'s own
+    `--no-verify` flag instead of the subcommand -- so the subcommand lookup
+    returned `--no-verify` (not in the skip list) and the whole call fell
+    through to silence. Fixed by masking to a non-space filler instead, so a
+    quoted argument stays exactly one token, in position, like a real shell
+    would see it."""
+
+    NO_RULES = pr.Rules(allow=[], deny=[])
+
+    @pytest.mark.parametrize(
+        "global_opt",
+        [
+            'git -C "." commit --no-verify -m x',
+            "git -C '.' commit --no-verify -m x",
+            'git -C "$DIR" commit --no-verify -m x',
+            'git -C "a b" commit --no-verify -m x',
+            'git -C"dir" commit --no-verify -m x',
+            'git -c "user.name=Agent" commit --no-verify -m x',
+            "git -c 'user.name=Agent' commit --no-verify -m x",
+            'git -c "core.hooksPath=x" commit --no-verify -m x',
+            'git --git-dir="x" commit --no-verify -m x',
+            'git --git-dir "x" commit --no-verify -m x',
+            'git --work-tree="x" commit --no-verify -m x',
+            'git --work-tree "x" commit --no-verify -m x',
+            'git -C "." commit -an',
+            "git -c 'user.name=Agent' commit -an",
+            'git --git-dir="x" commit -an',
+            'git --work-tree="x" commit -an',
+        ],
+    )
+    def test_a_quoted_global_option_argument_still_resolves_to_commit(
+        self, global_opt
+    ) -> None:
+        decision = hook.decide(payload(command=global_opt), self.NO_RULES)
+        assert decision.permission == "deny", f"{global_opt!r} should be denied"
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            'git -C "." log -n 3',
+            "git -c 'a=b' tag -n",
+            'git -C "a b" branch -n',
+            'git --git-dir="x" log -n 3',
+        ],
+    )
+    def test_a_quoted_global_option_does_not_create_a_false_positive(
+        self, command
+    ) -> None:
+        decision = hook.decide(payload(command=command), self.NO_RULES)
+        assert decision.permission is None, f"{command!r} should stay allowed"
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "git commit --no-verify -m x",
+            "git -C dir commit --no-verify -m x",
+            "git -c user.name=Agent commit --no-verify -m x",
+            "git commit -an",
+        ],
+    )
+    def test_quoting_every_argument_never_turns_a_denied_command_into_silence(
+        self, command
+    ) -> None:
+        """Property check: for each command already known to be denied,
+        quoting every space-separated argument (a transformation a real
+        shell treats as a no-op) must never change the verdict to silence."""
+        baseline = hook.decide(payload(command=command), self.NO_RULES)
+        assert baseline.permission == "deny", f"baseline {command!r} must be denied"
+
+        quoted = " ".join(f'"{tok}"' for tok in command.split())
+        quoted_decision = hook.decide(payload(command=quoted), self.NO_RULES)
+        assert quoted_decision.permission == "deny", (
+            f"quoting every argument of {command!r} (-> {quoted!r}) must stay "
+            "denied, not fall through to silence"
+        )
+
+
+class TestDG465CrossSegmentStateIsScopedNotSticky:
+    """Round-3 adversarial review, MEDIUM-HIGH false positive: `cwd_is_hooks_dir`
+    and `hooks_path_seen` were set but never reset, so any mutating verb or
+    `xargs` call anywhere later in the same Bash call -- however unrelated --
+    was wrongly denied by a rule nothing can override."""
+
+    NO_RULES = pr.Rules(allow=[], deny=[])
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "cd .git/hooks && cd .. && mv somefile.txt elsewhere.txt",
+            "cd .git/hooks && ls && cd - && mv dist/ dist_old/",
+            "cd .git/hooks && cd /tmp && mv /tmp/build /tmp/build_old",
+            "cat .git/hooks/pre-commit; find . -name temp | xargs mv /tmp/dest",
+        ],
+    )
+    def test_the_cwd_and_pipe_state_do_not_leak_past_where_they_apply(
+        self, command
+    ) -> None:
+        decision = hook.decide(payload(command=command), self.NO_RULES)
+        assert decision.permission is None, f"{command!r} should stay allowed"
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "cd .git/hooks && rm *",
+            "echo .git/hooks | xargs rm -rf",
+        ],
+    )
+    def test_the_real_cross_segment_bypasses_are_still_denied(self, command) -> None:
+        decision = hook.decide(payload(command=command), self.NO_RULES)
+        assert decision.permission == "deny", f"{command!r} should be denied"
+
+
+class TestDG465EnvAssignmentWithAQuotedValue:
+    """Looking for one more place quoting could open a hole: `SKIP="a b" git
+    commit` has a space inside the quoted value, which the old
+    `_ENV_ASSIGNMENT_PREFIX` pattern (`\\S*` for the value) could not consume
+    as one token -- it would stop at the first space inside the quotes."""
+
+    NO_RULES = pr.Rules(allow=[], deny=[])
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            'SKIP="ruff mypy" git commit -m x',
+            "SKIP='ruff mypy' git commit -m x",
+        ],
+    )
+    def test_a_quoted_env_value_with_a_space_is_still_denied(self, command) -> None:
+        decision = hook.decide(payload(command=command), self.NO_RULES)
+        assert decision.permission == "deny", f"{command!r} should be denied"
+
+
+class TestDG465QuotingTheCommandWordItselfIsNotABypass:
+    """Found while writing the property test above: masking a quoted span to
+    any filler still cannot tell `"git"` (quoted, but still naming the real
+    git binary -- a shell runs it identically either way) from quoted
+    *content*. Real tokenising resolves `"git"` to the token `git`, exactly
+    as `_git_subcommand` expects, so quoting the command word itself is not
+    a way past this check."""
+
+    NO_RULES = pr.Rules(allow=[], deny=[])
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            '"git" commit --no-verify -m x',
+            'git "commit" --no-verify -m x',
+            'git commit "--no-verify" -m x',
+            '"git" "commit" "--no-verify" -m x',
+        ],
+    )
+    def test_quoting_the_git_word_or_the_subcommand_or_the_flag_is_still_denied(
+        self, command
+    ) -> None:
+        decision = hook.decide(payload(command=command), self.NO_RULES)
+        assert decision.permission == "deny", f"{command!r} should be denied"
+
+
+class TestDG465BackslashLineContinuationIsNotABypass:
+    """Round-4 adversarial review: a backslash line continuation (`\\` then
+    a newline, or on this Windows operator's shell, `\\` then CRLF) vanishes
+    entirely in a real shell -- it is not an escaped newline, and the two
+    physical lines join with nothing in between, not even a space. The
+    tokenizer previously copied the newline into the token like any other
+    escaped character, so a continuation right after `commit \\` or right
+    before `--no-verify` broke the token stream and the whole call fell
+    through to silence."""
+
+    NO_RULES = pr.Rules(allow=[], deny=[])
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "git commit \\\n--no-verify -m x",
+            "git commit\\\n --no-verify -m x",
+            "git commit \\\r\n--no-verify -m x",
+            "git commit\\\r\n --no-verify -m x",
+            "git commit --no-ver\\\nify -m x",
+            "git commit --no-ver\\\r\nify -m x",
+            "git commit -a\\\nn",
+            "git commit -a\\\r\nn",
+        ],
+    )
+    def test_the_two_reviewer_repros_and_their_crlf_and_split_flag_variants(
+        self, command
+    ) -> None:
+        decision = hook.decide(payload(command=command), self.NO_RULES)
+        assert decision.permission == "deny", f"{command!r} should be denied"
+
+    def test_a_continuation_inside_double_quotes_still_resolves_the_subcommand(
+        self,
+    ) -> None:
+        decision = hook.decide(
+            payload(command='git -C "a\\\nb" commit --no-verify -m x'),
+            self.NO_RULES,
+        )
+        assert decision.permission == "deny"
+
+    def test_a_continuation_inside_single_quotes_stays_literal_and_inert(
+        self,
+    ) -> None:
+        """Single quotes give a backslash no special meaning at all -- the
+        backslash and the newline both stay in the value literally, and an
+        ordinary commit message containing them is still just a message."""
+        decision = hook.decide(
+            payload(command="git commit -m 'hello\\\nworld'"), self.NO_RULES
+        )
+        assert decision.permission is None
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "git commit --no-verify -m x",
+            "git -C dir commit --no-verify -m x",
+            "git commit -an",
+        ],
+    )
+    def test_a_continuation_never_turns_a_denied_command_into_silence(
+        self, command
+    ) -> None:
+        """Property check, same shape as round 3's quoting one: splicing a
+        backslash line continuation into every gap between characters of an
+        already-denied command must never change the verdict to silence."""
+        baseline = hook.decide(payload(command=command), self.NO_RULES)
+        assert baseline.permission == "deny", f"baseline {command!r} must be denied"
+
+        spliced = "\\\n".join(command)
+        spliced_decision = hook.decide(payload(command=spliced), self.NO_RULES)
+        assert spliced_decision.permission == "deny", (
+            f"splicing a line continuation into every gap of {command!r} "
+            f"(-> {spliced!r}) must stay denied, not fall through to silence"
+        )
+
+    def test_a_continuation_split_hooks_path_is_still_denied(self) -> None:
+        """The segment-splitting level, not just the word tokenizer: before
+        this fix, a bare backslash-newline outside quotes was kept literally
+        in the segment text `_denies_hooks_dir_mutation` scans, so a
+        continuation landing in the middle of `.git/hooks` fragmented the
+        literal substring the pattern looks for and the call was missed."""
+        decision = hook.decide(
+            payload(command="rm -rf .git/hoo\\\nks/pre-commit"), self.NO_RULES
+        )
+        assert decision.permission == "deny"
+
+
+class TestDG465OtherInterTokenWhitespaceStaysSane:
+    """Round-4 adversarial review asked for one more look: any other
+    character the tokenizer or segment splitter might treat specially
+    between tokens. `\\t`, a bare `\\r` (no following `\\n`, so not a line
+    continuation), a form feed, and a non-breaking space are all Unicode
+    whitespace by Python's own `str.isspace()`, so the word tokenizer
+    already treats them as ordinary word separators -- the same substance
+    as a plain space, nothing more. These are not continuations, so they do
+    not vanish; they just separate words, which is what lets the following
+    stay correctly denied or, for the last one, correctly undenied."""
+
+    NO_RULES = pr.Rules(allow=[], deny=[])
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "git\tcommit\t--no-verify\t-m\tx",
+            "git commit --no-verify\r-m x",
+            "git commit --no-verify\x0c-m x",
+        ],
+    )
+    def test_tab_bare_cr_and_form_feed_between_tokens_still_deny(self, command) -> None:
+        decision = hook.decide(payload(command=command), self.NO_RULES)
+        assert decision.permission == "deny", f"{command!r} should be denied"
+
+    def test_a_non_breaking_space_does_not_glue_two_words_into_a_bypass(
+        self,
+    ) -> None:
+        """A literal NBSP between `commit` and `-an` is whitespace to the
+        tokenizer (and so denied, same as a plain space would be) -- the
+        character is not being given some other, unsafe meaning."""
+        decision = hook.decide(payload(command="git commit -an"), self.NO_RULES)
+        assert decision.permission == "deny"

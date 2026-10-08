@@ -1,6 +1,7 @@
-# commit-msg is listed so a plain `pre-commit install` wires the message check
-# too; without it only the pre-commit stage would be installed.
-default_install_hook_types: [pre-commit, commit-msg]
+# commit-msg and pre-push are listed so a plain `pre-commit install` wires the
+# message check and the push scan too; without them only the pre-commit stage
+# would be installed.
+default_install_hook_types: [pre-commit, commit-msg, pre-push]
 # Every other hook runs at the pre-commit stage only, as before; without this
 # they would also be handed the commit-message file at commit-msg.
 default_stages: [pre-commit]
@@ -60,6 +61,18 @@ repos:
         entry: python scripts/check_operator_inventory.py --message
         language: system
         stages: [commit-msg]
+
+      # DG-464. CI checks after the push, and by then GitHub keeps the commit
+      # under refs/pull/* for good even if the PR closes unmerged; this is the
+      # last point before that. Scans every commit this push would make
+      # public for the first time, not just what is staged right now.
+      - id: check-operator-inventory-push
+        name: Refuse a push that would publish a registered project id
+        entry: python scripts/check_operator_inventory.py --push
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-push]
 
       - id: check-settings-lint
         name: Reject bare Tool(*) wildcard allow rules in settings
