@@ -4,6 +4,7 @@ print a credential."""
 
 import json
 import shlex
+import subprocess
 import urllib.error
 from unittest import mock
 
@@ -92,6 +93,16 @@ ENVIRONMENT_CHECKS = frozenset(
         "deployment.mcp_pin",
         "routes.targets",
         "routes.reachable",
+        # DG-466's guard.git_hooks reads this checkout's own
+        # .pre-commit-config.yaml and whatever `git rev-parse --git-path
+        # hooks` reports for it — real state of the machine running the
+        # test, not anything a test here sets up. A clean CI checkout never
+        # ran `pre-commit install`, so this fails there on every run while
+        # passing on a contributor's own already-hooked machine; see
+        # TestTheCheckoutsOwnHookStateNeverFailsAnUnrelatedTest below for the
+        # reproduction and core.doctor.test_core_doctor_git_hooks for the
+        # check's own direct, hermetic coverage of the fail path.
+        "guard.git_hooks",
     }
 )
 
@@ -371,6 +382,81 @@ class TestRegistryProblems:
         assert find(report, "registry.schema").status == "warn"
         assert failures_under_test(report) == [], (
             "A v1 registry must warn, not take the whole report down."
+        )
+
+
+_GIT_IDENTITY = ["-c", "user.name=test", "-c", "user.email=test@example.invalid"]
+
+#: Runs the guard, declares both hook types, installs neither — exactly the
+#: shape a clean CI checkout has (DG-466 reads `.pre-commit-config.yaml` and
+#: the real `.git/hooks` of whatever `source_tree_root()` reports, so a
+#: checkout that never ran `pre-commit install` fails `guard.git_hooks` on
+#: its own merits, independent of whether this developer's machine happens
+#: to have the hooks installed).
+_GUARDED_CONFIG = (
+    "default_install_hook_types: [pre-commit, commit-msg]\n"
+    "repos:\n"
+    "  - repo: local\n"
+    "    hooks:\n"
+    "      - id: check-operator-inventory\n"
+    "        entry: python scripts/check_operator_inventory.py\n"
+    "        language: system\n"
+)
+
+
+def _unhooked_guarded_repo(root) -> None:
+    """A real git repo at *root* whose config runs the guard but which never
+    had `pre-commit install` run against it — reproduces a clean CI checkout
+    regardless of this test runner's own machine state."""
+    root.mkdir(parents=True, exist_ok=True)
+    subprocess.run(
+        ["git", "init", "--initial-branch=main", "-q"],
+        cwd=root,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    (root / ".pre-commit-config.yaml").write_text(_GUARDED_CONFIG, encoding="utf-8")
+    subprocess.run(
+        ["git", *_GIT_IDENTITY, "add", "-A"],
+        cwd=root,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    subprocess.run(
+        ["git", *_GIT_IDENTITY, "commit", "-m", "init", "-q"],
+        cwd=root,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+
+
+class TestTheCheckoutsOwnHookStateNeverFailsAnUnrelatedTest:
+    """DG-466 wired `guard.git_hooks` into every `run_doctor()` call,
+    including the source tree's own real `.git/hooks` — so any existing test
+    asserting a whole report is clean now depends on whether *this* checkout
+    happens to have run `pre-commit install`. A clean CI checkout never has,
+    so this went red on `develop` for every test using `failures_under_test`
+    while passing on a contributor's own already-hooked machine."""
+
+    def test_an_unhooked_checkout_does_not_fail_a_test_about_something_else(
+        self, monkeypatch, registry, tmp_path
+    ) -> None:
+        fake_source_tree = tmp_path / "fake-source-tree"
+        _unhooked_guarded_repo(fake_source_tree)
+        monkeypatch.setattr(doctor, "source_tree_root", lambda: fake_source_tree)
+
+        report = doctor.run_doctor(registry=registry, offline=True)
+
+        assert find(report, "guard.git_hooks").status == "fail", (
+            "the fixture repo never ran pre-commit install, so the check "
+            "itself must still genuinely fail — this proves the production "
+            "check was not weakened to make the assertion below pass"
+        )
+        assert failures_under_test(report) == [], (
+            "a checkout's own missing hooks are not this test's business"
         )
 
 
