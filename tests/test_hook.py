@@ -19,6 +19,7 @@ which is the right answer far more often than a verdict is. Silence is not
 """
 
 import json
+import os
 import subprocess
 import time
 from pathlib import Path
@@ -1663,6 +1664,163 @@ class TestDG482ResolvedHooksDirAndCoreHooksPath:
         assert decision.permission is None
 
 
+class TestDG482RelativeCoreHooksPathIsCanonicalised:
+    """DG-482 review round 2, HIGH: a *relative* `core.hooksPath` was never
+    canonicalised. `_resolve_dynamic_hooks_dirs` joined it onto `cwd` with
+    plain `os.path.join`, no `..`/`.` collapsing and no symlink resolution,
+    so neither the same relative spelling nor the real absolute path ever
+    matched the stored, uncollapsed text. Real repos throughout: a relative
+    `core.hooksPath` resolves the same way a real git hook actually sees it
+    -- relative to wherever the git call that reports it is run from, which
+    is *cwd* here (verified separately against a real `pre-commit` hook and
+    against `git rev-parse --git-path hooks` run from a subdirectory).
+    """
+
+    def _repo_with_relative_hooks_path(
+        self, tmp_path: Path, hooks_path: str
+    ) -> tuple[Path, Path]:
+        """*hooks_path* is the literal `core.hooksPath` value configured,
+        relative to the repo root. Returns ``(repo, real_absolute_hooks_dir)``
+        -- the latter resolved independently, via `os.path.normpath`, not
+        reusing any of `hook.py`'s own canonicalisation, so the test does
+        not simply check the implementation against itself."""
+        repo = _init_repo(tmp_path / "main")
+        _run_git("config", "core.hooksPath", hooks_path, cwd=repo)
+        real_dir = Path(os.path.normpath(str(repo / hooks_path)))
+        real_dir.mkdir(parents=True, exist_ok=True)
+        hook._resolve_dynamic_hooks_dirs.cache_clear()
+        return repo, real_dir
+
+    def test_relative_inside_the_repo_is_denied_by_the_same_spelling(
+        self, tmp_path: Path
+    ) -> None:
+        repo, _real_dir = self._repo_with_relative_hooks_path(tmp_path, "hooks-dir")
+        decision = hook.decide(
+            payload(command="echo x > hooks-dir/pre-push", cwd=str(repo)), NO_RULES
+        )
+        assert decision.permission == "deny"
+
+    def test_relative_inside_the_repo_is_denied_by_its_absolute_equivalent(
+        self, tmp_path: Path
+    ) -> None:
+        repo, real_dir = self._repo_with_relative_hooks_path(tmp_path, "hooks-dir")
+        hook._resolve_dynamic_hooks_dirs.cache_clear()
+        command = f"echo x > {real_dir}\\pre-push"
+        decision = hook.decide(payload(command=command, cwd=str(repo)), NO_RULES)
+        assert decision.permission == "deny", command
+
+    def test_relative_outside_the_repo_is_denied_by_the_same_spelling(
+        self, tmp_path: Path
+    ) -> None:
+        repo, _real_dir = self._repo_with_relative_hooks_path(
+            tmp_path, "../customhooks"
+        )
+        decision = hook.decide(
+            payload(command="echo x > ../customhooks/pre-push", cwd=str(repo)),
+            NO_RULES,
+        )
+        assert decision.permission == "deny"
+
+    def test_relative_outside_the_repo_is_denied_by_its_absolute_equivalent(
+        self, tmp_path: Path
+    ) -> None:
+        repo, real_dir = self._repo_with_relative_hooks_path(tmp_path, "../customhooks")
+        hook._resolve_dynamic_hooks_dirs.cache_clear()
+        command = f"rm -rf {real_dir}"
+        decision = hook.decide(payload(command=command, cwd=str(repo)), NO_RULES)
+        assert decision.permission == "deny", command
+
+    def test_a_different_relative_spelling_of_the_same_real_directory_is_denied(
+        self, tmp_path: Path
+    ) -> None:
+        """`./sub/../../customhooks/pre-push` is a different string from
+        `../customhooks/pre-push` but the same real file -- `..` has to be
+        collapsed, not merely compared textually."""
+        repo, _real_dir = self._repo_with_relative_hooks_path(
+            tmp_path, "../customhooks"
+        )
+        command = "echo x > ./sub/../../customhooks/pre-push"
+        decision = hook.decide(payload(command=command, cwd=str(repo)), NO_RULES)
+        assert decision.permission == "deny", command
+
+    def test_relative_hooks_path_resolved_from_a_subdirectory_cwd_is_denied(
+        self, tmp_path: Path
+    ) -> None:
+        """`git rev-parse --git-path hooks` itself answers relative to
+        *whichever* directory it is run from -- `../customhooks` from the
+        repo root, `../../customhooks` from `sub` -- so the real absolute
+        location must still be found when the payload `cwd` is the
+        subdirectory, not just the repo root."""
+        repo, real_dir = self._repo_with_relative_hooks_path(tmp_path, "../customhooks")
+        subdir = repo / "sub"
+        subdir.mkdir()
+        (subdir / "r.txt").write_text("x\n", encoding="utf-8")
+        _run_git("add", "sub/r.txt", cwd=repo)
+        _run_git("commit", "-q", "-m", "add sub", cwd=repo)
+        hook._resolve_dynamic_hooks_dirs.cache_clear()
+
+        relative_command = "echo x > ../../customhooks/pre-push"
+        decision = hook.decide(
+            payload(command=relative_command, cwd=str(subdir)), NO_RULES
+        )
+        assert decision.permission == "deny", relative_command
+
+        hook._resolve_dynamic_hooks_dirs.cache_clear()
+        absolute_command = f"rm -rf {real_dir}"
+        decision2 = hook.decide(
+            payload(command=absolute_command, cwd=str(subdir)), NO_RULES
+        )
+        assert decision2.permission == "deny", absolute_command
+
+    def test_relative_hooks_path_from_a_linked_worktree_is_denied(
+        self, tmp_path: Path
+    ) -> None:
+        """`core.hooksPath` lives in the shared config every worktree reads
+        -- a relative spelling must still resolve correctly when the agent
+        is actually working from the *linked* worktree (DG-288), not the
+        main checkout."""
+        main_repo = _init_repo(tmp_path / "main")
+        _run_git("config", "core.hooksPath", "../customhooks", cwd=main_repo)
+        custom_hooks = tmp_path / "customhooks"
+        custom_hooks.mkdir()
+        worktree = _add_worktree(main_repo, tmp_path / "wt", "wt-relhooks")
+        hook._resolve_dynamic_hooks_dirs.cache_clear()
+
+        relative_command = "echo x > ../customhooks/pre-push"
+        decision = hook.decide(
+            payload(command=relative_command, cwd=str(worktree)), NO_RULES
+        )
+        assert decision.permission == "deny", relative_command
+
+        hook._resolve_dynamic_hooks_dirs.cache_clear()
+        absolute_command = f"rm -rf {custom_hooks}"
+        decision2 = hook.decide(
+            payload(command=absolute_command, cwd=str(worktree)), NO_RULES
+        )
+        assert decision2.permission == "deny", absolute_command
+
+    def test_reading_the_relative_hooks_path_dir_is_not_denied(
+        self, tmp_path: Path
+    ) -> None:
+        repo, _real_dir = self._repo_with_relative_hooks_path(
+            tmp_path, "../customhooks"
+        )
+        decision = hook.decide(
+            payload(command="cat ../customhooks/pre-push", cwd=str(repo)), NO_RULES
+        )
+        assert decision.permission is None
+
+    def test_an_unrelated_relative_path_stays_allowed(self, tmp_path: Path) -> None:
+        repo, _real_dir = self._repo_with_relative_hooks_path(
+            tmp_path, "../customhooks"
+        )
+        decision = hook.decide(
+            payload(command="rm -rf ../some-other-sibling-dir", cwd=str(repo)),
+            NO_RULES,
+        )
+        assert decision.permission is None
+
+
 class TestDG482FailSafeWhenGitItselfErrors:
     """DG-482: a git failure other than a plain non-zero exit (a timeout, a
     missing binary, a permission error) must not crash `decide()` --
@@ -1722,6 +1880,65 @@ class TestDG482HooksPathCommandSubstitution:
     ) -> None:
         decision = hook.decide(
             payload(command="echo $(git rev-parse --git-path hooks)"), NO_RULES
+        )
+        assert decision.permission is None
+
+
+class TestDG482HooksPathSubstitutionRound2:
+    """DG-482 review round 2, HIGH: round 1 only matched `--git-path hooks`
+    and `--git-common-dir`. `--git-dir`, `--absolute-git-dir` and
+    `--show-toplevel` -- every other `git rev-parse` form that yields a
+    path under the git dir -- were not denied, and the redirect-target
+    cases were missed even when the *substitution itself* was recognised,
+    because `pr.segments_with_leading_operator` severs an unquoted `$(`/`)`
+    pair from whatever trails it, so the redirect operator and its target
+    end up in different segments."""
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "echo x > $(git rev-parse --git-dir)/hooks/pre-push",
+            'rm -rf "$(git rev-parse --show-toplevel)/.git/hooks"',
+            "tee `git rev-parse --git-dir`/hooks/pre-push < /dev/null",
+            "cp x $(git rev-parse --absolute-git-dir)/hooks/pre-push",
+            "echo x > $(  git   rev-parse   --git-dir  )/hooks/pre-push",
+            "echo x > $(git rev-parse --absolute-git-dir)/hooks/pre-push",
+            "mv a $(git rev-parse --git-common-dir)/hooks/pre-push",
+            "rm -rf `git rev-parse --show-toplevel`/.git/hooks",
+            'echo x > "$(git rev-parse --git-dir)"/hooks/pre-push',
+        ],
+    )
+    def test_each_widened_substitution_shape_as_a_target_is_denied(
+        self, command
+    ) -> None:
+        decision = hook.decide(payload(command=command), NO_RULES)
+        assert decision.permission == "deny", f"{command!r} should be denied"
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "ls $(git rev-parse --git-dir)/hooks",
+            "cat $(git rev-parse --git-path hooks)/pre-push",
+            "cat $(git rev-parse --git-dir)/config",
+            "echo $(git rev-parse --show-toplevel)/src",
+            "ls $(git rev-parse --absolute-git-dir)",
+        ],
+    )
+    def test_a_read_or_an_unrelated_use_of_the_same_substitution_stays_allowed(
+        self, command
+    ) -> None:
+        decision = hook.decide(payload(command=command), NO_RULES)
+        assert decision.permission is None, f"{command!r} should not be denied"
+
+    def test_an_unrelated_cd_and_redirect_sharing_one_command_stays_allowed(
+        self,
+    ) -> None:
+        """The regression this round found while fixing the above: a plain
+        `.git/hooks` text in an unrelated `cd`, combined with an unrelated
+        redirect elsewhere in the same raw command, must not be denied just
+        because both happen to appear somewhere in the same string."""
+        decision = hook.decide(
+            payload(command="cd .git/hooks && echo bad > C:\\tmp\\out"), NO_RULES
         )
         assert decision.permission is None
 

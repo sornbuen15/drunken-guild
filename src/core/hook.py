@@ -51,7 +51,7 @@ import re
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Final, Optional
+from typing import Any, Final, Optional, Sequence
 
 from . import permission_rules as pr
 from .exclude import GitCommandError, run_git
@@ -195,24 +195,47 @@ _HOOKS_DIR_PATTERN: Final = re.compile(_HOOKS_DIR_CORE, re.IGNORECASE)
 #: `git config core.hooksPath` without ever naming git.
 _GIT_CONFIG_FILE_PATTERN: Final = re.compile(r"\.git[\\/]+config", re.IGNORECASE)
 
-#: `$(git rev-parse --git-path hooks)`, the backtick spelling of the same
-#: substitution, or `$(git rev-parse --git-common-dir)` (with or without a
-#: trailing `/hooks`) -- DG-482 (4): a command substitution that *names* the
-#: hooks dir is denied as text, on sight, without ever being evaluated. No
-#: shell is invoked to find out what it actually expands to; the one thing
-#: this module is permitted to do with a substitution is read the characters
-#: that spell it.
-_HOOKS_PATH_SUBSTITUTION_PATTERN: Final = re.compile(
-    r"(?:\$\(|`)\s*git\s+rev-parse\s+--git-(?:path\s+hooks\b|common-dir\b)",
+#: `$(git rev-parse --git-path hooks)` (or `--git-path <anything>/hooks`),
+#: or the backtick spelling -- the substitution's own argument names
+#: "hooks" explicitly, so no other text is required for this one to count.
+_GIT_PATH_HOOKS_SUBSTITUTION_PATTERN: Final = re.compile(
+    r"(?:\$\(|`)\s*git\s+rev-parse\s+--git-path\s+\S*hooks\S*",
+    re.IGNORECASE,
+)
+
+#: `--git-dir`, `--absolute-git-dir`, `--git-common-dir`, or
+#: `--show-toplevel` -- DG-482 review round 2: none of these *name* hooks on
+#: its own (each resolves to the git dir or the working-tree root, which a
+#: perfectly ordinary command can use for anything), so this alone is not
+#: enough to deny on -- paired below with "hooks" appearing anywhere else in
+#: the same text, the way a real bypass actually spells one of these:
+#: `$(git rev-parse --git-dir)/hooks/pre-push` or
+#: `$(git rev-parse --show-toplevel)/.git/hooks`.
+_GIT_DIR_SUBSTITUTION_PATTERN: Final = re.compile(
+    r"(?:\$\(|`)\s*git\s+rev-parse\s+"
+    r"(?:--absolute-git-dir|--git-common-dir|--git-dir|--show-toplevel)\b",
     re.IGNORECASE,
 )
 
 
 def _mentions_hooks_path_substitution(text: str) -> bool:
-    """Whether *text* contains the textual shape of
-    :data:`_HOOKS_PATH_SUBSTITUTION_PATTERN`, named once so every caller
-    reads the same rule."""
-    return bool(_HOOKS_PATH_SUBSTITUTION_PATTERN.search(text))
+    """Whether *text* contains a command substitution that names the hooks
+    dir -- DG-482 (4), widened in review round 2: `$(git rev-parse
+    --git-path hooks)` (or the backtick spelling, or `--git-path
+    <anything>/hooks`) always counts; `--git-dir`, `--absolute-git-dir`,
+    `--git-common-dir` and `--show-toplevel` count only when "hooks" also
+    appears somewhere else in *text* -- round 1 covered only `--git-path
+    hooks` and `--git-common-dir`, missing every other `git rev-parse` form
+    that resolves to a path under the git dir. No shell is invoked to find
+    out what any of this actually expands to; the one thing this module is
+    permitted to do with a substitution is read the characters that spell
+    it.
+    """
+    if _GIT_PATH_HOOKS_SUBSTITUTION_PATTERN.search(text):
+        return True
+    return bool(_GIT_DIR_SUBSTITUTION_PATTERN.search(text)) and bool(
+        re.search(r"hooks", text, re.IGNORECASE)
+    )
 
 
 #: The per-process cap on how long resolving the repository's real hooks
@@ -233,6 +256,51 @@ def _normalise_path_for_match(text: str) -> str:
     may contain `..` sequences with no filesystem meaning at all.
     """
     return text.replace("\\", "/").rstrip("/").lower()
+
+
+def _canonicalise_path_text(path_text: str, cwd: str) -> str:
+    """Best-effort canonical form of *path_text* for comparing against a
+    resolved hooks dir (DG-482 review round 2): joined against *cwd* if
+    relative, `..`/`.` collapsed and symlinks/junctions resolved via
+    :func:`os.path.realpath`, then folded through
+    :func:`_normalise_path_for_match` for the case/separator-insensitive
+    comparison the rest of this module already relies on.
+
+    A *relative* `core.hooksPath` resolves the same way a real git hook
+    actually sees it: relative to wherever the git call that reported it
+    ran from -- verified against a real `pre-commit` hook (it runs with
+    `cwd` at the repository's working-tree top level) and against
+    `git rev-parse --git-path hooks` run from a subdirectory (it answers
+    relative to *that* subdirectory, not the top level) -- which is *cwd*
+    here, the same directory :func:`_resolve_dynamic_hooks_dirs` ran its
+    own git calls in and :func:`decide` resolves a command's own relative
+    arguments against. Round 1 joined the two without collapsing `..` at
+    all, so neither the same relative spelling nor the real absolute path
+    ever matched the stored, uncollapsed text.
+
+    Falls back to a merely slash/case-folded (never `..`-collapsed) form on
+    any resolution error -- a symlink loop, a path too long, a permission
+    error -- rather than raising: this must never crash or hang the hook
+    call it is judging.
+    """
+    text = path_text.strip()
+    if len(text) >= 2 and text[0] == text[-1] and text[0] in ("'", '"'):
+        text = text[1:-1]
+    if not text:
+        return ""
+    joined = text if (os.path.isabs(text) or not cwd) else os.path.join(cwd, text)
+    try:
+        resolved = os.path.realpath(joined)
+    except (OSError, ValueError):
+        resolved = os.path.normpath(joined)
+    return _normalise_path_for_match(resolved)
+
+
+def _path_is_dir_or_under(candidate: str, directory: str) -> bool:
+    """Whether *candidate* (already :func:`_normalise_path_for_match`-ed)
+    *is* *directory* or names a path underneath it -- boundary-aware, not a
+    bare substring: `.../customhooksX` must not match `.../customhooks`."""
+    return candidate == directory or candidate.startswith(directory + "/")
 
 
 @functools.lru_cache(maxsize=256)
@@ -291,8 +359,9 @@ def _resolve_dynamic_hooks_dirs(cwd: str) -> frozenset[str]:
         raw = result.stdout.strip()
         if not raw:
             continue
-        resolved = raw if os.path.isabs(raw) else os.path.join(str(repo_root), raw)
-        dirs.add(_normalise_path_for_match(resolved))
+        canon = _canonicalise_path_text(raw, str(repo_root))
+        if canon:
+            dirs.add(canon)
     return frozenset(dirs)
 
 
@@ -306,16 +375,33 @@ def _might_reference_protected_dir(text: str) -> bool:
     return bool(re.search(r"[\\/]", text))
 
 
-def _mentions_resolved_dir(text: str, resolved_dirs: frozenset[str]) -> bool:
-    """Whether *text* names one of *resolved_dirs* -- the dynamic half of
-    the hooks-dir check, for a ``core.hooksPath`` target whose name carries
-    no `.git` or `hooks` text at all. Substring, not equality, matching the
-    same greedy trade-off the rest of this module's deny side makes
-    everywhere else."""
+def _mentions_resolved_dir(
+    candidates: Sequence[str], resolved_dirs: frozenset[str], cwd: str
+) -> bool:
+    """Whether any of *candidates* -- each a path-shaped bit of text found
+    in a command or a tool-call path -- canonicalises to one of
+    *resolved_dirs* or a path underneath it: the dynamic half of the
+    hooks-dir check, for a ``core.hooksPath`` target whose name carries no
+    `.git`/`hooks` text at all.
+
+    DG-482 review round 2: a plain substring check on the raw text (round
+    1's version) never matches a *relative* spelling
+    (`../customhooks/pre-push`) against the resolved absolute directory --
+    the two share no substring at all even though they name the same
+    location. Each candidate is canonicalised against *cwd*
+    (:func:`_canonicalise_path_text`) the same way *resolved_dirs* already
+    were, so the comparison is between two resolved, collapsed, real paths
+    rather than two arbitrarily-spelled strings.
+    """
     if not resolved_dirs:
         return False
-    normalised_text = _normalise_path_for_match(text)
-    return any(directory in normalised_text for directory in resolved_dirs)
+    for candidate in candidates:
+        canon = _canonicalise_path_text(candidate, cwd)
+        if canon and any(
+            _path_is_dir_or_under(canon, directory) for directory in resolved_dirs
+        ):
+            return True
+    return False
 
 
 def _has_word(segment: str, word: str) -> bool:
@@ -706,21 +792,54 @@ def _edits_file_in_place(segment: str) -> bool:
     return bool(_has_word(segment, "awk") and _has_word(segment, "inplace"))
 
 
-def _mentions_hooks_dir_text(text: str, resolved_dirs: frozenset[str]) -> bool:
-    """Whether *text* names the hooks dir by any text this module
-    recognises: the static patterns (`.git/hooks`, the worktrees shape), a
-    resolved real directory (the shared hooks dir or `core.hooksPath`, DG-482
-    (2)/(3)), or a command substitution naming it (DG-482 (4)). One place
-    that ORs the three together, so every caller below checks all of them
-    rather than remembering to repeat the combination."""
-    return (
-        bool(_HOOKS_DIR_PATTERN.search(text))
-        or _mentions_resolved_dir(text, resolved_dirs)
-        or _mentions_hooks_path_substitution(text)
-    )
+def _mentions_hooks_dir_in_target(
+    text: str, resolved_dirs: frozenset[str], cwd: str
+) -> bool:
+    """Whether a single, already-isolated path-shaped *text* -- a redirect
+    target, a `cd` argument, an Edit/Write path -- names the hooks dir: the
+    static patterns (`.git/hooks`, the worktrees shape), a command
+    substitution naming it (DG-482 (4)), or (DG-482 (2)/(3), review round 2)
+    canonicalising to one of *resolved_dirs* or a path under it."""
+    if _HOOKS_DIR_PATTERN.search(text) or _mentions_hooks_path_substitution(text):
+        return True
+    return _mentions_resolved_dir([text], resolved_dirs, cwd)
 
 
-def _denies_hooks_dir_mutation(segment: str, resolved_dirs: frozenset[str]) -> bool:
+def _mentions_hooks_dir_anywhere_in_segment(
+    segment: str, resolved_dirs: frozenset[str], cwd: str
+) -> bool:
+    """Whether *segment* -- a whole scanned command, not yet isolated to one
+    argument -- names the hooks dir anywhere in it: the static patterns or
+    a substitution, checked against the whole text (a bare adjacency, the
+    same greedy trade-off the rest of this module's deny side makes
+    everywhere else), or a resolved directory named by any whitespace-
+    separated argument once tokenised and canonicalised against *cwd*
+    (DG-482 review round 2) -- a `core.hooksPath` directory whose own name
+    carries no `.git`/`hooks` text at all, reached with a *relative*
+    spelling that shares no substring with the resolved path.
+
+    Tokenised with :func:`_split_cd_arguments`, not
+    :func:`_tokenize_shell_words`: the latter treats a backslash as a POSIX
+    escape, which mangles a bare, unquoted Windows path
+    (`C:\\repo\\customhooks` loses its backslashes and becomes
+    `C:repocustomhooks`) -- exactly the reason :func:`_split_cd_arguments`
+    was written as a separate, simpler tokeniser in the first place.
+    """
+    if _HOOKS_DIR_PATTERN.search(segment) or _mentions_hooks_path_substitution(segment):
+        return True
+    if not resolved_dirs:
+        return False
+    candidates = [
+        *_writing_redirect_targets(segment),
+        *_dd_of_targets(segment),
+        *_split_cd_arguments(segment),
+    ]
+    return _mentions_resolved_dir(candidates, resolved_dirs, cwd)
+
+
+def _denies_hooks_dir_mutation(
+    segment: str, resolved_dirs: frozenset[str], cwd: str
+) -> bool:
     """Any shape that overwrites, relocates or defuses `.git/hooks` (or a
     linked worktree's shared hooks dir, or a `core.hooksPath` directory, or
     a file in any of them): the verbs in :data:`_HOOKS_DIR_MUTATING_VERBS`
@@ -739,9 +858,9 @@ def _denies_hooks_dir_mutation(segment: str, resolved_dirs: frozenset[str]) -> b
     nothing -- either way this degrades to the textual patterns alone.
     """
     targets = [*_writing_redirect_targets(segment), *_dd_of_targets(segment)]
-    if any(_mentions_hooks_dir_text(t, resolved_dirs) for t in targets):
+    if any(_mentions_hooks_dir_in_target(t, resolved_dirs, cwd) for t in targets):
         return True
-    if not _mentions_hooks_dir_text(segment, resolved_dirs):
+    if not _mentions_hooks_dir_anywhere_in_segment(segment, resolved_dirs, cwd):
         return False
     if _edits_file_in_place(segment):
         return True
@@ -848,7 +967,9 @@ def _split_cd_arguments(segment: str) -> list[str]:
     return tokens
 
 
-def _targets_hooks_dir(tokens: list[str], resolved_dirs: frozenset[str]) -> bool:
+def _targets_hooks_dir(
+    tokens: list[str], resolved_dirs: frozenset[str], cwd: str
+) -> bool:
     """Whether the (already-tokenised, so quote-stripped) arguments after a
     directory-changing command name the hooks dir and nothing else -- the
     static shape, or one of *resolved_dirs* (DG-482: a `core.hooksPath`
@@ -869,29 +990,46 @@ def _targets_hooks_dir(tokens: list[str], resolved_dirs: frozenset[str]) -> bool
     if len(args) != 1:
         return False
     return bool(_HOOKS_DIR_TOKEN_PATTERN.match(args[0])) or _mentions_resolved_dir(
-        args[0], resolved_dirs
+        [args[0]], resolved_dirs, cwd
     )
 
 
-def _command_mentions_hooks_path_substitution_as_target(command: str) -> bool:
-    """DG-482 (4): `$(git rev-parse --git-path hooks)` (or the backtick
-    spelling, or `$(git rev-parse --git-common-dir)` with or without a
-    trailing `/hooks`) used as the argument a mutating verb or a writing
-    redirect targets -- denied as text, without ever running the
-    substitution to find out what it expands to.
+def _command_names_hooks_dir_as_target(command: str) -> bool:
+    """DG-482 (4), widened in review round 2: a command substitution naming
+    the hooks dir -- `$(git rev-parse --git-path hooks)`, the backtick
+    spelling, or `--git-dir`/`--absolute-git-dir`/`--git-common-dir`/
+    `--show-toplevel` paired with "hooks" elsewhere in the text -- used as
+    the argument a mutating verb or a writing redirect targets. Denied as
+    text, without ever running the substitution to find out what it
+    expands to.
 
     Checked against the *raw*, unsplit *command* rather than one scanned
     segment: :func:`~core.permission_rules.segments_with_leading_operator`
-    treats an unquoted `$(`/`)` pair as operators and puts the
-    substitution's own contents in their own segment (the same mechanism
-    that already lets a real bypass hidden inside a substitution be scanned
-    on its own, e.g. `echo $(rm -rf /)`) -- so the literal `$(...)` shape
-    this check is about is never whole within any one unquoted segment the
-    rest of this module's per-segment checks see. Greedy, matching the rest
-    of this module's deny side: any mutating verb or writing-redirect
-    operator anywhere in a command that also contains the substitution is
-    denied, rather than attempting to prove the two are positionally
-    connected -- a false positive here costs a prompt, not a lockout.
+    treats an unquoted `$(`/`)` pair, and each backtick, as operators and
+    puts a substitution's own contents -- and whatever trails its closing
+    paren or backtick -- into separate segments (the same mechanism that
+    already lets a real bypass hidden inside a substitution be scanned on
+    its own, e.g. `echo $(rm -rf /)`) -- so a shape like `echo x >
+    $(git rev-parse --git-dir)/hooks/pre-push` is never whole within any
+    one unquoted segment the rest of this module's per-segment checks see:
+    the redirect target text trails the substitution's closing paren into
+    a *different* segment than the `>` that points at it. A quoted form
+    (`rm -rf "$(git rev-parse --show-toplevel)/.git/hooks"`) does not need
+    this check at all -- quotes keep `$(`/`)` from being read as operators
+    in the first place, so the per-segment checks already see it whole.
+
+    Deliberately narrower than "any mutating verb or redirect anywhere in
+    the command" would be: :data:`_HOOKS_DIR_PATTERN` (plain `.git/hooks`
+    text) is *not* one of the triggers here, only the substitution is --
+    `cd .git/hooks && echo bad > C:\\tmp\\out` would otherwise match on the
+    `.git/hooks` text in the unrelated `cd` and the unrelated `>` in the
+    same raw command, despite neither naming the other. Greedy, matching
+    the rest of this module's deny side: any mutating verb or writing-
+    redirect operator anywhere in a command that also contains the
+    substitution is denied, rather than attempting to prove the two are
+    positionally connected -- a false positive here costs a prompt, not a
+    lockout; that trade-off is still bounded by requiring the rarer
+    substitution shape, not the common plain-text one.
     """
     if not _mentions_hooks_path_substitution(command):
         return False
@@ -988,7 +1126,7 @@ def _bypasses_hook_floor_bash(command: str, cwd: str) -> bool:
             or _denies_env_skip(segment)
             or (exported_skip_var and _has_word(segment, "git"))
             or _denies_precommit_uninstall(segment)
-            or _denies_hooks_dir_mutation(segment, resolved_dirs)
+            or _denies_hooks_dir_mutation(segment, resolved_dirs, cwd)
         ):
             return True
         if cwd_is_hooks_dir and _denies_write_while_in_hooks_dir(segment):
@@ -1011,9 +1149,9 @@ def _bypasses_hook_floor_bash(command: str, cwd: str) -> bool:
         leading_word = leading_tokens[0].lower() if leading_tokens else ""
         if leading_word in _DIR_CHANGING_COMMANDS:
             cwd_is_hooks_dir = leading_word not in _DIR_RESTORING_COMMANDS and (
-                _targets_hooks_dir(leading_tokens[1:], resolved_dirs)
+                _targets_hooks_dir(leading_tokens[1:], resolved_dirs, cwd)
             )
-        if _mentions_hooks_dir_text(segment, resolved_dirs):
+        if _mentions_hooks_dir_anywhere_in_segment(segment, resolved_dirs, cwd):
             pending_hooks_path = True
     return False
 
@@ -1033,7 +1171,7 @@ def _bypasses_hook_floor_edit(tool_input: dict[str, Any], cwd: str) -> bool:
     ):
         return False
     resolved_dirs = _resolve_dynamic_hooks_dirs(cwd)
-    return any(_mentions_resolved_dir(p, resolved_dirs) for p in paths)
+    return any(_mentions_resolved_dir([p], resolved_dirs, cwd) for p in paths)
 
 
 def _bypasses_hook_floor(tool_name: str, tool_input: dict[str, Any], cwd: str) -> bool:
@@ -1045,9 +1183,9 @@ def _bypasses_hook_floor(tool_name: str, tool_input: dict[str, Any], cwd: str) -
     canonical = pr.canonical_tool(tool_name)
     if canonical == "Bash":
         command = str(tool_input.get("command", ""))
-        return _command_mentions_hooks_path_substitution_as_target(
-            command
-        ) or _bypasses_hook_floor_bash(command, cwd)
+        return _command_names_hooks_dir_as_target(command) or _bypasses_hook_floor_bash(
+            command, cwd
+        )
     if canonical == pr.EDIT_TOOL_CANONICAL:
         return _bypasses_hook_floor_edit(tool_input, cwd)
     return False
