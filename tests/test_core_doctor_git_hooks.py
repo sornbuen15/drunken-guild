@@ -13,16 +13,25 @@ that.
 """
 
 import json
+import random
 import re
 import subprocess
 import sys
 
 import pytest
+import yaml  # dev-only oracle for DG-478; never imported by src/core/doctor.py
 
 from core import doctor
 from core.registry import ProjectRegistry
 
 GIT_IDENTITY = ["-c", "user.name=test", "-c", "user.email=test@example.invalid"]
+
+#: Sentinels for the DG-483 fuzz harness below -- distinguishing "yaml.safe_load
+#: itself rejected this line" and "doctor refused this line" from any real
+#: parsed value (including ``None`` or an empty list), which an `is` check
+#: would otherwise confuse with a genuine result.
+_YAML_REJECTED = object()
+_READER_REFUSED = object()
 
 GUARDED_CONFIG_FLOW = (
     "default_install_hook_types: [pre-commit, commit-msg]\n"
@@ -1028,3 +1037,476 @@ class TestTheSourceTreeItselfIsChecked:
 
         check = find(report, "guard.git_hooks")
         assert check.status == "skip", check.detail
+
+
+class TestStripInlineCommentIsEscapeAware:
+    """DG-478: ``_strip_inline_comment`` toggled quote state per line with
+    no escape awareness at all, unlike ``_quote_state_after`` (DG-469's own
+    escape-aware scan). An escaped quote inside a double-quoted flow item
+    desynchronised the two: ``_strip_inline_comment`` thought the quote
+    had already closed, and either cut the line in the wrong place or left
+    a real trailing comment attached to the value.
+    """
+
+    def test_an_escaped_double_quote_does_not_desync_the_comment_scan(self):
+        line = 'default_install_hook_types: ["a\\"b", "pre-commit"]  # comment'
+        assert doctor._strip_inline_comment(line) == (
+            'default_install_hook_types: ["a\\"b", "pre-commit"]  '
+        )
+
+    def test_a_hash_inside_an_escaped_double_quoted_value_is_not_a_comment(self):
+        line = 'key: "a\\"#b"  # real comment'
+        assert doctor._strip_inline_comment(line) == 'key: "a\\"#b"  '
+
+    def test_agrees_with_quote_state_after_on_an_open_single_quote(self):
+        """Both functions apply the same rule for where a comment starts;
+        on a line whose quote never closes, neither sees one."""
+        line = "key: 'a#b"
+        assert doctor._quote_state_after(line, None) == "'"
+        assert doctor._strip_inline_comment(line) == line
+
+    def test_a_doubled_single_quote_does_not_close_it_early(self):
+        """``''`` inside a single-quoted scalar is a literal quote, not the
+        end of the scalar -- a `#` right after it is still inside the
+        scalar, exactly as ``_quote_state_after`` already treats it."""
+        line = "key: 'can''t # not a comment'  # real comment"
+        assert doctor._strip_inline_comment(line) == ("key: 'can''t # not a comment'  ")
+
+
+class TestDeclaredHookTypesMatchesYamlOnQuotedShapes:
+    """DG-478 acceptance: results match ``yaml.safe_load`` on a table of
+    quoted-value shapes. PyYAML is a dev dependency only (pulled in
+    transitively by pre-commit's own extra) -- used here as the oracle,
+    never imported by the runtime module under test.
+    """
+
+    def test_seen_failing_first_escaped_double_quote_with_a_trailing_comment(self):
+        """The DG-469 reviewer's first example: this used to raise
+        ``UnparseableHookTypesError`` even though pre-commit itself (and
+        PyYAML) parses the line without complaint."""
+        text = 'default_install_hook_types: ["a\\"b", "pre-commit"]  # comment\n'
+        expected = yaml.safe_load(text)["default_install_hook_types"]
+        assert doctor.declared_hook_types(text) == expected
+
+    def test_seen_failing_first_doubled_single_quotes_unescape(self):
+        """The DG-469 reviewer's second example: this used to return the
+        literal ``can''t`` instead of unescaping it to ``can't``."""
+        text = "default_install_hook_types: ['can''t', 'pre-commit']\n"
+        expected = yaml.safe_load(text)["default_install_hook_types"]
+        assert expected == ["can't", "pre-commit"]
+        assert doctor.declared_hook_types(text) == expected
+
+    @pytest.mark.parametrize(
+        "flow_value",
+        [
+            "[pre-commit, commit-msg]",
+            "['pre-commit', 'commit-msg']",
+            '["pre-commit", "commit-msg"]',
+            "['can''t', 'pre-commit']",
+            '["a\\"b", "pre-commit"]',
+        ],
+    )
+    def test_flow_style_matches_yaml_safe_load(self, flow_value):
+        text = f"default_install_hook_types: {flow_value}\n"
+        expected = yaml.safe_load(text)["default_install_hook_types"]
+        assert doctor.declared_hook_types(text) == expected
+
+    @pytest.mark.parametrize(
+        "item",
+        [
+            "pre-commit",
+            "'pre-commit'",
+            '"pre-commit"',
+            "'can''t'",
+            '"a\\"b"',
+        ],
+    )
+    def test_block_style_matches_yaml_safe_load(self, item):
+        text = f"default_install_hook_types:\n  - {item}\n"
+        expected = yaml.safe_load(text)["default_install_hook_types"]
+        assert doctor.declared_hook_types(text) == expected
+
+    def test_dg469_behaviour_is_unchanged_nested_declaration_still_fails_loud(self):
+        """DG-469's own guarantee must survive this fix untouched: a
+        ``default_install_hook_types`` found only nested is still refused,
+        never silently read as the top-level declaration."""
+        text = (
+            "repos:\n"
+            "  - repo: local\n"
+            "    hooks:\n"
+            "      - id: x\n"
+            "        default_install_hook_types: [pre-commit]\n"
+        )
+        with pytest.raises(doctor.UnparseableHookTypesError):
+            doctor.declared_hook_types(text)
+
+    def test_a_shape_the_scanner_cannot_prove_still_fails_loud_not_narrower(self):
+        """The line scanner stays (DG-478 SCOPE): a shape it cannot resolve
+        must keep failing loud, never silently narrow to a default that
+        reads as if nothing were declared."""
+        text = "default_install_hook_types: &hook_types [pre-commit, commit-msg]\n"
+        with pytest.raises(doctor.UnparseableHookTypesError):
+            doctor.declared_hook_types(text)
+
+
+class TestDeclaredHookTypesMatchesYamlOnGluedCommentsAndEscapes:
+    """DG-483 (found by the DG-475/478 reviewer, non-blocking -- neither
+    shape can occur with a real hook-type name): a ``#`` directly after a
+    flow list's closing bracket with no whitespace at all, and
+    double-quoted escapes other than ``\\"`` and ``\\\\``. Every case here
+    is checked against ``yaml.safe_load`` as the oracle; ``doctor`` must
+    either return exactly what it returns or refuse the shape outright --
+    never a silently different list.
+    """
+
+    def test_seen_failing_first_a_comment_glued_to_the_closing_bracket(self):
+        """PyYAML reads a ``#`` immediately after a flow sequence's
+        closing ``]`` as a comment even with no preceding whitespace --
+        confirmed against ``yaml.safe_load`` below, not assumed."""
+        text = "default_install_hook_types: ['pre-commit']#comment\n"
+        expected = yaml.safe_load(text)["default_install_hook_types"]
+        assert expected == ["pre-commit"]
+        assert doctor.declared_hook_types(text) == expected
+
+    def test_seen_failing_first_a_newline_escape_is_decoded(self):
+        """Before this fix, ``\\n`` inside a double-quoted item was left
+        as the two literal characters ``\\`` and ``n`` instead of being
+        decoded to an actual newline, the way ``yaml.safe_load`` reads
+        it."""
+        text = 'default_install_hook_types: ["a\\nb"]\n'
+        expected = yaml.safe_load(text)["default_install_hook_types"]
+        assert expected == ["a\nb"]
+        assert doctor.declared_hook_types(text) == expected
+
+    @pytest.mark.parametrize(
+        "flow_value",
+        [
+            "['pre-commit']#comment",
+            "['pre-commit']  #comment",
+            '["pre-commit"]#comment',
+            '["a\\nb"]',
+            '["\\b"]',
+            '["\\x41"]',
+            '["\\u00e9"]',
+            '["\\0"]',
+            '["\\/"]',
+            '["caf\\u00e9"]',
+            '["a#b"]',
+            "['pre-commit', 'commit-msg']#comment",
+        ],
+    )
+    def test_flow_style_matches_yaml_safe_load(self, flow_value):
+        text = f"default_install_hook_types: {flow_value}\n"
+        expected = yaml.safe_load(text)["default_install_hook_types"]
+        assert doctor.declared_hook_types(text) == expected
+
+    @pytest.mark.parametrize(
+        "item",
+        [
+            '"a\\nb"',
+            '"\\b"',
+            '"\\x41"',
+            '"\\u00e9"',
+            '"\\0"',
+            '"\\/"',
+        ],
+    )
+    def test_block_style_matches_yaml_safe_load(self, item):
+        text = f"default_install_hook_types:\n  - {item}\n"
+        expected = yaml.safe_load(text)["default_install_hook_types"]
+        assert doctor.declared_hook_types(text) == expected
+
+    def test_crlf_line_endings_with_the_glued_comment_still_parse(self):
+        text = "default_install_hook_types: ['pre-commit']#comment\r\n"
+        expected = yaml.safe_load(text)["default_install_hook_types"]
+        assert doctor.declared_hook_types(text) == expected
+
+    def test_a_block_item_with_a_comment_glued_to_its_closing_quote(self):
+        text = 'default_install_hook_types:\n  - "pre-commit"#comment\n  - commit-msg\n'
+        expected = yaml.safe_load(text)["default_install_hook_types"]
+        assert expected == ["pre-commit", "commit-msg"]
+        assert doctor.declared_hook_types(text) == expected
+
+    @pytest.mark.parametrize(
+        "escape",
+        [
+            "\\q",
+            "\\a",
+            "\\v",
+            "\\f",
+            "\\r",
+            "\\e",
+            "\\U0001F600",
+            "\\x4",
+            "\\x4g",
+            "\\u00e",
+        ],
+    )
+    def test_an_unimplemented_or_malformed_escape_fails_loud_never_mismatches(
+        self, escape
+    ):
+        """Each of these is either a real YAML escape this hand-rolled
+        reader does not implement (``\\a``, ``\\v``, ``\\f``, ``\\r``,
+        ``\\e``, ``\\U...``) or malformed (truncated ``\\x``/``\\u``, an
+        unknown escape letter) -- ``yaml.safe_load`` either decodes it to
+        something this reader must not guess at, or raises itself.
+        Either way, ``doctor`` must refuse rather than return a value
+        that could silently differ from PyYAML's own."""
+        text = f'default_install_hook_types: ["{escape}"]\n'
+        with pytest.raises(doctor.UnparseableHookTypesError):
+            doctor.declared_hook_types(text)
+
+
+class TestDeclaredHookTypesRefusesNestedFlowCollections:
+    """DG-483 PR follow-up review: the bare-comment-after-closing-bracket
+    rule exposed a pre-existing blindness in the flow-list splitter to a
+    *nested* flow collection. ``[[a],b]#x`` raised ``UnparseableHookTypesError``
+    on ``develop`` (the un-glued comment kept the whole line from matching
+    the old ``[...]`` pattern at all), but on top of the comment fix it
+    silently returned ``['[a]', 'b']`` -- a different, narrower list than
+    ``yaml.safe_load``'s own ``[['a'], 'b']``, exactly the thing this
+    module's own contract forbids. The fix must live in the flow-list
+    splitter itself (any nested ``[``/``{`` outside a quoted scalar is
+    refused), not in a comment special-case, so it holds for both a
+    glued and a spaced-out comment.
+    """
+
+    @pytest.mark.parametrize(
+        "flow_value",
+        [
+            "[[a],b]#x",
+            "[[a],b] # x",
+            "[[a],b]",
+            "[{a: b}]#x",
+            "[{a: b}]",
+        ],
+    )
+    def test_seen_failing_first_a_nested_flow_collection_fails_loud(self, flow_value):
+        text = f"default_install_hook_types: {flow_value}\n"
+        with pytest.raises(doctor.UnparseableHookTypesError):
+            doctor.declared_hook_types(text)
+
+    @pytest.mark.parametrize(
+        "flow_value",
+        [
+            '["[a]"]',
+            "['a]b']",
+            "['a,b']",
+            '["{a: b}"]',
+        ],
+    )
+    def test_a_literal_bracket_inside_a_quoted_item_is_not_nesting(self, flow_value):
+        """A bracket character is only a nested collection when it sits
+        outside any quoted scalar -- the same quote-awareness every other
+        scan in this module already applies. These must still match
+        ``yaml.safe_load`` exactly, never be refused."""
+        text = f"default_install_hook_types: {flow_value}\n"
+        expected = yaml.safe_load(text)["default_install_hook_types"]
+        assert doctor.declared_hook_types(text) == expected
+
+    def test_mutation_special_casing_only_the_glued_comment_is_insufficient(self):
+        """A regression guard for the fix's own shape: a *spaced-out*
+        comment on a nested flow collection must fail exactly like the
+        glued one -- if a fix only taught the comment scanner about
+        nesting rather than the flow-list splitter itself, this one
+        would keep passing while the glued-comment case above was
+        "fixed", silently leaving the splitter still blind to nesting
+        whenever no comment is glued to the bracket at all (see the
+        third case in the parametrize above, with no comment at all)."""
+        text = "default_install_hook_types: [[a],b]\n"
+        with pytest.raises(doctor.UnparseableHookTypesError):
+            doctor.declared_hook_types(text)
+
+
+class TestDeclaredHookTypesNeverSilentlyEmpty:
+    """DG-487 (found by the DG-483 worker, pre-existing): `declared_hook_types`
+    filtered falsy items out of a flow list (`['']` returned `[]` where
+    `yaml.safe_load` returns `['']`), so a declared list that is empty
+    after parsing could read as "nothing declared" -- and
+    `missing_hook_types([], ...)` returns `[]` for an empty list, so
+    `guard.git_hooks` reported ok having checked nothing at all, the
+    exact failure mode DG-466 exists to rule out. Every shape here must
+    either fail loud (`UnparseableHookTypesError`) or return exactly what
+    `yaml.safe_load` does -- never a narrower list, and never ok on an
+    empty checklist while the key is present.
+    """
+
+    @pytest.mark.parametrize(
+        "flow_value",
+        [
+            "['']",
+            '[""]',
+            "[ ]",
+            "[]",
+            '[pre-commit, ""]',
+        ],
+    )
+    def test_seen_failing_first_an_empty_item_or_empty_list_fails_loud(
+        self, flow_value
+    ):
+        text = f"default_install_hook_types: {flow_value}\n"
+        with pytest.raises(doctor.UnparseableHookTypesError):
+            doctor.declared_hook_types(text)
+
+    @pytest.mark.parametrize(
+        "block_text",
+        [
+            "default_install_hook_types:\n  - ''\n",
+            'default_install_hook_types:\n  - ""\n',
+            "default_install_hook_types:\n  - pre-commit\n  - ''\n",
+        ],
+    )
+    def test_seen_failing_first_a_block_style_empty_item_fails_loud(self, block_text):
+        with pytest.raises(doctor.UnparseableHookTypesError):
+            doctor.declared_hook_types(block_text)
+
+    @pytest.mark.parametrize(
+        "flow_value",
+        [
+            "[' ']",
+            '["\\t"]',  # the decoded single-tab-character escape
+        ],
+    )
+    def test_a_whitespace_only_item_also_fails_loud(self, flow_value):
+        """The ticket's own wording covers more than the literal empty
+        string: a single-quoted item that is only a space, and a
+        double-quoted item that decodes to a single tab character, are
+        just as much "no real hook type to check" as `''` -- even though
+        `yaml.safe_load` itself reads them as a non-empty string, this
+        reader must still refuse rather than pass a whitespace-only
+        value on to `missing_hook_types`."""
+        text = f"default_install_hook_types: {flow_value}\n"
+        with pytest.raises(doctor.UnparseableHookTypesError):
+            doctor.declared_hook_types(text)
+
+    def test_the_key_absent_default_is_unaffected(self):
+        """The one shape that must still return the bare default -- this
+        fix must never touch the key-absent path."""
+        assert doctor.declared_hook_types("repos: []\n") == ["pre-commit"]
+
+    def test_a_normal_non_empty_flow_list_is_unaffected(self):
+        text = "default_install_hook_types: [pre-commit, commit-msg]\n"
+        assert doctor.declared_hook_types(text) == ["pre-commit", "commit-msg"]
+
+    @pytest.mark.parametrize(
+        "flow_value",
+        [
+            "['']",
+            '[""]',
+            "[ ]",
+            "[]",
+        ],
+    )
+    def test_seen_failing_first_the_check_does_not_report_ok_on_an_empty_declaration(
+        self, flow_value, tmp_path
+    ):
+        """The false-ok half of DG-487: before this fix,
+        `missing_hook_types([], ...)` returns `[]` for an empty declared
+        list, so `guard.git_hooks` reported ok having checked nothing.
+        Routed through the real check function and `run_doctor`, not a
+        stubbed helper, with no hook files installed at all -- an ok here
+        would be the exact false-ok this ticket exists to rule out."""
+        root = tmp_path / "proj"
+        _init_repo(root)
+        config = GUARDED_CONFIG_FLOW.replace(
+            "default_install_hook_types: [pre-commit, commit-msg]\n",
+            f"default_install_hook_types: {flow_value}\n",
+        )
+        (root / ".pre-commit-config.yaml").write_text(config, encoding="utf-8")
+        _commit_all(root, "initial")
+        # Deliberately no hooks installed at all.
+
+        report = doctor.run_doctor(
+            registry=_registry(tmp_path, "scratch", root), offline=True
+        )
+
+        check = find(report, "guard.git_hooks.scratch")
+        assert check.status != "ok", (
+            "an empty declared list must never report ok -- it checked "
+            f"nothing. Got {check.status}: {check.detail}"
+        )
+
+
+class TestDeclaredHookTypesFuzzedAgainstYamlSafeLoad:
+    """The reviewer's own fuzz idea, run here rather than merely proposed:
+    a large number of randomly built flow-list lines, each checked
+    against `yaml.safe_load` as the oracle. `doctor.declared_hook_types`
+    must, for every one, either match PyYAML's own list exactly or raise
+    `UnparseableHookTypesError` -- never a different or narrower list.
+    """
+
+    ATOMS = (
+        "pre-commit",
+        "commit-msg",
+        "'single'",
+        "'can''t'",
+        '"double"',
+        '"a\\"b"',
+        '"a\\nb"',
+        "''",
+        '""',
+        "a#b",
+        "'a]b'",
+        "'a,b'",
+        "[nested]",
+        "{a: b}",
+    )
+
+    @staticmethod
+    def _random_flow_value(rng) -> str:
+        count = rng.randint(0, 4)
+        items = [
+            rng.choice(TestDeclaredHookTypesFuzzedAgainstYamlSafeLoad.ATOMS)
+            for _ in range(count)
+        ]
+        separator = rng.choice([", ", ",", " , "])
+        body = separator.join(items)
+        spacing = rng.choice(["", " "])
+        return f"[{spacing}{body}{spacing}]"
+
+    def test_two_thousand_random_flow_lines_never_mismatch_or_narrow(self):
+        rng = random.Random(0x4DEFACED)
+        mismatches = []
+        checked = 0
+        for _ in range(2000):
+            flow_value = self._random_flow_value(rng)
+            glue_comment = rng.choice([True, False, False])
+            text = f"default_install_hook_types: {flow_value}"
+            if glue_comment:
+                text += "#x"
+            else:
+                if rng.choice([True, False]):
+                    text += "  # x"
+            text += "\n"
+
+            try:
+                expected_doc = yaml.safe_load(text)
+            except yaml.YAMLError:
+                expected_doc = _YAML_REJECTED
+
+            try:
+                actual = doctor.declared_hook_types(text)
+            except doctor.UnparseableHookTypesError:
+                actual = _READER_REFUSED
+            except Exception as exc:  # pragma: no cover - a crash is itself a bug
+                mismatches.append((text, "CRASH", repr(exc)))
+                continue
+
+            checked += 1
+            if expected_doc is _YAML_REJECTED:
+                # yaml.safe_load itself could not read this line: any
+                # outcome from doctor is fine *except* silently returning
+                # a value, since there is no "yaml's own list" to match.
+                continue
+            expected = expected_doc.get("default_install_hook_types")
+            if actual is _READER_REFUSED:
+                continue
+            if actual != expected:
+                mismatches.append((text, expected, actual))
+
+        assert checked >= 2000
+        assert mismatches == [], (
+            f"{len(mismatches)} case(s) where doctor returned a different "
+            f"or narrower list than yaml.safe_load instead of refusing. "
+            f"First few: {mismatches[:5]!r}"
+        )

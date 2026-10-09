@@ -562,3 +562,88 @@ class TestTheRealRepoPasses:
                 f"known_unrouted is empty but routes.reachable did not pass: "
                 f"{entry.detail}"
             )
+
+
+class TestRegisteredMcpToolsDecodeSafetyDG475:
+    def test_a_utf16_server_file_does_not_raise(self, tmp_path):
+        server = tmp_path / "server.py"
+        server.write_bytes("@mcp.tool()\ndef jira_x(project): pass\n".encode("utf-16"))
+
+        assert doctor.registered_mcp_tools(server) == []
+
+
+class TestSkillDescriptionDecodeSafetyDG475:
+    def test_a_utf16_skill_md_does_not_raise(self, tmp_path):
+        skill_md = tmp_path / "SKILL.md"
+        skill_md.write_bytes("---\nname: x\ndescription: hi\n---\n".encode("utf-16"))
+
+        assert doctor.skill_description(skill_md) == ""
+
+
+class TestCheckRoutesNeverCrashesOnAnUndecodableFile:
+    """DG-475: `AGENTS.md`, a `SKILL.md` or an agent `.md` file that is not
+    valid UTF-8 used to raise a raw `UnicodeDecodeError` straight out of
+    `_check_routes` (via `agents_md.read_text()` or `unreachable_skills()`),
+    aborting `run_doctor()` entirely — every check after it in
+    `run_doctor`'s own sequence (`host_mcp.*` included) never ran. The fix
+    is a failing check naming the file, never its content, with the rest
+    of the report still produced.
+    """
+
+    def test_an_undecodable_agents_md_is_a_named_failing_check_not_a_crash(
+        self, tmp_path
+    ):
+        (tmp_path / "skills").mkdir()
+        (tmp_path / "AGENTS.md").write_bytes(
+            "<!-- guild-block:start -->\n".encode("utf-16")
+        )
+
+        report = doctor.Report()
+        doctor._check_routes(report, repo_root=tmp_path)  # noqa: SLF001
+
+        entry = next(c for c in report.checks if c.name == "routes.guild_block")
+        assert entry.status == "fail"
+        assert "AGENTS.md" in entry.detail
+        assert "guild-block" not in entry.detail
+
+    def test_an_undecodable_skill_md_is_a_named_failing_check_not_a_crash(
+        self, tmp_path
+    ):
+        _skill(tmp_path, "flow", "clean", "A clean skill.")
+        broken = tmp_path / "skills" / "flow" / "broken"
+        broken.mkdir(parents=True)
+        (broken / "SKILL.md").write_bytes(
+            "---\nname: broken\ndescription: x\n---\n".encode("utf-16")
+        )
+        _agents_md(tmp_path, ["| **x** | `/clean` |"])
+
+        report = doctor.Report()
+        doctor._check_routes(report, repo_root=tmp_path)  # noqa: SLF001
+
+        entry = next(c for c in report.checks if c.name == "routes.reachable")
+        assert entry.status == "fail"
+        assert "SKILL.md" in entry.detail
+
+    def test_run_doctor_still_runs_every_other_check_despite_the_crash(
+        self, tmp_path, monkeypatch
+    ):
+        """The acceptance line itself: every other check in `run_doctor`'s
+        sequence still runs, proven by the very last one it calls."""
+        monkeypatch.setattr(doctor, "source_tree_root", lambda: tmp_path)
+        (tmp_path / "skills").mkdir()
+        (tmp_path / "AGENTS.md").write_bytes(
+            "<!-- guild-block:start -->\n".encode("utf-16")
+        )
+        from core.registry import ProjectRegistry
+
+        registry_path = tmp_path / "projects.json"
+        registry_path.write_text('{"version": 2, "projects": {}}', encoding="utf-8")
+
+        report = doctor.run_doctor(registry=ProjectRegistry(str(registry_path)))
+
+        names = [c.name for c in report.checks]
+        assert "routes.guild_block" in names
+        # `_check_host_configs` is the very last call `run_doctor` makes
+        # (see its own body): it runs, and reports at least one
+        # `host_mcp.*` check for every entry in `HOST_MCP_CONFIGS`.
+        assert any(name.startswith("host_mcp.") for name in names)

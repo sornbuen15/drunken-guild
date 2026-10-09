@@ -22,6 +22,7 @@ import json
 import os
 import re
 import shutil
+import string
 import subprocess  # nosec B404 - git, invoked with a fixed argument list
 import sys
 from dataclasses import asdict, dataclass, field
@@ -790,8 +791,14 @@ def external_skill_names(root: Path) -> set[str]:
     external_file = root / "skills" / ".external"
     if not external_file.is_file():
         return set()
+    try:
+        text = external_file.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        # DG-475: not valid UTF-8 is treated the same as absent -- there is
+        # nothing here this check can safely call "declared third-party".
+        return set()
     names = set()
-    for line in external_file.read_text(encoding="utf-8").splitlines():
+    for line in text.splitlines():
         stripped = line.strip()
         if stripped and not stripped.startswith("#"):
             names.add(stripped)
@@ -818,8 +825,14 @@ def retired_skill_names(root: Path) -> set[str]:
     list_file = root / RETIRED_SKILLS_FILE
     if not list_file.is_file():
         return set()
+    try:
+        text = list_file.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        # DG-475: not valid UTF-8 is treated the same as absent -- a prune
+        # step must never read this as a real, if empty, retired list.
+        return set()
     names = set()
-    for raw_line in list_file.read_text(encoding="utf-8").splitlines():
+    for raw_line in text.splitlines():
         stripped = raw_line.strip("\r").strip()
         if stripped and not stripped.startswith("#"):
             names.add(stripped)
@@ -1115,7 +1128,9 @@ def registered_mcp_tools(server_path: Path) -> list[str]:
     """The tool names ``src/jira_mcp/server.py`` registers, read as text."""
     try:
         text = server_path.read_text(encoding="utf-8")
-    except OSError:
+    except (OSError, UnicodeDecodeError):
+        # DG-475: not valid UTF-8 is treated the same as an absent file --
+        # there are no tool names this reading can honestly report.
         return []
     return _MCP_TOOL_DEF.findall(text)
 
@@ -1129,7 +1144,9 @@ def skill_description(skill_md: Path) -> str:
     """
     try:
         text = skill_md.read_text(encoding="utf-8")
-    except OSError:
+    except (OSError, UnicodeDecodeError):
+        # DG-475: not valid UTF-8 is treated the same as an absent file --
+        # there is no description this reading can honestly report.
         return ""
     if not text.startswith("---"):
         return ""
@@ -1164,6 +1181,30 @@ def _mentions(text: str, name: str) -> bool:
     return bool(pattern.search(text))
 
 
+class UndecodableFileError(ValidationError):
+    """A file this check needs to read is not valid UTF-8 (DG-475).
+
+    Carries only *path* — never the bytes that failed to decode — so a
+    caller can name the file in a failing check without risking the
+    content reaching the report at all.
+    """
+
+    code = "undecodable_file"
+
+    def __init__(self, path: Path) -> None:
+        super().__init__(f"{path} is not valid UTF-8 text.")
+        self.path = path
+
+
+def _read_text_or_raise(path: Path) -> str:
+    """*path*'s content, or :class:`UndecodableFileError` naming only the
+    path — never the bytes that failed to decode."""
+    try:
+        return path.read_text(encoding="utf-8")
+    except UnicodeDecodeError as exc:
+        raise UndecodableFileError(path) from exc
+
+
 def unreachable_skills(
     skills_root: Path, agents_root: Path, guild_block_text: str
 ) -> list[str]:
@@ -1179,14 +1220,19 @@ def unreachable_skills(
     skill's prose saying ``rebuild``. A skill's own file is excluded from the
     texts checked against it, so a skill cannot make itself reachable by
     naming itself.
+
+    Raises :class:`UndecodableFileError` (DG-475), naming only the offending
+    path, when a ``SKILL.md`` or an agent's own ``.md`` is not valid UTF-8 —
+    neither is a file this repository receives from outside, but both are
+    read here with no earlier guard at all, and a decode failure must never
+    raise a raw traceback out of :func:`_check_routes`.
     """
     skills = _skill_dirs(skills_root)
     texts = {
-        name: (path / "SKILL.md").read_text(encoding="utf-8")
-        for name, path in skills.items()
+        name: _read_text_or_raise(path / "SKILL.md") for name, path in skills.items()
     }
     agent_texts = (
-        [p.read_text(encoding="utf-8") for p in sorted(agents_root.glob("*.md"))]
+        [_read_text_or_raise(p) for p in sorted(agents_root.glob("*.md"))]
         if agents_root.is_dir()
         else []
     )
@@ -1238,7 +1284,15 @@ def _check_routes(report: Report, repo_root: Optional[Path] = None) -> None:
         report.add("routes.guild_block", "skip", f"No AGENTS.md at {agents_md}.")
         return
 
-    text = agents_md.read_text(encoding="utf-8")
+    try:
+        text = agents_md.read_text(encoding="utf-8")
+    except UnicodeDecodeError:
+        # DG-475: named and redacted -- the file's own bytes never reach
+        # this report, only its path.
+        report.add(
+            "routes.guild_block", "fail", f"{agents_md} is not valid UTF-8 text."
+        )
+        return
     block = guild_block(text)
     if not block:
         report.add(
@@ -1270,7 +1324,14 @@ def _check_routes(report: Report, repo_root: Optional[Path] = None) -> None:
             f"all {len(set(targets))} route target(s) in {agents_md.name} resolve",
         )
 
-    unreachable = unreachable_skills(skills_root, agents_root, block)
+    try:
+        unreachable = unreachable_skills(skills_root, agents_root, block)
+    except UndecodableFileError as exc:
+        # DG-475: named and redacted, same as the AGENTS.md case above --
+        # routes.targets was already reported, and run_doctor's later
+        # checks still run; only this one check is reported as failed.
+        report.add_error("routes.reachable", exc)
+        return
     if unreachable:
         report.add(
             "routes.reachable",
@@ -1412,7 +1473,10 @@ def _locked_version(package: str = "mcp") -> Optional[str]:
     lock = Path.cwd() / "uv.lock"
     try:
         lines = lock.read_text(encoding="utf-8").splitlines()
-    except OSError:
+    except (OSError, UnicodeDecodeError):
+        # DG-475: not valid UTF-8 reads as "unknown", same as unreadable --
+        # this helper's own rule above ("a doctor check must never be the
+        # thing that raises") applies to a decode failure too.
         return None
 
     for index, line in enumerate(lines):
@@ -1931,8 +1995,12 @@ _DEFAULT_HOOK_TYPES_WHEN_UNDECLARED: Final = ("pre-commit",)
 #: `default_install_hook_types: [pre-commit, commit-msg]` — flow-style YAML,
 #: the shape this repository's own config currently uses. Matched only
 #: against a line already stripped of any inline comment, so a trailing
-#: ``# why`` never reaches here as part of the list text.
-_HOOK_TYPES_FLOW: Final = re.compile(r"^default_install_hook_types:\s*\[(.*)\]\s*$")
+#: ``# why`` never reaches here as part of the list text. Only the opening
+#: `[` is matched here — the closing bracket and the list's own content
+#: are found by :func:`_scan_flow_list_body`'s quote-and-bracket-aware
+#: scan, not by a second `.*` that cannot tell a nested flow collection
+#: from one more plain character (DG-483 follow-up review).
+_HOOK_TYPES_FLOW_OPEN: Final = re.compile(r"^default_install_hook_types:\s*\[")
 
 #: `default_install_hook_types:` with nothing after the colon — block style,
 #: where each type follows on its own `- type` line.
@@ -1984,32 +2052,6 @@ def runs_operator_inventory_guard(config_text: str) -> bool:
     return _OPERATOR_INVENTORY_GUARD_MARKER in config_text
 
 
-def _strip_inline_comment(line: str) -> str:
-    """Remove a trailing YAML comment from *line*.
-
-    A ``#`` starts a comment only when it sits outside any quoted string
-    and is either at the very start of the line or preceded by whitespace —
-    the same rule a YAML parser applies, enough of it for the one kind of
-    line this module ever reads (a scalar key, a flow list, or a ``- item``
-    line). Without this, ``default_install_hook_types: [pre-commit,
-    commit-msg]  # wires commit-msg too`` read its own trailing comment as
-    part of the list text, failed to match the flow pattern, and silently
-    fell back to pre-commit's bare default — dropping the declared
-    ``commit-msg`` hook out of the check entirely while still reporting ok.
-    """
-    in_single = False
-    in_double = False
-    for index, char in enumerate(line):
-        if char == "'" and not in_double:
-            in_single = not in_single
-        elif char == '"' and not in_single:
-            in_double = not in_double
-        elif char == "#" and not in_single and not in_double:
-            if index == 0 or line[index - 1].isspace():
-                return line[:index]
-    return line
-
-
 def _advance_past_single_quote(line: str, index: int) -> tuple[int, Optional[str]]:
     """One step of the scan while inside a single-quoted scalar: `''` is a
     literal single quote and does not close it, any other `'` does.
@@ -2035,36 +2077,317 @@ def _advance_past_double_quote(line: str, index: int) -> tuple[int, Optional[str
     return index + 1, '"'
 
 
-def _quote_state_after(line: str, start_quote: Optional[str]) -> Optional[str]:
-    """The quote character still open at the end of *line*, given it
-    started inside *start_quote* (``None`` if *line* started outside any
-    quoted scalar).
+def _scan_line(
+    line: str, start_quote: Optional[str]
+) -> tuple[Optional[str], Optional[int]]:
+    """The one escape-aware quote scan both :func:`_quote_state_after` and
+    :func:`_strip_inline_comment` read off of (DG-478 review): the quote
+    character still open at the end of *line*, and the index of a trailing
+    comment's ``#``, or ``None`` for either when there is none.
 
-    Single- and double-quoted YAML scalars escape differently, but YAML's
-    own grammar never has both open at once, so one piece of state is
-    enough. A ``#`` reached outside any quote, at the start of the line or
-    after whitespace, starts a comment and ends scanning for the rest of
-    the line, the same rule :func:`_strip_inline_comment` applies.
+    Before this, :func:`_strip_inline_comment` toggled quote state on every
+    bare ``'``/``"`` with no escape awareness at all, while this scan
+    already was — so an escaped double quote inside a flow item
+    (``["a\\"b", "pre-commit"]``) desynchronised the two: the comment
+    stripper thought the quote had already closed where this scan knew it
+    had not, either cutting a line in the wrong place or leaving a real
+    trailing comment baked into the value. One scan, read twice, cannot
+    drift apart from itself.
+
+    A ``#`` also starts a comment with **no** preceding whitespace at all
+    when it directly follows a token that just closed — a quoted scalar's
+    closing quote, or a flow collection's closing ``]``/``}`` — the same as
+    PyYAML itself reads it (DG-483 review: confirmed against
+    ``yaml.safe_load``, not assumed, since YAML elsewhere requires a
+    preceding space for ``#`` to start a comment). ``['pre-commit']#why``
+    is read as the list ``['pre-commit']`` with a comment, not a shape
+    this reader cannot follow.
     """
     quote = start_quote
     index = 0
     length = len(line)
+    comment_may_start_bare = False
     while index < length:
         if quote == "'":
             index, quote = _advance_past_single_quote(line, index)
+            comment_may_start_bare = quote is None
             continue
         if quote == '"':
             index, quote = _advance_past_double_quote(line, index)
+            comment_may_start_bare = quote is None
             continue
         char = line[index]
         if char == "'":
             quote = "'"
+            comment_may_start_bare = False
         elif char == '"':
             quote = '"'
-        elif char == "#" and (index == 0 or line[index - 1].isspace()):
-            break
+            comment_may_start_bare = False
+        elif char == "#" and (
+            index == 0 or line[index - 1].isspace() or comment_may_start_bare
+        ):
+            return quote, index
+        else:
+            comment_may_start_bare = char in "]}"
         index += 1
+    return quote, None
+
+
+def _quote_state_after(line: str, start_quote: Optional[str]) -> Optional[str]:
+    """The quote character still open at the end of *line*, given it
+    started inside *start_quote* (``None`` if *line* started outside any
+    quoted scalar). See :func:`_scan_line`."""
+    quote, _ = _scan_line(line, start_quote)
     return quote
+
+
+def _strip_inline_comment(line: str) -> str:
+    """Remove a trailing YAML comment from *line*.
+
+    A ``#`` starts a comment only when it sits outside any quoted string
+    and is either at the very start of the line or preceded by whitespace —
+    the same rule a YAML parser applies, enough of it for the one kind of
+    line this module ever reads (a scalar key, a flow list, or a ``- item``
+    line). Without this, ``default_install_hook_types: [pre-commit,
+    commit-msg]  # wires commit-msg too`` read its own trailing comment as
+    part of the list text, failed to match the flow pattern, and silently
+    fell back to pre-commit's bare default — dropping the declared
+    ``commit-msg`` hook out of the check entirely while still reporting ok.
+
+    Shares :func:`_scan_line` with :func:`_quote_state_after` (DG-478
+    review) rather than its own, escape-blind toggle, so the two can never
+    disagree about where a quote is still open on this one line (always
+    scanned fresh, never carrying state from a previous line — the same
+    assumption every call site already made).
+    """
+    _, comment_index = _scan_line(line, None)
+    return line if comment_index is None else line[:comment_index]
+
+
+#: The double-quoted YAML escapes this hand-rolled reader decodes itself,
+#: each a single character after the backslash mapping to its one decoded
+#: character — confirmed against ``yaml.safe_load`` (DG-483 review), not
+#: assumed. ``\\"`` and ``\\\\`` were already handled before this ticket;
+#: the rest (``\n``, ``\t``, ``\b``, ``\0``, ``\/``) are the ones the
+#: DG-475/478 reviewer found left as two literal characters instead of
+#: being decoded.
+_DOUBLE_QUOTE_SIMPLE_ESCAPES: Final = {
+    "\\": "\\",
+    '"': '"',
+    "n": "\n",
+    "t": "\t",
+    "b": "\b",
+    "0": "\0",
+    "/": "/",
+}
+
+
+def _decode_double_quoted_body(body: str) -> str:
+    """*body*, the text between a double-quoted item's own quotes,
+    YAML-decoded the same way PyYAML itself would (DG-483 review).
+
+    Only the escapes in :data:`_DOUBLE_QUOTE_SIMPLE_ESCAPES` and the
+    ``\\xNN``/``\\uNNNN`` hex forms are decoded — real YAML escapes this
+    reader does not implement (``\\a``, ``\\v``, ``\\f``, ``\\r``, ``\\e``,
+    ``\\U........``, the named Unicode escapes) and anything malformed (a
+    truncated ``\\x``/``\\u``, an unrecognised escape letter, a trailing
+    lone backslash) raise :class:`UnparseableHookTypesError` rather than
+    being decoded wrong or left as literal backslash-letter text — this
+    reader must never return a value that could differ from
+    ``yaml.safe_load``'s, and refusing the shape is always safe where
+    decoding it is not implemented.
+    """
+    decoded: list[str] = []
+    index = 0
+    length = len(body)
+    while index < length:
+        char = body[index]
+        if char != "\\":
+            decoded.append(char)
+            index += 1
+            continue
+        escape = body[index + 1] if index + 1 < length else ""
+        if escape in _DOUBLE_QUOTE_SIMPLE_ESCAPES:
+            decoded.append(_DOUBLE_QUOTE_SIMPLE_ESCAPES[escape])
+            index += 2
+            continue
+        if escape in ("x", "u"):
+            digit_count = 2 if escape == "x" else 4
+            hex_digits = body[index + 2 : index + 2 + digit_count]
+            if len(hex_digits) != digit_count or not all(
+                digit in string.hexdigits for digit in hex_digits
+            ):
+                raise UnparseableHookTypesError(
+                    f"default_install_hook_types contains a malformed "
+                    f"\\{escape} escape: {body!r}.",
+                    remediation=(
+                        "Write the hook type's double-quoted value with a "
+                        "complete \\x (two hex digits) or \\u (four hex "
+                        "digits) escape, or avoid the escape entirely."
+                    ),
+                )
+            decoded.append(chr(int(hex_digits, 16)))
+            index += 2 + digit_count
+            continue
+        raise UnparseableHookTypesError(
+            f"default_install_hook_types contains a double-quoted escape "
+            f"this reader does not decode: {body!r}.",
+            remediation=(
+                "Rewrite the hook type's double-quoted value without "
+                "this escape, or use single quotes, or a plain unquoted "
+                "hook type name."
+            ),
+        )
+    return "".join(decoded)
+
+
+def _unquote_hook_type(item: str) -> str:
+    """*item*, a single flow or block list entry, YAML-unquoted the same
+    way PyYAML itself would for this one scalar shape (DG-478, DG-483
+    review): a matching pair of quotes is stripped, and a single-quoted
+    item's own ``''`` is un-escaped to a literal ``'`` — ``'can''t'`` reads
+    as ``can't``, not the literal text ``can''t`` a bare
+    ``strip("'\\"")`` left behind. A double-quoted item is decoded through
+    :func:`_decode_double_quoted_body`, which raises
+    :class:`UnparseableHookTypesError` for any escape it cannot decode
+    exactly as YAML would, rather than leaving it literal. An item not
+    opening and closing with the same quote character is returned with
+    only its outermost quote characters trimmed, unchanged from this
+    module's behaviour before this ticket — a hook type name has no real
+    use for one here.
+    """
+    if len(item) >= 2 and item[0] == item[-1] == "'":
+        return item[1:-1].replace("''", "'")
+    if len(item) >= 2 and item[0] == item[-1] == '"':
+        return _decode_double_quoted_body(item[1:-1])
+    return item.strip("'\"")
+
+
+def _scan_flow_list_body(stripped: str) -> Optional[str]:
+    """The exact text between a flow list's own ``[`` and its matching
+    ``]`` on *stripped* (``default_install_hook_types: [...]``, already
+    comment-stripped) — or ``None`` if *stripped* does not open a flow
+    list at all, so the caller can try block style next and fail loud
+    for anything else.
+
+    A quote-and-bracket-aware scan, not the "capture everything between
+    the first ``[`` and the last ``]``" pattern this reader used before
+    (DG-483 follow-up review): that pattern cannot tell a nested flow
+    collection from one more plain character, so
+    ``[[a],b]#comment`` — read correctly as a comment once DG-483 taught
+    this scanner that a bare ``#`` right after a closing bracket starts
+    one — went on to match the old pattern and silently returned
+    ``['[a]', 'b']``, a different, narrower list than ``yaml.safe_load``'s
+    own ``[['a'], 'b']``. Any ``[``, ``{``, ``}`` outside a quoted scalar
+    is refused outright: this reader follows one flat list, one level
+    deep, never a nested collection, and must say so rather than guess at
+    flattening or mis-splitting one. A quoted scalar's own brackets
+    (``["[a]"]``) are left alone, read later by
+    :func:`_unquote_hook_type` the same as any other quoted content.
+    """
+    prefix_match = _HOOK_TYPES_FLOW_OPEN.match(stripped)
+    if not prefix_match:
+        return None
+    index = prefix_match.end()
+    length = len(stripped)
+    body_start = index
+    quote: Optional[str] = None
+    while index < length:
+        if quote == "'":
+            index, quote = _advance_past_single_quote(stripped, index)
+            continue
+        if quote == '"':
+            index, quote = _advance_past_double_quote(stripped, index)
+            continue
+        char = stripped[index]
+        if char == "'":
+            quote = "'"
+        elif char == '"':
+            quote = '"'
+        elif char == "]":
+            body = stripped[body_start:index]
+            remainder = stripped[index + 1 :]
+            return None if remainder.strip() else body
+        elif char in "[{}":
+            raise UnparseableHookTypesError(
+                "default_install_hook_types contains a nested flow "
+                f"collection, which this reader does not follow: {stripped!r}.",
+                remediation=(
+                    "Write default_install_hook_types as a flat flow "
+                    "list of plain or quoted hook type names, with no "
+                    "nested [...] or {...}."
+                ),
+            )
+        index += 1
+    raise UnparseableHookTypesError(
+        "default_install_hook_types' flow list is not closed on the "
+        f"same line: {stripped!r}.",
+        remediation=(
+            "Close default_install_hook_types' flow list ([...]) on the "
+            "same line it opens on."
+        ),
+    )
+
+
+def _split_flow_list_body(body: str) -> list[str]:
+    """*body* (a flow list's own content, already proven free of any
+    unquoted nested bracket by :func:`_scan_flow_list_body`), split on
+    its top-level commas — a comma inside a quoted item is never a split
+    point (``['a,b']`` is the one item ``a,b``, not two), the same
+    quote-awareness :func:`_scan_line` already applies to ``#``.
+    """
+    items: list[str] = []
+    start = 0
+    index = 0
+    quote: Optional[str] = None
+    length = len(body)
+    while index < length:
+        if quote == "'":
+            index, quote = _advance_past_single_quote(body, index)
+            continue
+        if quote == '"':
+            index, quote = _advance_past_double_quote(body, index)
+            continue
+        char = body[index]
+        if char == "'":
+            quote = "'"
+        elif char == '"':
+            quote = '"'
+        elif char == ",":
+            items.append(body[start:index])
+            start = index + 1
+        index += 1
+    items.append(body[start:])
+    return items
+
+
+def _require_no_empty_hook_type(item: str) -> None:
+    """Raise :class:`UnparseableHookTypesError` if *item* (already
+    YAML-unquoted) is empty or whitespace-only (DG-487 review).
+
+    `declared_hook_types` used to filter these out of a flow list
+    (`['']` silently returned `[]` where `yaml.safe_load` returns
+    `['']`), so a declared list that was empty after parsing read as
+    "nothing declared" to `guard.git_hooks` — and
+    `missing_hook_types([], ...)` returns `[]` for an empty list, so the
+    check reported ok having checked nothing at all, the exact failure
+    mode DG-466 exists to rule out. Failing loud here, for an empty item
+    and for a declared list with no items at all, means `guard.git_hooks`
+    never reports ok on an empty checklist while the key is present —
+    only the key being genuinely *absent* still reads as pre-commit's own
+    bare default.
+    """
+    if not item.strip():
+        raise UnparseableHookTypesError(
+            "default_install_hook_types declares an empty hook type, "
+            "which pre-commit itself rejects — reporting ok without a "
+            "real hook type to check would be an empty checklist "
+            "silently read as nothing wrong.",
+            remediation=(
+                "Remove the empty item from default_install_hook_types, "
+                "or give it a real hook type name."
+            ),
+        )
 
 
 def _normalized_hook_types_declaration(line: str) -> Optional[str]:
@@ -2220,10 +2543,15 @@ def declared_hook_types(config_text: str) -> list[str]:
         return list(_DEFAULT_HOOK_TYPES_WHEN_UNDECLARED)
     top_level_index, stripped = found
 
-    flow_match = _HOOK_TYPES_FLOW.match(stripped)
-    if flow_match:
-        items = [item.strip().strip("'\"") for item in flow_match.group(1).split(",")]
-        return [item for item in items if item]
+    flow_body = _scan_flow_list_body(stripped)
+    if flow_body is not None:
+        items = [
+            _unquote_hook_type(piece.strip())
+            for piece in _split_flow_list_body(flow_body)
+        ]
+        for item in items:
+            _require_no_empty_hook_type(item)
+        return items
 
     if _HOOK_TYPES_BLOCK_KEY.match(stripped):
         types: list[str] = []
@@ -2233,7 +2561,23 @@ def declared_hook_types(config_text: str) -> list[str]:
                 continue
             if not item.startswith("-"):
                 break
-            types.append(item[1:].strip().strip("'\""))
+            types.append(_unquote_hook_type(item[1:].strip()))
+        if not types:
+            # The key is present but declares no `- type` lines at all —
+            # the block-style equivalent of `[]` (DG-487 review): never
+            # read as "nothing declared" and silently fall back to
+            # pre-commit's own default.
+            raise UnparseableHookTypesError(
+                "default_install_hook_types is present but declares no "
+                "hook types at all.",
+                remediation=(
+                    "Add at least one `- type` line under "
+                    "default_install_hook_types, or remove the key "
+                    "entirely to use pre-commit's own default."
+                ),
+            )
+        for item in types:
+            _require_no_empty_hook_type(item)
         return types
 
     # The key is present but matches neither recognised shape: an
