@@ -2023,3 +2023,123 @@ class TestContentScanGapsFoundInReviewAreRefusedThroughRealInit:
         assert code == 1
         assert not registry_path.exists()
         assert not (checkout / ".claude" / "settings.json").exists()
+
+
+class TestNonUtf8Registry:
+    """DG-475: ``_ensure_registry_document`` opened ``projects.json`` with a
+    bare ``open(..., encoding="utf-8")`` and no ``try``/``except`` at all, so
+    a registry file an operator hand-edited (or copied) into another
+    encoding ended ``drunken-init`` with a raw ``UnicodeDecodeError``
+    traceback instead of a typed refusal. The safe direction is the same
+    one DG-456 already took for ``pyproject.toml``: refuse before anything
+    is written, naming the file, never its bytes.
+    """
+
+    def test_a_utf16_registry_is_a_typed_refusal_not_a_traceback(
+        self, tmp_path, capsys
+    ) -> None:
+        registry_path = tmp_path / "state" / "projects.json"
+        registry_path.parent.mkdir(parents=True)
+        registry_path.write_bytes(
+            json.dumps({"version": 2, "projects": {}}).encode("utf-16")
+        )
+        before = registry_path.read_bytes()
+
+        code = run("--project", "sample")
+
+        assert code == 1
+        out = capsys.readouterr().out
+        assert "error:" in out
+        assert str(registry_path) in out
+        # Nothing alarming or binary ever reaches stdout.
+        assert "\x00" not in out
+        # Nothing was written: the refusal happens before any write.
+        assert registry_path.read_bytes() == before
+
+    def test_a_latin1_registry_is_a_typed_refusal_not_a_traceback(
+        self, tmp_path, capsys
+    ) -> None:
+        registry_path = tmp_path / "state" / "projects.json"
+        registry_path.parent.mkdir(parents=True)
+        # 0xe9 alone is a continuation byte with no valid UTF-8 lead byte
+        # before it -- guaranteed to fail UTF-8 decoding outright.
+        registry_path.write_bytes(b'{"version": 2, "caf\xe9": {}}')
+        before = registry_path.read_bytes()
+
+        code = run("--project", "sample")
+
+        assert code == 1
+        assert str(registry_path) in capsys.readouterr().out
+        assert registry_path.read_bytes() == before
+
+    def test_the_helper_itself_raises_a_typed_refusal(self, tmp_path) -> None:
+        from core.errors import DrunkenError
+
+        registry_path = tmp_path / "projects.json"
+        registry_path.write_bytes(
+            json.dumps({"version": 2, "projects": {}}).encode("utf-16")
+        )
+
+        with pytest.raises(DrunkenError):
+            init._ensure_registry_document(str(registry_path))  # noqa: SLF001
+
+
+class TestNonUtf8JiraFragment:
+    """DG-475: ``_read_jira_fragment`` caught only ``OSError`` and
+    ``json.JSONDecodeError`` around ``jira.json``'s own ``read_text()`` at
+    the bottom of the function, so a fragment that is not valid UTF-8
+    raised an uncaught ``UnicodeDecodeError`` straight out of that line
+    rather than the same typed, pre-write refusal already used for a
+    malformed-JSON fragment.
+
+    :func:`core.content_scan.scan_file`, called just above that line,
+    already turns most undecodable content into a non-empty finding and
+    refuses earlier for the same reason — so an end-to-end run through
+    ``drunken-init --config-repo`` cannot reach the vulnerable line on its
+    own. These tests call :func:`core.init._read_jira_fragment` directly
+    and stub only ``content_scan.scan_file`` (a real collaborator, not the
+    function under test) to return no findings, reproducing the narrow
+    case this line itself must still guard against — a scan that passed
+    and a read that then fails to decode — without touching the read_text
+    call itself.
+    """
+
+    def test_a_utf16_jira_fragment_is_refused_not_crashed(
+        self, tmp_path, monkeypatch
+    ) -> None:
+        from core.errors import DrunkenError
+
+        project_folder = tmp_path / "app"
+        project_folder.mkdir()
+        (project_folder / "jira.json").write_bytes(
+            json.dumps(
+                {
+                    "url": "https://example.atlassian.net",
+                    "project_key": "ALPHA",
+                    "credential": "env://JIRA_TOKEN_ALPHA",
+                }
+            ).encode("utf-16")
+        )
+        monkeypatch.setattr(init.content_scan, "scan_file", lambda path, name: [])
+
+        with pytest.raises(DrunkenError) as excinfo:
+            init._read_jira_fragment(project_folder)  # noqa: SLF001
+
+        assert "jira.json" in str(excinfo.value)
+
+    def test_a_latin1_jira_fragment_is_refused_not_crashed(
+        self, tmp_path, monkeypatch
+    ) -> None:
+        from core.errors import DrunkenError
+
+        project_folder = tmp_path / "app"
+        project_folder.mkdir()
+        # 0xe9 alone is a continuation byte with no valid UTF-8 lead byte
+        # before it -- guaranteed to fail UTF-8 decoding outright.
+        (project_folder / "jira.json").write_bytes(b'{"url": "caf\xe9"}')
+        monkeypatch.setattr(init.content_scan, "scan_file", lambda path, name: [])
+
+        with pytest.raises(DrunkenError) as excinfo:
+            init._read_jira_fragment(project_folder)  # noqa: SLF001
+
+        assert "jira.json" in str(excinfo.value)

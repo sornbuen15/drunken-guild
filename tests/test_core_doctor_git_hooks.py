@@ -18,6 +18,7 @@ import subprocess
 import sys
 
 import pytest
+import yaml  # dev-only oracle for DG-478; never imported by src/core/doctor.py
 
 from core import doctor
 from core.registry import ProjectRegistry
@@ -1028,3 +1029,113 @@ class TestTheSourceTreeItselfIsChecked:
 
         check = find(report, "guard.git_hooks")
         assert check.status == "skip", check.detail
+
+
+class TestStripInlineCommentIsEscapeAware:
+    """DG-478: ``_strip_inline_comment`` toggled quote state per line with
+    no escape awareness at all, unlike ``_quote_state_after`` (DG-469's own
+    escape-aware scan). An escaped quote inside a double-quoted flow item
+    desynchronised the two: ``_strip_inline_comment`` thought the quote
+    had already closed, and either cut the line in the wrong place or left
+    a real trailing comment attached to the value.
+    """
+
+    def test_an_escaped_double_quote_does_not_desync_the_comment_scan(self):
+        line = 'default_install_hook_types: ["a\\"b", "pre-commit"]  # comment'
+        assert doctor._strip_inline_comment(line) == (
+            'default_install_hook_types: ["a\\"b", "pre-commit"]  '
+        )
+
+    def test_a_hash_inside_an_escaped_double_quoted_value_is_not_a_comment(self):
+        line = 'key: "a\\"#b"  # real comment'
+        assert doctor._strip_inline_comment(line) == 'key: "a\\"#b"  '
+
+    def test_agrees_with_quote_state_after_on_an_open_single_quote(self):
+        """Both functions apply the same rule for where a comment starts;
+        on a line whose quote never closes, neither sees one."""
+        line = "key: 'a#b"
+        assert doctor._quote_state_after(line, None) == "'"
+        assert doctor._strip_inline_comment(line) == line
+
+    def test_a_doubled_single_quote_does_not_close_it_early(self):
+        """``''`` inside a single-quoted scalar is a literal quote, not the
+        end of the scalar -- a `#` right after it is still inside the
+        scalar, exactly as ``_quote_state_after`` already treats it."""
+        line = "key: 'can''t # not a comment'  # real comment"
+        assert doctor._strip_inline_comment(line) == ("key: 'can''t # not a comment'  ")
+
+
+class TestDeclaredHookTypesMatchesYamlOnQuotedShapes:
+    """DG-478 acceptance: results match ``yaml.safe_load`` on a table of
+    quoted-value shapes. PyYAML is a dev dependency only (pulled in
+    transitively by pre-commit's own extra) -- used here as the oracle,
+    never imported by the runtime module under test.
+    """
+
+    def test_seen_failing_first_escaped_double_quote_with_a_trailing_comment(self):
+        """The DG-469 reviewer's first example: this used to raise
+        ``UnparseableHookTypesError`` even though pre-commit itself (and
+        PyYAML) parses the line without complaint."""
+        text = 'default_install_hook_types: ["a\\"b", "pre-commit"]  # comment\n'
+        expected = yaml.safe_load(text)["default_install_hook_types"]
+        assert doctor.declared_hook_types(text) == expected
+
+    def test_seen_failing_first_doubled_single_quotes_unescape(self):
+        """The DG-469 reviewer's second example: this used to return the
+        literal ``can''t`` instead of unescaping it to ``can't``."""
+        text = "default_install_hook_types: ['can''t', 'pre-commit']\n"
+        expected = yaml.safe_load(text)["default_install_hook_types"]
+        assert expected == ["can't", "pre-commit"]
+        assert doctor.declared_hook_types(text) == expected
+
+    @pytest.mark.parametrize(
+        "flow_value",
+        [
+            "[pre-commit, commit-msg]",
+            "['pre-commit', 'commit-msg']",
+            '["pre-commit", "commit-msg"]',
+            "['can''t', 'pre-commit']",
+            '["a\\"b", "pre-commit"]',
+        ],
+    )
+    def test_flow_style_matches_yaml_safe_load(self, flow_value):
+        text = f"default_install_hook_types: {flow_value}\n"
+        expected = yaml.safe_load(text)["default_install_hook_types"]
+        assert doctor.declared_hook_types(text) == expected
+
+    @pytest.mark.parametrize(
+        "item",
+        [
+            "pre-commit",
+            "'pre-commit'",
+            '"pre-commit"',
+            "'can''t'",
+            '"a\\"b"',
+        ],
+    )
+    def test_block_style_matches_yaml_safe_load(self, item):
+        text = f"default_install_hook_types:\n  - {item}\n"
+        expected = yaml.safe_load(text)["default_install_hook_types"]
+        assert doctor.declared_hook_types(text) == expected
+
+    def test_dg469_behaviour_is_unchanged_nested_declaration_still_fails_loud(self):
+        """DG-469's own guarantee must survive this fix untouched: a
+        ``default_install_hook_types`` found only nested is still refused,
+        never silently read as the top-level declaration."""
+        text = (
+            "repos:\n"
+            "  - repo: local\n"
+            "    hooks:\n"
+            "      - id: x\n"
+            "        default_install_hook_types: [pre-commit]\n"
+        )
+        with pytest.raises(doctor.UnparseableHookTypesError):
+            doctor.declared_hook_types(text)
+
+    def test_a_shape_the_scanner_cannot_prove_still_fails_loud_not_narrower(self):
+        """The line scanner stays (DG-478 SCOPE): a shape it cannot resolve
+        must keep failing loud, never silently narrow to a default that
+        reads as if nothing were declared."""
+        text = "default_install_hook_types: &hook_types [pre-commit, commit-msg]\n"
+        with pytest.raises(doctor.UnparseableHookTypesError):
+            doctor.declared_hook_types(text)

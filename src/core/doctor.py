@@ -790,8 +790,14 @@ def external_skill_names(root: Path) -> set[str]:
     external_file = root / "skills" / ".external"
     if not external_file.is_file():
         return set()
+    try:
+        text = external_file.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        # DG-475: not valid UTF-8 is treated the same as absent -- there is
+        # nothing here this check can safely call "declared third-party".
+        return set()
     names = set()
-    for line in external_file.read_text(encoding="utf-8").splitlines():
+    for line in text.splitlines():
         stripped = line.strip()
         if stripped and not stripped.startswith("#"):
             names.add(stripped)
@@ -818,8 +824,14 @@ def retired_skill_names(root: Path) -> set[str]:
     list_file = root / RETIRED_SKILLS_FILE
     if not list_file.is_file():
         return set()
+    try:
+        text = list_file.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        # DG-475: not valid UTF-8 is treated the same as absent -- a prune
+        # step must never read this as a real, if empty, retired list.
+        return set()
     names = set()
-    for raw_line in list_file.read_text(encoding="utf-8").splitlines():
+    for raw_line in text.splitlines():
         stripped = raw_line.strip("\r").strip()
         if stripped and not stripped.startswith("#"):
             names.add(stripped)
@@ -1115,7 +1127,9 @@ def registered_mcp_tools(server_path: Path) -> list[str]:
     """The tool names ``src/jira_mcp/server.py`` registers, read as text."""
     try:
         text = server_path.read_text(encoding="utf-8")
-    except OSError:
+    except (OSError, UnicodeDecodeError):
+        # DG-475: not valid UTF-8 is treated the same as an absent file --
+        # there are no tool names this reading can honestly report.
         return []
     return _MCP_TOOL_DEF.findall(text)
 
@@ -1129,7 +1143,9 @@ def skill_description(skill_md: Path) -> str:
     """
     try:
         text = skill_md.read_text(encoding="utf-8")
-    except OSError:
+    except (OSError, UnicodeDecodeError):
+        # DG-475: not valid UTF-8 is treated the same as an absent file --
+        # there is no description this reading can honestly report.
         return ""
     if not text.startswith("---"):
         return ""
@@ -1164,6 +1180,30 @@ def _mentions(text: str, name: str) -> bool:
     return bool(pattern.search(text))
 
 
+class UndecodableFileError(ValidationError):
+    """A file this check needs to read is not valid UTF-8 (DG-475).
+
+    Carries only *path* — never the bytes that failed to decode — so a
+    caller can name the file in a failing check without risking the
+    content reaching the report at all.
+    """
+
+    code = "undecodable_file"
+
+    def __init__(self, path: Path) -> None:
+        super().__init__(f"{path} is not valid UTF-8 text.")
+        self.path = path
+
+
+def _read_text_or_raise(path: Path) -> str:
+    """*path*'s content, or :class:`UndecodableFileError` naming only the
+    path — never the bytes that failed to decode."""
+    try:
+        return path.read_text(encoding="utf-8")
+    except UnicodeDecodeError as exc:
+        raise UndecodableFileError(path) from exc
+
+
 def unreachable_skills(
     skills_root: Path, agents_root: Path, guild_block_text: str
 ) -> list[str]:
@@ -1179,14 +1219,19 @@ def unreachable_skills(
     skill's prose saying ``rebuild``. A skill's own file is excluded from the
     texts checked against it, so a skill cannot make itself reachable by
     naming itself.
+
+    Raises :class:`UndecodableFileError` (DG-475), naming only the offending
+    path, when a ``SKILL.md`` or an agent's own ``.md`` is not valid UTF-8 —
+    neither is a file this repository receives from outside, but both are
+    read here with no earlier guard at all, and a decode failure must never
+    raise a raw traceback out of :func:`_check_routes`.
     """
     skills = _skill_dirs(skills_root)
     texts = {
-        name: (path / "SKILL.md").read_text(encoding="utf-8")
-        for name, path in skills.items()
+        name: _read_text_or_raise(path / "SKILL.md") for name, path in skills.items()
     }
     agent_texts = (
-        [p.read_text(encoding="utf-8") for p in sorted(agents_root.glob("*.md"))]
+        [_read_text_or_raise(p) for p in sorted(agents_root.glob("*.md"))]
         if agents_root.is_dir()
         else []
     )
@@ -1238,7 +1283,15 @@ def _check_routes(report: Report, repo_root: Optional[Path] = None) -> None:
         report.add("routes.guild_block", "skip", f"No AGENTS.md at {agents_md}.")
         return
 
-    text = agents_md.read_text(encoding="utf-8")
+    try:
+        text = agents_md.read_text(encoding="utf-8")
+    except UnicodeDecodeError:
+        # DG-475: named and redacted -- the file's own bytes never reach
+        # this report, only its path.
+        report.add(
+            "routes.guild_block", "fail", f"{agents_md} is not valid UTF-8 text."
+        )
+        return
     block = guild_block(text)
     if not block:
         report.add(
@@ -1270,7 +1323,14 @@ def _check_routes(report: Report, repo_root: Optional[Path] = None) -> None:
             f"all {len(set(targets))} route target(s) in {agents_md.name} resolve",
         )
 
-    unreachable = unreachable_skills(skills_root, agents_root, block)
+    try:
+        unreachable = unreachable_skills(skills_root, agents_root, block)
+    except UndecodableFileError as exc:
+        # DG-475: named and redacted, same as the AGENTS.md case above --
+        # routes.targets was already reported, and run_doctor's later
+        # checks still run; only this one check is reported as failed.
+        report.add_error("routes.reachable", exc)
+        return
     if unreachable:
         report.add(
             "routes.reachable",
@@ -1412,7 +1472,10 @@ def _locked_version(package: str = "mcp") -> Optional[str]:
     lock = Path.cwd() / "uv.lock"
     try:
         lines = lock.read_text(encoding="utf-8").splitlines()
-    except OSError:
+    except (OSError, UnicodeDecodeError):
+        # DG-475: not valid UTF-8 reads as "unknown", same as unreadable --
+        # this helper's own rule above ("a doctor check must never be the
+        # thing that raises") applies to a decode failure too.
         return None
 
     for index, line in enumerate(lines):
@@ -1984,32 +2047,6 @@ def runs_operator_inventory_guard(config_text: str) -> bool:
     return _OPERATOR_INVENTORY_GUARD_MARKER in config_text
 
 
-def _strip_inline_comment(line: str) -> str:
-    """Remove a trailing YAML comment from *line*.
-
-    A ``#`` starts a comment only when it sits outside any quoted string
-    and is either at the very start of the line or preceded by whitespace —
-    the same rule a YAML parser applies, enough of it for the one kind of
-    line this module ever reads (a scalar key, a flow list, or a ``- item``
-    line). Without this, ``default_install_hook_types: [pre-commit,
-    commit-msg]  # wires commit-msg too`` read its own trailing comment as
-    part of the list text, failed to match the flow pattern, and silently
-    fell back to pre-commit's bare default — dropping the declared
-    ``commit-msg`` hook out of the check entirely while still reporting ok.
-    """
-    in_single = False
-    in_double = False
-    for index, char in enumerate(line):
-        if char == "'" and not in_double:
-            in_single = not in_single
-        elif char == '"' and not in_single:
-            in_double = not in_double
-        elif char == "#" and not in_single and not in_double:
-            if index == 0 or line[index - 1].isspace():
-                return line[:index]
-    return line
-
-
 def _advance_past_single_quote(line: str, index: int) -> tuple[int, Optional[str]]:
     """One step of the scan while inside a single-quoted scalar: `''` is a
     literal single quote and does not close it, any other `'` does.
@@ -2035,16 +2072,22 @@ def _advance_past_double_quote(line: str, index: int) -> tuple[int, Optional[str
     return index + 1, '"'
 
 
-def _quote_state_after(line: str, start_quote: Optional[str]) -> Optional[str]:
-    """The quote character still open at the end of *line*, given it
-    started inside *start_quote* (``None`` if *line* started outside any
-    quoted scalar).
+def _scan_line(
+    line: str, start_quote: Optional[str]
+) -> tuple[Optional[str], Optional[int]]:
+    """The one escape-aware quote scan both :func:`_quote_state_after` and
+    :func:`_strip_inline_comment` read off of (DG-478 review): the quote
+    character still open at the end of *line*, and the index of a trailing
+    comment's ``#``, or ``None`` for either when there is none.
 
-    Single- and double-quoted YAML scalars escape differently, but YAML's
-    own grammar never has both open at once, so one piece of state is
-    enough. A ``#`` reached outside any quote, at the start of the line or
-    after whitespace, starts a comment and ends scanning for the rest of
-    the line, the same rule :func:`_strip_inline_comment` applies.
+    Before this, :func:`_strip_inline_comment` toggled quote state on every
+    bare ``'``/``"`` with no escape awareness at all, while this scan
+    already was — so an escaped double quote inside a flow item
+    (``["a\\"b", "pre-commit"]``) desynchronised the two: the comment
+    stripper thought the quote had already closed where this scan knew it
+    had not, either cutting a line in the wrong place or leaving a real
+    trailing comment baked into the value. One scan, read twice, cannot
+    drift apart from itself.
     """
     quote = start_quote
     index = 0
@@ -2062,9 +2105,59 @@ def _quote_state_after(line: str, start_quote: Optional[str]) -> Optional[str]:
         elif char == '"':
             quote = '"'
         elif char == "#" and (index == 0 or line[index - 1].isspace()):
-            break
+            return quote, index
         index += 1
+    return quote, None
+
+
+def _quote_state_after(line: str, start_quote: Optional[str]) -> Optional[str]:
+    """The quote character still open at the end of *line*, given it
+    started inside *start_quote* (``None`` if *line* started outside any
+    quoted scalar). See :func:`_scan_line`."""
+    quote, _ = _scan_line(line, start_quote)
     return quote
+
+
+def _strip_inline_comment(line: str) -> str:
+    """Remove a trailing YAML comment from *line*.
+
+    A ``#`` starts a comment only when it sits outside any quoted string
+    and is either at the very start of the line or preceded by whitespace —
+    the same rule a YAML parser applies, enough of it for the one kind of
+    line this module ever reads (a scalar key, a flow list, or a ``- item``
+    line). Without this, ``default_install_hook_types: [pre-commit,
+    commit-msg]  # wires commit-msg too`` read its own trailing comment as
+    part of the list text, failed to match the flow pattern, and silently
+    fell back to pre-commit's bare default — dropping the declared
+    ``commit-msg`` hook out of the check entirely while still reporting ok.
+
+    Shares :func:`_scan_line` with :func:`_quote_state_after` (DG-478
+    review) rather than its own, escape-blind toggle, so the two can never
+    disagree about where a quote is still open on this one line (always
+    scanned fresh, never carrying state from a previous line — the same
+    assumption every call site already made).
+    """
+    _, comment_index = _scan_line(line, None)
+    return line if comment_index is None else line[:comment_index]
+
+
+def _unquote_hook_type(item: str) -> str:
+    """*item*, a single flow or block list entry, YAML-unquoted the same
+    way PyYAML itself would for this one scalar shape (DG-478 review):
+    a matching pair of quotes is stripped, and a single-quoted item's own
+    ``''`` is un-escaped to a literal ``'`` — ``'can''t'`` reads as
+    ``can't``, not the literal text ``can''t`` a bare ``strip("'\\"")``
+    left behind. A double-quoted item's own ``\\"`` is un-escaped to a
+    literal ``"`` the same way. An item not opening and closing with the
+    same quote character is returned with only its outermost quote
+    characters trimmed, unchanged from this module's behaviour before
+    this ticket — a hook type name has no real use for one here.
+    """
+    if len(item) >= 2 and item[0] == item[-1] == "'":
+        return item[1:-1].replace("''", "'")
+    if len(item) >= 2 and item[0] == item[-1] == '"':
+        return item[1:-1].replace('\\"', '"').replace("\\\\", "\\")
+    return item.strip("'\"")
 
 
 def _normalized_hook_types_declaration(line: str) -> Optional[str]:
@@ -2222,7 +2315,9 @@ def declared_hook_types(config_text: str) -> list[str]:
 
     flow_match = _HOOK_TYPES_FLOW.match(stripped)
     if flow_match:
-        items = [item.strip().strip("'\"") for item in flow_match.group(1).split(",")]
+        items = [
+            _unquote_hook_type(item.strip()) for item in flow_match.group(1).split(",")
+        ]
         return [item for item in items if item]
 
     if _HOOK_TYPES_BLOCK_KEY.match(stripped):
@@ -2233,7 +2328,7 @@ def declared_hook_types(config_text: str) -> list[str]:
                 continue
             if not item.startswith("-"):
                 break
-            types.append(item[1:].strip().strip("'\""))
+            types.append(_unquote_hook_type(item[1:].strip()))
         return types
 
     # The key is present but matches neither recognised shape: an
