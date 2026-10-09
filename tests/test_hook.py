@@ -1524,14 +1524,15 @@ class TestDG482ResolveDynamicHooksDirsUnionsBothReads:
         hook._resolve_dynamic_hooks_dirs.cache_clear()
         seen_args: list[tuple[str, ...]] = []
 
-        # Absolute, drive-letter paths -- what the real git binary actually
-        # returns on this platform (verified against a real repo elsewhere
-        # in this file); a bare `/from/...` POSIX path with no drive letter
-        # is not absolute by `os.path.isabs`'s own rules on Windows and
-        # would be resolved against *tmp_path*'s drive instead, which is
-        # not what this test is isolating.
-        rev_parse_hooks = "C:/from/rev-parse/hooks"
-        config_hooks = "C:/from/config/hooks"
+        # Absolute on *whatever platform runs this test* -- a hardcoded
+        # `C:/...` is absolute on Windows but not by `os.path.isabs`'s own
+        # rules on POSIX (no drive letter there), and a bare `/from/...` is
+        # the reverse; either one would be silently joined onto *tmp_path*
+        # on the platform where it is not absolute, which is not what this
+        # test is isolating. Built from *tmp_path* itself, which is always
+        # absolute on the platform it came from.
+        rev_parse_hooks = str(tmp_path / "from-rev-parse" / "hooks")
+        config_hooks = str(tmp_path / "from-config" / "hooks")
 
         def fake_run_git(args, repo_root, *, timeout=None, text=True):
             seen_args.append(tuple(args))
