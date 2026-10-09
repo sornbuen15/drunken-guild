@@ -77,8 +77,21 @@ def _run(
 ) -> subprocess.CompletedProcess:
     import os
 
+    extra_env = extra_env or {}
+    #: DG-477: every call site here passes a literal dict of PRE_COMMIT_*
+    #: overrides (and, in one case, the unrelated DRUNKEN_NO_REGISTERED_
+    #: PROJECTS opt-out flag), so this can't drop the sandbox today -- but
+    #: `extra_env` is an opaque parameter to the static check in
+    #: tests/test_subprocess_env_guard.py, which cannot see what any given
+    #: caller passes. This runtime guard is what actually makes the
+    #: allowlisted `env.update()` below safe, not just quiet.
+    _sandbox_vars = {"DRUNKEN_HOME", "DRUNKEN_REGISTRY_PATH", "DRUNKEN_AUTH_DB"}
+    assert not (set(extra_env) & _sandbox_vars), (
+        "extra_env must never override the sandboxed DRUNKEN_HOME/"
+        "DRUNKEN_REGISTRY_PATH/DRUNKEN_AUTH_DB variables"
+    )
     env = os.environ.copy()
-    env.update(extra_env or {})
+    env.update(extra_env)
     return subprocess.run(
         [sys.executable, str(SCRIPT), "--push"],
         cwd=cwd if cwd is not None else repo,
