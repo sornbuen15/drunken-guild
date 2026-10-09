@@ -26,7 +26,14 @@ whole file, and it answers the same three questions it always did:
    has put the shell *inside* the hooks dir, the same rule also catches a
    bare redirect or writer with no verb on the list and no ``.git/hooks``
    text left to match (DG-476) — ``echo x > pre-commit`` needs neither once
-   cwd is already there.
+   cwd is already there. Every agent works in a *linked* worktree (DG-288),
+   where ``.git`` is a file and the real hooks dir is the main repository's
+   own — DG-482 widens "names the hooks dir" past the literal
+   ``.git/hooks`` text to the ``.git/worktrees/<name>/hooks`` shape, the
+   repository's actual hooks dir resolved once via git itself (which
+   already honours ``core.hooksPath``), ``core.hooksPath`` read directly,
+   and a ``$(git rev-parse --git-path hooks)`` substitution named as a
+   mutating target, read as text and never evaluated.
 
 Everything else gets **silence**, which is not the same as ``allow``. Exit 0
 with no ``permissionDecision`` means "no opinion", and the harness carries on
@@ -37,14 +44,17 @@ authority saying the same thing is only a second thing to disagree.
 
 from __future__ import annotations
 
+import functools
 import json
 import os
 import re
 import sys
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Final, Optional
 
 from . import permission_rules as pr
+from .exclude import GitCommandError, run_git
 
 #: The tool families that are meaningless without one input key. A ``Bash``
 #: with no command and a ``Read`` with no path are not calls this hook can
@@ -159,16 +169,153 @@ _INTERPRETER_WRITE_SIGNAL: Final = re.compile(
 #: case-insensitive, so `skip=x` disables the same hook `SKIP=x` does there.
 _HOOK_SKIPPING_ENV_VARS: Final = ("SKIP", "DRUNKEN_NO_REGISTERED_PROJECTS")
 
-#: `.git/hooks` or `.git\hooks`, any case, matched in a path or a shell
+#: `.git/hooks`, `.git\hooks`, or the linked-worktree shape
+#: `.git/worktrees/<name>/hooks` (DG-482: every agent works in a linked
+#: worktree, per DG-288, where `.git` is a *file* and the shared hooks live
+#: in the main repository's git dir), any case, matched in a path or a shell
 #: argument. Windows spells the separator with a backslash and is
 #: case-insensitive on its filesystem, so both have to be caught here rather
-#: than assumed away as "the same thing someone else normalises".
-_HOOKS_DIR_PATTERN: Final = re.compile(r"\.git[\\/]+hooks", re.IGNORECASE)
+#: than assumed away as "the same thing someone else normalises". This is
+#: the *one* definition of the textual shape -- DG-481 round 3's lesson was
+#: two regexes for "the hooks dir" drifting apart, so both
+#: :data:`_HOOKS_DIR_PATTERN` (substring, anywhere) and
+#: :data:`_HOOKS_DIR_TOKEN_PATTERN` (anchored, whole argument) below are
+#: built from this one fragment rather than spelling the shape twice.
+#: ``(?<!\w)`` keeps a *name* that merely ends in the same letters -- a
+#: file called ``my.git/hooks-notes`` has `.git/hooks` as a literal
+#: substring too, but is not the hooks dir and must stay allowed. A real
+#: `.git` component is always preceded by either nothing (start of the
+#: text) or a non-word character (a separator, quote, space, or the start
+#: of a path); never another letter or digit the way ``my.git`` has one.
+_HOOKS_DIR_CORE: Final = r"(?<!\w)\.git[\\/]+(?:worktrees[\\/]+[^\\/]+[\\/]+)?hooks"
+_HOOKS_DIR_PATTERN: Final = re.compile(_HOOKS_DIR_CORE, re.IGNORECASE)
 
 #: `.git/config` (or `.git\config`), any case -- where `core.hooksPath` is
 #: actually stored, so an in-place edit of the file is the same bypass as
 #: `git config core.hooksPath` without ever naming git.
 _GIT_CONFIG_FILE_PATTERN: Final = re.compile(r"\.git[\\/]+config", re.IGNORECASE)
+
+#: `$(git rev-parse --git-path hooks)`, the backtick spelling of the same
+#: substitution, or `$(git rev-parse --git-common-dir)` (with or without a
+#: trailing `/hooks`) -- DG-482 (4): a command substitution that *names* the
+#: hooks dir is denied as text, on sight, without ever being evaluated. No
+#: shell is invoked to find out what it actually expands to; the one thing
+#: this module is permitted to do with a substitution is read the characters
+#: that spell it.
+_HOOKS_PATH_SUBSTITUTION_PATTERN: Final = re.compile(
+    r"(?:\$\(|`)\s*git\s+rev-parse\s+--git-(?:path\s+hooks\b|common-dir\b)",
+    re.IGNORECASE,
+)
+
+
+def _mentions_hooks_path_substitution(text: str) -> bool:
+    """Whether *text* contains the textual shape of
+    :data:`_HOOKS_PATH_SUBSTITUTION_PATTERN`, named once so every caller
+    reads the same rule."""
+    return bool(_HOOKS_PATH_SUBSTITUTION_PATTERN.search(text))
+
+
+#: The per-process cap on how long resolving the repository's real hooks
+#: dir (below) may block *this* call before the fail-safe path takes over.
+#: Short on purpose -- a hook that cannot answer within a handful of seconds
+#: must fall back to the textual patterns alone, not hang the tool call it
+#: is meant to be judging.
+_GIT_RESOLUTION_TIMEOUT_SECONDS: Final = 5.0
+
+
+def _normalise_path_for_match(text: str) -> str:
+    """Lower-cased, forward-slash-only, no trailing separator.
+
+    Used to compare a resolved filesystem directory against raw command or
+    path text that may spell the same location with the other separator
+    style, another case, or a trailing slash -- not :func:`os.path.normpath`,
+    which is for a real path, not a slice of an arbitrary shell command that
+    may contain `..` sequences with no filesystem meaning at all.
+    """
+    return text.replace("\\", "/").rstrip("/").lower()
+
+
+@functools.lru_cache(maxsize=256)
+def _resolve_dynamic_hooks_dirs(cwd: str) -> frozenset[str]:
+    """The repository's *real* hooks dir(s) for *cwd*, normalised for text
+    matching -- DG-482 (2) and (3).
+
+    Two git calls, each read-only and run through
+    :func:`core.exclude.run_git` (``GIT_*`` stripped, a bounded timeout, no
+    inherited environment redirecting which repository answers):
+
+    - ``git rev-parse --git-path hooks``: the shared hooks dir git itself
+      would use from *cwd*, common dir resolved -- correct from a linked
+      worktree (DG-288) and already honours ``core.hooksPath`` if one is
+      configured.
+    - ``git config --get core.hooksPath``: read again, directly, as its own
+      entry -- belt and suspenders with the line above, and the one this
+      module's own text can point at without saying "git" again.
+
+    **Fails safe.** Not a git repository, git missing, a timeout, or any
+    other error -- including one this function did not anticipate -- all
+    return the same thing: an empty set, so the caller falls back to the
+    textual patterns alone. This never raises and never blocks past
+    :data:`_GIT_RESOLUTION_TIMEOUT_SECONDS` per git call; it does not crash
+    the hook and does not hang the tool call it is judging.
+
+    Cached per *cwd* for the life of this process (DG-482 performance:
+    `decide()` must stay fast across many calls in the same repository) --
+    cleared with ``.cache_clear()``, which the tests use between cases that
+    reuse the same scratch path under a different git state.
+    """
+    if not cwd:
+        return frozenset()
+    repo_root = Path(cwd)
+    try:
+        if not repo_root.exists():
+            return frozenset()
+    except OSError:
+        return frozenset()
+
+    dirs: set[str] = set()
+    for args in (
+        ("rev-parse", "--git-path", "hooks"),
+        ("config", "--get", "core.hooksPath"),
+    ):
+        try:
+            result = run_git(
+                list(args), repo_root, timeout=_GIT_RESOLUTION_TIMEOUT_SECONDS
+            )
+        except GitCommandError:
+            continue
+        except Exception:  # noqa: BLE001 - fail safe, never crash the hook
+            continue
+        if result.returncode != 0:
+            continue
+        raw = result.stdout.strip()
+        if not raw:
+            continue
+        resolved = raw if os.path.isabs(raw) else os.path.join(str(repo_root), raw)
+        dirs.add(_normalise_path_for_match(resolved))
+    return frozenset(dirs)
+
+
+def _might_reference_protected_dir(text: str) -> bool:
+    """Cheap pre-check before paying for :func:`_resolve_dynamic_hooks_dirs`'s
+    git subprocesses (DG-482 performance): true only when *text* carries a
+    path separator at all. `git status`, `ls`, an ordinary commit message --
+    the overwhelming majority of calls -- can never name a hooks dir by any
+    of the shapes this module recognises and are skipped before git ever
+    runs."""
+    return bool(re.search(r"[\\/]", text))
+
+
+def _mentions_resolved_dir(text: str, resolved_dirs: frozenset[str]) -> bool:
+    """Whether *text* names one of *resolved_dirs* -- the dynamic half of
+    the hooks-dir check, for a ``core.hooksPath`` target whose name carries
+    no `.git` or `hooks` text at all. Substring, not equality, matching the
+    same greedy trade-off the rest of this module's deny side makes
+    everywhere else."""
+    if not resolved_dirs:
+        return False
+    normalised_text = _normalise_path_for_match(text)
+    return any(directory in normalised_text for directory in resolved_dirs)
 
 
 def _has_word(segment: str, word: str) -> bool:
@@ -559,23 +706,42 @@ def _edits_file_in_place(segment: str) -> bool:
     return bool(_has_word(segment, "awk") and _has_word(segment, "inplace"))
 
 
-def _denies_hooks_dir_mutation(segment: str) -> bool:
-    """Any shape that overwrites, relocates or defuses `.git/hooks` or a file
-    in it: the verbs in :data:`_HOOKS_DIR_MUTATING_VERBS` (POSIX, Windows-
-    native, and PowerShell) with the path as an argument -- including inside
-    a `powershell -Command "..."`/`pwsh -c`/`cmd /c "..."` wrapper, since this
-    check is deliberately quote-blind -- output redirected (`>`, `>>`, `dd
-    of=`) into it, `sed -i`/`perl -pi`/`awk -i inplace` editing a file under
-    it in place, or an interpreter one-liner (`python -c "..."`) that opens,
-    writes or unlinks a path under it. A read -- `cat .git/hooks/pre-commit`,
-    `ls .git/hooks`, `Get-Content .git/hooks/pre-commit`, `type
-    .git\\hooks\\pre-commit` -- matches none of these and stays undenied.
+def _mentions_hooks_dir_text(text: str, resolved_dirs: frozenset[str]) -> bool:
+    """Whether *text* names the hooks dir by any text this module
+    recognises: the static patterns (`.git/hooks`, the worktrees shape), a
+    resolved real directory (the shared hooks dir or `core.hooksPath`, DG-482
+    (2)/(3)), or a command substitution naming it (DG-482 (4)). One place
+    that ORs the three together, so every caller below checks all of them
+    rather than remembering to repeat the combination."""
+    return (
+        bool(_HOOKS_DIR_PATTERN.search(text))
+        or _mentions_resolved_dir(text, resolved_dirs)
+        or _mentions_hooks_path_substitution(text)
+    )
+
+
+def _denies_hooks_dir_mutation(segment: str, resolved_dirs: frozenset[str]) -> bool:
+    """Any shape that overwrites, relocates or defuses `.git/hooks` (or a
+    linked worktree's shared hooks dir, or a `core.hooksPath` directory, or
+    a file in any of them): the verbs in :data:`_HOOKS_DIR_MUTATING_VERBS`
+    (POSIX, Windows-native, and PowerShell) with the path as an argument --
+    including inside a `powershell -Command "..."`/`pwsh -c`/`cmd /c "..."`
+    wrapper, since this check is deliberately quote-blind -- output
+    redirected (`>`, `>>`, `dd of=`) into it, `sed -i`/`perl -pi`/`awk -i
+    inplace` editing a file under it in place, or an interpreter one-liner
+    (`python -c "..."`) that opens, writes or unlinks a path under it. A
+    read -- `cat .git/hooks/pre-commit`, `ls .git/hooks`, `Get-Content
+    .git/hooks/pre-commit`, `type .git\\hooks\\pre-commit` -- matches none
+    of these and stays undenied.
+
+    *resolved_dirs* is :func:`_resolve_dynamic_hooks_dirs`'s output for the
+    real cwd, or the empty set when that resolution did not run or found
+    nothing -- either way this degrades to the textual patterns alone.
     """
-    if any(_HOOKS_DIR_PATTERN.search(t) for t in _writing_redirect_targets(segment)):
+    targets = [*_writing_redirect_targets(segment), *_dd_of_targets(segment)]
+    if any(_mentions_hooks_dir_text(t, resolved_dirs) for t in targets):
         return True
-    if any(_HOOKS_DIR_PATTERN.search(t) for t in _dd_of_targets(segment)):
-        return True
-    if not _HOOKS_DIR_PATTERN.search(segment):
+    if not _mentions_hooks_dir_text(segment, resolved_dirs):
         return False
     if _edits_file_in_place(segment):
         return True
@@ -632,12 +798,14 @@ _DIR_CHANGING_COMMANDS: Final = frozenset(
 #: directory does (DG-465 round 3's reset rule, unchanged).
 _DIR_RESTORING_COMMANDS: Final = frozenset({"popd"})
 
-#: `.git/hooks` (or the Windows-path spelling), anchored at both ends and
-#: allowing a trailing separator -- the point of this pattern specifically
-#: is that the *whole* argument names the hooks dir itself, not some
-#: unrelated path that merely contains that text.
+#: `.git/hooks` (or the Windows-path spelling, or the linked-worktree
+#: shape), anchored at both ends and allowing a trailing separator -- the
+#: point of this pattern specifically is that the *whole* argument names the
+#: hooks dir itself, not some unrelated path that merely contains that text.
+#: Built from :data:`_HOOKS_DIR_CORE`, the one shared definition, rather
+#: than spelling the shape a second time (DG-481 round 3's lesson).
 _HOOKS_DIR_TOKEN_PATTERN: Final = re.compile(
-    r"^\S*\.git[\\/]+hooks[\\/]?$", re.IGNORECASE
+    rf"^\S*{_HOOKS_DIR_CORE}[\\/]?$", re.IGNORECASE
 )
 
 
@@ -680,9 +848,12 @@ def _split_cd_arguments(segment: str) -> list[str]:
     return tokens
 
 
-def _targets_hooks_dir(tokens: list[str]) -> bool:
+def _targets_hooks_dir(tokens: list[str], resolved_dirs: frozenset[str]) -> bool:
     """Whether the (already-tokenised, so quote-stripped) arguments after a
-    directory-changing command name the hooks dir and nothing else.
+    directory-changing command name the hooks dir and nothing else -- the
+    static shape, or one of *resolved_dirs* (DG-482: a `core.hooksPath`
+    directory whose name carries no `.git`/`hooks` text at all still has to
+    be recognised once ``cd``'d into, the same as the static shapes are).
 
     DG-476 round 2 (adversarial): the previous check matched the whole
     segment's raw text against one regex, so `cd -P .git/hooks` (a real,
@@ -695,10 +866,54 @@ def _targets_hooks_dir(tokens: list[str]) -> bool:
     :func:`_git_subcommand` already finds the real subcommand past `-C`/`-c`.
     """
     args = [tok for tok in tokens if tok == "-" or not tok.startswith("-")]
-    return len(args) == 1 and bool(_HOOKS_DIR_TOKEN_PATTERN.match(args[0]))
+    if len(args) != 1:
+        return False
+    return bool(_HOOKS_DIR_TOKEN_PATTERN.match(args[0])) or _mentions_resolved_dir(
+        args[0], resolved_dirs
+    )
 
 
-def _bypasses_hook_floor_bash(command: str) -> bool:
+def _command_mentions_hooks_path_substitution_as_target(command: str) -> bool:
+    """DG-482 (4): `$(git rev-parse --git-path hooks)` (or the backtick
+    spelling, or `$(git rev-parse --git-common-dir)` with or without a
+    trailing `/hooks`) used as the argument a mutating verb or a writing
+    redirect targets -- denied as text, without ever running the
+    substitution to find out what it expands to.
+
+    Checked against the *raw*, unsplit *command* rather than one scanned
+    segment: :func:`~core.permission_rules.segments_with_leading_operator`
+    treats an unquoted `$(`/`)` pair as operators and puts the
+    substitution's own contents in their own segment (the same mechanism
+    that already lets a real bypass hidden inside a substitution be scanned
+    on its own, e.g. `echo $(rm -rf /)`) -- so the literal `$(...)` shape
+    this check is about is never whole within any one unquoted segment the
+    rest of this module's per-segment checks see. Greedy, matching the rest
+    of this module's deny side: any mutating verb or writing-redirect
+    operator anywhere in a command that also contains the substitution is
+    denied, rather than attempting to prove the two are positionally
+    connected -- a false positive here costs a prompt, not a lockout.
+    """
+    if not _mentions_hooks_path_substitution(command):
+        return False
+    if any(_has_word(command, verb) for verb in _HOOKS_DIR_MUTATING_VERBS):
+        return True
+    if _writing_redirect_targets(command) or _dd_of_targets(command):
+        return True
+    return _edits_file_in_place(command)
+
+
+def _resolved_dirs_for_command(command: str, cwd: str) -> frozenset[str]:
+    """:func:`_resolve_dynamic_hooks_dirs` for *cwd*, but only when *command*
+    could plausibly need it (:func:`_might_reference_protected_dir`) and a
+    *cwd* is actually known -- split out of :func:`_bypasses_hook_floor_bash`
+    purely to keep that function's own branching under the project's
+    complexity limit."""
+    if cwd and _might_reference_protected_dir(command):
+        return _resolve_dynamic_hooks_dirs(cwd)
+    return frozenset()
+
+
+def _bypasses_hook_floor_bash(command: str, cwd: str) -> bool:
     """Scan every segment a Bash call will actually run.
 
     :func:`~core.permission_rules.segments_with_leading_operator` is
@@ -733,7 +948,15 @@ def _bypasses_hook_floor_bash(command: str) -> bool:
 
     A true variable indirection (``H=.git/hooks; mv $H /tmp/``) is not
     attempted here -- see the PR body's out-of-scope list.
+
+    *cwd* is the real working directory the call would run in (the hook
+    event's own ``cwd``, or ``""`` when the caller does not know one) --
+    resolved to the repository's actual hooks dir(s) at most once per call
+    (DG-482), and only when :func:`_might_reference_protected_dir` finds a
+    path-like token in *command* at all, so the git subprocess is skipped
+    entirely for the ordinary commands that could never need it.
     """
+    resolved_dirs = _resolved_dirs_for_command(command, cwd)
     segment_pairs = pr.segments_with_leading_operator(command) or [("", command)]
     exported_skip_var = False
     cwd_is_hooks_dir = False
@@ -765,7 +988,7 @@ def _bypasses_hook_floor_bash(command: str) -> bool:
             or _denies_env_skip(segment)
             or (exported_skip_var and _has_word(segment, "git"))
             or _denies_precommit_uninstall(segment)
-            or _denies_hooks_dir_mutation(segment)
+            or _denies_hooks_dir_mutation(segment, resolved_dirs)
         ):
             return True
         if cwd_is_hooks_dir and _denies_write_while_in_hooks_dir(segment):
@@ -788,23 +1011,32 @@ def _bypasses_hook_floor_bash(command: str) -> bool:
         leading_word = leading_tokens[0].lower() if leading_tokens else ""
         if leading_word in _DIR_CHANGING_COMMANDS:
             cwd_is_hooks_dir = leading_word not in _DIR_RESTORING_COMMANDS and (
-                _targets_hooks_dir(leading_tokens[1:])
+                _targets_hooks_dir(leading_tokens[1:], resolved_dirs)
             )
-        if _HOOKS_DIR_PATTERN.search(segment):
+        if _mentions_hooks_dir_text(segment, resolved_dirs):
             pending_hooks_path = True
     return False
 
 
-def _bypasses_hook_floor_edit(tool_input: dict[str, Any]) -> bool:
-    """A Write/Edit/MultiEdit/NotebookEdit call targeting ``.git/hooks``."""
-    return any(
-        isinstance(tool_input.get(key), str)
-        and _HOOKS_DIR_PATTERN.search(tool_input[key])
-        for key in pr.PATH_KEYS
-    )
+def _bypasses_hook_floor_edit(tool_input: dict[str, Any], cwd: str) -> bool:
+    """A Write/Edit/MultiEdit/NotebookEdit call targeting `.git/hooks` (or
+    the worktrees shape, or a resolved `core.hooksPath` directory, DG-482)."""
+    paths = [
+        tool_input[key] for key in pr.PATH_KEYS if isinstance(tool_input.get(key), str)
+    ]
+    if any(_HOOKS_DIR_PATTERN.search(p) for p in paths):
+        return True
+    if (
+        not paths
+        or not cwd
+        or not any(_might_reference_protected_dir(p) for p in paths)
+    ):
+        return False
+    resolved_dirs = _resolve_dynamic_hooks_dirs(cwd)
+    return any(_mentions_resolved_dir(p, resolved_dirs) for p in paths)
 
 
-def _bypasses_hook_floor(tool_name: str, tool_input: dict[str, Any]) -> bool:
+def _bypasses_hook_floor(tool_name: str, tool_input: dict[str, Any], cwd: str) -> bool:
     """DG-465, the floor's third rule: the shapes that disable a hook rather
     than going around it honestly. Hardcoded here, not read from
     ``settings.json`` -- a settings rule matches a command by prefix and
@@ -812,9 +1044,12 @@ def _bypasses_hook_floor(tool_name: str, tool_input: dict[str, Any]) -> bool:
     these takes."""
     canonical = pr.canonical_tool(tool_name)
     if canonical == "Bash":
-        return _bypasses_hook_floor_bash(str(tool_input.get("command", "")))
+        command = str(tool_input.get("command", ""))
+        return _command_mentions_hooks_path_substitution_as_target(
+            command
+        ) or _bypasses_hook_floor_bash(command, cwd)
     if canonical == pr.EDIT_TOOL_CANONICAL:
-        return _bypasses_hook_floor_edit(tool_input)
+        return _bypasses_hook_floor_edit(tool_input, cwd)
     return False
 
 
@@ -855,6 +1090,15 @@ def decide(payload: dict[str, Any], rules: pr.Rules) -> Decision:
     tool_input = payload.get("tool_input") or {}
     if not isinstance(tool_input, dict):
         tool_input = {}
+    # DG-482: the hook event's own ``cwd``, or ``""`` when the payload does
+    # not carry one -- never `os.getcwd()`. `decide()` is documented `Pure`
+    # and tested as such; falling back to the *process's* cwd would make
+    # the same payload answer differently depending on where this process
+    # happened to be started, which is exactly what "pure" rules out. A
+    # missing cwd degrades to the textual patterns alone (see
+    # :func:`_resolve_dynamic_hooks_dirs`), not a crash and not a widened
+    # permission.
+    cwd = str(payload.get("cwd") or "")
 
     # 1. Deny, before anything else and regardless of mode.
     if pr.is_denied(tool_name, tool_input, rules.deny):
@@ -870,7 +1114,7 @@ def decide(payload: dict[str, Any], rules: pr.Rules) -> Decision:
     # 3. DG-465: the floor's own rule, not a settings.json one. Disabling the
     # gate is exactly the one thing a settings rule cannot be trusted to deny
     # for itself -- it matches by prefix and never sees a flag mid-command.
-    if _bypasses_hook_floor(tool_name, tool_input):
+    if _bypasses_hook_floor(tool_name, tool_input, cwd):
         return Decision("deny", HOOK_FLOOR_BYPASS)
 
     # 4. Everything else is the harness's own business. Silence, not `allow`:
