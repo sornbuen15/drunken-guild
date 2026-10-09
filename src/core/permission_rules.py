@@ -73,6 +73,24 @@ _GLOB_CHARS: Final = ("*", "?", "[")
 _TWO_CHAR_OPERATORS: Final = ("&&", "||", "$(")
 _ONE_CHAR_OPERATORS: Final = (";", "|", "&", "\n", "`", "(", ")")
 
+#: A real shell's own word separators -- space, tab, form feed, vertical tab
+#: -- outside quotes. DG-481: a prefix-matching deny rule compares its own
+#: text, single-spaced, against the segment text verbatim, so `git<TAB>push`
+#: or `git  push` (doubled space) read as a different string even though a
+#: shell runs either one identically to `git push`. Collapsing a run of
+#: these to one space before matching makes the comparison see the command
+#: the way the shell actually will.
+#:
+#: Deliberately narrow. A lone `\r` (no following `\n`, so not
+#: :func:`line_continuation_length`'s concern either) and U+00A0 (NBSP) are
+#: *not* in this set and so stay untouched -- neither is in a POSIX shell's
+#: `IFS`, so `rm\xa0-rf` is one single argument (a program named literally
+#: that, which does not exist) rather than the two words `rm` and `-rf`. That
+#: is a different, inert command, not the denied one, and normalising it
+#: into looking the same would be the matcher inventing a word boundary the
+#: shell itself never draws.
+_INTERWORD_WHITESPACE: Final = (" ", "\t", "\f", "\v")
+
 
 class UnparseableRule(ValueError):
     """A rule string that does not read as a permission rule.
@@ -192,6 +210,13 @@ def segments_with_leading_operator(command: str) -> list[tuple[str, str]]:
             quote = char
             current.append(char)
             i += 1
+            continue
+
+        if char in _INTERWORD_WHITESPACE:
+            current.append(" ")
+            i += 1
+            while i < len(command) and command[i] in _INTERWORD_WHITESPACE:
+                i += 1
             continue
 
         pair = command[i : i + 2]

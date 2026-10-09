@@ -1027,3 +1027,70 @@ class TestDG465OtherInterTokenWhitespaceStaysSane:
         character is not being given some other, unsafe meaning."""
         decision = hook.decide(payload(command="git commit -an"), self.NO_RULES)
         assert decision.permission == "deny"
+
+
+class TestDG476RedirectOrWriteAfterCdIntoHooksDir:
+    """DG-476, found by the DG-474 reviewer: `cwd_is_hooks_dir` only ever
+    checked later segments against `_HOOKS_DIR_MUTATING_VERBS` -- a verb
+    list. A bare redirect (`>`, `>>`), `: >`, or a writer whose target is
+    just a bare filename (no `.git/hooks` text in the segment at all, since
+    cwd is already there) tripped none of those verbs and matched none of
+    `_denies_hooks_dir_mutation`'s own path-anchored patterns either."""
+
+    NO_RULES = pr.Rules(allow=[], deny=[])
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "cd .git/hooks && echo x > pre-commit",
+            "cd .git/hooks && echo x >> pre-commit",
+            "cd .git/hooks && printf x > pre-commit",
+            "cd .git/hooks && : > pre-commit",
+            "cd .git\\hooks; Set-Content pre-commit x",
+            "cd .git/hooks && dd of=pre-commit",
+            "cd .git/hooks && sed -i 's/exit 1/exit 0/' pre-commit",
+        ],
+    )
+    def test_a_write_with_no_verb_and_no_hooks_text_is_denied(self, command) -> None:
+        decision = hook.decide(payload(command=command), self.NO_RULES)
+        assert decision.permission == "deny", f"{command!r} should be denied"
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "cd .git/hooks && cat pre-commit",
+            "cd .git/hooks && ls",
+            "cd .git/hooks && cd .. && echo x > a.txt",
+        ],
+    )
+    def test_a_read_or_a_write_after_leaving_the_hooks_dir_is_not_denied(
+        self, command
+    ) -> None:
+        decision = hook.decide(payload(command=command), self.NO_RULES)
+        assert decision.permission is None, f"{command!r} should stay allowed"
+
+    def test_a_redirect_to_an_absolute_path_elsewhere_is_not_denied(self) -> None:
+        """Still inside the hooks dir, but the target is not a file that
+        lands there -- an absolute path writes wherever it names, same as it
+        would from any other cwd."""
+        decision = hook.decide(
+            payload(command="cd .git/hooks && echo x > /tmp/elsewhere.txt"),
+            self.NO_RULES,
+        )
+        assert decision.permission is None
+
+    def test_a_redirect_inside_a_subshell_after_cd_is_still_denied(self) -> None:
+        decision = hook.decide(
+            payload(command="cd .git/hooks && (echo x > pre-commit)"),
+            self.NO_RULES,
+        )
+        assert decision.permission == "deny"
+
+    def test_a_redirect_after_an_or_operator_following_cd_is_still_denied(
+        self,
+    ) -> None:
+        decision = hook.decide(
+            payload(command="cd .git/hooks || true; echo x > pre-commit"),
+            self.NO_RULES,
+        )
+        assert decision.permission == "deny"

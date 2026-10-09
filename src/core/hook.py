@@ -22,7 +22,11 @@ whole file, and it answers the same three questions it always did:
    ``DRUNKEN_NO_REGISTERED_PROJECTS=`` on a git command, ``pre-commit
    uninstall``, or removing, moving, chmod-ing or editing ``.git/hooks``
    directly? A settings.json rule matches a command by prefix and never sees
-   a flag mid-command, so this one is hardcoded here instead.
+   a flag mid-command, so this one is hardcoded here instead. Once a ``cd``
+   has put the shell *inside* the hooks dir, the same rule also catches a
+   bare redirect or writer with no verb on the list and no ``.git/hooks``
+   text left to match (DG-476) — ``echo x > pre-commit`` needs neither once
+   cwd is already there.
 
 Everything else gets **silence**, which is not the same as ``allow``. Exit 0
 with no ``permissionDecision`` means "no opinion", and the harness carries on
@@ -466,6 +470,21 @@ _HOOKS_DIR_DD_OF_PATTERN: Final = re.compile(
 )
 
 
+def _edits_file_in_place(segment: str) -> bool:
+    """``sed -i``, ``perl -pi`` or ``awk -i inplace`` -- rewrites a file
+    where it already sits rather than naming a new target, so unlike the
+    other verbs here there is no second path argument for a path-anchored
+    check to find. Split out of :func:`_denies_hooks_dir_mutation` so
+    :func:`_denies_write_while_in_hooks_dir` (DG-476) can reuse exactly the
+    same verb check without also requiring `.git/hooks` text in the segment
+    -- cwd being the hooks dir already means the same thing."""
+    if _has_word(segment, "sed") and re.search(r"-i\b", segment):
+        return True
+    if _has_word(segment, "perl") and re.search(r"-\w*i\b", segment):
+        return True
+    return bool(_has_word(segment, "awk") and _has_word(segment, "inplace"))
+
+
 def _denies_hooks_dir_mutation(segment: str) -> bool:
     """Any shape that overwrites, relocates or defuses `.git/hooks` or a file
     in it: the verbs in :data:`_HOOKS_DIR_MUTATING_VERBS` (POSIX, Windows-
@@ -484,15 +503,46 @@ def _denies_hooks_dir_mutation(segment: str) -> bool:
         return True
     if not _HOOKS_DIR_PATTERN.search(segment):
         return False
-    if _has_word(segment, "sed") and re.search(r"-i\b", segment):
-        return True
-    if _has_word(segment, "perl") and re.search(r"-\w*i\b", segment):
-        return True
-    if _has_word(segment, "awk") and _has_word(segment, "inplace"):
+    if _edits_file_in_place(segment):
         return True
     if any(_has_word(segment, word) for word in _INTERPRETER_WORDS) and (
         _INTERPRETER_WRITE_SIGNAL.search(segment)
     ):
+        return True
+    return any(_has_word(segment, verb) for verb in _HOOKS_DIR_MUTATING_VERBS)
+
+
+#: A `>`/`>>` redirect whose target is a *relative* path -- not `2>&1` or
+#: `>&2` (fd duplication, no file write: the lookahead after the operator
+#: rejects a following `&`, and the lookbehind rejects a digit immediately
+#: before it, which is what makes `2>&1` a duplication rather than a write),
+#: and not an absolute path (`/...`, `~/...`, `C:\...`), which writes
+#: somewhere outside the hooks dir even while cwd is inside it. DG-476: a
+#: bare `echo x > pre-commit` once cwd is already `.git/hooks` needs no verb
+#: from :data:`_HOOKS_DIR_MUTATING_VERBS` and no `.git/hooks` text in the
+#: segment at all -- the write lands there because of where the shell
+#: already is, not because of anything this segment names.
+_RELATIVE_REDIRECT_PATTERN: Final = re.compile(
+    r"(?<![\d&])>>?(?!&)\s*[\"']?(?!/|~|[A-Za-z]:[\\/])\S"
+)
+
+#: `dd of=...` the same way -- no `.git/hooks` text required, just a target
+#: that is not itself an absolute path.
+_RELATIVE_DD_OF_PATTERN: Final = re.compile(r"\bof=[\"']?(?!/|~|[A-Za-z]:[\\/])\S")
+
+
+def _denies_write_while_in_hooks_dir(segment: str) -> bool:
+    """DG-476: every writer :func:`_denies_hooks_dir_mutation` already denies
+    when it names `.git/hooks` directly, found again here with no path
+    requirement at all -- valid only while the hooks dir is already `cwd`
+    (tracked by the caller, :func:`_bypasses_hook_floor_bash`). A read
+    (`cat pre-commit`, `ls`) matches none of these and stays undenied.
+    """
+    if _RELATIVE_REDIRECT_PATTERN.search(segment):
+        return True
+    if _RELATIVE_DD_OF_PATTERN.search(segment):
+        return True
+    if _edits_file_in_place(segment):
         return True
     return any(_has_word(segment, verb) for verb in _HOOKS_DIR_MUTATING_VERBS)
 
@@ -576,9 +626,7 @@ def _bypasses_hook_floor_bash(command: str) -> bool:
             or _denies_hooks_dir_mutation(segment)
         ):
             return True
-        if cwd_is_hooks_dir and any(
-            _has_word(segment, verb) for verb in _HOOKS_DIR_MUTATING_VERBS
-        ):
+        if cwd_is_hooks_dir and _denies_write_while_in_hooks_dir(segment):
             return True
         if (
             piped_from_hooks_path

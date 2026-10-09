@@ -408,3 +408,92 @@ class TestHookAndPermissionRulesAgreeOnSegments:
         payload = {"tool_name": "Bash", "tool_input": {"command": command}}
         via_hook = hook.decide(payload, rules).permission == "deny"
         assert direct == via_hook, rule_text
+
+
+def _spread_whitespace(command: str, fill: str) -> str:
+    """*command* with every plain space between words replaced by *fill*.
+    Mirrors a shell that was fed a tab, a form feed, a vertical tab, or two
+    spaces instead of one -- the same command, spelled with different
+    inter-word whitespace."""
+    return command.replace(" ", fill)
+
+
+class TestInterWordWhitespaceCannotDefeatADenyRule:
+    """DG-481. `split_command` kept every literal space, tab, form feed and
+    vertical tab exactly as typed, so a settings.json deny rule matched by
+    plain prefix (`"git push --force".startswith`) no longer matched once a
+    tab or a doubled space separated the words -- the same command a shell
+    runs identically either way. Normalise unquoted runs of that whitespace
+    to one space before prefix matching."""
+
+    @pytest.mark.parametrize("rule_text,command", _DENY_RULE_COMMANDS)
+    def test_denied_with_a_tab_between_every_word(
+        self, rule_text: str, command: str
+    ) -> None:
+        rule = pr.Rule.parse(rule_text)
+        tabbed = _spread_whitespace(command, "\t")
+        assert pr.is_denied("Bash", {"command": tabbed}, [rule]), tabbed
+
+    @pytest.mark.parametrize("rule_text,command", _DENY_RULE_COMMANDS)
+    def test_denied_with_double_spaces_between_every_word(
+        self, rule_text: str, command: str
+    ) -> None:
+        rule = pr.Rule.parse(rule_text)
+        doubled = _spread_whitespace(command, "  ")
+        assert pr.is_denied("Bash", {"command": doubled}, [rule]), doubled
+
+    @pytest.mark.parametrize("rule_text,command", _DENY_RULE_COMMANDS)
+    @pytest.mark.parametrize("fill", ["\t", "\f", "\v", "  "])
+    def test_denied_with_a_tab_and_a_continuation_combined(
+        self, rule_text: str, command: str, fill: str
+    ) -> None:
+        """A continuation (DG-467) and inter-word whitespace (DG-481) are two
+        different defects fixed in two tickets -- combined, neither gets to
+        reintroduce the hole the other one closed."""
+        rule = pr.Rule.parse(rule_text)
+        spread = _spread_whitespace(command, fill)
+        spliced = _splice_continuation(spread, len(spread) // 2, "\n")
+        assert pr.is_denied("Bash", {"command": spliced}, [rule]), spliced
+
+    def test_whitespace_inside_single_quotes_is_untouched(self) -> None:
+        command = "grep 'a\tb  c' file"
+        assert pr.split_command(command) == [command]
+
+    def test_whitespace_inside_double_quotes_is_untouched(self) -> None:
+        command = 'git commit -m "a  b\tc"'
+        assert pr.split_command(command) == [command]
+
+    def test_commit_message_with_double_spaces_is_unchanged(self) -> None:
+        """A harmless, already-allowed command must not be rewritten just
+        because normalisation now exists."""
+        rule = pr.Rule.parse('Bash(git commit -m "a  b":*)')
+        command = 'git commit -m "a  b"'
+        assert pr.split_command(command) == [command]
+        assert pr.is_allowed("Bash", {"command": command}, [rule])
+
+    def test_a_non_breaking_space_is_not_the_denied_command(self) -> None:
+        """Verdict, recorded: a real shell's word-splitting (IFS) does not
+        include U+00A0 -- `rm\xa0-rf` is one single argument to a program
+        named literally `rm\xa0-rf`, not the two words `rm` and `-rf`. That is
+        not the denied command, so this must not be normalised into one."""
+        rule = pr.Rule.parse("Bash(rm -rf:*)")
+        command = "rm\xa0-rf /tmp/x"
+        assert pr.split_command(command) == [command]
+        assert not pr.is_denied("Bash", {"command": command}, [rule])
+
+    def test_a_lone_cr_is_not_the_denied_command(self) -> None:
+        """Verdict, recorded: a lone `\\r` (no following `\\n`) is not a line
+        continuation (DG-467) and not an IFS separator either -- the same
+        reasoning as the NBSP case above, so it is left exactly where it was
+        found rather than collapsed."""
+        rule = pr.Rule.parse("Bash(git push --force:*)")
+        command = "git push\r--force origin main"
+        assert pr.split_command(command) == [command]
+        assert not pr.is_denied("Bash", {"command": command}, [rule])
+
+    def test_tab_combined_with_quoted_whitespace_only_normalises_outside(
+        self,
+    ) -> None:
+        command = 'git\tcommit\t-m\t"a  b\tc"\tHEAD'
+        normalised = pr.split_command(command)[0]
+        assert normalised == 'git commit -m "a  b\tc" HEAD'
