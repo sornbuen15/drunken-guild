@@ -181,28 +181,6 @@ def _has_word(segment: str, word: str) -> bool:
     return re.search(pattern, segment, re.IGNORECASE) is not None
 
 
-def _line_continuation_length(text: str, i: int) -> int:
-    """0 unless ``text[i]`` starts a backslash line continuation, in which
-    case how many characters it spans: 2 for ``\\`` + ``\n``, 3 for ``\\`` +
-    ``\r\n``.
-
-    DG-465 round 4: a line continuation is not an escaped newline -- both
-    characters vanish entirely, joining the two physical lines with nothing
-    in between, not even a space. The operator's shell is Windows, so the
-    CRLF spelling needs the same treatment as a bare ``\n``; a lone ``\r``
-    with no following ``\n`` is not a continuation and falls through to
-    ordinary escape handling.
-    """
-    n = len(text)
-    if i >= n or text[i] != "\\":
-        return 0
-    if i + 1 < n and text[i + 1] == "\n":
-        return 2
-    if i + 2 < n and text[i + 1] == "\r" and text[i + 2] == "\n":
-        return 3
-    return 0
-
-
 def _consume_inside_quotes(
     segment: str, i: int, quote: str
 ) -> tuple[int, Optional[str], bool]:
@@ -218,7 +196,7 @@ def _consume_inside_quotes(
     n = len(segment)
     char = segment[i]
     if quote == '"':
-        span = _line_continuation_length(segment, i)
+        span = pr.line_continuation_length(segment, i)
         if span:
             return i + span, None, False
         if char == "\\" and i + 1 < n:
@@ -266,13 +244,14 @@ def _tokenize_shell_words(segment: str) -> list[str]:
     That is handled by position, not by quoting: see
     :func:`_tokens_eligible_for_flag_matching`.
 
-    A backslash line continuation (:func:`_line_continuation_length`)
-    vanishes entirely rather than being read as an escaped newline, both
-    unquoted and inside double quotes -- ``--no-ver`` + a continuation +
-    ``ify`` is one token, ``--no-verify``, split across two physical lines
-    exactly as git's own command line would see it. Single quotes are
-    unaffected: a backslash has no special meaning there at all, so both
-    the backslash and the newline stay in the token literally, inert.
+    A backslash line continuation
+    (:func:`~core.permission_rules.line_continuation_length`) vanishes
+    entirely rather than being read as an escaped newline, both unquoted and
+    inside double quotes -- ``--no-ver`` + a continuation + ``ify`` is one
+    token, ``--no-verify``, split across two physical lines exactly as
+    git's own command line would see it. Single quotes are unaffected: a
+    backslash has no special meaning there at all, so both the backslash
+    and the newline stay in the token literally, inert.
     """
     tokens: list[str] = []
     current: list[str] = []
@@ -285,7 +264,7 @@ def _tokenize_shell_words(segment: str) -> list[str]:
         if quote is not None:
             i, quote = _consume_quoted_token_char(segment, i, quote, current)
             continue
-        span = _line_continuation_length(segment, i)
+        span = pr.line_continuation_length(segment, i)
         if span:
             i += span
             continue
@@ -541,117 +520,19 @@ _CD_INTO_HOOKS_DIR: Final = re.compile(
 #: :func:`_bypasses_hook_floor_bash`.
 _CD_OR_POPD: Final = re.compile(r"^(?:cd|popd)\b", re.IGNORECASE)
 
-#: Same two-char/one-char operator lists :func:`~core.permission_rules.
-#: split_command` splits on, duplicated here because that function's return
-#: shape (a flat list of segment strings) throws away *which* operator
-#: joined each pair -- and round 3 needs exactly that: `|` is the one
-#: operator that actually pipes one segment's output into the next, so it
-#: is the only one a hooks-path-then-`xargs` bypass can ride on. `&&`/`;`/a
-#: subshell boundary do not carry a value forward the same way.
-_TWO_CHAR_SPLIT_OPS: Final = ("&&", "||", "$(")
-_ONE_CHAR_SPLIT_OPS: Final = (";", "|", "&", "\n", "`", "(", ")")
-
-
-def _consume_inside_quotes_keeping_delimiters(
-    command: str, i: int, quote: str
-) -> tuple[int, str, bool]:
-    """Like :func:`_consume_inside_quotes`, but keeps the quote characters
-    (and the escaping backslash) in the text returned rather than stripping
-    them -- :func:`_segments_with_leading_operator` hands back segment text
-    a human would recognise, so every per-segment regex check elsewhere in
-    this module still sees the command the way it was written, quotes and
-    all. A line continuation still vanishes either way.
-
-    Split out to keep that function's own branching under the project's
-    complexity limit.
-    """
-    n = len(command)
-    char = command[i]
-    if quote == '"':
-        span = _line_continuation_length(command, i)
-        if span:
-            return i + span, "", False
-        if char == "\\" and i + 1 < n:
-            return i + 2, char + command[i + 1], False
-    return i + 1, char, char == quote
-
-
-def _segments_with_leading_operator(command: str) -> list[tuple[str, str]]:
-    """Quote-aware split into ``(operator, segment)`` pairs -- the operator
-    is ``""`` for the first segment, otherwise the token that preceded it.
-
-    Mirrors :func:`~core.permission_rules.split_command`'s scanning (same
-    operator lists, same quote handling) rather than changing that
-    function's public, shared return shape for one caller's need -- with
-    one deliberate divergence, added in DG-465 round 4:
-    :func:`~core.permission_rules.split_command` treats a backslash
-    line continuation as an ordinary escaped character, which leaves the
-    literal backslash and newline sitting inside the segment text it
-    returns. That is a latent gap in the shared matcher too, but fixing it
-    here only -- rather than in a module this hook does not own and other
-    deny-list matching depends on -- keeps this ticket's change where it
-    was scoped to land. Here, a continuation vanishes outside quotes and
-    inside double quotes, so it can never fragment a literal path like
-    ``.git/hooks`` across two physical lines and defeat the regex matching
-    every per-segment check in this file does on the result.
-    """
-    pairs: list[tuple[str, str]] = []
-    current: list[str] = []
-    operator = ""
-    quote: Optional[str] = None
-    i = 0
-    n = len(command)
-    while i < n:
-        char = command[i]
-        if quote is not None:
-            i, text, ended = _consume_inside_quotes_keeping_delimiters(
-                command, i, quote
-            )
-            current.append(text)
-            if ended:
-                quote = None
-            continue
-        span = _line_continuation_length(command, i)
-        if span:
-            i += span
-            continue
-        if char == "\\" and i + 1 < n:
-            current.append(char)
-            current.append(command[i + 1])
-            i += 2
-            continue
-        if char in ("'", '"'):
-            quote = char
-            current.append(char)
-            i += 1
-            continue
-        pair = command[i : i + 2]
-        if pair in _TWO_CHAR_SPLIT_OPS:
-            pairs.append((operator, "".join(current)))
-            current = []
-            operator = pair
-            i += 2
-            continue
-        if char in _ONE_CHAR_SPLIT_OPS:
-            pairs.append((operator, "".join(current)))
-            current = []
-            operator = char
-            i += 1
-            continue
-        current.append(char)
-        i += 1
-    pairs.append((operator, "".join(current)))
-    return [(op, seg.strip()) for op, seg in pairs if seg.strip()]
-
 
 def _bypasses_hook_floor_bash(command: str) -> bool:
     """Scan every segment a Bash call will actually run.
 
-    :func:`_segments_with_leading_operator` is quote-aware and splits on
-    ``&&``, ``;``, ``|``, ``(``/``)`` and command substitution, same as
-    :func:`~core.permission_rules.is_denied` relies on -- so a bypass hidden
-    after an operator or inside a subshell is scanned the same as one typed
-    on its own.
+    :func:`~core.permission_rules.segments_with_leading_operator` is
+    quote-aware and splits on ``&&``, ``;``, ``|``, ``(``/``)`` and command
+    substitution, same as :func:`~core.permission_rules.is_denied` relies on
+    -- so a bypass hidden after an operator or inside a subshell is scanned
+    the same as one typed on its own. DG-474: this used to be a second copy
+    of that same scan, kept here only because this check needs the operator
+    that joined each segment and the shared module's public shape used to
+    throw it away -- the operator now rides along in the one, shared
+    function instead of a second implementation of the scan itself.
 
     Three kinds of state are carried *across* segments rather than found in
     one, each scoped no wider than the real shell semantics it is standing
@@ -675,7 +556,7 @@ def _bypasses_hook_floor_bash(command: str) -> bool:
     A true variable indirection (``H=.git/hooks; mv $H /tmp/``) is not
     attempted here -- see the PR body's out-of-scope list.
     """
-    segment_pairs = _segments_with_leading_operator(command) or [("", command)]
+    segment_pairs = pr.segments_with_leading_operator(command) or [("", command)]
     exported_skip_var = False
     cwd_is_hooks_dir = False
     pending_hooks_path = False
