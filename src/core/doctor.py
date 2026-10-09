@@ -1944,6 +1944,18 @@ _HOOK_TYPES_BLOCK_KEY: Final = re.compile(r"^default_install_hook_types:\s*$")
 #: outcome. See :func:`declared_hook_types`.
 _HOOK_TYPES_KEY_PREFIX: Final = "default_install_hook_types:"
 
+#: The key as YAML itself would recognise it, quoted or not, with any
+#: amount of space before the colon — `"default_install_hook_types": [...]`
+#: and `default_install_hook_types : [...]` are both valid YAML read by
+#: pre-commit exactly the same as the bare, unspaced form. Matching only
+#: the unquoted, unspaced literal would silently read either one as the
+#: key being absent (DG-469 review). The backreference requires the same
+#: quote character (or none) on both sides, so `'key"` is correctly not a
+#: match.
+_HOOK_TYPES_KEY_RE: Final = re.compile(
+    r"^(?P<quote>['\"]?)default_install_hook_types(?P=quote)\s*:"
+)
+
 
 class UnparseableHookTypesError(ValidationError):
     """``default_install_hook_types`` is present but not in a shape this
@@ -1998,6 +2010,157 @@ def _strip_inline_comment(line: str) -> str:
     return line
 
 
+def _advance_past_single_quote(line: str, index: int) -> tuple[int, Optional[str]]:
+    """One step of the scan while inside a single-quoted scalar: `''` is a
+    literal single quote and does not close it, any other `'` does.
+    Returns the next index to scan and the quote state after this step.
+    """
+    if line[index] == "'":
+        if index + 1 < len(line) and line[index + 1] == "'":
+            return index + 2, "'"
+        return index + 1, None
+    return index + 1, "'"
+
+
+def _advance_past_double_quote(line: str, index: int) -> tuple[int, Optional[str]]:
+    """One step of the scan while inside a double-quoted scalar: `\\"` is a
+    literal double quote (and consumes the character after it) and does
+    not close it, any other `"` does. Returns the next index to scan and
+    the quote state after this step.
+    """
+    if line[index] == "\\":
+        return index + 2, '"'
+    if line[index] == '"':
+        return index + 1, None
+    return index + 1, '"'
+
+
+def _quote_state_after(line: str, start_quote: Optional[str]) -> Optional[str]:
+    """The quote character still open at the end of *line*, given it
+    started inside *start_quote* (``None`` if *line* started outside any
+    quoted scalar).
+
+    Single- and double-quoted YAML scalars escape differently, but YAML's
+    own grammar never has both open at once, so one piece of state is
+    enough. A ``#`` reached outside any quote, at the start of the line or
+    after whitespace, starts a comment and ends scanning for the rest of
+    the line, the same rule :func:`_strip_inline_comment` applies.
+    """
+    quote = start_quote
+    index = 0
+    length = len(line)
+    while index < length:
+        if quote == "'":
+            index, quote = _advance_past_single_quote(line, index)
+            continue
+        if quote == '"':
+            index, quote = _advance_past_double_quote(line, index)
+            continue
+        char = line[index]
+        if char == "'":
+            quote = "'"
+        elif char == '"':
+            quote = '"'
+        elif char == "#" and (index == 0 or line[index - 1].isspace()):
+            break
+        index += 1
+    return quote
+
+
+def _normalized_hook_types_declaration(line: str) -> Optional[str]:
+    """*line*, comment-stripped and collapsed to the canonical
+    ``default_install_hook_types:`` this module's own flow/block patterns
+    match — or ``None`` if *line* is not this key at all.
+
+    Collapses two shapes YAML itself reads identically to the bare,
+    unspaced key: quoted (`"default_install_hook_types": [...]`) and
+    spaced before the colon (`default_install_hook_types : [...]`).
+    Matching only the literal, unquoted, unspaced text would silently read
+    either one as the key being absent (DG-469 review).
+    """
+    stripped = _strip_inline_comment(line).strip()
+    match = _HOOK_TYPES_KEY_RE.match(stripped)
+    if not match:
+        return None
+    return _HOOK_TYPES_KEY_PREFIX + stripped[match.end() :]
+
+
+def _find_top_level_hook_types_line(lines: list[str]) -> Optional[tuple[int, str]]:
+    """The last line declaring `default_install_hook_types` at column 0 of
+    the top-level mapping, as ``(index, normalized_line)`` — or ``None`` if
+    it is absent there.
+
+    **Last** top-level occurrence, matching PyYAML's own mapping semantics
+    (the `Loader=SafeLoader` pre-commit itself loads the config with): a
+    duplicate top-level key is not an error to PyYAML, the later one wins,
+    and this reader must agree rather than read the first one pre-commit
+    itself would have already discarded (DG-469 review).
+
+    Raises :class:`UnparseableHookTypesError` when the key appears only
+    nested — under a `repos:` hook entry or any other unrelated key — since
+    that is never the declaration pre-commit itself reads, and treating it
+    as silently absent risks the same "could not read this" versus
+    "nothing was declared" collapse :func:`declared_hook_types` already
+    guards against for an unrecognised value. Also raised when the key
+    text opens a line that is actually the continuation of a different
+    key's multi-line quoted scalar: a double-quoted scalar's continuation
+    line needs no indentation at all, so it can fold text that reads
+    exactly like a clean top-level declaration onto column 0 even though
+    the parsed document has no such key there (DG-469 review). This reader
+    is deliberately conservative about that one shape — a line scanner,
+    not a parser, so it fails loud the moment it cannot prove a match is a
+    real mapping key, rather than guess.
+    """
+    top_level: Optional[tuple[int, str]] = None
+    nested_only = False
+    open_quote: Optional[str] = None
+    for index, raw_line in enumerate(lines):
+        starts_inside_quote = open_quote is not None
+        if starts_inside_quote:
+            candidate = _HOOK_TYPES_KEY_RE.match(raw_line.strip())
+            if candidate:
+                raise UnparseableHookTypesError(
+                    "default_install_hook_types appears to start a line "
+                    "that is actually the continuation of a different "
+                    "key's multi-line quoted value, not a real mapping "
+                    "key — refusing to guess which one is meant.",
+                    remediation=(
+                        "Rewrite the other key's multi-line quoted scalar "
+                        "so no continuation line starts with "
+                        "default_install_hook_types, or move the real "
+                        "declaration onto its own clean line."
+                    ),
+                )
+        else:
+            normalized = _normalized_hook_types_declaration(raw_line)
+            if normalized is not None:
+                comment_stripped = _strip_inline_comment(raw_line)
+                if comment_stripped.lstrip(" \t") != comment_stripped:
+                    # Indented under something else — never the
+                    # top-level declaration pre-commit itself reads.
+                    nested_only = True
+                else:
+                    top_level = (index, normalized)
+        open_quote = _quote_state_after(raw_line, open_quote)
+
+    if top_level is not None:
+        return top_level
+
+    if nested_only:
+        raise UnparseableHookTypesError(
+            "default_install_hook_types is present but only nested under "
+            "another key, not at the top level of .pre-commit-config.yaml, "
+            "where pre-commit itself reads it.",
+            remediation=(
+                "Move default_install_hook_types to column 0 of "
+                ".pre-commit-config.yaml's top-level mapping, or remove "
+                "the nested occurrence if it was not meant as this "
+                "declaration."
+            ),
+        )
+    return None
+
+
 def declared_hook_types(config_text: str) -> list[str]:
     """`default_install_hook_types` exactly as *config_text* declares it.
 
@@ -2024,48 +2187,71 @@ def declared_hook_types(config_text: str) -> list[str]:
     collapsing "could not read this" into "nothing was declared" is exactly
     how a real ``commit-msg``/``pre-push`` declaration could drop out of
     the check while it kept reporting ok.
+
+    Read only at column 0 of the top-level mapping — pre-commit itself only
+    ever honours the key there. The key matched as plain text with no
+    regard for indentation would read a `default_install_hook_types:` line
+    nested inside a `repos:` hook entry, or under any other unrelated key,
+    as the top-level declaration, which is never what pre-commit itself
+    does with it. A declaration that appears only nested is not silently
+    treated as absent either — it fails loud via
+    :class:`UnparseableHookTypesError`, the same as any other shape this
+    reader cannot follow, since a config carrying the string only
+    indented could just as easily be a real declaration broken by a stray
+    indent as an unrelated use of the same words, and the two must not
+    collapse into "use the default" either.
+
+    A leading BOM (U+FEFF) is stripped before scanning: `str.strip()`
+    does not remove it, and it otherwise hides a genuine column-0
+    declaration on the first line behind what looks like leading
+    whitespace that is not " " or "\\t" either.
+
+    The key is also recognised quoted (`"default_install_hook_types":
+    [...]`) and with space before the colon
+    (`default_install_hook_types : [...]`) — both valid YAML pre-commit
+    reads the same as the bare, unspaced form — and, when it appears more
+    than once at the top level, the **last** occurrence wins, the same as
+    PyYAML's own duplicate-key behaviour under the `SafeLoader` pre-commit
+    itself loads the config with.
     """
-    lines = config_text.splitlines()
-    for index, raw_line in enumerate(lines):
-        stripped = _strip_inline_comment(raw_line).strip()
-        if not stripped.startswith(_HOOK_TYPES_KEY_PREFIX):
-            continue
+    lines = config_text.lstrip(chr(0xFEFF)).splitlines()
+    found = _find_top_level_hook_types_line(lines)
+    if found is None:
+        return list(_DEFAULT_HOOK_TYPES_WHEN_UNDECLARED)
+    top_level_index, stripped = found
 
-        flow_match = _HOOK_TYPES_FLOW.match(stripped)
-        if flow_match:
-            items = [
-                item.strip().strip("'\"") for item in flow_match.group(1).split(",")
-            ]
-            return [item for item in items if item]
+    flow_match = _HOOK_TYPES_FLOW.match(stripped)
+    if flow_match:
+        items = [item.strip().strip("'\"") for item in flow_match.group(1).split(",")]
+        return [item for item in items if item]
 
-        if _HOOK_TYPES_BLOCK_KEY.match(stripped):
-            types: list[str] = []
-            for following in lines[index + 1 :]:
-                item = _strip_inline_comment(following).strip()
-                if not item:
-                    continue
-                if not item.startswith("-"):
-                    break
-                types.append(item[1:].strip().strip("'\""))
-            return types
+    if _HOOK_TYPES_BLOCK_KEY.match(stripped):
+        types: list[str] = []
+        for following in lines[top_level_index + 1 :]:
+            item = _strip_inline_comment(following).strip()
+            if not item:
+                continue
+            if not item.startswith("-"):
+                break
+            types.append(item[1:].strip().strip("'\""))
+        return types
 
-        # The key is present but matches neither recognised shape: an
-        # anchor (`&types [...]` / `&types pre-commit`), an unterminated
-        # flow list (`[` with no matching `]` on this line), or any other
-        # scalar. Fail loud rather than silently falling back.
-        raise UnparseableHookTypesError(
-            f"default_install_hook_types is present but not in a "
-            f"recognised shape: {stripped!r}. Expected a flow list "
-            "(`[a, b]`, closed on the same line) or a block list of "
-            "`- type` lines.",
-            remediation=(
-                "Rewrite default_install_hook_types in "
-                ".pre-commit-config.yaml as a single-line flow list or a "
-                "block list of `- type` lines, with no YAML anchor and no "
-                "multi-line flow list — neither is read by this check."
-            ),
-        )
-    return list(_DEFAULT_HOOK_TYPES_WHEN_UNDECLARED)
+    # The key is present but matches neither recognised shape: an
+    # anchor (`&types [...]` / `&types pre-commit`), an unterminated
+    # flow list (`[` with no matching `]` on this line), or any other
+    # scalar. Fail loud rather than silently falling back.
+    raise UnparseableHookTypesError(
+        f"default_install_hook_types is present but not in a "
+        f"recognised shape: {stripped!r}. Expected a flow list "
+        "(`[a, b]`, closed on the same line) or a block list of "
+        "`- type` lines.",
+        remediation=(
+            "Rewrite default_install_hook_types in "
+            ".pre-commit-config.yaml as a single-line flow list or a "
+            "block list of `- type` lines, with no YAML anchor and no "
+            "multi-line flow list — neither is read by this check."
+        ),
+    )
 
 
 def hooks_dir(git_root: Path) -> Optional[Path]:
