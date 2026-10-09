@@ -49,11 +49,13 @@ that needs a fixture-ordering review, not this.
 from __future__ import annotations
 
 import ast
+import ntpath
 import os
+import posixpath
 import sys
 from collections import defaultdict
 from dataclasses import dataclass, field
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 
 import pytest
 
@@ -166,17 +168,41 @@ def _is_safe_leaf_name(node: ast.AST, ctx: "_FunctionContext") -> bool:
     )
 
 
+def _is_absolute_or_escaping_segment(value: str) -> bool:
+    """True if *value*, used as a `/`-join's literal segment, can discard
+    everything to its left or walk back out of the scratch directory
+    (PR #172 review of DG-484, HIGH: `tmp_path / '/abs/real'` is accepted
+    by `pathlib.Path.__truediv__` and, on Windows, *replaces* `tmp_path`
+    entirely rather than joining under it -- `tmp_path / '..' / '..'`
+    walks back out the same way).
+
+    Checked against **both** OS flavours regardless of which one is
+    actually running this check (`ntpath.isabs`/`posixpath.isabs`, plus
+    `PureWindowsPath(...).drive` for a bare drive prefix like `"C:"` that
+    `ntpath.isabs` alone does not catch), because a test suite that
+    happens to run on Linux must still refuse the Windows-only escape and
+    vice versa -- the env var it builds may be read by either. `~` is
+    included because a later `os.path.expanduser` call on the result
+    would still expand it, even though `pathlib`/`os.path.join` do not."""
+    if value == "":
+        return False
+    if posixpath.isabs(value) or ntpath.isabs(value) or PureWindowsPath(value).drive:
+        return True
+    if value.startswith("~"):
+        return True
+    return ".." in value.replace("\\", "/").split("/")
+
+
 def _is_safe_join_operand(node: ast.AST, ctx: "_FunctionContext") -> bool:
     """A right-hand `/` operand: a safe leaf, or a string literal that is
-    not a `..` segment -- DG-484 (low): `tmp_path / '..' / '..'` can walk
-    back out of the scratch directory, so `..` is rejected even though it
-    is "just a literal"."""
+    neither absolute nor escaping (DG-484 / PR #172 review) -- a bare
+    relative segment like `"home"` or `"a"` only."""
     if _is_safe_leaf_name(node, ctx):
         return True
     return (
         isinstance(node, ast.Constant)
         and isinstance(node.value, str)
-        and node.value != ".."
+        and not _is_absolute_or_escaping_segment(node.value)
     )
 
 
@@ -1222,6 +1248,195 @@ class TestOverrideValueRequiresRealProvenance:
             "a check that trusts any bare Name, allow-listed or not, must "
             "miss the unlisted fixture offender"
         )
+
+
+class TestJoinLiteralsCannotDiscardOrEscapeTheSandbox:
+    """PR #172 review of DG-484, HIGH: `tmp_path / '/abs/real'` is the
+    exact `/`-join shape SCOPE allows, and `pathlib.Path.__truediv__`
+    treats an absolute right operand as a replacement, not a join -- on
+    Windows this silently discards `tmp_path` and reaches the real
+    `C:\\abs\\real`. Checked empirically (not just by reading the pathlib
+    docs): `PureWindowsPath(tmp_path) / '/abs/real'` evaluates to
+    `'C:\\abs\\real'`, keeping none of `tmp_path`.
+
+    Every offender here is a real snippet parsed by the real, unmutated
+    checker."""
+
+    _ABS_POSIX_OFFENDER = (
+        "import subprocess\n"
+        "def test_x(tmp_path):\n"
+        "    subprocess.run(\n"
+        "        ['python'], env={'DRUNKEN_HOME': str(tmp_path / '/abs/real')}\n"
+        "    )\n"
+    )
+    _DRIVE_PREFIX_OFFENDER = (
+        "import subprocess\n"
+        "def test_x(tmp_path):\n"
+        "    subprocess.run(\n"
+        "        ['python'], env={'DRUNKEN_HOME': str(tmp_path / 'C:/real')}\n"
+        "    )\n"
+    )
+    _UNC_OFFENDER = (
+        "import subprocess\n"
+        "def test_x(tmp_path):\n"
+        "    subprocess.run(\n"
+        "        ['python'],\n"
+        "        env={'DRUNKEN_HOME': str(tmp_path / '\\\\\\\\srv\\\\share')},\n"
+        "    )\n"
+    )
+    _TILDE_OFFENDER = (
+        "import subprocess\n"
+        "def test_x(tmp_path):\n"
+        "    subprocess.run(\n"
+        "        ['python'], env={'DRUNKEN_HOME': str(tmp_path / '~')}\n"
+        "    )\n"
+    )
+    _PATH_MULTI_ARG_OFFENDER = (
+        "import subprocess\n"
+        "from pathlib import Path\n"
+        "def test_x(tmp_path):\n"
+        "    subprocess.run(\n"
+        "        ['python'], env={'DRUNKEN_HOME': str(Path(tmp_path, '/abs'))}\n"
+        "    )\n"
+    )
+    _JOINPATH_OFFENDER = (
+        "import subprocess\n"
+        "def test_x(tmp_path):\n"
+        "    subprocess.run(\n"
+        "        ['python'],\n"
+        "        env={'DRUNKEN_HOME': str(tmp_path.joinpath('/abs'))},\n"
+        "    )\n"
+    )
+    _OS_PATH_JOIN_OFFENDER = (
+        "import os, subprocess\n"
+        "def test_x(tmp_path):\n"
+        "    subprocess.run(\n"
+        "        ['python'],\n"
+        "        env={'DRUNKEN_HOME': os.path.join(str(tmp_path), '/abs')},\n"
+        "    )\n"
+    )
+    _NON_LITERAL_RIGHT_OPERAND_OFFENDER = (
+        "import subprocess\n"
+        "def test_x(tmp_path, suffix):\n"
+        "    subprocess.run(\n"
+        "        ['python'], env={'DRUNKEN_HOME': str(tmp_path / suffix)}\n"
+        "    )\n"
+    )
+    _MULTI_SEGMENT_SAFE = (
+        "import subprocess\n"
+        "def test_x(tmp_path):\n"
+        "    subprocess.run(\n"
+        "        ['python'],\n"
+        "        env={'DRUNKEN_HOME': str(tmp_path / 'sub' / 'file.json')},\n"
+        "    )\n"
+    )
+    _TWO_LITERAL_SEGMENTS_SAFE = (
+        "import subprocess\n"
+        "def test_x(tmp_path):\n"
+        "    subprocess.run(\n"
+        "        ['python'], env={'DRUNKEN_HOME': str(tmp_path / 'a' / 'b')}\n"
+        "    )\n"
+    )
+    _FSTRING_ADJACENT_LITERAL_CONCAT_IS_NOT_A_DISCARD = (
+        "import subprocess\n"
+        "def test_x(tmp_path):\n"
+        "    subprocess.run(\n"
+        "        ['python'],\n"
+        "        env={'DRUNKEN_HOME': f'{tmp_path}' '/abs'},\n"
+        "    )\n"
+    )
+
+    @pytest.mark.parametrize(  # type: ignore[misc]
+        "offender",
+        [
+            _ABS_POSIX_OFFENDER,
+            _DRIVE_PREFIX_OFFENDER,
+            _UNC_OFFENDER,
+            _TILDE_OFFENDER,
+            _PATH_MULTI_ARG_OFFENDER,
+            _JOINPATH_OFFENDER,
+            _OS_PATH_JOIN_OFFENDER,
+            _NON_LITERAL_RIGHT_OPERAND_OFFENDER,
+        ],
+        ids=[
+            "abs_posix",
+            "drive_prefix",
+            "unc",
+            "tilde",
+            "path_multi_arg",
+            "joinpath",
+            "os_path_join",
+            "non_literal_right_operand",
+        ],
+    )
+    def test_each_discarding_or_unrecognised_join_is_flagged(
+        self, offender: str
+    ) -> None:
+        assert find_unsandboxed_subprocess_env_calls(offender, "x.py") != []
+
+    def test_a_multi_segment_relative_join_is_not_flagged(self) -> None:
+        assert (
+            find_unsandboxed_subprocess_env_calls(self._MULTI_SEGMENT_SAFE, "x.py")
+            == []
+        )
+
+    def test_two_literal_relative_segments_are_not_flagged(self) -> None:
+        assert (
+            find_unsandboxed_subprocess_env_calls(
+                self._TWO_LITERAL_SEGMENTS_SAFE, "x.py"
+            )
+            == []
+        )
+
+    def test_fstring_adjacent_literal_concatenation_is_not_flagged(self) -> None:
+        """Not a HIGH evasion like the `/`-join offenders above: Python
+        string concatenation can never discard a prefix the way
+        `pathlib.Path.__truediv__` does. Verified empirically --
+        `f'{tmp_path}' '/abs'` evaluates to `str(tmp_path) + '/abs'`,
+        which still contains the whole of `tmp_path`, unlike
+        `PureWindowsPath(tmp_path) / '/abs/real'`, which does not."""
+        assert (
+            tmp_path_value_is_preserved_by_fstring_concat()  # sanity, not AST
+        )
+        assert (
+            find_unsandboxed_subprocess_env_calls(
+                self._FSTRING_ADJACENT_LITERAL_CONCAT_IS_NOT_A_DISCARD, "x.py"
+            )
+            == []
+        )
+
+    def test_removing_the_absolute_literal_check_misses_the_abs_posix_offender(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A REAL mutation of the production `_is_absolute_or_escaping_segment`
+        -- the exact function this check added -- patched to always say
+        "not absolute", reproducing the evasion the reviewer found."""
+        module = sys.modules[__name__]
+        assert (
+            find_unsandboxed_subprocess_env_calls(self._ABS_POSIX_OFFENDER, "x.py")
+            != []
+        )
+
+        monkeypatch.setattr(
+            module, "_is_absolute_or_escaping_segment", lambda *a, **k: False
+        )
+
+        assert (
+            find_unsandboxed_subprocess_env_calls(self._ABS_POSIX_OFFENDER, "x.py")
+            == []
+        ), (
+            "a check that never recognises an absolute join segment must "
+            "miss the tmp_path / '/abs/real' offender"
+        )
+
+
+def tmp_path_value_is_preserved_by_fstring_concat() -> bool:
+    """The empirical check `test_fstring_adjacent_literal_concatenation_is_
+    not_flagged` cites: string concatenation keeps the whole prefix,
+    unlike `pathlib.Path.__truediv__` with an absolute right operand."""
+    sample = "C:/Users/example/scratch"
+    concatenated = f"{sample}/abs"
+    return concatenated == sample + "/abs" and sample in concatenated
 
 
 class TestMutationsAfterTheCopyAreTracked:
