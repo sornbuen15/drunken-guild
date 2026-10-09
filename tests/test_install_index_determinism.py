@@ -21,6 +21,7 @@ construction.
 
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 import sys
@@ -96,12 +97,17 @@ def _run_ps_installer_with_canary(
 
 
 def _truncate(text: str, width: int, locale: str) -> bytes:
+    #: DG-477: derived from `os.environ` (which carries `DRUNKEN_HOME` from
+    #: the autouse `hermetic_drunken_home` fixture) rather than built from
+    #: scratch, so this child process never has a path back to the
+    #: operator's real registry even though it has no reason to look.
+    env = {**os.environ, "LC_ALL": locale, "LANG": locale, "PATH": "/usr/bin:/bin"}
     return subprocess.run(
         [sys.executable, str(TRUNCATE), str(width)],
         input=text.encode("utf-8"),
         capture_output=True,
         check=True,
-        env={"LC_ALL": locale, "LANG": locale, "PATH": "/usr/bin:/bin"},
+        env=env,
     ).stdout
 
 
