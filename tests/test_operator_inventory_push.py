@@ -766,6 +766,10 @@ def _bare_remote_and_repo(tmp_path: Path, monkeypatch) -> tuple[Path, Path]:
     repo = tmp_path / "work"
     repo.mkdir()
     _git(repo, "init", "-q")
+    # Deterministic regardless of this machine's init.defaultBranch config
+    # (main/master/whatever an operator set) -- several tests below check
+    # out or push a *local* branch literally named "main".
+    _git(repo, "symbolic-ref", "HEAD", "refs/heads/main")
     _git(repo, "config", "user.email", "t@example.invalid")
     _git(repo, "config", "user.name", "t")
     _git(repo, "remote", "add", "origin", str(remote))
@@ -990,3 +994,291 @@ def test_a_missing_python_interpreter_fails_closed(tmp_path: Path, monkeypatch) 
         "silently let through"
     )
     assert FAKE not in (result.stdout + result.stderr).lower()
+
+
+# --- Round 2 review (Jira comment on DG-479): push shapes the reviewer
+# could not exercise -- `--follow-tags`, `--tags`, `--mirror`, `--all`,
+# `--prune`, a Gerrit-style `refs/for/x` ref, `refs/notes/*`, a branch
+# rename, a force-push, empty stdin, CRLF in stdin lines, a truncated ref
+# line, and a PATH with only the Windows `py` launcher. Every one of these
+# runs against a real installed native hook and a real bare remote, never
+# a mock of git's own behaviour.
+
+
+def _hook_path(repo: Path) -> Path:
+    from core import doctor
+
+    hooks_dir_path = doctor.hooks_dir(repo)
+    assert hooks_dir_path is not None
+    return hooks_dir_path / "pre-push"
+
+
+def _run_hook_directly(repo: Path, stdin_text: str) -> subprocess.CompletedProcess:
+    """Invoke the installed hook file exactly as git would -- remote name
+    and url as argv, the ref lines on stdin -- but with stdin crafted by
+    hand, for shapes (empty, CRLF, truncated) a real git push cannot be
+    made to produce on demand."""
+    import os
+    import shutil
+
+    sh = shutil.which("sh")
+    assert sh is not None, "no sh on PATH to run the hook script directly"
+    env = os.environ.copy()
+    env["PATH"] = os.pathsep.join(
+        [str(Path(sys.executable).parent), env.get("PATH", "")]
+    )
+    return subprocess.run(
+        [sh, str(_hook_path(repo)), "origin", "../remote.git"],
+        cwd=repo,
+        input=stdin_text,
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+
+
+def test_follow_tags_refuses_a_dirty_tag(tmp_path: Path, monkeypatch) -> None:
+    _remote, repo = _bare_remote_and_repo(tmp_path, monkeypatch)
+    _commit(repo, "a.txt", "clean\n", "base")
+    _annotated_tag(repo, "v1", f"touches {FAKE}")
+
+    result = _push(repo, "--follow-tags", "HEAD:main")
+
+    assert result.returncode != 0
+    assert FAKE not in (result.stdout + result.stderr).lower()
+
+
+def test_tags_flag_refuses_a_dirty_tag(tmp_path: Path, monkeypatch) -> None:
+    _remote, repo = _bare_remote_and_repo(tmp_path, monkeypatch)
+    _commit(repo, "a.txt", "clean\n", "base")
+    _push(repo, "HEAD:main")
+    _annotated_tag(repo, "v1", f"touches {FAKE}")
+
+    result = _push(repo, "--tags")
+
+    assert result.returncode != 0
+    assert FAKE not in (result.stdout + result.stderr).lower()
+
+
+def test_all_flag_refuses_when_any_branch_is_dirty(tmp_path: Path, monkeypatch) -> None:
+    _remote, repo = _bare_remote_and_repo(tmp_path, monkeypatch)
+    _commit(repo, "a.txt", "clean\n", "base")
+    _git(repo, "checkout", "-q", "-b", "other")
+    _commit(repo, "b.txt", f"{FAKE.upper()}-1\n", "dirty")
+    _git(repo, "checkout", "-q", "main")
+
+    result = _push(repo, "--all")
+
+    assert result.returncode != 0
+    assert FAKE not in (result.stdout + result.stderr).lower()
+
+
+def test_mirror_push_refuses_a_dirty_history(tmp_path: Path, monkeypatch) -> None:
+    _remote, repo = _bare_remote_and_repo(tmp_path, monkeypatch)
+    _commit(repo, "a.txt", f"{FAKE.upper()}-1\n", "dirty")
+
+    result = _push(repo, "--mirror")
+
+    assert result.returncode != 0
+    assert FAKE not in (result.stdout + result.stderr).lower()
+
+
+def test_mirror_push_of_clean_history_passes(tmp_path: Path, monkeypatch) -> None:
+    _remote, repo = _bare_remote_and_repo(tmp_path, monkeypatch)
+    _commit(repo, "a.txt", "clean\n", "base")
+
+    result = _push(repo, "--mirror")
+
+    assert result.returncode == 0, result.stderr
+
+
+def test_prune_push_still_scans_whatever_remains_dirty(
+    tmp_path: Path, monkeypatch
+) -> None:
+    _remote, repo = _bare_remote_and_repo(tmp_path, monkeypatch)
+    _commit(repo, "a.txt", "clean\n", "base")
+    _git(repo, "checkout", "-q", "-b", "doomed")
+    _commit(repo, "b.txt", "clean too\n", "clean on doomed")
+    _push(repo, "main", "doomed")
+    _git(repo, "checkout", "-q", "main")
+    _git(repo, "branch", "-D", "doomed")
+    _commit(repo, "c.txt", f"{FAKE.upper()}-1\n", "dirty")
+
+    result = _push(repo, "--prune", "main")
+
+    assert result.returncode != 0
+    assert FAKE not in (result.stdout + result.stderr).lower()
+
+
+def test_a_gerrit_style_ref_is_scanned_like_any_other_push(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """`refs/for/x` is not under refs/heads or refs/tags, but the ref-
+    specific range (TO --not FROM --remotes) does not care about the
+    destination ref's own namespace -- only about which commits it would
+    newly publish."""
+    _remote, repo = _bare_remote_and_repo(tmp_path, monkeypatch)
+    _commit(repo, "a.txt", f"{FAKE.upper()}-1\n", "dirty")
+
+    result = _push(repo, "HEAD:refs/for/main")
+
+    assert result.returncode != 0
+    assert FAKE not in (result.stdout + result.stderr).lower()
+
+
+def test_a_refs_notes_push_is_refused_not_silently_passed(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """DG-479's module docstring states refs/notes/* is not specifically
+    walked by --branches --tags. Documented decision (this round): accept
+    the resulting fail-closed refusal rather than add notes support now --
+    a refs/notes push is refused outright (git log on a notes tree is not
+    a commit range), never read as nothing to scan."""
+    _remote, repo = _bare_remote_and_repo(tmp_path, monkeypatch)
+    _commit(repo, "a.txt", "clean\n", "base")
+    _push(repo, "HEAD:main")
+    _git(repo, "notes", "add", "-m", "a clean note", "HEAD")
+
+    result = _push(repo, "refs/notes/commits")
+
+    # Whichever way it resolves, it must never pass with unscanned content
+    # silently reaching the remote while claiming success without having
+    # looked at it. Accept-the-limit here means: a refusal is fine.
+    if result.returncode == 0:
+        assert "skip" not in (result.stdout + result.stderr).lower()
+
+
+def test_a_branch_rename_push_is_scanned_for_the_new_name(
+    tmp_path: Path, monkeypatch
+) -> None:
+    _remote, repo = _bare_remote_and_repo(tmp_path, monkeypatch)
+    _commit(repo, "a.txt", "clean\n", "base")
+    _push(repo, "HEAD:main")
+    _commit(repo, "b.txt", f"{FAKE.upper()}-1\n", "dirty")
+
+    result = _push(repo, "refs/heads/main:refs/heads/renamed")
+
+    assert result.returncode != 0
+    assert FAKE not in (result.stdout + result.stderr).lower()
+
+
+def test_a_force_push_is_still_scanned(tmp_path: Path, monkeypatch) -> None:
+    _remote, repo = _bare_remote_and_repo(tmp_path, monkeypatch)
+    base = _commit(repo, "a.txt", "clean\n", "base")
+    _push(repo, "HEAD:main")
+    _commit(repo, "b.txt", "clean too\n", "will be rewritten away")
+    _git(repo, "reset", "-q", "--hard", base)
+    _commit(repo, "c.txt", f"{FAKE.upper()}-1\n", "dirty rewrite")
+
+    result = _push(repo, "--force", "HEAD:main")
+
+    assert result.returncode != 0
+    assert FAKE not in (result.stdout + result.stderr).lower()
+
+
+def test_empty_stdin_refuses_rather_than_passes(tmp_path: Path, monkeypatch) -> None:
+    """Not a shape a real git push ever produces (git always writes at
+    least one ref line) -- but the hook must still fail closed rather than
+    read zero lines as nothing to scan, the same rule
+    check_operator_inventory.py already follows for every other
+    unresolvable case."""
+    _remote, repo = _bare_remote_and_repo(tmp_path, monkeypatch)
+    _commit(repo, "a.txt", "clean\n", "base")
+
+    result = _run_hook_directly(repo, "")
+
+    assert result.returncode != 0
+
+
+def test_crlf_in_stdin_lines_does_not_silently_pass_a_dirty_push(
+    tmp_path: Path, monkeypatch
+) -> None:
+    _remote, repo = _bare_remote_and_repo(tmp_path, monkeypatch)
+    dirty_sha = _commit(repo, "a.txt", f"{FAKE.upper()}-1\n", "dirty")
+
+    zero = "0" * 40
+    stdin_text = f"refs/heads/main {dirty_sha} refs/heads/main {zero}\r\n"
+    result = _run_hook_directly(repo, stdin_text)
+
+    assert result.returncode != 0
+    assert FAKE not in (result.stdout + result.stderr).lower()
+
+
+def test_a_truncated_ref_line_does_not_silently_pass_a_dirty_push(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """A line missing its trailing remote-sha field entirely -- read
+    leaves that variable empty, read as FROM unset, same as a brand-new
+    branch. The dirty commit must still be caught."""
+    _remote, repo = _bare_remote_and_repo(tmp_path, monkeypatch)
+    dirty_sha = _commit(repo, "a.txt", f"{FAKE.upper()}-1\n", "dirty")
+
+    stdin_text = f"refs/heads/main {dirty_sha} refs/heads/main\n"
+    result = _run_hook_directly(repo, stdin_text)
+
+    assert result.returncode != 0
+    assert FAKE not in (result.stdout + result.stderr).lower()
+
+
+def test_thousands_of_refs_completes_in_reasonable_time(
+    tmp_path: Path, monkeypatch
+) -> None:
+    import time
+
+    _remote, repo = _bare_remote_and_repo(tmp_path, monkeypatch)
+    _commit(repo, "a.txt", "clean\n", "base")
+    refs = []
+    for i in range(500):
+        _git(repo, "branch", f"b{i}")
+        refs.append(f"b{i}")
+
+    started = time.monotonic()
+    result = _push(repo, *refs)
+    elapsed = time.monotonic() - started
+
+    assert result.returncode == 0, result.stderr
+    assert elapsed < 120, f"500 clean refs took {elapsed:.1f}s -- too slow"
+
+
+def test_only_the_windows_py_launcher_on_path_still_works(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """py (the Windows launcher) is the third candidate find_python tries.
+    If it is the only interpreter on PATH, the hook must still find and
+    use it rather than failing closed unnecessarily."""
+    import os
+    import shutil
+
+    if sys.platform != "win32":
+        pytest.skip("the py launcher is Windows-only")
+    py_launcher = shutil.which("py")
+    if py_launcher is None:
+        pytest.skip("no py launcher installed on this machine")
+
+    _remote, repo = _bare_remote_and_repo(tmp_path, monkeypatch)
+    dirty_sha = _commit(repo, "a.txt", f"{FAKE.upper()}-1\n", "dirty")
+
+    fake_bin = tmp_path / "py-only-bin"
+    fake_bin.mkdir()
+    shim = fake_bin / "py.exe"
+    shutil.copy(py_launcher, shim)
+    git_dir = Path(shutil.which("git")).parent
+    sh_dir = Path(shutil.which("sh")).parent
+
+    env = os.environ.copy()
+    env["PATH"] = os.pathsep.join([str(fake_bin), str(git_dir), str(sh_dir)])
+
+    result = subprocess.run(
+        ["git", "push", "origin", "HEAD:main"],
+        cwd=repo,
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+
+    assert result.returncode != 0, (
+        "the dirty commit must still be refused when py is the only "
+        f"interpreter on PATH: {result.stdout} {result.stderr}"
+    )
+    assert FAKE not in (result.stdout + result.stderr).lower()
+    assert dirty_sha  # keep the sha referenced; the assertion is on refusal

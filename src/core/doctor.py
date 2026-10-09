@@ -2456,6 +2456,45 @@ def _native_pre_push_status(hooks_dir_path: Path) -> tuple[bool, str]:
             "privacy scan is not confirmed to be running."
         )
 
+    # Reviewer round 2, gap B: git invokes a hook file directly rather than
+    # through an interpreter it chooses, exactly like `missing_hook_types`
+    # already reasons for pre-commit/commit-msg -- a present-but-not-
+    # executable file never runs at all, the same failure as it not
+    # existing. Skipped on Windows, where `os.access(..., X_OK)` reports
+    # every file executable regardless of any real permission bit.
+    if sys.platform != "win32" and not os.access(target, os.X_OK):
+        return False, (
+            f"{target} carries the drunken-guild marker but is not "
+            "executable — git invokes a hook file directly, so this "
+            "never actually runs."
+        )
+
+    # Reviewer round 2, gap A: the marker alone only proves drunken-init
+    # wrote this file *once* -- it says nothing about whether the body
+    # still matches the shipped template. A human (or anything else)
+    # appending a line after the marker, or truncating the body, leaves
+    # the marker intact while the push-time scan silently stops doing
+    # anything at all. `Path.read_text()` already applies universal-
+    # newline translation on both sides, so a CRLF-converted copy that is
+    # otherwise byte-identical is never misread as tampering.
+    try:
+        installed = target.read_text(encoding="utf-8", errors="replace")
+        template = git_hooks._read_template()  # noqa: SLF001
+    except git_hooks.GitHooksTemplateMissingError:
+        # No source tree to read the template from at all (an installed
+        # `drunken-doctor`, not a dev checkout) -- cannot verify content,
+        # but the marker and the execute bit are still real signal.
+        return True, f"the native pre-push hook is installed at {target}"
+
+    if installed != template:
+        return False, (
+            f"{target} carries the drunken-guild marker but its content "
+            "does not match the shipped template — stale or hand-edited. "
+            "`drunken-init --install-git-hooks` replaces a stale hook of "
+            "ours in place (identified by the marker); it never touches a "
+            "foreign one."
+        )
+
     return True, f"the native pre-push hook is installed at {target}"
 
 
