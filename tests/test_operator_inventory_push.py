@@ -1282,3 +1282,227 @@ def test_only_the_windows_py_launcher_on_path_still_works(
     )
     assert FAKE not in (result.stdout + result.stderr).lower()
     assert dirty_sha  # keep the sha referenced; the assertion is on refusal
+
+
+# --- Round 3 review (Jira comment on DG-479): BLOCK -- the round 2 perf
+# fix (first-non-deletion-ref + the existing global scan) opened a real,
+# reproduced leak. A commit reachable from NOTHING under refs/heads or
+# refs/tags (detached HEAD, refs/stash, refs/original/*, a branch deleted
+# locally before the push, ...) is invisible to the global scan by
+# construction, and was only caught before if it happened to be the FIRST
+# ref line in the push. The fix: one invocation per push still, but it now
+# reads every ref line itself and unions every pushed local sha into a
+# single git log call -- every test below is the reviewer's own repro, or
+# a variant of it, run against the real fix.
+
+
+def test_the_reviewers_repro_clean_main_then_detached_sneaky_is_refused(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """The exact repro from the round 2 BLOCK: clean main pushed first,
+    then in a SECOND push, main (unchanged) together with a detached dirty
+    sha pushed to a new ref name. Before the fix: exit 0, and the dirty
+    commit reached the remote."""
+    _remote, repo = _bare_remote_and_repo(tmp_path, monkeypatch)
+    _commit(repo, "a.txt", "clean\n", "base")
+    bootstrap = _push(repo, "HEAD:main")
+    assert bootstrap.returncode == 0, bootstrap.stderr
+
+    _git(repo, "checkout", "-q", "-b", "throwaway")
+    dirty_sha = _commit(repo, "b.txt", f"{FAKE.upper()}-1\n", "dirty, detached")
+    _git(repo, "checkout", "-q", "main")
+    _git(repo, "branch", "-D", "throwaway")  # now reachable from nothing local
+
+    result = _push(repo, "main", f"{dirty_sha}:refs/heads/sneaky")
+
+    assert result.returncode != 0, (
+        "a detached dirty commit pushed alongside an unrelated clean ref "
+        f"must be refused: {result.stdout} {result.stderr}"
+    )
+    assert FAKE not in (result.stdout + result.stderr).lower()
+
+
+def test_the_reviewers_repro_reversed_order_is_also_refused(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """Order must not matter -- the old 'first ref only' bug would have
+    caught this order and missed the other."""
+    _remote, repo = _bare_remote_and_repo(tmp_path, monkeypatch)
+    _commit(repo, "a.txt", "clean\n", "base")
+    _push(repo, "HEAD:main")
+
+    _git(repo, "checkout", "-q", "-b", "throwaway")
+    dirty_sha = _commit(repo, "b.txt", f"{FAKE.upper()}-1\n", "dirty, detached")
+    _git(repo, "checkout", "-q", "main")
+    _git(repo, "branch", "-D", "throwaway")
+
+    result = _push(repo, f"{dirty_sha}:refs/heads/sneaky", "main")
+
+    assert result.returncode != 0
+    assert FAKE not in (result.stdout + result.stderr).lower()
+
+
+def test_a_dirty_commit_on_refs_stash_is_refused(tmp_path: Path, monkeypatch) -> None:
+    _remote, repo = _bare_remote_and_repo(tmp_path, monkeypatch)
+    _commit(repo, "a.txt", "clean\n", "base")
+    _push(repo, "HEAD:main")
+    (repo / "a.txt").write_text(f"{FAKE.upper()}-1\n", encoding="utf-8")
+    _git(repo, "stash", "push", "-m", "dirty stash")
+    stash_sha = _git_out(repo, "rev-parse", "refs/stash")
+
+    result = _push(repo, f"{stash_sha}:refs/heads/from-stash")
+
+    assert result.returncode != 0
+    assert FAKE not in (result.stdout + result.stderr).lower()
+
+
+def test_a_dirty_commit_on_refs_original_is_refused(
+    tmp_path: Path, monkeypatch
+) -> None:
+    _remote, repo = _bare_remote_and_repo(tmp_path, monkeypatch)
+    _commit(repo, "a.txt", "clean\n", "base")
+    _push(repo, "HEAD:main")
+    dirty_sha = _commit(repo, "b.txt", f"{FAKE.upper()}-1\n", "dirty")
+    # `git update-ref` straight to refs/original/... -- the shape
+    # `git filter-branch` leaves behind -- without ever naming a branch.
+    _git(repo, "update-ref", "refs/original/refs/heads/main", dirty_sha)
+
+    result = _push(repo, "refs/original/refs/heads/main:refs/heads/from-original")
+
+    assert result.returncode != 0
+    assert FAKE not in (result.stdout + result.stderr).lower()
+
+
+def test_a_dirty_commit_on_refs_remotes_pushed_by_name_is_refused(
+    tmp_path: Path, monkeypatch
+) -> None:
+    _remote, repo = _bare_remote_and_repo(tmp_path, monkeypatch)
+    _commit(repo, "a.txt", "clean\n", "base")
+    _push(repo, "HEAD:main")
+    dirty_sha = _commit(repo, "b.txt", f"{FAKE.upper()}-1\n", "dirty")
+    _git(repo, "update-ref", "refs/remotes/o/x", dirty_sha)
+
+    result = _push(repo, "refs/remotes/o/x:refs/heads/from-remote-tracking")
+
+    assert result.returncode != 0
+    assert FAKE not in (result.stdout + result.stderr).lower()
+
+
+def test_a_dirty_annotated_tag_pushed_by_sha_is_refused(
+    tmp_path: Path, monkeypatch
+) -> None:
+    _remote, repo = _bare_remote_and_repo(tmp_path, monkeypatch)
+    _commit(repo, "a.txt", "clean\n", "base")
+    _push(repo, "HEAD:main")
+    tag_sha = _annotated_tag(repo, "v1", f"touches {FAKE}")
+
+    result = _push(repo, f"{tag_sha}:refs/tags/pushed-by-sha")
+
+    assert result.returncode != 0
+    assert FAKE not in (result.stdout + result.stderr).lower()
+
+
+def test_a_dirty_commit_on_a_locally_deleted_branch_pushed_by_sha_is_refused(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """The dirty commit's only local ref is deleted BEFORE the push that
+    names its sha directly -- nothing under refs/heads/refs/tags reaches
+    it any more; only the ref line this push sends can."""
+    _remote, repo = _bare_remote_and_repo(tmp_path, monkeypatch)
+    _commit(repo, "a.txt", "clean\n", "base")
+    _push(repo, "HEAD:main")
+
+    _git(repo, "checkout", "-q", "-b", "doomed")
+    dirty_sha = _commit(repo, "b.txt", f"{FAKE.upper()}-1\n", "dirty")
+    _git(repo, "checkout", "-q", "main")
+    _git(repo, "branch", "-D", "doomed")
+
+    result = _push(repo, f"{dirty_sha}:refs/heads/resurrected")
+
+    assert result.returncode != 0
+    assert FAKE not in (result.stdout + result.stderr).lower()
+
+
+def test_a_pure_deletion_push_still_passes_quietly(tmp_path: Path, monkeypatch) -> None:
+    _remote, repo = _bare_remote_and_repo(tmp_path, monkeypatch)
+    _commit(repo, "a.txt", "clean\n", "base")
+    _git(repo, "branch", "doomed")
+    _push(repo, "main", "doomed")
+
+    result = _push(repo, ":refs/heads/doomed")
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == ""
+
+
+def test_a_clean_refs_notes_push_passes_quietly(tmp_path: Path, monkeypatch) -> None:
+    """Corrects the round 2 claim: refs/notes/* is scanned exactly like
+    any other ref by the union rev-list call (it only cares about the
+    commit the sha resolves to, never the ref's own namespace) -- a clean
+    notes push is quiet, not refused."""
+    _remote, repo = _bare_remote_and_repo(tmp_path, monkeypatch)
+    _commit(repo, "a.txt", "clean\n", "base")
+    _push(repo, "HEAD:main")
+    _git(repo, "notes", "add", "-m", "a clean note", "HEAD")
+
+    result = _push(repo, "refs/notes/commits")
+
+    assert result.returncode == 0, result.stderr
+
+
+def test_a_dirty_refs_notes_push_is_refused(tmp_path: Path, monkeypatch) -> None:
+    _remote, repo = _bare_remote_and_repo(tmp_path, monkeypatch)
+    _commit(repo, "a.txt", "clean\n", "base")
+    _push(repo, "HEAD:main")
+    _git(repo, "notes", "add", "-m", f"touches {FAKE}", "HEAD")
+
+    result = _push(repo, "refs/notes/commits")
+
+    assert result.returncode != 0
+    assert FAKE not in (result.stdout + result.stderr).lower()
+
+
+def test_two_thousand_refs_completes_in_reasonable_time(
+    tmp_path: Path, monkeypatch
+) -> None:
+    import time
+
+    _remote, repo = _bare_remote_and_repo(tmp_path, monkeypatch)
+    _commit(repo, "a.txt", "clean\n", "base")
+    refs = [f"b{i}" for i in range(2000)]
+    for ref in refs:
+        _git(repo, "branch", ref)
+
+    started = time.monotonic()
+    result = _push(repo, *refs)
+    elapsed = time.monotonic() - started
+
+    assert result.returncode == 0, result.stderr
+    assert elapsed < 180, f"2000 clean refs took {elapsed:.1f}s -- too slow"
+
+
+def test_many_refs_spanning_one_huge_range_completes_in_reasonable_time(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """Not just many refs -- many refs whose union covers a genuinely large
+    number of unpublished commits, so the single git log call itself (not
+    just process start-up count) is exercised at scale."""
+    import time
+
+    _remote, repo = _bare_remote_and_repo(tmp_path, monkeypatch)
+    sha = _commit(repo, "a.txt", "clean\n", "base")
+    for i in range(300):
+        sha = _commit(repo, f"f{i}.txt", "clean too\n", f"commit {i}")
+    refs = []
+    for i in range(50):
+        _git(repo, "branch", f"wide{i}", sha)
+        refs.append(f"wide{i}")
+
+    started = time.monotonic()
+    result = _push(repo, *refs)
+    elapsed = time.monotonic() - started
+
+    assert result.returncode == 0, result.stderr
+    assert elapsed < 60, (
+        f"50 refs sharing a 300-commit range took {elapsed:.1f}s -- too slow"
+    )

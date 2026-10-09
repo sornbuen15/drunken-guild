@@ -106,31 +106,66 @@ v3``), and any push that is *entirely* deletions or already-public commits
 all used to leak an unscanned tag message this way. The fix is a *native*
 ``pre-push`` hook (``scripts/git_hooks/pre-push``, installed by
 ``drunken-init --install-git-hooks`` -- see ``src/core/git_hooks.py``) that
-git always invokes directly, outside pre-commit entirely, reading the ref
-lines off its own stdin and calling this same ``--push`` mode once per
-ref with that ref's own ``PRE_COMMIT_FROM_REF``/``PRE_COMMIT_TO_REF``
-values -- the identical environment contract pre-commit's own pre-push
-stage already set, so every case above now reaches this script with a real
-``TO`` to scan. ``pre-commit``'s own pre-push stage is therefore no longer
-installed at all (out of ``default_install_hook_types``): the native hook
-is the sole owner of the stage, so the two never race for it. The residual,
-accepted limits -- ``git push --no-verify``, a ``core.hooksPath`` pointing
-elsewhere, or a checkout that never ran the installer at all -- are
-``drunken-doctor``'s ``guard.git_hooks`` to report, not this script's to
-close; see REQ-023 in ``.ai/PRD.md``. ``refs/notes/*`` and any ref outside
-``refs/heads``/``refs/tags`` are likewise not specifically read (they are
-not walked by ``--branches --tags``, though a note's own commit content, if
-reachable some other way, still is).
+git always invokes directly, outside pre-commit entirely. ``pre-commit``'s
+own pre-push stage is therefore no longer installed at all (out of
+``default_install_hook_types``): the native hook is the sole owner of the
+stage, so the two never race for it.
+
+**``--push-multi``, how the native hook actually calls this (DG-479 round
+3):** the hook forwards git's own stdin to this process completely
+untouched, one ref line per update -- ``<local ref> <local sha> <remote
+ref> <remote sha>``. Every non-deletion line's ``local_sha`` is read, not
+just the first: a round 2 design that only looked at one ref line and
+leaned on the always-on global scan for the rest missed a commit reachable
+from *nothing* under ``refs/heads``/``refs/tags`` -- a detached sha pushed
+directly, a branch whose only local ref was deleted after the dirty commit
+was made, ``refs/stash``, ``refs/original/*`` -- because the global scan,
+by construction, only ever walks local branches and tags. ``_push_sources_
+multi`` instead unions every pushed ``local_sha`` into a single ``git log
+<union of TOs> --not <union of FROMs> <every real remote-tracking ref>``
+call (one invocation, not one per ref -- a 500-ref push calling the old
+per-ref range once each took over six minutes; the union call does not),
+peels any of those that are themselves annotated tag objects, and still
+runs the same always-on global scan as defence in depth for a local ref
+this push does not even touch. ``refs/notes/*`` and any other ref outside
+``refs/heads``/``refs/tags`` are scanned exactly like any other ref by this
+path -- their namespace does not matter at all to ``local_sha``/
+``remote_sha``, only the commit (or tag) object those shas resolve to; a
+clean notes push is quiet, a dirty one is refused, the same as any other
+ref.
+
+**Why "every real remote-tracking ref", never git's own ``--remotes``
+(DG-479 round 3):** that pseudo-flag excludes anything under the blanket
+``refs/remotes/*`` *namespace*, whether or not a remote by that name is
+even configured and whether or not that particular ref was ever written
+by a real ``git fetch``. Pushing a commit by naming a local ref literally
+under that path (``git update-ref refs/remotes/o/x <sha>``, a stale
+leftover, ...) made it self-exclude: the sha being scanned *is* exactly
+what that ref already points at, so ``--not --remotes`` subtracted the
+very thing being added. :func:`_remote_tracking_refs` enumerates only the
+remotes ``git remote`` actually knows about, so a ref under a namespace
+matching no configured remote is never trusted as already-public, while a
+ref a real remote's own fetch genuinely maintains still excludes exactly
+as before.
+
+The residual, accepted limits -- ``git push --no-verify``, a
+``core.hooksPath`` pointing elsewhere, or a checkout that never ran the
+installer at all -- are ``drunken-doctor``'s ``guard.git_hooks`` to
+report, not this script's to close; see REQ-023 in ``.ai/PRD.md``.
+
+``--push`` (singular ``PRE_COMMIT_FROM_REF``/``TO_REF``) remains for a
+caller -- today, every direct test of the per-ref scanning logic itself --
+that genuinely has only the one ref pre-commit's own pre-push stage used to
+set; it is not what the native hook calls.
 
 DG-480 (a brand-new repository's first push being refused) disappears the
 same way: pre-commit's own "all_files" path for a from-scratch push used to
 leave both ``PRE_COMMIT_FROM_REF`` and ``PRE_COMMIT_TO_REF`` unset, which
-this script correctly refused rather than guess -- but the native hook
-never takes that path at all. git always hands it the real local/remote sha
-for every ref line it reads off stdin, including a first push (remote sha
-all-zero, read as ``FROM`` unset below), so there is always a real ``TO`` to
-scan. Run by hand, or by anything else that does not set
-``PRE_COMMIT_TO_REF``, this still refuses rather than guess what is being
+``--push`` correctly refused rather than guess -- but the native hook never
+takes that path at all. git always hands it the real local/remote sha for
+every ref line on stdin, including a first push (remote sha all-zero), so
+``--push-multi`` always has a real ``local_sha`` to scan from. Run by hand
+with empty stdin, this still refuses rather than guess what is being
 pushed -- that part of the contract is unchanged.
 """
 
@@ -247,17 +282,68 @@ def _messages(rev_range: str) -> List[tuple[str, str]]:
     return out
 
 
-def _ref_specific_commit_hashes(to_ref: str, from_ref: str | None) -> List[str]:
-    """Every commit in ``TO --not FROM --remotes``.
+def _configured_remote_names() -> List[str]:
+    try:
+        result = subprocess.run(["git", "remote"], capture_output=True, check=True)
+    except subprocess.CalledProcessError as exc:
+        raise ScanFailed("git remote could not list configured remotes") from exc
+    return [r for r in result.stdout.decode("utf-8", "replace").split() if r]
 
-    ``--remotes`` excludes anything already reachable from any remote-tracking
-    ref, on top of ``FROM``: a commit already public on another branch is not
+
+def _remote_tracking_refs() -> List[str]:
+    """Every ref git itself actually wrote under an *actually configured*
+    remote's own namespace -- never the blanket ``refs/remotes/*`` git's
+    own ``--remotes`` pseudo-flag matches by name alone.
+
+    DG-479 round 3: ``--remotes`` excludes anything under ``refs/remotes/*``
+    regardless of whether a remote by that name is even configured, or
+    whether that particular ref was ever written by a real ``git fetch``.
+    A local ref hand-created at, say, ``refs/remotes/o/x`` (``git
+    update-ref``, a stale leftover from a remote that was since removed,
+    ...) is not actually public anywhere -- but pushing its commit
+    *as* that ref name self-excludes: ``git log <that-sha> --not
+    --remotes`` computes "reachable from the commit, minus reachable from
+    refs/remotes/* " and the commit *is* exactly what that ref already
+    points at, so the exclusion swallows the very thing it was meant to
+    scan. Enumerating only the remotes ``git remote`` actually knows about
+    closes that: a ref under a namespace matching no configured remote at
+    all is never treated as already-public, and a ref genuinely maintained
+    by a real remote's own fetch still excludes exactly as before.
+    """
+    names = _configured_remote_names()
+    if not names:
+        return []
+    try:
+        result = subprocess.run(
+            ["git", "for-each-ref", "--format=%(refname)"]
+            + [f"refs/remotes/{name}" for name in names],
+            capture_output=True,
+            check=True,
+        )
+    except subprocess.CalledProcessError as exc:
+        raise ScanFailed(
+            "git for-each-ref could not enumerate remote-tracking refs"
+        ) from exc
+    return [
+        r.strip()
+        for r in result.stdout.decode("utf-8", "replace").split("\n")
+        if r.strip()
+    ]
+
+
+def _ref_specific_commit_hashes(to_ref: str, from_ref: str | None) -> List[str]:
+    """Every commit in ``TO --not FROM --<every real remote-tracking ref>``.
+
+    Excludes anything already reachable from a real remote-tracking ref, on
+    top of ``FROM``: a commit already public on another branch is not
     re-flagged just because this ref's own tracking has not moved past it.
+    See :func:`_remote_tracking_refs` for why this is not the blanket
+    ``--remotes`` flag.
     """
     log_args = ["git", "log", "--format=%H", to_ref, "--not"]
     if from_ref:
         log_args.append(from_ref)
-    log_args.append("--remotes")
+    log_args.extend(_remote_tracking_refs())
     try:
         result = subprocess.run(log_args, capture_output=True, check=True)
     except subprocess.CalledProcessError as exc:
@@ -267,11 +353,12 @@ def _ref_specific_commit_hashes(to_ref: str, from_ref: str | None) -> List[str]:
 
 def _locally_unpublished_commit_hashes() -> List[str]:
     """Every commit reachable from any local branch or tag, not already
-    reachable from any remote-tracking ref -- regardless of which single
+    reachable from a real remote-tracking ref -- regardless of which single
     ref this invocation's own FROM/TO describe (DG-468 round 2)."""
     try:
         result = subprocess.run(
-            ["git", "rev-list", "--branches", "--tags", "--not", "--remotes"],
+            ["git", "rev-list", "--branches", "--tags", "--not"]
+            + _remote_tracking_refs(),
             capture_output=True,
             check=True,
         )
@@ -570,6 +657,95 @@ def _push_sources(to_ref: str, from_ref: str | None) -> List[tuple[str, str]]:
     return sources
 
 
+def _object_exists(sha: str) -> bool:
+    """Whether *sha* resolves to a real object in this repository.
+
+    A pushed ref's *remote* sha is, by definition, already public (it is
+    the tip some remote already has) -- but this repository does not
+    necessarily hold that object (a shallow clone, or history that has
+    since diverged). ``git rev-list --not <sha>`` on an object this repo
+    does not have fails the whole call rather than excluding nothing;
+    filtering first is the safe direction -- an excluded sha that turns
+    out unresolvable here is simply dropped, which can only make the scan
+    *more* inclusive, never less (DG-479 round 3 review)."""
+    try:
+        subprocess.run(["git", "cat-file", "-e", sha], capture_output=True, check=True)
+    except subprocess.CalledProcessError:
+        return False
+    return True
+
+
+def _rev_list_union(to_shas: set[str], from_shas: set[str]) -> List[str]:
+    """Every commit reachable from ANY of *to_shas*, that is not already
+    reachable from any of *from_shas* or any remote-tracking ref -- one
+    ``git log`` call over the whole union, not one per ref (DG-479 round 3:
+    one invocation per ref line made a 500-ref push take over six minutes).
+
+    Sound, not merely fast: each entry in *from_shas* is a ref's own
+    *already-public* remote tip (that is what ``PRE_COMMIT_FROM_REF`` /
+    a pushed ref's remote sha means), so excluding anything reachable from
+    any of them can never hide a commit that is not already public
+    somewhere -- excluding the union is exactly as safe as excluding each
+    one individually would have been, per ref.
+    """
+    if not to_shas:
+        return []
+    log_args = ["git", "log", "--format=%H", *sorted(to_shas), "--not"]
+    log_args.extend(sorted(from_shas))
+    log_args.extend(_remote_tracking_refs())
+    try:
+        result = subprocess.run(log_args, capture_output=True, check=True)
+    except subprocess.CalledProcessError as exc:
+        raise ScanFailed("git log could not resolve the push range") from exc
+    return [h for h in result.stdout.decode("utf-8", "replace").split("\n") if h]
+
+
+def _push_sources_multi(
+    pairs: List[tuple[str, str]],
+) -> List[tuple[str, str]]:
+    """Everything that EVERY ref line in this push could make public for
+    the first time, in one pass (DG-479 round 3).
+
+    *pairs* is every ``(local_sha, remote_sha)`` this push updates,
+    deletions (``local_sha == ZERO_SHA``) already filtered out by the
+    caller -- a deletion contributes nothing of its own here, same as the
+    single-ref ``_push_sources`` above. Each pushed ``local_sha`` that is
+    itself a tag object (an annotated tag pushed by name or by sha) has its
+    own tag chain walked and scanned, exactly like the single-ref version
+    does for its one ``TO``. The always-on global scan (every commit and
+    tag unpublished on any local branch or tag, DG-468 round 2) still runs
+    on top, as defence in depth for a local-only ref this push does not
+    even touch.
+
+    This is the fix for the real leak round 2's "first ref only, rely on
+    the global scan" design opened: a commit reachable from NOTHING under
+    ``refs/heads``/``refs/tags`` (a detached sha pushed directly, a branch
+    deleted locally after the commit was made, ``refs/stash``,
+    ``refs/original/*``, ...) is invisible to the global scan by
+    definition -- it must be named explicitly by the ref line that pushes
+    it, and every such ref line must be looked at, not just the first one.
+    """
+    to_shas = {to for to, _from in pairs}
+    from_shas = {frm for _to, frm in pairs if frm and frm != ZERO_SHA}
+    resolvable_from_shas = {s for s in from_shas if _object_exists(s)}
+
+    commit_hashes: set[str] = set(_rev_list_union(to_shas, resolvable_from_shas))
+    tag_shas: set[str] = set()
+    for to_sha in to_shas:
+        if _object_kind(to_sha) == "tag":
+            tag_shas.add(to_sha)
+            _verify_tag_resolves_to_commit(to_sha)
+
+    commit_hashes.update(_locally_unpublished_commit_hashes())
+    tag_shas.update(_locally_unpublished_tag_shas())
+
+    already_public = _already_public_tag_shas()
+    sources = _commit_sources(sorted(commit_hashes))
+    for sha in sorted(tag_shas):
+        sources += _tag_chain_messages(sha, already_public)
+    return sources
+
+
 def offenders(sources: List[tuple[str, str]], ids: List[str]) -> List[str]:
     patterns = [pattern(i) for i in ids]
     return [
@@ -653,6 +829,32 @@ def _describe_offense(place: str) -> tuple[str, List[str]]:
     return f"{place} (on {', '.join(refs)})", refs
 
 
+def _report_push_sources(sources: List[tuple[str, str]], ids: List[str]) -> int:
+    """Shared by ``--push`` and ``--push-multi``: the same offender report,
+    the same ref-naming remediation, the same refusal shape -- only how
+    *sources* was gathered differs between the two modes."""
+    found = offenders(sources, ids)
+    if not found:
+        return 0
+    described = [_describe_offense(place) for place in found]
+    offending_refs = sorted({ref for _, refs in described for ref in refs})
+    print(
+        "A registered project id is in something this push would make public. "
+        "This repository is public. Use alpha/beta, or describe the role "
+        "instead of naming it:"
+    )
+    for line, _ in described:
+        print(f"  {line}")
+    if offending_refs:
+        print(
+            "Drop or amend the offending ref(s) to fix this: "
+            + ", ".join(offending_refs)
+            + ". DRUNKEN_NO_REGISTERED_PROJECTS=1 is the separate escape for "
+            "nothing registered to check against at all -- not for this."
+        )
+    return 1
+
+
 def _main_push() -> int:
     """``--push``: refuse unless there are ids to check, or the opt-out is set.
 
@@ -712,26 +914,79 @@ def _main_push() -> int:
         )
         return 1
 
-    found = offenders(sources, ids)
-    if not found:
-        return 0
-    described = [_describe_offense(place) for place in found]
-    offending_refs = sorted({ref for _, refs in described for ref in refs})
-    print(
-        "A registered project id is in something this push would make public. "
-        "This repository is public. Use alpha/beta, or describe the role "
-        "instead of naming it:"
-    )
-    for line, _ in described:
-        print(f"  {line}")
-    if offending_refs:
+    return _report_push_sources(sources, ids)
+
+
+def _read_ref_lines_from_stdin() -> tuple[int, List[tuple[str, str]]]:
+    """Every ``(local_sha, remote_sha)`` pair git's pre-push protocol hands
+    this process on stdin, one line per ref: ``<local ref> <local sha>
+    <remote ref> <remote sha>``. Returns ``(lines_seen, pairs)`` -- a line
+    that does not even have a local sha (truncated beyond recognition)
+    still counts toward *lines_seen*, so a genuinely empty stdin (a shape
+    git itself never produces) can still be told apart from one made of
+    nothing but malformed lines."""
+    lines_seen = 0
+    pairs: List[tuple[str, str]] = []
+    for raw_line in sys.stdin:
+        line = raw_line.strip()
+        if not line:
+            continue
+        lines_seen += 1
+        parts = line.split()
+        if len(parts) < 2:
+            continue  # no local sha on this line at all -- nothing to scan from it
+        local_sha = parts[1]
+        remote_sha = parts[3] if len(parts) >= 4 else ""
+        pairs.append((local_sha, remote_sha))
+    return lines_seen, pairs
+
+
+def _main_push_multi() -> int:
+    """``--push-multi``: every ref line this push updates, read directly
+    off this process's own stdin (the native pre-push hook forwards git's
+    stdin here untouched) -- the fix for DG-479 round 3's real leak: only
+    looking at the first ref line missed a detached, locally-unreachable
+    commit pushed by a later line in the same invocation.
+    """
+    ids = registered_ids()
+    if not ids:
+        if os.environ.get("DRUNKEN_NO_REGISTERED_PROJECTS") == "1":
+            return 0
         print(
-            "Drop or amend the offending ref(s) to fix this: "
-            + ", ".join(offending_refs)
-            + ". DRUNKEN_NO_REGISTERED_PROJECTS=1 is the separate escape for "
-            "nothing registered to check against at all -- not for this."
+            "No project ids to check this push against. Set "
+            "DRUNKEN_NO_REGISTERED_PROJECTS=1 if that is deliberate; an "
+            "unchecked push is not a clean one."
         )
-    return 1
+        return 1
+
+    lines_seen, pairs = _read_ref_lines_from_stdin()
+    if lines_seen == 0:
+        print(
+            "No ref lines on stdin. This runs as the native pre-push hook, "
+            "which always writes at least one; refusing rather than "
+            "treating this as nothing to scan."
+        )
+        return 1
+
+    non_deletion_pairs = [(to, frm) for to, frm in pairs if to != ZERO_SHA]
+
+    try:
+        sources = _push_sources_multi(non_deletion_pairs)
+    except BinaryTooLarge as exc:
+        print(
+            f"A changed binary file is too large to scan safely: {exc.path}. "
+            "Refusing rather than reading an unbounded blob into memory."
+        )
+        return 1
+    except ScanFailed:
+        print(
+            "Could not determine which commits this push would make public "
+            "(git could not resolve the range). Refusing rather than passing "
+            "an unchecked push."
+        )
+        return 1
+
+    return _report_push_sources(sources, ids)
 
 
 def main(argv: List[str] | None = None) -> int:
@@ -745,6 +1000,15 @@ def main(argv: List[str] | None = None) -> int:
         help="unpublished commits in PRE_COMMIT_FROM_REF..PRE_COMMIT_TO_REF (pre-push stage)",
     )
     parser.add_argument(
+        "--push-multi",
+        action="store_true",
+        help=(
+            "every ref line read from this process's own stdin, one git "
+            "rev-list call over their union (the native pre-push hook, "
+            "scripts/git_hooks/pre-push)"
+        ),
+    )
+    parser.add_argument(
         "--require-ids",
         action="store_true",
         help="fail when there are no ids to check against (CI)",
@@ -753,6 +1017,8 @@ def main(argv: List[str] | None = None) -> int:
 
     if args.push:
         return _main_push()
+    if args.push_multi:
+        return _main_push_multi()
 
     ids = registered_ids()
     if not ids:

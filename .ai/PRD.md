@@ -210,11 +210,10 @@ already-public commit and a push that is only ref deletions — the two shapes p
 pre-push stage silently never ran a hook for at all (DG-479). It does not stop `git push
 --no-verify`, a `core.hooksPath` redirected elsewhere, or a clone that never ran the installer at
 all; those are accepted limits, caught afterwards by CI and the secret scan, which cannot unpublish
-what already went out. A push that only touches `refs/notes/*` or another ref outside
-`refs/heads`/`refs/tags` is refused outright rather than scanned (those refs are not walked by the
-hook's `--branches --tags` enumeration, and a notes tree is not a commit range `git log` can read);
-accepted as a safe failure mode, not silently passed, pending a decision on whether to add notes
-support as its own ticket.
+what already went out. `refs/notes/*` and any other ref outside `refs/heads`/`refs/tags` are
+scanned exactly like any other ref the hook sees on its own stdin — the scan only cares about the
+commit (or tag) object a pushed ref's own sha resolves to, never its ref name or namespace — so a
+clean notes push passes quietly and a dirty one is refused, the same as any branch or tag.
 **Decided:** 2026-10-06 — the Boss, after the 2026-09-23 leak (#89, #93) was found still
 uncleaned. Both leaks were test fixtures.
 **Decided:** 2026-10-09 — the Boss: DG-479_DECISION.md option A (narrow) plus D. pre-commit's own
