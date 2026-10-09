@@ -370,6 +370,87 @@ class TestThisRepositorySignal:
         assert "--config-repo" not in out
 
 
+class TestNonUtf8Pyproject:
+    """DG-456: ``_target_is_this_repository`` used to catch only
+    ``OSError`` around ``pyproject.toml``'s ``read_text()``, so a
+    ``pyproject.toml`` that is not UTF-8 (at all, or under the
+    ``utf-8-sig`` codec this reader opens with) raised an uncaught
+    ``UnicodeDecodeError`` straight out of ``drunken-init`` — a raw
+    traceback instead of a normal run. The safe direction (CLAUDE.md: never
+    writes tracked files on an ambiguous signal) is to treat an undecodable
+    ``pyproject.toml`` exactly like a missing or OSError-raising one: "not
+    this repository", nothing alarming reported.
+    """
+
+    def test_a_utf16_pyproject_does_not_raise_and_is_not_treated_as_this_repo(
+        self, tmp_path
+    ) -> None:
+        checkout = _init_git_repo(tmp_path / "app")
+        (checkout / "pyproject.toml").write_bytes(
+            '[project]\nname = "drunken-guild"\n'.encode("utf-16")
+        )
+
+        assert init._target_is_this_repository(checkout) is False  # noqa: SLF001
+
+    def test_latin1_bytes_do_not_raise_and_are_not_treated_as_this_repo(
+        self, tmp_path
+    ) -> None:
+        checkout = _init_git_repo(tmp_path / "app")
+        # 0xe9 alone is a continuation byte with no valid UTF-8 lead byte
+        # before it — guaranteed to fail UTF-8 decoding, not merely to
+        # decode into something unexpected.
+        (checkout / "pyproject.toml").write_bytes(b'[project]\nname = "caf\xe9"\n')
+
+        assert init._target_is_this_repository(checkout) is False  # noqa: SLF001
+
+    def test_main_still_completes_normally_with_a_non_utf8_pyproject(
+        self, tmp_path, capsys
+    ) -> None:
+        """The acceptance line's own shape: a full ``main()`` run (not just
+        the helper), no traceback, exit 0, treated like any other project
+        under the guild."""
+        checkout = _init_git_repo(tmp_path / "app")
+        (checkout / "pyproject.toml").write_bytes(
+            '[project]\nname = "drunken-guild"\n'.encode("utf-16")
+        )
+
+        assert run("--project", "app", "--path", str(checkout)) == 0
+
+        assert not (checkout / "AGENTS.md").exists()
+        assert not (checkout / "CLAUDE.md").exists()
+        assert "--config-repo" in capsys.readouterr().out
+
+    def test_an_empty_pyproject_is_not_an_error(self, tmp_path) -> None:
+        """Regression guard: an empty file decodes fine under
+        ``utf-8-sig`` and simply never matches ``[project]`` — this must
+        keep working exactly as today."""
+        checkout = _init_git_repo(tmp_path / "app")
+        (checkout / "pyproject.toml").write_bytes(b"")
+
+        assert init._target_is_this_repository(checkout) is False  # noqa: SLF001
+
+    def test_invalid_toml_in_valid_utf8_is_not_an_error(self, tmp_path) -> None:
+        """Regression guard: ``_target_is_this_repository`` is a
+        line-scanner, not a TOML parser (see its own docstring) — garbage
+        that is not valid TOML at all, but is valid UTF-8, must keep
+        reading as "not this repository" rather than raising, exactly as
+        it did before this ticket."""
+        checkout = _init_git_repo(tmp_path / "app")
+        (checkout / "pyproject.toml").write_text(
+            "[[[ not valid toml at all ===\nname = \n", encoding="utf-8"
+        )
+
+        assert init._target_is_this_repository(checkout) is False  # noqa: SLF001
+
+    def test_pyproject_as_a_directory_is_not_an_error(self, tmp_path) -> None:
+        """Regression guard: ``IsADirectoryError`` is already an
+        ``OSError`` subclass and was already caught before this ticket."""
+        checkout = _init_git_repo(tmp_path / "app")
+        (checkout / "pyproject.toml").mkdir()
+
+        assert init._target_is_this_repository(checkout) is False  # noqa: SLF001
+
+
 class TestItGivesTheProjectAnInstructionFile:
     """DG-392 (REQ-007, REQ-015), updated by DG-442: a project under the
     guild no longer gets a tracked AGENTS.md/CLAUDE.md written into its own

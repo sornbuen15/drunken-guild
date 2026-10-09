@@ -125,7 +125,15 @@ def _target_is_this_repository(git_root: Path) -> bool:
     pyproject = git_root / "pyproject.toml"
     try:
         lines = pyproject.read_text(encoding="utf-8-sig").splitlines()
-    except OSError:
+    except (OSError, UnicodeDecodeError):
+        # DG-456: a pyproject.toml that is not decodable as UTF-8 (a BOM-
+        # less UTF-16 file, stray Latin-1 bytes, ...) used to raise
+        # UnicodeDecodeError straight out of drunken-init — a traceback
+        # instead of a normal run. The safe direction is the same one
+        # already taken for an unreadable or missing file: treat the
+        # target as "not this repository" and say nothing alarming.
+        # Nothing is read from the file again once this is caught, so no
+        # file content ever reaches an error message or stdout.
         return False
 
     in_project = False
