@@ -207,13 +207,19 @@ a push with no ids to check against is refused too; a checkout missing the git h
 is a `drunken-doctor` failure; and an agent cannot skip or disable the git hooks. The push check is
 a native `pre-push` hook that runs on every push git performs, including a solo tag pushed onto an
 already-public commit and a push that is only ref deletions — the two shapes pre-commit's own
-pre-push stage silently never ran a hook for at all (DG-479). It does not stop `git push
---no-verify`, a `core.hooksPath` redirected elsewhere, or a clone that never ran the installer at
-all; those are accepted limits, caught afterwards by CI and the secret scan, which cannot unpublish
-what already went out. `refs/notes/*` and any other ref outside `refs/heads`/`refs/tags` are
-scanned exactly like any other ref the hook sees on its own stdin — the scan only cares about the
-commit (or tag) object a pushed ref's own sha resolves to, never its ref name or namespace — so a
-clean notes push passes quietly and a dirty one is refused, the same as any branch or tag.
+pre-push stage silently never ran a hook for at all (DG-479). "Already public" is decided by asking
+the push target itself, once per push (`git ls-remote`, a hard timeout, `DRUNKEN_LS_REMOTE_TIMEOUT_SECONDS`
+to change it — default 20s) — never by a local ref under any name or namespace, which a locally
+fabricated `refs/remotes/<name>/*` ref (`git update-ref`, a same-machine fetch, or a hand-edited ref
+file) could otherwise use to self-exclude the very commit being pushed through it (DG-479 round 4).
+A push target that cannot be reached, or that times out, refuses the push — it is not read as
+"assume nothing is public" or "assume everything is"; both would be a guess. It does not stop `git
+push --no-verify`, a `core.hooksPath` redirected elsewhere, or a clone that never ran the installer
+at all; those are accepted limits, caught afterwards by CI and the secret scan, which cannot
+unpublish what already went out. `refs/notes/*` and any other ref outside `refs/heads`/`refs/tags`
+are scanned exactly like any other ref the hook sees on its own stdin — the scan only cares about
+the commit (or tag) object a pushed ref's own sha resolves to, never its ref name or namespace — so
+a clean notes push passes quietly and a dirty one is refused, the same as any branch or tag.
 **Decided:** 2026-10-06 — the Boss, after the 2026-09-23 leak (#89, #93) was found still
 uncleaned. Both leaks were test fixtures.
 **Decided:** 2026-10-09 — the Boss: DG-479_DECISION.md option A (narrow) plus D. pre-commit's own
@@ -226,6 +232,11 @@ since it reads the real ref lines off git's own stdin rather than taking pre-com
 "all_files, no FROM/TO" path. `--no-verify`, a redirected `core.hooksPath`, and a human running an
 unhooked clone remain open on purpose — no hook can close any of those — and are named above rather
 than implied.
+**Decided:** 2026-10-09 — the Boss: option A for "already public" too, after review found a local
+ref under `refs/remotes/<the real configured remote>/*` — not merely an unrelated namespace, round
+3's own fix — could still be forged to self-exclude a commit from the very push publishing it. No
+local ref, under any name, is trusted for this any more: the push target is asked directly, live,
+every push.
 
 ## Inferred — not yet accepted
 - (none — all accepted by the Boss, 2026-09-23)

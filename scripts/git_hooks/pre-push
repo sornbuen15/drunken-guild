@@ -29,8 +29,11 @@
 # including a first push (remote sha all-zero), so there is always a real
 # TO to scan.
 #
-# Arguments: $1 remote name, $2 remote URL -- both unused and never
-# printed: a remote URL can carry a credential or a token.
+# Arguments: $1 remote name, $2 remote URL. $2 is passed to the scanner
+# (--remote-url) exactly as git gave it here -- never $1, which is not
+# set at all for an anonymous `git push <url> ...`, and never printed by
+# this script or the scanner: a remote URL can carry a credential or a
+# token.
 # Stdin: one line per ref this push would update:
 #   <local ref> SP <local sha> SP <remote ref> SP <remote sha> LF
 #
@@ -48,11 +51,21 @@
 # touches (DG-479 round 2 found calling the scanner once per ref made a
 # 500-ref push take over six minutes; this does not).
 #
-# Fails closed: a missing python interpreter, a missing scanner script, or
-# an unresolvable repository root all refuse the push with a message,
-# never silently let it through -- the same rule
-# check_operator_inventory.py itself already follows for every other
-# unresolvable case.
+# "Already public" is decided by asking the push target itself, once, via
+# `git ls-remote` (DG-479 round 4, the Boss: option A) -- not by any local
+# ref. A local ref under refs/remotes/* (or any other local bookkeeping)
+# used to be trusted as already-public by name alone, which a hand-made
+# ref at that path could abuse to self-exclude the very commit being
+# pushed through it; the remote's own live answer cannot be forged that
+# way. DRUNKEN_LS_REMOTE_TIMEOUT_SECONDS bounds how long that one network
+# call may take (default 20s); failing or timing out REFUSES the push
+# rather than falling back to a local guess.
+#
+# Fails closed: a missing python interpreter, a missing scanner script, an
+# unresolvable repository root, or an unreachable/slow push target all
+# refuse the push with a message, never silently let it through -- the
+# same rule check_operator_inventory.py itself already follows for every
+# other unresolvable case.
 
 find_python() {
     for candidate in python3 python py; do
@@ -82,5 +95,7 @@ fi
 
 # stdin is forwarded to the scanner completely untouched -- it reads and
 # parses every ref line itself (--push-multi), including deciding whether
-# zero lines means "refuse" (a shape git itself never produces).
-"$PYTHON" "$SCRIPT" --push-multi
+# zero lines means "refuse" (a shape git itself never produces). $2 (the
+# push URL, exactly as git gave it) is the one thing the scanner asks for
+# "already public" -- never a local ref.
+"$PYTHON" "$SCRIPT" --push-multi --remote-url "$2"
