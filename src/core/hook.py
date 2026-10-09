@@ -22,7 +22,11 @@ whole file, and it answers the same three questions it always did:
    ``DRUNKEN_NO_REGISTERED_PROJECTS=`` on a git command, ``pre-commit
    uninstall``, or removing, moving, chmod-ing or editing ``.git/hooks``
    directly? A settings.json rule matches a command by prefix and never sees
-   a flag mid-command, so this one is hardcoded here instead.
+   a flag mid-command, so this one is hardcoded here instead. Once a ``cd``
+   has put the shell *inside* the hooks dir, the same rule also catches a
+   bare redirect or writer with no verb on the list and no ``.git/hooks``
+   text left to match (DG-476) — ``echo x > pre-commit`` needs neither once
+   cwd is already there.
 
 Everything else gets **silence**, which is not the same as ``allow``. Exit 0
 with no ``permissionDecision`` means "no opinion", and the harness carries on
@@ -455,15 +459,104 @@ def _denies_precommit_uninstall(segment: str) -> bool:
     return re.search(r"pre-commit\s+uninstall", segment, re.IGNORECASE) is not None
 
 
-#: Output redirected into the hooks dir: `>`, `>>`, or `dd`'s `of=`. Not tied
-#: to any particular command -- `echo`, `cat`, `printf`, anything -- because
-#: the redirection operator is what writes, not the command in front of it.
-_HOOKS_DIR_REDIRECT_PATTERN: Final = re.compile(
-    r">>?\s*[\"']?\S*\.git[\\/]+hooks", re.IGNORECASE
-)
-_HOOKS_DIR_DD_OF_PATTERN: Final = re.compile(
-    r"\bof=[\"']?\S*\.git[\\/]+hooks", re.IGNORECASE
-)
+def _writing_redirect_targets(segment: str) -> list[str]:
+    """Every real write target a redirect operator in *segment* points at --
+    the text immediately following it, leading whitespace and one optional
+    quote character stripped away.
+
+    DG-476 round 3 (adversarial): the direct-path check
+    (:data:`_HOOKS_DIR_PATTERN`'s caller) and the cwd-scoped check used two
+    separately-built regexes for "what is a writing redirect operator",
+    both grown out of a single, loosely-anchored `>{1,2}` pattern that let
+    the engine *backtrack* -- give back part of a multi-character operator
+    (`>>`, `>|`) to satisfy a check later in the same pattern. That is
+    exactly how a space before the target (`>| .git/hooks/x`, denied only
+    without the space) and an absolute-path exclusion (`cd .git/hooks &&
+    echo x >>/tmp/out`, wrongly denied once the engine gave back one `>` to
+    dodge the exclusion) kept being defeated across rounds. This function
+    is the one place both checks read the grammar from now, walked forward
+    character by character with no backtracking possible at all:
+
+    - `>`, `>>`, `>|`, `<>`, each optionally preceded by a leading fd number
+      (`2>`) or a literal `&` (`&>`, `&>>`) -- not examined here, since it
+      changes nothing about where the operator *ends*.
+    - Immediately followed by `&` (`2>&1`, `>&2`, `&>&1`) is true file
+      descriptor duplication, not a write, and is skipped entirely.
+    - Everything else is a write; its target is what comes after, with any
+      run of spaces/tabs and one leading quote character removed -- found
+      by slicing forward from a known position, not by a regex that could
+      stop short of it.
+    """
+    targets: list[str] = []
+    i = 0
+    n = len(segment)
+    while i < n:
+        char = segment[i]
+        if char not in (">", "<"):
+            i += 1
+            continue
+
+        if char == "<":
+            if i + 1 < n and segment[i + 1] == ">":
+                end = i + 2
+            else:
+                i += 1
+                continue
+        elif i + 1 < n and segment[i + 1] in (">", "|"):
+            end = i + 2
+        else:
+            end = i + 1
+
+        if end < n and segment[end] == "&":
+            i = end + 1  # True fd duplication (2>&1, >&2, &>&1) -- no write.
+            continue
+
+        rest = segment[end:].lstrip(" \t")
+        if rest and rest[0] in ("'", '"'):
+            rest = rest[1:]
+        targets.append(rest)
+        i = end
+    return targets
+
+
+#: `dd of=...` -- not part of the `>`/`<` grammar above, so tracked on its
+#: own; no `.git/hooks` text required for the cwd-scoped half, just a target
+#: that is not itself an absolute path.
+_DD_OF_PATTERN: Final = re.compile(r"\bof=[\"']?(\S*)", re.IGNORECASE)
+
+
+def _dd_of_targets(segment: str) -> list[str]:
+    """Every `dd of=...` target in *segment*, quote-blind like the rest of
+    this module -- `dd` is not a redirect operator, so it is not part of
+    :func:`_writing_redirect_targets`, but a bypass through it needs the
+    same relative/absolute and `.git/hooks` checks the other writers get."""
+    return [m.group(1) for m in _DD_OF_PATTERN.finditer(segment)]
+
+
+def _is_relative_target(target: str) -> bool:
+    """Whether *target* is a relative path -- not `/...`, `~/...` or
+    `C:\\...`, which write somewhere outside the hooks dir even while cwd is
+    inside it."""
+    if not target:
+        return False
+    if target[0] in ("/", "~"):
+        return False
+    return not re.match(r"[A-Za-z]:[\\/]", target)
+
+
+def _edits_file_in_place(segment: str) -> bool:
+    """``sed -i``, ``perl -pi`` or ``awk -i inplace`` -- rewrites a file
+    where it already sits rather than naming a new target, so unlike the
+    other verbs here there is no second path argument for a path-anchored
+    check to find. Split out of :func:`_denies_hooks_dir_mutation` so
+    :func:`_denies_write_while_in_hooks_dir` (DG-476) can reuse exactly the
+    same verb check without also requiring `.git/hooks` text in the segment
+    -- cwd being the hooks dir already means the same thing."""
+    if _has_word(segment, "sed") and re.search(r"-i\b", segment):
+        return True
+    if _has_word(segment, "perl") and re.search(r"-\w*i\b", segment):
+        return True
+    return bool(_has_word(segment, "awk") and _has_word(segment, "inplace"))
 
 
 def _denies_hooks_dir_mutation(segment: str) -> bool:
@@ -478,21 +571,36 @@ def _denies_hooks_dir_mutation(segment: str) -> bool:
     `ls .git/hooks`, `Get-Content .git/hooks/pre-commit`, `type
     .git\\hooks\\pre-commit` -- matches none of these and stays undenied.
     """
-    if _HOOKS_DIR_REDIRECT_PATTERN.search(segment):
+    if any(_HOOKS_DIR_PATTERN.search(t) for t in _writing_redirect_targets(segment)):
         return True
-    if _HOOKS_DIR_DD_OF_PATTERN.search(segment):
+    if any(_HOOKS_DIR_PATTERN.search(t) for t in _dd_of_targets(segment)):
         return True
     if not _HOOKS_DIR_PATTERN.search(segment):
         return False
-    if _has_word(segment, "sed") and re.search(r"-i\b", segment):
-        return True
-    if _has_word(segment, "perl") and re.search(r"-\w*i\b", segment):
-        return True
-    if _has_word(segment, "awk") and _has_word(segment, "inplace"):
+    if _edits_file_in_place(segment):
         return True
     if any(_has_word(segment, word) for word in _INTERPRETER_WORDS) and (
         _INTERPRETER_WRITE_SIGNAL.search(segment)
     ):
+        return True
+    return any(_has_word(segment, verb) for verb in _HOOKS_DIR_MUTATING_VERBS)
+
+
+def _denies_write_while_in_hooks_dir(segment: str) -> bool:
+    """DG-476: every writer :func:`_denies_hooks_dir_mutation` already denies
+    when it names `.git/hooks` directly, found again here with no path
+    requirement at all -- valid only while the hooks dir is already `cwd`
+    (tracked by the caller, :func:`_bypasses_hook_floor_bash`). A read
+    (`cat pre-commit`, `ls`) matches none of these and stays undenied. A
+    redirect or `dd of=` to an *absolute* path is not denied either -- it
+    writes wherever it names, same as from any other cwd, even while this
+    segment's cwd happens to be the hooks dir.
+    """
+    if any(_is_relative_target(t) for t in _writing_redirect_targets(segment)):
+        return True
+    if any(_is_relative_target(t) for t in _dd_of_targets(segment)):
+        return True
+    if _edits_file_in_place(segment):
         return True
     return any(_has_word(segment, verb) for verb in _HOOKS_DIR_MUTATING_VERBS)
 
@@ -507,18 +615,87 @@ _EXPORTED_HOOK_SKIP_VAR: Final = re.compile(
 )
 
 
-#: ``cd .git/hooks`` (or the Windows-path spelling) as its own segment.
-#: Matched on the whole segment, not just a word -- the point is that this
-#: segment's only job is to change directory into the hooks dir.
-_CD_INTO_HOOKS_DIR: Final = re.compile(
-    r"^cd\s+[\"']?\S*\.git[\\/]+hooks[\"']?/?$", re.IGNORECASE
+#: Every word that changes (or restores, or is merely a spelling of) the
+#: shell's working directory -- `cd`'s own flags (`-P`, `-L`, `--`) do not
+#: change what the command does, so they are stripped as arguments rather
+#: than read for meaning. `pushd`/`popd` additionally remember the old
+#: directory on a stack, which matters for *resetting* `cwd_is_hooks_dir`
+#: (see :data:`_DIR_RESTORING_COMMANDS` below) but not for recognising one
+#: of these as a directory-change segment in the first place.
+_DIR_CHANGING_COMMANDS: Final = frozenset(
+    {"cd", "pushd", "popd", "set-location", "sl", "chdir"}
 )
 
-#: A `cd` (any destination) or `popd` as its own segment -- the only two
-#: words that change (or restore) the shell's working directory, so the
-#: only two that are allowed to *reset* `cwd_is_hooks_dir` in
-#: :func:`_bypasses_hook_floor_bash`.
-_CD_OR_POPD: Final = re.compile(r"^(?:cd|popd)\b", re.IGNORECASE)
+#: `popd` alone restores a previous directory rather than naming a new one
+#: -- it can never itself be "into the hooks dir", so it always resets
+#: `cwd_is_hooks_dir` to ``False`` the same way leaving to any other
+#: directory does (DG-465 round 3's reset rule, unchanged).
+_DIR_RESTORING_COMMANDS: Final = frozenset({"popd"})
+
+#: `.git/hooks` (or the Windows-path spelling), anchored at both ends and
+#: allowing a trailing separator -- the point of this pattern specifically
+#: is that the *whole* argument names the hooks dir itself, not some
+#: unrelated path that merely contains that text.
+_HOOKS_DIR_TOKEN_PATTERN: Final = re.compile(
+    r"^\S*\.git[\\/]+hooks[\\/]?$", re.IGNORECASE
+)
+
+
+def _split_cd_arguments(segment: str) -> list[str]:
+    """Split *segment* on whitespace, quotes stripped, backslash left alone.
+
+    Deliberately not :func:`_tokenize_shell_words`: that one treats a
+    backslash as a POSIX escape (so `.git\\hooks` loses the backslash and
+    becomes `.githooks`), which is right for parsing a git command line but
+    wrong here -- a bare, unquoted backslash in a `cd` argument is this
+    repo's own Windows path separator (`cd .git\\hooks`, no quotes, still has
+    to resolve to the hooks dir), not an escape character. This tokenizer
+    only knows about whitespace and quotes, so that path survives whole.
+    """
+    tokens: list[str] = []
+    current: list[str] = []
+    in_token = False
+    quote: Optional[str] = None
+    for char in segment:
+        if quote is not None:
+            if char == quote:
+                quote = None
+            else:
+                current.append(char)
+            continue
+        if char.isspace():
+            if in_token:
+                tokens.append("".join(current))
+                current = []
+                in_token = False
+            continue
+        if char in ("'", '"'):
+            quote = char
+            in_token = True
+            continue
+        current.append(char)
+        in_token = True
+    if in_token:
+        tokens.append("".join(current))
+    return tokens
+
+
+def _targets_hooks_dir(tokens: list[str]) -> bool:
+    """Whether the (already-tokenised, so quote-stripped) arguments after a
+    directory-changing command name the hooks dir and nothing else.
+
+    DG-476 round 2 (adversarial): the previous check matched the whole
+    segment's raw text against one regex, so `cd -P .git/hooks` (a real,
+    ordinary flag) and `cd "./.git/hooks"` (a quoted path, which a regex
+    without real tokenising cannot reliably tell from quoted *content*) both
+    missed. Tokenising first and filtering out option flags -- anything
+    starting with `-`, except a bare `-` itself, which is `cd`'s own
+    "previous directory" argument rather than a flag -- means the one
+    argument left is compared on its own, the same way
+    :func:`_git_subcommand` already finds the real subcommand past `-C`/`-c`.
+    """
+    args = [tok for tok in tokens if tok == "-" or not tok.startswith("-")]
+    return len(args) == 1 and bool(_HOOKS_DIR_TOKEN_PATTERN.match(args[0]))
 
 
 def _bypasses_hook_floor_bash(command: str) -> bool:
@@ -540,12 +717,13 @@ def _bypasses_hook_floor_bash(command: str) -> bool:
 
     - An ``export`` outlives the `;` that follows it (unscoped -- a real
       shell carries it for the rest of the session, not just one segment).
-    - A `cd` into the hooks dir changes the working directory for every
-      later segment *until the next `cd`/`popd`* -- so `cwd_is_hooks_dir` is
-      reset, not just set, by any `cd`/`popd` that is not back into the
-      hooks dir (DG-465 round 3: it previously was never reset, so `cd
-      .git/hooks && cd .. && mv a b` -- which never touches the hooks dir at
-      all -- was wrongly denied).
+    - A `cd` (or `pushd`/`popd`/`Set-Location`/`sl`/`chdir` -- DG-476 round 2;
+      see :data:`_DIR_CHANGING_COMMANDS`) into the hooks dir changes the
+      working directory for every later segment *until the next one of
+      those* -- so `cwd_is_hooks_dir` is reset, not just set, by any of them
+      that does not itself land back in the hooks dir (DG-465 round 3: it
+      previously was never reset, so `cd .git/hooks && cd .. && mv a b` --
+      which never touches the hooks dir at all -- was wrongly denied).
     - A hooks-dir path echoed into a pipe only reaches the *next* segment,
       not every later one -- `echo .git/hooks | xargs rm -rf` is a real
       bypass, but `cat .git/hooks/pre-commit; find . | xargs mv x y` is an
@@ -565,6 +743,20 @@ def _bypasses_hook_floor_bash(command: str) -> bool:
         piped_from_hooks_path = pending_hooks_path and operator == "|"
         pending_hooks_path = False
 
+        # DG-476 round 3 (adversarial): `(cd .git/hooks && ls)` is a real
+        # subshell -- a child process with its own copy of cwd -- so cwd
+        # reverts the moment it closes, before whatever comes next even
+        # runs. `)` only ever reaches here as (part of) the *leading*
+        # operator of the segment right after it (DG-476 round 3's other
+        # fix, in permission_rules._push_or_merge_operator, is what keeps a
+        # `)` that abuts another operator from being silently dropped
+        # before it gets here at all) -- so finding one anywhere in
+        # *operator* means this segment is outside that subshell, and
+        # `cwd_is_hooks_dir` must not still answer for what happened inside
+        # it.
+        if ")" in operator:
+            cwd_is_hooks_dir = False
+
         if _EXPORTED_HOOK_SKIP_VAR.match(stripped):
             exported_skip_var = True
         if (
@@ -576,9 +768,7 @@ def _bypasses_hook_floor_bash(command: str) -> bool:
             or _denies_hooks_dir_mutation(segment)
         ):
             return True
-        if cwd_is_hooks_dir and any(
-            _has_word(segment, verb) for verb in _HOOKS_DIR_MUTATING_VERBS
-        ):
+        if cwd_is_hooks_dir and _denies_write_while_in_hooks_dir(segment):
             return True
         if (
             piped_from_hooks_path
@@ -587,8 +777,19 @@ def _bypasses_hook_floor_bash(command: str) -> bool:
         ):
             return True
 
-        if _CD_OR_POPD.match(stripped):
-            cwd_is_hooks_dir = bool(_CD_INTO_HOOKS_DIR.match(stripped))
+        leading_tokens = _split_cd_arguments(stripped)
+        # `{ cd .git/hooks; ... ; }` is a brace *group*, not a subshell --
+        # it runs in this same shell, so a leading `{` is inert grouping
+        # syntax around the command, not part of its name. Skipped here so
+        # `cd` is still the word this check sees, the same as it would be
+        # without the group at all.
+        if leading_tokens and leading_tokens[0] == "{":
+            leading_tokens = leading_tokens[1:]
+        leading_word = leading_tokens[0].lower() if leading_tokens else ""
+        if leading_word in _DIR_CHANGING_COMMANDS:
+            cwd_is_hooks_dir = leading_word not in _DIR_RESTORING_COMMANDS and (
+                _targets_hooks_dir(leading_tokens[1:])
+            )
         if _HOOKS_DIR_PATTERN.search(segment):
             pending_hooks_path = True
     return False

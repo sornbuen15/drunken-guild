@@ -1027,3 +1027,355 @@ class TestDG465OtherInterTokenWhitespaceStaysSane:
         character is not being given some other, unsafe meaning."""
         decision = hook.decide(payload(command="git commit -an"), self.NO_RULES)
         assert decision.permission == "deny"
+
+
+class TestDG476RedirectOrWriteAfterCdIntoHooksDir:
+    """DG-476, found by the DG-474 reviewer: `cwd_is_hooks_dir` only ever
+    checked later segments against `_HOOKS_DIR_MUTATING_VERBS` -- a verb
+    list. A bare redirect (`>`, `>>`), `: >`, or a writer whose target is
+    just a bare filename (no `.git/hooks` text in the segment at all, since
+    cwd is already there) tripped none of those verbs and matched none of
+    `_denies_hooks_dir_mutation`'s own path-anchored patterns either."""
+
+    NO_RULES = pr.Rules(allow=[], deny=[])
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "cd .git/hooks && echo x > pre-commit",
+            "cd .git/hooks && echo x >> pre-commit",
+            "cd .git/hooks && printf x > pre-commit",
+            "cd .git/hooks && : > pre-commit",
+            "cd .git\\hooks; Set-Content pre-commit x",
+            "cd .git/hooks && dd of=pre-commit",
+            "cd .git/hooks && sed -i 's/exit 1/exit 0/' pre-commit",
+        ],
+    )
+    def test_a_write_with_no_verb_and_no_hooks_text_is_denied(self, command) -> None:
+        decision = hook.decide(payload(command=command), self.NO_RULES)
+        assert decision.permission == "deny", f"{command!r} should be denied"
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "cd .git/hooks && cat pre-commit",
+            "cd .git/hooks && ls",
+            "cd .git/hooks && cd .. && echo x > a.txt",
+        ],
+    )
+    def test_a_read_or_a_write_after_leaving_the_hooks_dir_is_not_denied(
+        self, command
+    ) -> None:
+        decision = hook.decide(payload(command=command), self.NO_RULES)
+        assert decision.permission is None, f"{command!r} should stay allowed"
+
+    def test_a_redirect_to_an_absolute_path_elsewhere_is_not_denied(self) -> None:
+        """Still inside the hooks dir, but the target is not a file that
+        lands there -- an absolute path writes wherever it names, same as it
+        would from any other cwd."""
+        decision = hook.decide(
+            payload(command="cd .git/hooks && echo x > /tmp/elsewhere.txt"),
+            self.NO_RULES,
+        )
+        assert decision.permission is None
+
+    def test_a_redirect_inside_a_subshell_after_cd_is_still_denied(self) -> None:
+        decision = hook.decide(
+            payload(command="cd .git/hooks && (echo x > pre-commit)"),
+            self.NO_RULES,
+        )
+        assert decision.permission == "deny"
+
+    def test_a_redirect_after_an_or_operator_following_cd_is_still_denied(
+        self,
+    ) -> None:
+        decision = hook.decide(
+            payload(command="cd .git/hooks || true; echo x > pre-commit"),
+            self.NO_RULES,
+        )
+        assert decision.permission == "deny"
+
+
+class TestDG476Round2PushdAndCdVariants:
+    """Adversarial round 2 (Jira comment on DG-481): `cwd_is_hooks_dir` only
+    ever recognised a bare `cd`/`popd` segment -- `pushd`, `cd` with an
+    option flag, a quoted path, a backslash path, or the PowerShell
+    spellings (`Set-Location`, `sl`, `chdir`) all changed cwd into the hooks
+    dir exactly the same way and were never seen doing it."""
+
+    NO_RULES = pr.Rules(allow=[], deny=[])
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "pushd .git/hooks && echo x > pre-commit",
+            "cd -P .git/hooks && echo x > pre-commit",
+            "cd -L .git/hooks && echo x > pre-commit",
+            "cd -- .git/hooks && echo x > pre-commit",
+            'cd "./.git/hooks" && echo x > pre-commit',
+            "cd '.git/hooks' && echo x > pre-commit",
+            "cd .git\\hooks && echo x > pre-commit",
+            "Set-Location .git/hooks; echo x > pre-commit",
+            "sl .git/hooks; echo x > pre-commit",
+            "chdir .git/hooks && echo x > pre-commit",
+        ],
+    )
+    def test_entering_the_hooks_dir_by_any_spelling_still_denies_a_write(
+        self, command
+    ) -> None:
+        decision = hook.decide(payload(command=command), self.NO_RULES)
+        assert decision.permission == "deny", f"{command!r} should be denied"
+
+    def test_popd_after_pushd_into_hooks_dir_leaves_it(self) -> None:
+        decision = hook.decide(
+            payload(command="pushd .git/hooks && popd && echo x > a.txt"),
+            self.NO_RULES,
+        )
+        assert decision.permission is None
+
+    def test_a_later_cd_elsewhere_still_resets_pushd_state(self) -> None:
+        decision = hook.decide(
+            payload(command="pushd .git/hooks && cd /tmp && echo x > a.txt"),
+            self.NO_RULES,
+        )
+        assert decision.permission is None
+
+    def test_pushd_to_an_unrelated_dir_is_not_denied(self) -> None:
+        decision = hook.decide(
+            payload(command="pushd /tmp && echo x > a.txt"), self.NO_RULES
+        )
+        assert decision.permission is None
+
+
+class TestDG476Round2DigitPrefixedAndSpecialRedirects:
+    r"""Adversarial round 2: the old `(?<![\d&])` lookbehind excluded *any*
+    digit before `>`, not just the fd-duplication shape `N>&M` -- so
+    `2> pre-commit` (a real write of stderr to a file) read as a duplication
+    and passed. `&>`, `&>>`, `>>` and `<>` into a relative path must also be
+    denied; `2>/dev/null`, `>&2`, `1>&2`, `2>&1` (true fd operations, no file
+    write) must stay allowed."""
+
+    NO_RULES = pr.Rules(allow=[], deny=[])
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "cd .git/hooks && echo bad 2> pre-commit",
+            "cd .git/hooks && echo bad 1> pre-commit",
+            "cd .git/hooks && exec 3> pre-commit",
+            "cd .git/hooks && echo bad &> pre-commit",
+            "cd .git/hooks && echo bad &>> pre-commit",
+            "cd .git/hooks && echo bad >> pre-commit",
+            "cd .git/hooks && exec 3<> pre-commit",
+            "cd .git/hooks && echo bad >| pre-commit",
+        ],
+    )
+    def test_digit_prefixed_and_special_redirects_into_the_hooks_dir_are_denied(
+        self, command
+    ) -> None:
+        decision = hook.decide(payload(command=command), self.NO_RULES)
+        assert decision.permission == "deny", f"{command!r} should be denied"
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "cd .git/hooks && echo bad 2>/dev/null",
+            "cd .git/hooks && echo bad >&2",
+            "cd .git/hooks && echo bad 1>&2",
+            "cd .git/hooks && echo bad 2>&1",
+        ],
+    )
+    def test_true_fd_operations_with_no_file_write_stay_allowed(self, command) -> None:
+        decision = hook.decide(payload(command=command), self.NO_RULES)
+        assert decision.permission is None, f"{command!r} should stay allowed"
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            'cd .git/hooks && bash -c "echo bad 2>&1"',
+            'cd .git/hooks && bash -c "echo bad >&2"',
+        ],
+    )
+    def test_fd_operations_stay_allowed_inside_a_quoted_wrapper_too(
+        self, command
+    ) -> None:
+        """At the top level, a bare, unquoted `&` is itself a shell operator
+        the shared splitter already cuts the segment on -- `echo bad 2>&1`
+        is split into `echo bad 2>` and a bogus trailing `1` segment well
+        before this pattern ever runs, so the `(?!&)` lookahead never gets
+        exercised there. Quoted, the `&` is protected from that split and
+        `2>&1` survives whole in one segment -- this is the shape that
+        actually needs the lookahead, and the one a mutation that drops it
+        breaks."""
+        decision = hook.decide(payload(command=command), self.NO_RULES)
+        assert decision.permission is None, f"{command!r} should stay allowed"
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            'cd .git/hooks && bash -c "echo bad &> pre-commit"',
+            'cd .git/hooks && bash -c "echo bad &>> pre-commit"',
+            'cd .git/hooks && bash -c "exec 3<> pre-commit"',
+        ],
+    )
+    def test_special_redirects_still_denied_inside_a_quoted_wrapper(
+        self, command
+    ) -> None:
+        """A quoted wrapper (`bash -c "..."`, `powershell -Command "..."`)
+        is exactly where `&>`/`&>>`/`<>` survive as one unsplit segment --
+        the shared splitter's own quote-awareness keeps an unquoted bare `&`
+        from being read as a background operator and breaking the redirect
+        apart the way it would at the top level. A lookbehind that excluded
+        any `&` immediately before `>` (an earlier, narrower version of this
+        fix) would miss exactly this shape -- `&>`'s `>` *is* preceded by
+        `&` -- which is why :data:`_WRITING_REDIRECT_OPERATOR` has no
+        lookbehind on what precedes `>` at all, only the `(?!&)` lookahead
+        on what follows it."""
+        decision = hook.decide(payload(command=command), self.NO_RULES)
+        assert decision.permission == "deny", f"{command!r} should be denied"
+
+
+class TestDG476Round3UnifiedRedirectOperatorGrammar:
+    r"""Adversarial round 3: `_HOOKS_DIR_REDIRECT_PATTERN` matched `>|` only
+    when there was no whitespace before the target. `>{1,2}` (the whole of
+    `_WRITING_REDIRECT_OPERATOR` at the time) consumed only the first `>` of
+    `>|`, leaving the `|` to be swept up by the catch-all `\S*` meant for an
+    optional leading quote -- `\S*` cannot cross whitespace, so
+    `>| .git/hooks/x` (a space before the path) was never reached by the
+    `.git/hooks` literal that followed, while `>|.git/hooks/x` (no space)
+    still matched by sheer backtracking luck.
+
+    The fix is one operator grammar, built once and shared by both the
+    direct-path check (:data:`hook._HOOKS_DIR_REDIRECT_PATTERN`, DG-476's
+    own acceptance) and the cwd-tracking check
+    (:data:`hook._RELATIVE_REDIRECT_PATTERN`) -- so the two cannot
+    quietly disagree about what a redirect looks like again.
+    """
+
+    NO_RULES = pr.Rules(allow=[], deny=[])
+
+    #: Every operator the reviewer named, each paired with a gap that must
+    #: not matter: none, one space, two spaces (collapsed upstream by
+    #: DG-481, but the end-to-end behaviour is what is under test), and a
+    #: tab (same).
+    _OPERATORS = [">", ">>", ">|", "1>", "2>", "2>>", "&>", "&>>", "<>"]
+    _GAPS = ["", " ", "  ", "\t"]
+
+    @pytest.mark.parametrize("gap", _GAPS)
+    @pytest.mark.parametrize("operator", _OPERATORS)
+    def test_direct_path_redirect_denied_regardless_of_gap(
+        self, operator: str, gap: str
+    ) -> None:
+        command = f"echo bad {operator}{gap}.git/hooks/pre-commit"
+        decision = hook.decide(payload(command=command), self.NO_RULES)
+        assert decision.permission == "deny", f"{command!r} should be denied"
+
+    @pytest.mark.parametrize("gap", _GAPS)
+    @pytest.mark.parametrize("operator", _OPERATORS)
+    def test_direct_path_redirect_denied_after_cd_too(
+        self, operator: str, gap: str
+    ) -> None:
+        command = f"cd .git/hooks && echo bad {operator}{gap}.git/hooks/pre-commit"
+        decision = hook.decide(payload(command=command), self.NO_RULES)
+        assert decision.permission == "deny", f"{command!r} should be denied"
+
+    @pytest.mark.parametrize(
+        "target",
+        [
+            "./.git/hooks/pre-commit",
+            ".git\\hooks\\pre-commit",
+            '".git/hooks/pre-commit"',
+            "'.git/hooks/pre-commit'",
+            "/repo/.git/hooks/pre-commit",
+        ],
+    )
+    @pytest.mark.parametrize("operator", _OPERATORS)
+    def test_direct_path_redirect_denied_for_every_target_spelling(
+        self, operator: str, target: str
+    ) -> None:
+        command = f"echo bad {operator} {target}"
+        decision = hook.decide(payload(command=command), self.NO_RULES)
+        assert decision.permission == "deny", f"{command!r} should be denied"
+
+    @pytest.mark.parametrize("gap", _GAPS)
+    @pytest.mark.parametrize("operator", _OPERATORS)
+    def test_cwd_scoped_redirect_denied_regardless_of_gap(
+        self, operator: str, gap: str
+    ) -> None:
+        command = f"cd .git/hooks && echo bad {operator}{gap}pre-commit"
+        decision = hook.decide(payload(command=command), self.NO_RULES)
+        assert decision.permission == "deny", f"{command!r} should be denied"
+
+    @pytest.mark.parametrize("gap", _GAPS)
+    @pytest.mark.parametrize("operator", _OPERATORS)
+    def test_cwd_scoped_redirect_to_an_absolute_path_is_not_denied(
+        self, operator: str, gap: str
+    ) -> None:
+        """Round 3 false positive, same root cause: with the old operator
+        handling, `>|` to an absolute path while `cwd` is tracked as the
+        hooks dir was wrongly denied because the stray `|` -- not the real
+        operator -- was what the absolute-path lookahead was ever tested
+        against."""
+        command = f"cd .git/hooks && echo bad {operator}{gap}/tmp/out"
+        decision = hook.decide(payload(command=command), self.NO_RULES)
+        assert decision.permission is None, f"{command!r} should stay allowed"
+
+    def test_the_exact_reported_bypass_is_denied(self) -> None:
+        decision = hook.decide(
+            payload(command="echo bad >| .git/hooks/pre-commit"), self.NO_RULES
+        )
+        assert decision.permission == "deny"
+
+    def test_the_exact_reported_bypass_is_denied_with_a_tab(self) -> None:
+        decision = hook.decide(
+            payload(command="echo bad >|\t.git/hooks/pre-commit"), self.NO_RULES
+        )
+        assert decision.permission == "deny"
+
+    def test_cwd_scoped_redirect_to_a_windows_drive_letter_path_is_not_denied(
+        self,
+    ) -> None:
+        decision = hook.decide(
+            payload(command="cd .git/hooks && echo bad > C:\\tmp\\out"), self.NO_RULES
+        )
+        assert decision.permission is None
+
+
+class TestDG476Round3SubshellAndGroupCwdScoping:
+    """Adversarial round 3, pre-existing since round 1: `(cd .git/hooks &&
+    ls)` runs in a real subshell -- a child process with its own copy of
+    cwd -- so the parent shell's working directory is unaffected once that
+    subshell closes. `cwd_is_hooks_dir` was never reset at the `)`, so a
+    write in the *next* segment, outside the subshell entirely, was denied
+    for a directory the shell was never actually in by then.
+
+    `{ ...; }` (a brace *group*, not a subshell) is the opposite case: it
+    runs in the *same* shell, so a `cd` inside it must keep affecting
+    `cwd_is_hooks_dir` for what follows, including inside the group itself.
+    """
+
+    NO_RULES = pr.Rules(allow=[], deny=[])
+
+    def test_write_after_a_closing_subshell_is_not_denied(self) -> None:
+        decision = hook.decide(
+            payload(command="(cd .git/hooks && ls); echo y > b"), self.NO_RULES
+        )
+        assert decision.permission is None
+
+    def test_write_inside_the_subshell_is_still_denied(self) -> None:
+        decision = hook.decide(
+            payload(command="(cd .git/hooks && echo x > pre-commit)"), self.NO_RULES
+        )
+        assert decision.permission == "deny"
+
+    def test_nested_subshells_still_reset_on_close(self) -> None:
+        decision = hook.decide(
+            payload(command="(cd .git/hooks && (ls)); echo y > b"), self.NO_RULES
+        )
+        assert decision.permission is None
+
+    def test_a_brace_group_still_denies_a_write_inside_it(self) -> None:
+        decision = hook.decide(
+            payload(command="{ cd .git/hooks; echo x > pre-commit; }"), self.NO_RULES
+        )
+        assert decision.permission == "deny"
