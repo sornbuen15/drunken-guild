@@ -478,22 +478,27 @@ def test_an_absent_to_ref_refuses_rather_than_scanning_head_or_passing(
     assert result.returncode == 1
 
 
-def test_the_config_wires_the_pre_push_stage() -> None:
+def test_pre_commit_no_longer_owns_the_pre_push_stage() -> None:
+    """DG-479/DG-480: a native pre-push hook (scripts/git_hooks/pre-push) is
+    now the sole owner of this stage -- pre-commit's own pre-push stage
+    must not be declared at all, or the two would race for it
+    (DG-479_DECISION.md)."""
     import re
 
     config = (ROOT / ".pre-commit-config.yaml").read_text(encoding="utf-8")
-    assert "check_operator_inventory.py --push" in config
 
     install_types = re.search(
         r"^default_install_hook_types:\s*\[([^\]]*)\]", config, re.MULTILINE
     )
     assert install_types is not None
-    assert "pre-push" in [t.strip() for t in install_types.group(1).split(",")]
+    assert "pre-push" not in [t.strip() for t in install_types.group(1).split(",")]
+    assert "stages: [pre-push]" not in config
 
-    assert re.search(
-        r"check_operator_inventory\.py --push[\s\S]{0,200}stages:\s*\[pre-push\]",
-        config,
-    )
+
+def test_the_native_hook_template_calls_the_scanner_s_push_mode() -> None:
+    template = (ROOT / "scripts" / "git_hooks" / "pre-push").read_text(encoding="utf-8")
+    assert "check_operator_inventory.py" in template
+    assert "--push" in template
 
 
 # --- DG-468 round 2 (adversarial review, Jira comment on DG-468) ----------
@@ -709,61 +714,49 @@ def test_a_slow_or_unreachable_remote_does_not_hang_and_never_prints_its_url(
         thread.join(timeout=2)
 
 
-# --- DG-479: pre-commit never invokes this hook for some pushes ----------
+# --- DG-479/DG-480: the native pre-push hook, against a real bare remote -
 #
 # pre_commit.commands.hook_impl._pre_push_ns returns None ("nothing to
 # push") when every pushed ref either deletes something or already points
 # at a commit reachable from a remote-tracking ref -- and when it returns
-# None, hook_impl returns immediately, before this script (or any hook)
-# ever runs. No amount of scanning inside check_operator_inventory.py can
-# close this: the process is never started. This is a real installed
-# pre-push hook against a real bare remote, not the direct-invocation style
-# of every other test in this file, because the gap is specifically in
-# whether pre-commit invokes the hook at all.
+# None, hook_impl returns immediately, before this script (or any
+# pre-commit-managed hook) ever runs. No amount of scanning inside
+# check_operator_inventory.py could close that: the process was never
+# started. The fix (DG-479_DECISION.md, 2026-10-09, the Boss: option A
+# narrow + D) is a *native* pre-push hook, outside pre-commit entirely,
+# that git always invokes directly -- scripts/git_hooks/pre-push, installed
+# here exactly the way `drunken-init --install-git-hooks` installs it
+# (src/core/git_hooks.py), never by hand-rolling a different shim. Every
+# test below is a real installed hook against a real bare remote, not the
+# direct-invocation style of every other test in this file, because the
+# thing under test is specifically whether git invokes the hook at all.
 
 
-def _write_real_pre_push_config(repo: Path) -> None:
-    """Write the hook config to disk only -- pre-commit reads it straight
-    off the working directory, so it need not be committed, and must not be
-    installed yet either: that happens after the remote is seeded (see the
-    test below for why)."""
-    python = sys.executable.replace("\\", "/")
-    script = str(SCRIPT).replace("\\", "/")
-    (repo / ".pre-commit-config.yaml").write_text(
-        "default_install_hook_types: [pre-push]\n"
-        "repos:\n"
-        "  - repo: local\n"
-        "    hooks:\n"
-        "      - id: operator-inventory-push\n"
-        "        name: operator inventory (push)\n"
-        f"        entry: {python} {script} --push\n"
-        "        language: system\n"
-        "        pass_filenames: false\n"
-        "        always_run: true\n"
-        "        stages: [pre-push]\n",
-        encoding="utf-8",
+def _vendor_scanner_into(repo: Path) -> None:
+    """Copy this repository's own scripts/ and src/ into *repo*, so the
+    native hook -- which resolves the scanner at
+    ``$(git rev-parse --show-toplevel)/scripts/check_operator_inventory.py``
+    relative to whatever repo it is actually pushing from -- finds a real
+    copy there, the same shape a registered project's own checkout has
+    once the AI layer is copied in. Never the tracked worktree itself:
+    this always writes into a tmp_path-rooted scratch repo."""
+    import shutil
+
+    shutil.copytree(
+        ROOT / "scripts",
+        repo / "scripts",
+        ignore=shutil.ignore_patterns("__pycache__", "*.pyc"),
+    )
+    shutil.copytree(
+        ROOT / "src",
+        repo / "src",
+        ignore=shutil.ignore_patterns("__pycache__", "*.pyc"),
     )
 
 
-def _install_real_pre_push_hook(repo: Path) -> None:
-    subprocess.run(
-        [sys.executable, "-m", "pre_commit", "install", "--hook-type", "pre-push"],
-        cwd=repo,
-        check=True,
-        capture_output=True,
-    )
+def _bare_remote_and_repo(tmp_path: Path, monkeypatch) -> tuple[Path, Path]:
+    from core import git_hooks
 
-
-@pytest.mark.xfail(
-    strict=True,
-    reason="DG-479: pre-commit's own hook_impl never invokes this hook for a "
-    "solo tag pushed onto an already-public commit -- fix is a design "
-    "decision for the Boss, not something check_operator_inventory.py can "
-    "do on its own.",
-)
-def test_a_solo_tag_on_an_already_public_commit_never_reaches_the_scanner_dg479(
-    tmp_path: Path, monkeypatch
-) -> None:
     monkeypatch.delenv("PRE_COMMIT_FROM_REF", raising=False)
     monkeypatch.delenv("PRE_COMMIT_TO_REF", raising=False)
 
@@ -782,51 +775,211 @@ def test_a_solo_tag_on_an_already_public_commit_never_reaches_the_scanner_dg479(
         json.dumps({"version": 2, "projects": {"drunken-guild": {}, FAKE: {}}}),
         encoding="utf-8",
     )
-    _write_real_pre_push_config(repo)
+    _vendor_scanner_into(repo)
+    git_hooks.install_pre_push_hook(repo)
+    return remote, repo
 
-    # Seed the remote BEFORE the hook is installed at all. A brand-new
-    # repo's first push leaves PRE_COMMIT_FROM_REF/TO_REF unset entirely
-    # (pre-commit's "all_files" path for a from-scratch push -- a third,
-    # separate pre-commit path, DG-480) and this script correctly refuses
-    # that rather than guessing. That is a real, separate limit, not what
-    # this test is about -- so the hook must not even be installed yet
-    # when this push happens, and its success is asserted explicitly so a
-    # setup failure here can never be mistaken for the DG-479 failure this
-    # test exists to pin down.
-    public_sha = _commit(repo, "a.txt", "clean\n", "base")
-    bootstrap = subprocess.run(
-        ["git", "push", "-q", "origin", "HEAD:main"],
+
+def _push(repo: Path, *refs: str) -> subprocess.CompletedProcess:
+    # os.environ plus this interpreter's own directory at the front of
+    # PATH -- so the native hook's find_python (python3, then python, then
+    # py) actually resolves to the python this repo's tests run under,
+    # under Git for Windows' own sh, without the hook script itself ever
+    # naming that path (DG-479_DECISION.md: no venv path baked into a hook
+    # shared by every worktree). Built and used in this one function (not
+    # a separate PATH-only helper) so tests/test_subprocess_env_guard.py
+    # can see this env= provably carries the sandboxed DRUNKEN_* variables
+    # forward (DG-477) -- it is os.environ.copy() with only PATH touched.
+    import os
+
+    env = os.environ.copy()
+    env["PATH"] = os.pathsep.join(
+        [str(Path(sys.executable).parent), env.get("PATH", "")]
+    )
+    return subprocess.run(
+        ["git", "push", "origin", *refs],
         cwd=repo,
         capture_output=True,
         text=True,
+        env=env,
     )
+
+
+def test_a_solo_tag_on_an_already_public_commit_is_refused_dg479(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """The case DG-479 exists for: pre-commit's own pre-push stage never
+    ran at all here -- the native hook must, and must refuse."""
+    _remote, repo = _bare_remote_and_repo(tmp_path, monkeypatch)
+
+    public_sha = _commit(repo, "a.txt", "clean\n", "base")
+    bootstrap = _push(repo, "HEAD:main")
     assert bootstrap.returncode == 0, (
-        "the seed push failed before the hook was even installed -- a "
+        "the seed push failed before the tag push this test is about -- a "
         f"setup failure, not DG-479: {bootstrap.stderr}"
     )
 
-    _install_real_pre_push_hook(repo)
-
-    # A solo annotated tag on that now-already-public commit, with a fake
-    # id in its own message -- exactly what the scanner exists to catch.
     # pre-commit's own `git push` of a tag whose target commit is already
     # reachable via refs/remotes/origin/* (git push updates those locally
-    # by default) finds no ancestors needing it and reports "nothing to
-    # push" -- the hook, installed and otherwise correct, never runs.
+    # by default) finds no ancestors needing it and used to report
+    # "nothing to push" to a pre-commit-managed hook, which then never ran
+    # at all. The native hook has no such filtering: git hands it this ref
+    # line directly.
     _git(repo, "tag", "-a", "-m", f"touches {FAKE}", "v1", public_sha)
 
+    result = _push(repo, "v1")
+
+    assert result.returncode != 0, (
+        "the push of a solo tag naming an id succeeded -- the native hook "
+        "was not invoked, or did not refuse it (DG-479)"
+    )
+    assert FAKE not in (result.stdout + result.stderr).lower()
+
+
+def test_a_delete_plus_new_tag_push_is_refused(tmp_path: Path, monkeypatch) -> None:
+    """`git push origin :old v3`: a pure ref deletion alongside a new tag
+    is exactly the other shape pre-commit's own pre-push stage never ran
+    for at all (DG-479)."""
+    _remote, repo = _bare_remote_and_repo(tmp_path, monkeypatch)
+
+    _commit(repo, "a.txt", "clean\n", "base")
+    _git(repo, "branch", "old")
+    bootstrap = _push(repo, "HEAD:main", "old")
+    assert bootstrap.returncode == 0, bootstrap.stderr
+
+    _git(repo, "tag", "-a", "-m", f"touches {FAKE}", "v3")
+
+    result = _push(repo, ":old", "v3")
+
+    assert result.returncode != 0
+    assert FAKE not in (result.stdout + result.stderr).lower()
+
+
+def test_first_push_of_a_clean_root_commit_passes_and_is_quiet_dg480(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """DG-480 acceptance: first push of a clean root commit passes and is
+    quiet. The native hook sees a real local sha and an all-zero remote
+    sha directly off stdin for this ref -- it never takes pre-commit's own
+    "all_files, no FROM/TO at all" path, so there is no ambiguity to
+    refuse here in the first place."""
+    _remote, repo = _bare_remote_and_repo(tmp_path, monkeypatch)
+    _commit(repo, "a.txt", "clean\n", "base")
+
+    result = _push(repo, "HEAD:main")
+
+    assert result.returncode == 0, result.stderr
+    assert "project id" not in (result.stdout + result.stderr).lower()
+
+
+def test_first_push_with_a_fake_id_is_refused_and_the_id_is_not_printed_dg480(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """DG-480 acceptance: first push whose history contains a fake id is
+    refused and the id is not printed."""
+    _remote, repo = _bare_remote_and_repo(tmp_path, monkeypatch)
+    _commit(repo, "a.txt", f"{FAKE.upper()}-1\n", "base")
+
+    result = _push(repo, "HEAD:main")
+
+    assert result.returncode != 0
+    assert FAKE not in (result.stdout + result.stderr).lower()
+
+
+def test_a_multi_ref_push_is_refused_when_either_ref_is_dirty(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """Two refs pushed together, one dirty: the native hook reads every
+    stdin line itself (unlike pre-commit's own wrapper, which only ever
+    reported the first non-delete ref)."""
+    _remote, repo = _bare_remote_and_repo(tmp_path, monkeypatch)
+    _commit(repo, "a.txt", "clean\n", "base")
+    _push(repo, "HEAD:main")
+
+    _git(repo, "checkout", "-q", "-b", "feature")
+    _commit(repo, "b.txt", f"{FAKE.upper()}-1\n", "dirty feature work")
+    _git(repo, "checkout", "-q", "main")
+    _commit(repo, "c.txt", "clean too\n", "clean main work")
+
+    result = _push(repo, "main", "feature")
+
+    assert result.returncode != 0
+    assert FAKE not in (result.stdout + result.stderr).lower()
+
+
+def test_two_clean_branches_pushed_together_pass_fast_and_quiet(
+    tmp_path: Path, monkeypatch
+) -> None:
+    import time
+
+    _remote, repo = _bare_remote_and_repo(tmp_path, monkeypatch)
+    _commit(repo, "a.txt", "clean\n", "base")
+    _push(repo, "HEAD:main")
+
+    _git(repo, "checkout", "-q", "-b", "feature")
+    _commit(repo, "b.txt", "clean feature work\n", "feature")
+    _git(repo, "checkout", "-q", "main")
+    _commit(repo, "c.txt", "clean main work\n", "main")
+
+    started = time.monotonic()
+    result = _push(repo, "main", "feature")
+    elapsed = time.monotonic() - started
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "" and "refus" not in result.stderr.lower()
+    assert elapsed < 30, f"took {elapsed:.1f}s for a clean push -- not fast"
+
+
+def test_the_id_never_reaches_stdout_stderr_or_a_traceback(
+    tmp_path: Path, monkeypatch
+) -> None:
+    _remote, repo = _bare_remote_and_repo(tmp_path, monkeypatch)
+    _commit(repo, "a.txt", f"touches {FAKE} right here\n", "base")
+
+    result = _push(repo, "HEAD:main")
+
+    combined = (result.stdout + result.stderr).lower()
+    assert result.returncode != 0
+    assert FAKE not in combined
+    assert "traceback" not in combined
+
+
+def test_a_missing_python_interpreter_fails_closed(tmp_path: Path, monkeypatch) -> None:
+    """DG-479_DECISION.md failure mode: no python3/python/py on PATH at
+    all must refuse the push with a message, never silently let it
+    through and never crash with something unreadable."""
+    import os
+    import shutil
+
+    _remote, repo = _bare_remote_and_repo(tmp_path, monkeypatch)
+    _commit(repo, "a.txt", "clean\n", "base")
+
+    empty_bin = tmp_path / "empty-bin"
+    empty_bin.mkdir()
+    env = os.environ.copy()
+    env["PATH"] = str(empty_bin)  # a git binary alone is not enough; see below
+
+    # git itself must still be reachable to run `git push` at all -- only
+    # the *hook's* search for an interpreter is what this test starves.
+    # Git for Windows resolves `git` via argv[0]/its own install location
+    # rather than PATH alone in common setups, but to be safe on every
+    # platform this re-adds just enough of PATH to find `git` (and the
+    # `sh` it runs hooks under), while leaving every python interpreter
+    # out.
+    git_path = shutil.which("git")
+    assert git_path is not None
+    env["PATH"] = os.pathsep.join([str(Path(git_path).parent), str(empty_bin)])
+
     result = subprocess.run(
-        ["git", "push", "origin", "v1"],
+        ["git", "push", "origin", "HEAD:main"],
         cwd=repo,
         capture_output=True,
         text=True,
+        env=env,
     )
 
-    # Desired behaviour: the hook runs and refuses this push. Today
-    # pre-commit never invokes it at all for this case, so the push
-    # succeeds -- this assertion fails, and xfail(strict=True) is what
-    # turns that red the day DG-479 actually fixes it.
     assert result.returncode != 0, (
-        "the push of a solo tag naming an id succeeded -- the scanner was "
-        "never invoked for it (DG-479)"
+        "a push with no python interpreter on PATH must be refused, not "
+        "silently let through"
     )
+    assert FAKE not in (result.stdout + result.stderr).lower()

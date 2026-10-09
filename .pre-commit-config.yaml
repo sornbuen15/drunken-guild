@@ -1,7 +1,16 @@
-# commit-msg and pre-push are listed so a plain `pre-commit install` wires the
-# message check and the push scan too; without them only the pre-commit stage
-# would be installed.
-default_install_hook_types: [pre-commit, commit-msg, pre-push]
+# commit-msg is listed so a plain `pre-commit install` wires the message
+# check too; without it only the pre-commit stage would be installed.
+#
+# pre-push is deliberately NOT here (DG-479/DG-480, DG-479_DECISION.md,
+# 2026-10-09): pre-commit's own pre-push stage never runs for some pushes at
+# all -- a solo annotated tag pushed onto an already-public commit, or a
+# push that is only ref deletions, makes pre-commit's hook_impl report
+# "nothing to push" before the hook is ever invoked. The push-time scan is
+# instead a *native* pre-push hook (scripts/git_hooks/pre-push, installed by
+# `drunken-init --install-git-hooks` -- see src/core/git_hooks.py) that git
+# always invokes directly. Declaring pre-push here too would race it: see
+# DG-479_DECISION.md for why the two must never both own this stage.
+default_install_hook_types: [pre-commit, commit-msg]
 # Every other hook runs at the pre-commit stage only, as before; without this
 # they would also be handed the commit-message file at commit-msg.
 default_stages: [pre-commit]
@@ -62,17 +71,12 @@ repos:
         language: system
         stages: [commit-msg]
 
-      # DG-464. CI checks after the push, and by then GitHub keeps the commit
-      # under refs/pull/* for good even if the PR closes unmerged; this is the
-      # last point before that. Scans every commit this push would make
-      # public for the first time, not just what is staged right now.
-      - id: check-operator-inventory-push
-        name: Refuse a push that would publish a registered project id
-        entry: python scripts/check_operator_inventory.py --push
-        language: system
-        pass_filenames: false
-        always_run: true
-        stages: [pre-push]
+      # DG-464's push-time scan moved off pre-commit's own pre-push stage
+      # (DG-479/DG-480): the native hook at scripts/git_hooks/pre-push is
+      # now the sole owner of it, and calls this same script's --push mode
+      # itself. A pre-commit hook here too would race the native one for
+      # the same stage -- see .pre-commit-config.yaml's own
+      # default_install_hook_types comment and DG-479_DECISION.md.
 
       - id: check-settings-lint
         name: Reject bare Tool(*) wildcard allow rules in settings

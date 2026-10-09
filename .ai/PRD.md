@@ -204,9 +204,25 @@ version. Channel for now: GitHub tags (see REQ-008).
 **Acceptance:** An operator's registered project ids never appear in this public repository, in
 content or in a commit message. A commit that would carry one is refused before it is pushed, and
 a push with no ids to check against is refused too; a checkout missing the git hook that does this
-is a `drunken-doctor` failure; and an agent cannot skip or disable the git hooks.
+is a `drunken-doctor` failure; and an agent cannot skip or disable the git hooks. The push check is
+a native `pre-push` hook that runs on every push git performs, including a solo tag pushed onto an
+already-public commit and a push that is only ref deletions — the two shapes pre-commit's own
+pre-push stage silently never ran a hook for at all (DG-479). It does not stop `git push
+--no-verify`, a `core.hooksPath` redirected elsewhere, or a clone that never ran the installer at
+all; those are accepted limits, caught afterwards by CI and the secret scan, which cannot unpublish
+what already went out.
 **Decided:** 2026-10-06 — the Boss, after the 2026-09-23 leak (#89, #93) was found still
 uncleaned. Both leaks were test fixtures.
+**Decided:** 2026-10-09 — the Boss: DG-479_DECISION.md option A (narrow) plus D. pre-commit's own
+pre-push stage never invokes any hook at all for a solo tag on an already-public commit or a
+delete-only push (`hook_impl._pre_push_ns` returns "nothing to push" before `run()` is ever
+reached, so no config knob can change it — tried and confirmed not possible). The fix is a native
+`pre-push` hook, the sole owner of the stage so it never races pre-commit's own managed hooks for
+it; DG-480 (a brand-new repository's first push being refused) is closed by the same hook for free,
+since it reads the real ref lines off git's own stdin rather than taking pre-commit's separate
+"all_files, no FROM/TO" path. `--no-verify`, a redirected `core.hooksPath`, and a human running an
+unhooked clone remain open on purpose — no hook can close any of those — and are named above rather
+than implied.
 
 ## Inferred — not yet accepted
 - (none — all accepted by the Boss, 2026-09-23)

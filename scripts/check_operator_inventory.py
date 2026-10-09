@@ -94,22 +94,44 @@ message of every local annotated tag not already on a remote, and binary
 content up to ``MAX_BINARY_BYTES``, decoded as plain bytes, NUL-stripped,
 and UTF-16/32.
 
-**What it does not cover, because pre-commit never invokes it at all for
-these:** ``hook_impl._pre_push_ns`` returns "nothing to push" -- and this
-script is never run, with no output -- when every pushed ref either deletes
-something or points at a commit already reachable from a remote-tracking
-ref. A solo annotated tag pushed onto an *already-public* commit
-(``git tag -a v1 -m "<id>" && git push origin v1``), a ref deletion pushed
-alongside a new ref (``git push origin :old v3``), and any push that is
-*entirely* deletions or already-public commits all leak an unscanned tag
-message this way -- the global scan above never runs, because the hook
-itself never runs. This is DG-479: whether the real fix is a native
-always-on pre-push hook outside pre-commit, a separate gate, or an accepted
-limit is a design decision for the Boss, and is explicitly out of this
-file's scope. ``refs/notes/*`` and any ref outside ``refs/heads``/``refs/tags``
-are likewise not specifically read (they are not walked by ``--branches
---tags``, though a note's own commit content, if reachable some other way,
-still is).
+**What pre-commit's own pre-push stage never invoked this for, and why that
+no longer matters (DG-479, decided 2026-10-09 -- the Boss: option A
+narrow + D):** ``pre_commit.commands.hook_impl._pre_push_ns`` returns
+"nothing to push" -- and this script was never run, with no output -- when
+every pushed ref either deletes something or points at a commit already
+reachable from a remote-tracking ref. A solo annotated tag pushed onto an
+*already-public* commit (``git tag -a v1 -m "<id>" && git push origin
+v1``), a ref deletion pushed alongside a new ref (``git push origin :old
+v3``), and any push that is *entirely* deletions or already-public commits
+all used to leak an unscanned tag message this way. The fix is a *native*
+``pre-push`` hook (``scripts/git_hooks/pre-push``, installed by
+``drunken-init --install-git-hooks`` -- see ``src/core/git_hooks.py``) that
+git always invokes directly, outside pre-commit entirely, reading the ref
+lines off its own stdin and calling this same ``--push`` mode once per
+ref with that ref's own ``PRE_COMMIT_FROM_REF``/``PRE_COMMIT_TO_REF``
+values -- the identical environment contract pre-commit's own pre-push
+stage already set, so every case above now reaches this script with a real
+``TO`` to scan. ``pre-commit``'s own pre-push stage is therefore no longer
+installed at all (out of ``default_install_hook_types``): the native hook
+is the sole owner of the stage, so the two never race for it. The residual,
+accepted limits -- ``git push --no-verify``, a ``core.hooksPath`` pointing
+elsewhere, or a checkout that never ran the installer at all -- are
+``drunken-doctor``'s ``guard.git_hooks`` to report, not this script's to
+close; see REQ-023 in ``.ai/PRD.md``. ``refs/notes/*`` and any ref outside
+``refs/heads``/``refs/tags`` are likewise not specifically read (they are
+not walked by ``--branches --tags``, though a note's own commit content, if
+reachable some other way, still is).
+
+DG-480 (a brand-new repository's first push being refused) disappears the
+same way: pre-commit's own "all_files" path for a from-scratch push used to
+leave both ``PRE_COMMIT_FROM_REF`` and ``PRE_COMMIT_TO_REF`` unset, which
+this script correctly refused rather than guess -- but the native hook
+never takes that path at all. git always hands it the real local/remote sha
+for every ref line it reads off stdin, including a first push (remote sha
+all-zero, read as ``FROM`` unset below), so there is always a real ``TO`` to
+scan. Run by hand, or by anything else that does not set
+``PRE_COMMIT_TO_REF``, this still refuses rather than guess what is being
+pushed -- that part of the contract is unchanged.
 """
 
 from __future__ import annotations

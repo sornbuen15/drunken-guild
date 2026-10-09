@@ -1,0 +1,6 @@
+# The native pre-push hook (DG-479/DG-480) is a POSIX shell script with a
+# `#!/bin/sh` shebang. A clone with `core.autocrlf=true` (the common
+# Windows default) would otherwise convert it to CRLF on checkout, which
+# some shells refuse to run at all -- `eol=lf` keeps it a shell script on
+# every platform regardless of a clone's own autocrlf setting.
+scripts/git_hooks/pre-push text eol=lf
