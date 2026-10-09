@@ -348,3 +348,54 @@ class TestTheDeploymentPathFollowsThePackageName:
 
         entry = next(c for c in report.checks if c.name == "deployment.tool_env")
         assert entry.status == "skip"
+
+
+class TestRetiredSkillNamesDecodeSafetyDG475:
+    """DG-475: ``retired_skill_names`` read ``retired_skills.txt`` with no
+    ``try``/``except`` at all, so a list in another encoding raised an
+    uncaught ``UnicodeDecodeError`` instead of the same "nothing to read"
+    fallback a missing file already gets."""
+
+    def test_a_utf16_list_does_not_raise(self, tmp_path):
+        target = tmp_path / doctor.RETIRED_SKILLS_FILE
+        target.parent.mkdir(parents=True)
+        target.write_bytes("kanban-io\n".encode("utf-16"))
+
+        assert doctor.retired_skill_names(tmp_path) == set()
+
+    def test_a_latin1_list_does_not_raise(self, tmp_path):
+        target = tmp_path / doctor.RETIRED_SKILLS_FILE
+        target.parent.mkdir(parents=True)
+        target.write_bytes(b"caf\xe9\n")
+
+        assert doctor.retired_skill_names(tmp_path) == set()
+
+
+class TestExternalSkillNamesDG475:
+    """``external_skill_names`` reads ``skills/.external`` the same way
+    ``retired_skill_names`` reads its own list, and had the same gap: no
+    ``try``/``except`` around the read at all."""
+
+    def test_names_are_read(self, tmp_path):
+        target = tmp_path / "skills" / ".external"
+        target.parent.mkdir(parents=True)
+        target.write_text("# comment\nthird-party-skill\n", encoding="utf-8")
+
+        assert doctor.external_skill_names(tmp_path) == {"third-party-skill"}
+
+    def test_a_missing_file_is_an_empty_set_not_an_error(self, tmp_path):
+        assert doctor.external_skill_names(tmp_path) == set()
+
+    def test_a_utf16_file_does_not_raise(self, tmp_path):
+        target = tmp_path / "skills" / ".external"
+        target.parent.mkdir(parents=True)
+        target.write_bytes("third-party-skill\n".encode("utf-16"))
+
+        assert doctor.external_skill_names(tmp_path) == set()
+
+    def test_a_latin1_file_does_not_raise(self, tmp_path):
+        target = tmp_path / "skills" / ".external"
+        target.parent.mkdir(parents=True)
+        target.write_bytes(b"caf\xe9\n")
+
+        assert doctor.external_skill_names(tmp_path) == set()

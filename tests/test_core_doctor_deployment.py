@@ -392,3 +392,20 @@ class TestFindingUvsToolDirectory:
         (site / "core" / "usage.py").write_text("", encoding="utf-8")
 
         assert doctor.compare_deployment(env, ["core.usage"])["missing"] == []
+
+
+class TestLockedVersionDecodeSafetyDG475:
+    """DG-475: ``_locked_version`` read ``uv.lock`` with ``except OSError``
+    only, so a lock file in another encoding raised an uncaught
+    ``UnicodeDecodeError`` -- despite this function's own docstring already
+    promising "a doctor check must never be the thing that raises"."""
+
+    def test_a_utf16_lock_file_reads_as_unknown_not_a_crash(
+        self, tmp_path, monkeypatch
+    ):
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / "uv.lock").write_bytes(
+            'name = "mcp"\nversion = "1.0.0"\n'.encode("utf-16")
+        )
+
+        assert doctor._locked_version() is None  # noqa: SLF001

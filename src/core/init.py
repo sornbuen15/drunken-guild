@@ -230,8 +230,26 @@ def _ensure_registry_document(registry_file: str) -> dict[str, Any]:
     if not os.path.exists(registry_file):
         return {"version": SCHEMA_VERSION, "projects": {}}
 
-    with open(registry_file, "r", encoding="utf-8") as handle:
-        document = json.load(handle)
+    try:
+        with open(registry_file, "r", encoding="utf-8") as handle:
+            document = json.load(handle)
+    except UnicodeDecodeError as exc:
+        # DG-475: a registry an operator hand-edited, copied or otherwise
+        # left in another encoding used to raise UnicodeDecodeError here
+        # with no try/except at all -- a raw traceback instead of the
+        # typed refusal every other malformed-registry shape already
+        # gets below. The file's own bytes never reach this message: only
+        # its path and the codec's own (byte, position) description do,
+        # neither of which is file content. Nothing has been written by
+        # this point, so a refusal here leaves the registry untouched,
+        # same as every other branch in this function.
+        raise ValidationError(
+            f"{registry_file} is not valid UTF-8: {exc}",
+            remediation=(
+                "Fix its encoding (re-save as UTF-8) or remove the file, "
+                "then run drunken-init again. Nothing has been written."
+            ),
+        ) from exc
 
     if not isinstance(document, dict):
         raise ValidationError(
@@ -454,6 +472,20 @@ def _read_jira_fragment(project_folder: Path) -> Optional[dict[str, str]]:
     try:
         raw = path.read_text(encoding="utf-8-sig")
         data: Any = json.loads(raw)
+    except UnicodeDecodeError as exc:
+        # DG-475: content_scan.scan_file above already turns most
+        # undecodable content into a non-empty finding and refuses
+        # earlier for the same reason, but this line's own
+        # try/except caught only OSError and json.JSONDecodeError --
+        # neither of which UnicodeDecodeError is -- so a narrow TOCTOU
+        # (the file changing between that scan and this read) still
+        # raised a raw traceback instead of this same typed refusal.
+        # Only the path and the codec's own description reach the
+        # message; the file's own bytes never do.
+        raise ValidationError(
+            f"{_JIRA_FRAGMENT_FILENAME} is not valid UTF-8: {exc}",
+            remediation=f"Fix {path}'s encoding (re-save as UTF-8), or remove the file.",
+        ) from exc
     except (OSError, json.JSONDecodeError) as exc:
         raise ValidationError(
             f"{_JIRA_FRAGMENT_FILENAME} is not valid JSON: {exc}",
