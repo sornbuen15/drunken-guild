@@ -1139,3 +1139,114 @@ class TestDeclaredHookTypesMatchesYamlOnQuotedShapes:
         text = "default_install_hook_types: &hook_types [pre-commit, commit-msg]\n"
         with pytest.raises(doctor.UnparseableHookTypesError):
             doctor.declared_hook_types(text)
+
+
+class TestDeclaredHookTypesMatchesYamlOnGluedCommentsAndEscapes:
+    """DG-483 (found by the DG-475/478 reviewer, non-blocking -- neither
+    shape can occur with a real hook-type name): a ``#`` directly after a
+    flow list's closing bracket with no whitespace at all, and
+    double-quoted escapes other than ``\\"`` and ``\\\\``. Every case here
+    is checked against ``yaml.safe_load`` as the oracle; ``doctor`` must
+    either return exactly what it returns or refuse the shape outright --
+    never a silently different list.
+    """
+
+    def test_seen_failing_first_a_comment_glued_to_the_closing_bracket(self):
+        """PyYAML reads a ``#`` immediately after a flow sequence's
+        closing ``]`` as a comment even with no preceding whitespace --
+        confirmed against ``yaml.safe_load`` below, not assumed."""
+        text = "default_install_hook_types: ['pre-commit']#comment\n"
+        expected = yaml.safe_load(text)["default_install_hook_types"]
+        assert expected == ["pre-commit"]
+        assert doctor.declared_hook_types(text) == expected
+
+    def test_seen_failing_first_a_newline_escape_is_decoded(self):
+        """Before this fix, ``\\n`` inside a double-quoted item was left
+        as the two literal characters ``\\`` and ``n`` instead of being
+        decoded to an actual newline, the way ``yaml.safe_load`` reads
+        it."""
+        text = 'default_install_hook_types: ["a\\nb"]\n'
+        expected = yaml.safe_load(text)["default_install_hook_types"]
+        assert expected == ["a\nb"]
+        assert doctor.declared_hook_types(text) == expected
+
+    @pytest.mark.parametrize(
+        "flow_value",
+        [
+            "['pre-commit']#comment",
+            "['pre-commit']  #comment",
+            '["pre-commit"]#comment',
+            '["a\\nb"]',
+            '["\\t"]',
+            '["\\b"]',
+            '["\\x41"]',
+            '["\\u00e9"]',
+            '["\\0"]',
+            '["\\/"]',
+            '["caf\\u00e9"]',
+            '["a#b"]',
+            "['pre-commit', 'commit-msg']#comment",
+        ],
+    )
+    def test_flow_style_matches_yaml_safe_load(self, flow_value):
+        text = f"default_install_hook_types: {flow_value}\n"
+        expected = yaml.safe_load(text)["default_install_hook_types"]
+        assert doctor.declared_hook_types(text) == expected
+
+    @pytest.mark.parametrize(
+        "item",
+        [
+            '"a\\nb"',
+            '"\\t"',
+            '"\\b"',
+            '"\\x41"',
+            '"\\u00e9"',
+            '"\\0"',
+            '"\\/"',
+            "''",
+        ],
+    )
+    def test_block_style_matches_yaml_safe_load(self, item):
+        text = f"default_install_hook_types:\n  - {item}\n"
+        expected = yaml.safe_load(text)["default_install_hook_types"]
+        assert doctor.declared_hook_types(text) == expected
+
+    def test_crlf_line_endings_with_the_glued_comment_still_parse(self):
+        text = "default_install_hook_types: ['pre-commit']#comment\r\n"
+        expected = yaml.safe_load(text)["default_install_hook_types"]
+        assert doctor.declared_hook_types(text) == expected
+
+    def test_a_block_item_with_a_comment_glued_to_its_closing_quote(self):
+        text = 'default_install_hook_types:\n  - "pre-commit"#comment\n  - commit-msg\n'
+        expected = yaml.safe_load(text)["default_install_hook_types"]
+        assert expected == ["pre-commit", "commit-msg"]
+        assert doctor.declared_hook_types(text) == expected
+
+    @pytest.mark.parametrize(
+        "escape",
+        [
+            "\\q",
+            "\\a",
+            "\\v",
+            "\\f",
+            "\\r",
+            "\\e",
+            "\\U0001F600",
+            "\\x4",
+            "\\x4g",
+            "\\u00e",
+        ],
+    )
+    def test_an_unimplemented_or_malformed_escape_fails_loud_never_mismatches(
+        self, escape
+    ):
+        """Each of these is either a real YAML escape this hand-rolled
+        reader does not implement (``\\a``, ``\\v``, ``\\f``, ``\\r``,
+        ``\\e``, ``\\U...``) or malformed (truncated ``\\x``/``\\u``, an
+        unknown escape letter) -- ``yaml.safe_load`` either decodes it to
+        something this reader must not guess at, or raises itself.
+        Either way, ``doctor`` must refuse rather than return a value
+        that could silently differ from PyYAML's own."""
+        text = f'default_install_hook_types: ["{escape}"]\n'
+        with pytest.raises(doctor.UnparseableHookTypesError):
+            doctor.declared_hook_types(text)

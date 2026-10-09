@@ -22,6 +22,7 @@ import json
 import os
 import re
 import shutil
+import string
 import subprocess  # nosec B404 - git, invoked with a fixed argument list
 import sys
 from dataclasses import asdict, dataclass, field
@@ -2088,24 +2089,42 @@ def _scan_line(
     had not, either cutting a line in the wrong place or leaving a real
     trailing comment baked into the value. One scan, read twice, cannot
     drift apart from itself.
+
+    A ``#`` also starts a comment with **no** preceding whitespace at all
+    when it directly follows a token that just closed — a quoted scalar's
+    closing quote, or a flow collection's closing ``]``/``}`` — the same as
+    PyYAML itself reads it (DG-483 review: confirmed against
+    ``yaml.safe_load``, not assumed, since YAML elsewhere requires a
+    preceding space for ``#`` to start a comment). ``['pre-commit']#why``
+    is read as the list ``['pre-commit']`` with a comment, not a shape
+    this reader cannot follow.
     """
     quote = start_quote
     index = 0
     length = len(line)
+    comment_may_start_bare = False
     while index < length:
         if quote == "'":
             index, quote = _advance_past_single_quote(line, index)
+            comment_may_start_bare = quote is None
             continue
         if quote == '"':
             index, quote = _advance_past_double_quote(line, index)
+            comment_may_start_bare = quote is None
             continue
         char = line[index]
         if char == "'":
             quote = "'"
+            comment_may_start_bare = False
         elif char == '"':
             quote = '"'
-        elif char == "#" and (index == 0 or line[index - 1].isspace()):
+            comment_may_start_bare = False
+        elif char == "#" and (
+            index == 0 or line[index - 1].isspace() or comment_may_start_bare
+        ):
             return quote, index
+        else:
+            comment_may_start_bare = char in "]}"
         index += 1
     return quote, None
 
@@ -2141,22 +2160,102 @@ def _strip_inline_comment(line: str) -> str:
     return line if comment_index is None else line[:comment_index]
 
 
+#: The double-quoted YAML escapes this hand-rolled reader decodes itself,
+#: each a single character after the backslash mapping to its one decoded
+#: character — confirmed against ``yaml.safe_load`` (DG-483 review), not
+#: assumed. ``\\"`` and ``\\\\`` were already handled before this ticket;
+#: the rest (``\n``, ``\t``, ``\b``, ``\0``, ``\/``) are the ones the
+#: DG-475/478 reviewer found left as two literal characters instead of
+#: being decoded.
+_DOUBLE_QUOTE_SIMPLE_ESCAPES: Final = {
+    "\\": "\\",
+    '"': '"',
+    "n": "\n",
+    "t": "\t",
+    "b": "\b",
+    "0": "\0",
+    "/": "/",
+}
+
+
+def _decode_double_quoted_body(body: str) -> str:
+    """*body*, the text between a double-quoted item's own quotes,
+    YAML-decoded the same way PyYAML itself would (DG-483 review).
+
+    Only the escapes in :data:`_DOUBLE_QUOTE_SIMPLE_ESCAPES` and the
+    ``\\xNN``/``\\uNNNN`` hex forms are decoded — real YAML escapes this
+    reader does not implement (``\\a``, ``\\v``, ``\\f``, ``\\r``, ``\\e``,
+    ``\\U........``, the named Unicode escapes) and anything malformed (a
+    truncated ``\\x``/``\\u``, an unrecognised escape letter, a trailing
+    lone backslash) raise :class:`UnparseableHookTypesError` rather than
+    being decoded wrong or left as literal backslash-letter text — this
+    reader must never return a value that could differ from
+    ``yaml.safe_load``'s, and refusing the shape is always safe where
+    decoding it is not implemented.
+    """
+    decoded: list[str] = []
+    index = 0
+    length = len(body)
+    while index < length:
+        char = body[index]
+        if char != "\\":
+            decoded.append(char)
+            index += 1
+            continue
+        escape = body[index + 1] if index + 1 < length else ""
+        if escape in _DOUBLE_QUOTE_SIMPLE_ESCAPES:
+            decoded.append(_DOUBLE_QUOTE_SIMPLE_ESCAPES[escape])
+            index += 2
+            continue
+        if escape in ("x", "u"):
+            digit_count = 2 if escape == "x" else 4
+            hex_digits = body[index + 2 : index + 2 + digit_count]
+            if len(hex_digits) != digit_count or not all(
+                digit in string.hexdigits for digit in hex_digits
+            ):
+                raise UnparseableHookTypesError(
+                    f"default_install_hook_types contains a malformed "
+                    f"\\{escape} escape: {body!r}.",
+                    remediation=(
+                        "Write the hook type's double-quoted value with a "
+                        "complete \\x (two hex digits) or \\u (four hex "
+                        "digits) escape, or avoid the escape entirely."
+                    ),
+                )
+            decoded.append(chr(int(hex_digits, 16)))
+            index += 2 + digit_count
+            continue
+        raise UnparseableHookTypesError(
+            f"default_install_hook_types contains a double-quoted escape "
+            f"this reader does not decode: {body!r}.",
+            remediation=(
+                "Rewrite the hook type's double-quoted value without "
+                "this escape, or use single quotes, or a plain unquoted "
+                "hook type name."
+            ),
+        )
+    return "".join(decoded)
+
+
 def _unquote_hook_type(item: str) -> str:
     """*item*, a single flow or block list entry, YAML-unquoted the same
-    way PyYAML itself would for this one scalar shape (DG-478 review):
-    a matching pair of quotes is stripped, and a single-quoted item's own
-    ``''`` is un-escaped to a literal ``'`` — ``'can''t'`` reads as
-    ``can't``, not the literal text ``can''t`` a bare ``strip("'\\"")``
-    left behind. A double-quoted item's own ``\\"`` is un-escaped to a
-    literal ``"`` the same way. An item not opening and closing with the
-    same quote character is returned with only its outermost quote
-    characters trimmed, unchanged from this module's behaviour before
-    this ticket — a hook type name has no real use for one here.
+    way PyYAML itself would for this one scalar shape (DG-478, DG-483
+    review): a matching pair of quotes is stripped, and a single-quoted
+    item's own ``''`` is un-escaped to a literal ``'`` — ``'can''t'`` reads
+    as ``can't``, not the literal text ``can''t`` a bare
+    ``strip("'\\"")`` left behind. A double-quoted item is decoded through
+    :func:`_decode_double_quoted_body`, which raises
+    :class:`UnparseableHookTypesError` for any escape it cannot decode
+    exactly as YAML would, rather than leaving it literal. An item not
+    opening and closing with the same quote character is returned with
+    only its outermost quote characters trimmed, unchanged from this
+    module's behaviour before this ticket — a hook type name has no real
+    use for one here.
     """
     if len(item) >= 2 and item[0] == item[-1] == "'":
         return item[1:-1].replace("''", "'")
     if len(item) >= 2 and item[0] == item[-1] == '"':
-        return item[1:-1].replace('\\"', '"').replace("\\\\", "\\")
+        return _decode_double_quoted_body(item[1:-1])
     return item.strip("'\"")
 
 
