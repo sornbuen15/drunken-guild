@@ -954,24 +954,31 @@ def test_a_missing_python_interpreter_fails_closed(tmp_path: Path, monkeypatch) 
     _remote, repo = _bare_remote_and_repo(tmp_path, monkeypatch)
     _commit(repo, "a.txt", "clean\n", "base")
 
-    empty_bin = tmp_path / "empty-bin"
-    empty_bin.mkdir()
-    env = os.environ.copy()
-    env["PATH"] = str(empty_bin)  # a git binary alone is not enough; see below
-
     # git itself must still be reachable to run `git push` at all -- only
-    # the *hook's* search for an interpreter is what this test starves.
-    # Git for Windows resolves `git` via argv[0]/its own install location
-    # rather than PATH alone in common setups, but to be safe on every
-    # platform this re-adds just enough of PATH to find `git` (and the
-    # `sh` it runs hooks under), while leaving every python interpreter
-    # out.
-    git_path = shutil.which("git")
-    assert git_path is not None
-    env["PATH"] = os.pathsep.join([str(Path(git_path).parent), str(empty_bin)])
+    # the *hook's* search for an interpreter is what this test starves. A
+    # directory merely omitting python is not enough on Linux, where
+    # `git`'s own directory (e.g. /usr/bin) typically also holds a system
+    # `python3` -- re-adding that whole directory to PATH would hand the
+    # hook back exactly the interpreter this test means to take away. A
+    # shim that `exec`s the real git by its own absolute path, alone on
+    # PATH, isolates "git is reachable" from "whatever else lives next to
+    # it" on every platform.
+    real_git = shutil.which("git")
+    assert real_git is not None
+    fake_bin = tmp_path / "fake-bin"
+    fake_bin.mkdir()
+    shim = fake_bin / ("git.cmd" if sys.platform == "win32" else "git")
+    if sys.platform == "win32":
+        shim.write_text(f'@echo off\r\n"{real_git}" %*\r\n', encoding="utf-8")
+    else:
+        shim.write_text(f'#!/bin/sh\nexec "{real_git}" "$@"\n', encoding="utf-8")
+        shim.chmod(0o755)
+
+    env = os.environ.copy()
+    env["PATH"] = str(fake_bin)
 
     result = subprocess.run(
-        ["git", "push", "origin", "HEAD:main"],
+        [str(shim), "push", "origin", "HEAD:main"],
         cwd=repo,
         capture_output=True,
         text=True,
