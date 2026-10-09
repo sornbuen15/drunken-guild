@@ -133,8 +133,9 @@ def _consume_quoted_char(
     return i + 1, (None if char == quote else quote)
 
 
-def split_command(command: str) -> list[str]:
-    """Split a shell command into the commands it will actually run.
+def segments_with_leading_operator(command: str) -> list[tuple[str, str]]:
+    """Split *command* into ``(operator, segment)`` pairs -- the operator is
+    ``""`` for the first segment, otherwise the token that preceded it.
 
     Quote-aware, because ``grep 'a && b' file`` is one command and splitting
     it would invent a second that was never run. Command substitutions are
@@ -149,12 +150,24 @@ def split_command(command: str) -> list[str]:
     meaning there at all, so both the backslash and the newline stay in the
     segment literally, inert.
 
+    :func:`split_command` is this same scan with the operators thrown away
+    -- this is the one implementation (DG-474). It used to exist twice:
+    once here without the operator, and again in ``hook.py`` under the name
+    ``_segments_with_leading_operator``, because the hook floor's third rule
+    (DG-465) needs to know which operator joined each pair -- ``|`` is the
+    one that actually pipes one segment's output into the next, and a bypass
+    check scoped to "after a pipe" has nowhere else to read that from. Two
+    copies of the same quote and operator scan are two things that can
+    quietly disagree about the same command; this is the shared home both
+    callers read from instead.
+
     This is a scanner, not a shell parser. It does not understand here-docs,
     process substitution or nested quoting inside substitutions. That is the
     soft-control caveat in the module docstring, made concrete.
     """
-    segments: list[str] = []
+    pairs: list[tuple[str, str]] = []
     current: list[str] = []
+    operator = ""
     quote: Optional[str] = None
     i = 0
     while i < len(command):
@@ -183,22 +196,34 @@ def split_command(command: str) -> list[str]:
 
         pair = command[i : i + 2]
         if pair in _TWO_CHAR_OPERATORS:
-            segments.append("".join(current))
+            pairs.append((operator, "".join(current)))
             current = []
+            operator = pair
             i += 2
             continue
 
         if char in _ONE_CHAR_OPERATORS:
-            segments.append("".join(current))
+            pairs.append((operator, "".join(current)))
             current = []
+            operator = char
             i += 1
             continue
 
         current.append(char)
         i += 1
 
-    segments.append("".join(current))
-    return [segment.strip() for segment in segments if segment.strip()]
+    pairs.append((operator, "".join(current)))
+    return [(op, seg.strip()) for op, seg in pairs if seg.strip()]
+
+
+def split_command(command: str) -> list[str]:
+    """Split a shell command into the commands it will actually run.
+
+    See :func:`segments_with_leading_operator` -- this is that same scan
+    with the leading operator of each segment thrown away, for the callers
+    that only need the text.
+    """
+    return [segment for _, segment in segments_with_leading_operator(command)]
 
 
 @dataclass(frozen=True)
