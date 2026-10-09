@@ -471,15 +471,52 @@ class TestInterWordWhitespaceCannotDefeatADenyRule:
         assert pr.split_command(command) == [command]
         assert pr.is_allowed("Bash", {"command": command}, [rule])
 
-    def test_a_non_breaking_space_is_not_the_denied_command(self) -> None:
-        """Verdict, recorded: a real shell's word-splitting (IFS) does not
-        include U+00A0 -- `rm\xa0-rf` is one single argument to a program
-        named literally `rm\xa0-rf`, not the two words `rm` and `-rf`. That is
-        not the denied command, so this must not be normalised into one."""
+    def test_a_non_breaking_space_is_the_denied_command_after_all(self) -> None:
+        """Verdict, revised (adversarial round 2, Jira comment on DG-481): a
+        *real* Git Bash does not treat U+00A0 as an IFS separator, but
+        PowerShell's own tokenizer does -- `powershell -Command "git<NBSP>push
+        --force"` resolves to the argv `[git, push, --force]`, confirmed by
+        the reviewer. For a deny floor the safe direction is to over-deny
+        rather than trust the one shell that happens to agree with us, so
+        NBSP (and the other Unicode space separators -- see
+        :data:`pr._INTERWORD_WHITESPACE`) collapse the same as a tab does."""
         rule = pr.Rule.parse("Bash(rm -rf:*)")
         command = "rm\xa0-rf /tmp/x"
+        assert pr.split_command(command) == ["rm -rf /tmp/x"]
+        assert pr.is_denied("Bash", {"command": command}, [rule])
+
+    @pytest.mark.parametrize("rule_text,command", _DENY_RULE_COMMANDS)
+    def test_denied_with_a_non_breaking_space_between_every_word(
+        self, rule_text: str, command: str
+    ) -> None:
+        rule = pr.Rule.parse(rule_text)
+        spread = _spread_whitespace(command, "\xa0")
+        assert pr.is_denied("Bash", {"command": spread}, [rule]), spread
+
+    @pytest.mark.parametrize("rule_text,command", _DENY_RULE_COMMANDS)
+    @pytest.mark.parametrize(
+        "fill",
+        [
+            " ",  # en quad
+            " ",  # em space
+            " ",  # hair space
+            " ",  # narrow no-break space
+            " ",  # medium mathematical space
+            "　",  # ideographic space
+            "\u0085",  # NEL
+            " ",  # Ogham space mark
+        ],
+    )
+    def test_denied_with_other_unicode_space_separators_between_every_word(
+        self, rule_text: str, command: str, fill: str
+    ) -> None:
+        rule = pr.Rule.parse(rule_text)
+        spread = _spread_whitespace(command, fill)
+        assert pr.is_denied("Bash", {"command": spread}, [rule]), spread
+
+    def test_a_non_breaking_space_inside_quotes_is_still_untouched(self) -> None:
+        command = 'git commit -m "a\xa0b"'
         assert pr.split_command(command) == [command]
-        assert not pr.is_denied("Bash", {"command": command}, [rule])
 
     def test_a_lone_cr_is_not_the_denied_command(self) -> None:
         """Verdict, recorded: a lone `\\r` (no following `\\n`) is not a line
@@ -497,3 +534,39 @@ class TestInterWordWhitespaceCannotDefeatADenyRule:
         command = 'git\tcommit\t-m\t"a  b\tc"\tHEAD'
         normalised = pr.split_command(command)[0]
         assert normalised == 'git commit -m "a  b\tc" HEAD'
+
+
+class TestNoclobberRedirectIsNotAPipe:
+    """Adversarial round 2 (Jira comment on DG-481): `>|` is bash's
+    noclobber-override redirect, one single operator -- not `>` followed by
+    a `|` pipe. The scanner only ever checked individual characters against
+    the one-char operator table, so the `|` half of `>|` always ended the
+    segment and started a new, piped one, silently rewriting
+    `echo bad >| pre-commit` into two pipeline stages that were never run as
+    written."""
+
+    def test_noclobber_redirect_stays_one_segment(self) -> None:
+        command = "echo bad >| pre-commit"
+        assert pr.split_command(command) == [command]
+
+    def test_noclobber_redirect_inside_a_compound_command_stays_one_segment(
+        self,
+    ) -> None:
+        command = "cd .git/hooks && echo bad >| pre-commit"
+        assert pr.split_command(command) == [
+            "cd .git/hooks",
+            "echo bad >| pre-commit",
+        ]
+
+    def test_an_ordinary_pipe_still_splits(self) -> None:
+        """The fix must be specific to `>|` -- an ordinary pipe immediately
+        after something that is not `>` must still split normally."""
+        command = "cat file | grep x"
+        assert pr.split_command(command) == ["cat file", "grep x"]
+
+    def test_an_or_operator_after_a_redirect_is_unaffected(self) -> None:
+        """`>` followed by a real `||` (two characters) is not `>|` -- the
+        two-char operator check for `||` must still win there, same as
+        before this fix."""
+        command = "echo x > file || true"
+        assert pr.split_command(command) == ["echo x > file", "true"]

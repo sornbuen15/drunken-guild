@@ -169,10 +169,23 @@ _BASE_COMMANDS: Final = [
     "cat .git/hooks/pre-commit",
 ]
 
-#: Whitespace fills: each collapses to one plain space under the new code;
-#: NBSP and a lone CR are the two the ticket says must NOT collapse.
-_NORMALISING_FILLS: Final = ["\t", "\f", "\v", "  ", "\t\t", " \t "]
-_NON_NORMALISING_FILLS: Final = ["\xa0", "\r"]
+#: Whitespace fills: each collapses to one plain space under the new code.
+#: Round 2 (adversarial) moved NBSP from "must not collapse" to "must
+#: collapse" -- see the docstring on `permission_rules._UNICODE_SPACE_SEPARATORS`
+#: -- so it is a normalising fill now; a lone CR is still the only one that
+#: must not collapse.
+_NORMALISING_FILLS: Final = [
+    "\t",
+    "\f",
+    "\v",
+    "  ",
+    "\t\t",
+    " \t ",
+    "\xa0",
+    " ",
+    "　",
+]
+_NON_NORMALISING_FILLS: Final = ["\r"]
 
 
 def _variants(command: str) -> list[str]:
@@ -189,9 +202,19 @@ _CORPUS: Final = list(
 _UNIQUE_CORPUS: Final = sorted(set(_CORPUS))
 
 
+#: Round 1's tab/form-feed/vertical-tab plus round 2's NBSP and other
+#: Unicode space separators -- imported from the real production set rather
+#: than re-typed, so this test can never quietly drift from what the code
+#: actually collapses.
+_NORMALISING_CHARS: Final = frozenset(("\t", "\f", "\v")) | frozenset(
+    pr._UNICODE_SPACE_SEPARATORS
+)
+
+
 def _has_unquoted_normalising_whitespace(command: str) -> bool:
-    """Whether *command* contains a tab, form feed, vertical tab or a run of
-    two-or-more plain spaces, outside any quoted span -- the only thing the
+    """Whether *command* contains a tab, form feed, vertical tab, a Unicode
+    space separator (NBSP and friends -- round 2), or a run of
+    two-or-more plain spaces, outside any quoted span -- the only things the
     new code treats differently from the old one."""
     quote: Optional[str] = None
     i = 0
@@ -207,7 +230,7 @@ def _has_unquoted_normalising_whitespace(command: str) -> bool:
             quote = char
             i += 1
             continue
-        if char in ("\t", "\f", "\v"):
+        if char in _NORMALISING_CHARS:
             return True
         if char == " " and i + 1 < n and command[i + 1] == " ":
             return True
@@ -268,3 +291,66 @@ def test_the_corpus_actually_exercises_the_fix() -> None:
 
 def test_corpus_has_a_few_hundred_commands() -> None:
     assert len(_CORPUS) >= 100, len(_CORPUS)
+
+
+# ---------------------------------------------------------------------------
+# DG-481 round 2 (adversarial): `>|` is one operator, not `>` then a `|`
+# pipe. A *separate* differential corpus and check, deliberately -- `>|` is
+# not a whitespace difference at all, so mixing it into the corpus above
+# would make `_has_unquoted_normalising_whitespace` responsible for
+# explaining something it was never about.
+# ---------------------------------------------------------------------------
+
+_NOCLOBBER_CORPUS: Final = [
+    "echo bad >| pre-commit",
+    "cd .git/hooks && echo bad >| pre-commit",
+    "echo bad > pre-commit",
+    "echo bad >> pre-commit",
+    "cat file | grep x",
+    "echo x > file || true",
+    "git status",
+    "rm -rf /tmp/x",
+    "echo x >| /tmp/y && rm -rf /tmp/z",
+]
+
+
+def _has_noclobber_redirect(command: str) -> bool:
+    """Whether *command* contains `>|` outside quotes -- the one shape this
+    round's splitter fix changes."""
+    quote: Optional[str] = None
+    i = 0
+    n = len(command)
+    while i < n:
+        char = command[i]
+        if quote is not None:
+            if char == quote:
+                quote = None
+            i += 1
+            continue
+        if char in ("'", '"'):
+            quote = char
+            i += 1
+            continue
+        if char == "|" and i > 0 and command[i - 1] == ">":
+            return True
+        i += 1
+    return False
+
+
+@pytest.mark.parametrize("command", _NOCLOBBER_CORPUS)
+def test_old_and_new_split_command_differ_only_on_noclobber_redirect(
+    command: str,
+) -> None:
+    old = _old_split_command(command)
+    new = pr.split_command(command)
+    if old != new:
+        assert _has_noclobber_redirect(command), (
+            f"split_command changed for {command!r} without a `>|` present"
+        )
+
+
+def test_the_noclobber_corpus_actually_exercises_the_fix() -> None:
+    changed = [
+        c for c in _NOCLOBBER_CORPUS if _old_split_command(c) != pr.split_command(c)
+    ]
+    assert len(changed) >= 2, changed

@@ -1094,3 +1094,142 @@ class TestDG476RedirectOrWriteAfterCdIntoHooksDir:
             self.NO_RULES,
         )
         assert decision.permission == "deny"
+
+
+class TestDG476Round2PushdAndCdVariants:
+    """Adversarial round 2 (Jira comment on DG-481): `cwd_is_hooks_dir` only
+    ever recognised a bare `cd`/`popd` segment -- `pushd`, `cd` with an
+    option flag, a quoted path, a backslash path, or the PowerShell
+    spellings (`Set-Location`, `sl`, `chdir`) all changed cwd into the hooks
+    dir exactly the same way and were never seen doing it."""
+
+    NO_RULES = pr.Rules(allow=[], deny=[])
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "pushd .git/hooks && echo x > pre-commit",
+            "cd -P .git/hooks && echo x > pre-commit",
+            "cd -L .git/hooks && echo x > pre-commit",
+            "cd -- .git/hooks && echo x > pre-commit",
+            'cd "./.git/hooks" && echo x > pre-commit',
+            "cd '.git/hooks' && echo x > pre-commit",
+            "cd .git\\hooks && echo x > pre-commit",
+            "Set-Location .git/hooks; echo x > pre-commit",
+            "sl .git/hooks; echo x > pre-commit",
+            "chdir .git/hooks && echo x > pre-commit",
+        ],
+    )
+    def test_entering_the_hooks_dir_by_any_spelling_still_denies_a_write(
+        self, command
+    ) -> None:
+        decision = hook.decide(payload(command=command), self.NO_RULES)
+        assert decision.permission == "deny", f"{command!r} should be denied"
+
+    def test_popd_after_pushd_into_hooks_dir_leaves_it(self) -> None:
+        decision = hook.decide(
+            payload(command="pushd .git/hooks && popd && echo x > a.txt"),
+            self.NO_RULES,
+        )
+        assert decision.permission is None
+
+    def test_a_later_cd_elsewhere_still_resets_pushd_state(self) -> None:
+        decision = hook.decide(
+            payload(command="pushd .git/hooks && cd /tmp && echo x > a.txt"),
+            self.NO_RULES,
+        )
+        assert decision.permission is None
+
+    def test_pushd_to_an_unrelated_dir_is_not_denied(self) -> None:
+        decision = hook.decide(
+            payload(command="pushd /tmp && echo x > a.txt"), self.NO_RULES
+        )
+        assert decision.permission is None
+
+
+class TestDG476Round2DigitPrefixedAndSpecialRedirects:
+    r"""Adversarial round 2: the old `(?<![\d&])` lookbehind excluded *any*
+    digit before `>`, not just the fd-duplication shape `N>&M` -- so
+    `2> pre-commit` (a real write of stderr to a file) read as a duplication
+    and passed. `&>`, `&>>`, `>>` and `<>` into a relative path must also be
+    denied; `2>/dev/null`, `>&2`, `1>&2`, `2>&1` (true fd operations, no file
+    write) must stay allowed."""
+
+    NO_RULES = pr.Rules(allow=[], deny=[])
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "cd .git/hooks && echo bad 2> pre-commit",
+            "cd .git/hooks && echo bad 1> pre-commit",
+            "cd .git/hooks && exec 3> pre-commit",
+            "cd .git/hooks && echo bad &> pre-commit",
+            "cd .git/hooks && echo bad &>> pre-commit",
+            "cd .git/hooks && echo bad >> pre-commit",
+            "cd .git/hooks && exec 3<> pre-commit",
+            "cd .git/hooks && echo bad >| pre-commit",
+        ],
+    )
+    def test_digit_prefixed_and_special_redirects_into_the_hooks_dir_are_denied(
+        self, command
+    ) -> None:
+        decision = hook.decide(payload(command=command), self.NO_RULES)
+        assert decision.permission == "deny", f"{command!r} should be denied"
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "cd .git/hooks && echo bad 2>/dev/null",
+            "cd .git/hooks && echo bad >&2",
+            "cd .git/hooks && echo bad 1>&2",
+            "cd .git/hooks && echo bad 2>&1",
+        ],
+    )
+    def test_true_fd_operations_with_no_file_write_stay_allowed(self, command) -> None:
+        decision = hook.decide(payload(command=command), self.NO_RULES)
+        assert decision.permission is None, f"{command!r} should stay allowed"
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            'cd .git/hooks && bash -c "echo bad 2>&1"',
+            'cd .git/hooks && bash -c "echo bad >&2"',
+        ],
+    )
+    def test_fd_operations_stay_allowed_inside_a_quoted_wrapper_too(
+        self, command
+    ) -> None:
+        """At the top level, a bare, unquoted `&` is itself a shell operator
+        the shared splitter already cuts the segment on -- `echo bad 2>&1`
+        is split into `echo bad 2>` and a bogus trailing `1` segment well
+        before this pattern ever runs, so the `(?!&)` lookahead never gets
+        exercised there. Quoted, the `&` is protected from that split and
+        `2>&1` survives whole in one segment -- this is the shape that
+        actually needs the lookahead, and the one a mutation that drops it
+        breaks."""
+        decision = hook.decide(payload(command=command), self.NO_RULES)
+        assert decision.permission is None, f"{command!r} should stay allowed"
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            'cd .git/hooks && bash -c "echo bad &> pre-commit"',
+            'cd .git/hooks && bash -c "echo bad &>> pre-commit"',
+            'cd .git/hooks && bash -c "exec 3<> pre-commit"',
+        ],
+    )
+    def test_special_redirects_still_denied_inside_a_quoted_wrapper(
+        self, command
+    ) -> None:
+        """A quoted wrapper (`bash -c "..."`, `powershell -Command "..."`)
+        is exactly where `&>`/`&>>`/`<>` survive as one unsplit segment --
+        the shared splitter's own quote-awareness keeps an unquoted bare `&`
+        from being read as a background operator and breaking the redirect
+        apart the way it would at the top level. A lookbehind that excluded
+        any `&` immediately before `>` (an earlier, narrower version of this
+        fix) would miss exactly this shape -- `&>`'s `>` *is* preceded by
+        `&` -- which is why :data:`_WRITING_REDIRECT_OPERATOR` has no
+        lookbehind on what precedes `>` at all, only the `(?!&)` lookahead
+        on what follows it."""
+        decision = hook.decide(payload(command=command), self.NO_RULES)
+        assert decision.permission == "deny", f"{command!r} should be denied"

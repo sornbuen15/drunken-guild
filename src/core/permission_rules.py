@@ -73,23 +73,38 @@ _GLOB_CHARS: Final = ("*", "?", "[")
 _TWO_CHAR_OPERATORS: Final = ("&&", "||", "$(")
 _ONE_CHAR_OPERATORS: Final = (";", "|", "&", "\n", "`", "(", ")")
 
-#: A real shell's own word separators -- space, tab, form feed, vertical tab
-#: -- outside quotes. DG-481: a prefix-matching deny rule compares its own
-#: text, single-spaced, against the segment text verbatim, so `git<TAB>push`
-#: or `git  push` (doubled space) read as a different string even though a
-#: shell runs either one identically to `git push`. Collapsing a run of
-#: these to one space before matching makes the comparison see the command
-#: the way the shell actually will.
+#: Every other Unicode space-separator character (category Zs), plus NEL
+#: (U+0085, historically treated as a line break by some tools). DG-481
+#: round 2 (adversarial, Jira comment): the first version of this fix
+#: reasoned from Git Bash alone -- a *real* POSIX shell's IFS does not
+#: include U+00A0 (NBSP), so `rm\xa0-rf` was left uncollapsed as "not the
+#: denied command". The reviewer confirmed PowerShell's own tokenizer
+#: disagrees: `powershell -Command "git<NBSP>push --force"` resolves to the
+#: argv `[git, push, --force]`, NBSP included as an ordinary separator. A
+#: deny floor that has to be right for whichever shell is actually running
+#: has only one safe direction when two real shells disagree about a
+#: character's meaning: treat it as a separator, and over-deny rather than
+#: trust the shell that happens to agree with the matcher.
+_UNICODE_SPACE_SEPARATORS: Final = tuple(
+    chr(code)
+    for code in (0x0085, 0x00A0, 0x1680, *range(0x2000, 0x200B), 0x202F, 0x205F, 0x3000)
+)
+
+#: A real shell's own word separators -- space, tab, form feed, vertical tab,
+#: and (see :data:`_UNICODE_SPACE_SEPARATORS` above) the other Unicode space
+#: characters -- outside quotes. DG-481: a prefix-matching deny rule compares
+#: its own text, single-spaced, against the segment text verbatim, so
+#: `git<TAB>push` or `git  push` (doubled space) read as a different string
+#: even though a shell runs either one identically to `git push`. Collapsing
+#: a run of these to one space before matching makes the comparison see the
+#: command the way the shell actually will.
 #:
-#: Deliberately narrow. A lone `\r` (no following `\n`, so not
-#: :func:`line_continuation_length`'s concern either) and U+00A0 (NBSP) are
-#: *not* in this set and so stay untouched -- neither is in a POSIX shell's
-#: `IFS`, so `rm\xa0-rf` is one single argument (a program named literally
-#: that, which does not exist) rather than the two words `rm` and `-rf`. That
-#: is a different, inert command, not the denied one, and normalising it
-#: into looking the same would be the matcher inventing a word boundary the
-#: shell itself never draws.
-_INTERWORD_WHITESPACE: Final = (" ", "\t", "\f", "\v")
+#: A lone `\r` (no following `\n`, so not
+#: :func:`line_continuation_length`'s concern either) is still *not* in this
+#: set, deliberately: it is not a word separator in either shell this module
+#: has evidence for, so collapsing it would manufacture a word boundary
+#: neither one draws.
+_INTERWORD_WHITESPACE: Final = (" ", "\t", "\f", "\v", *_UNICODE_SPACE_SEPARATORS)
 
 
 class UnparseableRule(ValueError):
@@ -149,6 +164,32 @@ def _consume_quoted_char(
             return i + 2, quote
     current.append(char)
     return i + 1, (None if char == quote else quote)
+
+
+def _skip_interword_whitespace(command: str, i: int) -> int:
+    """The index just past the run of :data:`_INTERWORD_WHITESPACE`
+    starting at *i* -- the caller has already appended the single
+    collapsed space for the whole run and only needs to know where it
+    ends. Split out of :func:`segments_with_leading_operator` to keep that
+    function's own branching under the project's complexity limit."""
+    n = len(command)
+    while i < n and command[i] in _INTERWORD_WHITESPACE:
+        i += 1
+    return i
+
+
+def _is_noclobber_pipe_char(char: str, current: list[str]) -> bool:
+    """Whether *char* (a `|`) is the second half of bash's `>|` noclobber-
+    override redirect rather than an ordinary pipe. DG-481 round 2
+    (adversarial): this `|` used to be read as a pipe regardless, ending
+    the segment and starting a new, piped one, so
+    `echo bad >| pre-commit` silently became two pipeline stages that were
+    never the command actually typed. The character immediately before
+    this `|` is the one and only signal available at this point in the
+    scan -- *current* is the text already collected for the segment in
+    progress, so its last character being `>` means this `|` belongs to
+    `>|`, not to a pipe."""
+    return char == "|" and bool(current) and current[-1] == ">"
 
 
 def segments_with_leading_operator(command: str) -> list[tuple[str, str]]:
@@ -214,9 +255,7 @@ def segments_with_leading_operator(command: str) -> list[tuple[str, str]]:
 
         if char in _INTERWORD_WHITESPACE:
             current.append(" ")
-            i += 1
-            while i < len(command) and command[i] in _INTERWORD_WHITESPACE:
-                i += 1
+            i = _skip_interword_whitespace(command, i + 1)
             continue
 
         pair = command[i : i + 2]
@@ -225,6 +264,11 @@ def segments_with_leading_operator(command: str) -> list[tuple[str, str]]:
             current = []
             operator = pair
             i += 2
+            continue
+
+        if _is_noclobber_pipe_char(char, current):
+            current.append(char)
+            i += 1
             continue
 
         if char in _ONE_CHAR_OPERATORS:
