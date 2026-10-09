@@ -20,6 +20,7 @@ for it.
 from __future__ import annotations
 
 import itertools
+import re
 from typing import Final, Optional
 
 import pytest
@@ -354,3 +355,119 @@ def test_the_noclobber_corpus_actually_exercises_the_fix() -> None:
         c for c in _NOCLOBBER_CORPUS if _old_split_command(c) != pr.split_command(c)
     ]
     assert len(changed) >= 2, changed
+
+
+# ---------------------------------------------------------------------------
+# DG-476 round 3 (adversarial): the redirect-operator grammar.
+# `hook._HOOKS_DIR_REDIRECT_PATTERN`/`_RELATIVE_REDIRECT_PATTERN` (round 2's
+# regex pair) vs `hook._writing_redirect_targets` (round 3's deterministic
+# scan) -- over every operator x gap x target combination the reviewer
+# named, both against the direct-path question (does some target contain
+# `.git/hooks`?) and the cwd-scoped one (is some target relative?).
+# ---------------------------------------------------------------------------
+
+_ROUND2_WRITING_REDIRECT_OPERATOR = r">{1,2}"
+_ROUND2_HOOKS_DIR_REDIRECT_PATTERN = re.compile(
+    rf"{_ROUND2_WRITING_REDIRECT_OPERATOR}(?!&)\s*[\"']?\S*\.git[\\/]+hooks",
+    re.IGNORECASE,
+)
+_ROUND2_RELATIVE_REDIRECT_PATTERN = re.compile(
+    rf"{_ROUND2_WRITING_REDIRECT_OPERATOR}(?!&)\s*[\"']?(?!/|~|[A-Za-z]:[\\/])\S"
+)
+
+
+def _old_denies_hooks_dir_redirect(segment: str) -> bool:
+    return bool(_ROUND2_HOOKS_DIR_REDIRECT_PATTERN.search(segment))
+
+
+def _old_denies_relative_redirect(segment: str) -> bool:
+    return bool(_ROUND2_RELATIVE_REDIRECT_PATTERN.search(segment))
+
+
+def _new_denies_hooks_dir_redirect(segment: str) -> bool:
+    return any(
+        hook._HOOKS_DIR_PATTERN.search(t)
+        for t in hook._writing_redirect_targets(segment)
+    )
+
+
+def _new_denies_relative_redirect(segment: str) -> bool:
+    return any(
+        hook._is_relative_target(t) for t in hook._writing_redirect_targets(segment)
+    )
+
+
+_ROUND3_OPERATORS: Final = [">", ">>", ">|", "1>", "2>", "2>>", "&>", "&>>", "<>"]
+_ROUND3_GAPS: Final = ["", " ", "  ", "\t"]
+_ROUND3_RELATIVE_TARGETS: Final = [
+    "pre-commit",
+    ".git/hooks/pre-commit",
+    "./.git/hooks/pre-commit",
+    ".git\\hooks\\pre-commit",
+    '".git/hooks/pre-commit"',
+]
+_ROUND3_ABSOLUTE_TARGETS: Final = ["/tmp/out", "/repo/.git/hooks/pre-commit"]
+
+#: ``(command, operator, gap)`` -- the operator and gap are kept alongside
+#: the command text so the test below can tell "a shape round 3 was meant
+#: to change" (any gap, or an operator round 1/2 never saw: `>|`, a digit
+#: or `&` prefix) from the one control case (`>` with no gap at all) that
+#: must still agree with the old code, same as before this round.
+_ROUND3_CORPUS: Final = [
+    (f"echo bad {op}{gap}{target}", op, gap)
+    for op in _ROUND3_OPERATORS
+    for gap in _ROUND3_GAPS
+    for target in _ROUND3_RELATIVE_TARGETS + _ROUND3_ABSOLUTE_TARGETS
+]
+
+
+def _is_round3_shape(operator: str, gap: str) -> bool:
+    return gap != "" or operator != ">"
+
+
+@pytest.mark.parametrize("command,operator,gap", _ROUND3_CORPUS)
+def test_old_and_new_hooks_dir_redirect_differ_only_on_round3_shapes(
+    command: str, operator: str, gap: str
+) -> None:
+    old = _old_denies_hooks_dir_redirect(command)
+    new = _new_denies_hooks_dir_redirect(command)
+    if old != new:
+        assert _is_round3_shape(operator, gap), (
+            f"{command!r} (operator={operator!r}, gap={gap!r}) changed "
+            "verdict without a round-3 shape present"
+        )
+
+
+@pytest.mark.parametrize("command,operator,gap", _ROUND3_CORPUS)
+def test_old_and_new_relative_redirect_differ_only_on_round3_shapes(
+    command: str, operator: str, gap: str
+) -> None:
+    old = _old_denies_relative_redirect(command)
+    new = _new_denies_relative_redirect(command)
+    if old != new:
+        assert _is_round3_shape(operator, gap), (
+            f"{command!r} (operator={operator!r}, gap={gap!r}) changed "
+            "verdict without a round-3 shape present"
+        )
+
+
+def test_round3_corpus_has_a_few_hundred_commands() -> None:
+    assert len(_ROUND3_CORPUS) >= 200, len(_ROUND3_CORPUS)
+
+
+def test_round3_corpus_actually_exercises_both_fixes() -> None:
+    """Pin down that the corpus contains commands each check's old and new
+    code actually disagree on -- a differential that never disagrees
+    proves nothing."""
+    hooks_dir_changed = [
+        c
+        for c, _, _ in _ROUND3_CORPUS
+        if _old_denies_hooks_dir_redirect(c) != _new_denies_hooks_dir_redirect(c)
+    ]
+    relative_changed = [
+        c
+        for c, _, _ in _ROUND3_CORPUS
+        if _old_denies_relative_redirect(c) != _new_denies_relative_redirect(c)
+    ]
+    assert len(hooks_dir_changed) >= 5, hooks_dir_changed
+    assert len(relative_changed) >= 5, relative_changed

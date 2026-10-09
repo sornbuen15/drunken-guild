@@ -570,3 +570,44 @@ class TestNoclobberRedirectIsNotAPipe:
         before this fix."""
         command = "echo x > file || true"
         assert pr.split_command(command) == ["echo x > file", "true"]
+
+
+class TestAbuttingOperatorsAreNotLostToAnEmptySegment:
+    """DG-476 round 3 (adversarial): a subshell that closes right next to
+    another operator -- `); `, `) ; `, `))` -- produced an *empty* segment
+    carrying the real operator (`)`), which the final filter
+    (``if seg.strip()``) then silently dropped. The next real segment's
+    recorded leading operator was whatever overwrote it afterwards, so
+    `hook.py`'s bypass scan had no way to tell "a subshell just closed here"
+    from "nothing happened here" -- `cwd_is_hooks_dir` leaked straight
+    through a `)` it should have been reset by.
+
+    The fix concatenates operators that abut with nothing (not even
+    whitespace) between them, rather than letting the later one overwrite
+    the earlier one -- so the segment that follows carries all of them.
+    """
+
+    def test_closing_paren_then_semicolon_is_preserved_on_the_next_segment(
+        self,
+    ) -> None:
+        pairs = pr.segments_with_leading_operator("(cd .git/hooks && ls); echo y > b")
+        assert pairs == [
+            ("(", "cd .git/hooks"),
+            ("&&", "ls"),
+            (");", "echo y > b"),
+        ]
+
+    def test_nested_closing_parens_are_both_preserved(self) -> None:
+        pairs = pr.segments_with_leading_operator("(cd .git/hooks && (ls)); echo y > b")
+        assert pairs[-1] == ("));", "echo y > b")
+
+    def test_an_operator_with_real_content_between_is_unaffected(self) -> None:
+        """The merge must be specific to *nothing* between two operators --
+        whitespace is still real content for this purpose, so an ordinary
+        pipe after a subshell (`) | xargs ...`) keeps reading as `|`, the
+        one value :func:`~core.hook._bypasses_hook_floor_bash` actually
+        checks for."""
+        pairs = pr.segments_with_leading_operator(
+            "(cat .git/hooks/pre-commit) | xargs echo"
+        )
+        assert pairs[-1] == ("|", "xargs echo")

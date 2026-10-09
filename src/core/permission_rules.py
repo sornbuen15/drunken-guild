@@ -192,6 +192,37 @@ def _is_noclobber_pipe_char(char: str, current: list[str]) -> bool:
     return char == "|" and bool(current) and current[-1] == ">"
 
 
+def _push_or_merge_operator(
+    pairs: list[tuple[str, str]],
+    operator: str,
+    current: list[str],
+    next_operator: str,
+) -> str:
+    """Close out the segment accumulated in *current* under *operator* and
+    return the operator the *next* segment should carry.
+
+    DG-476 round 3 (adversarial): a subshell that closes right next to
+    another operator -- `); `, `) ; `, `))` -- has *nothing* between the two
+    operator tokens, so the segment they would otherwise each lead is empty
+    and gets dropped by this function's own final filter
+    (``if seg.strip()``). The operator that led into that dropped segment
+    used to be lost outright, overwritten by whichever operator came next --
+    so a caller like :func:`~core.hook._bypasses_hook_floor_bash`, which
+    needs to know "a subshell just closed here" to stop treating `cwd` as
+    the hooks dir, had nothing to read that from. Concatenating onto
+    *operator* instead of overwriting it, but only when *current* is truly
+    empty (not even whitespace -- an ordinary pipe after a subshell, `) |
+    xargs ...`, must still read as plain `|`), means the segment that
+    eventually follows carries every operator since the last real content,
+    in order.
+    """
+    text = "".join(current)
+    if text:
+        pairs.append((operator, text))
+        return next_operator
+    return operator + next_operator
+
+
 def segments_with_leading_operator(command: str) -> list[tuple[str, str]]:
     """Split *command* into ``(operator, segment)`` pairs -- the operator is
     ``""`` for the first segment, otherwise the token that preceded it.
@@ -260,9 +291,8 @@ def segments_with_leading_operator(command: str) -> list[tuple[str, str]]:
 
         pair = command[i : i + 2]
         if pair in _TWO_CHAR_OPERATORS:
-            pairs.append((operator, "".join(current)))
+            operator = _push_or_merge_operator(pairs, operator, current, pair)
             current = []
-            operator = pair
             i += 2
             continue
 
@@ -272,9 +302,8 @@ def segments_with_leading_operator(command: str) -> list[tuple[str, str]]:
             continue
 
         if char in _ONE_CHAR_OPERATORS:
-            pairs.append((operator, "".join(current)))
+            operator = _push_or_merge_operator(pairs, operator, current, char)
             current = []
-            operator = char
             i += 1
             continue
 
