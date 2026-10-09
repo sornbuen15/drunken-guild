@@ -1,0 +1,54 @@
+# DG-485. The Windows workstation's system-level git config sets
+# core.autocrlf=true while the repo's own (user and local) config says
+# false. Without this file, that system setting is free to rewrite a
+# worktree to CRLF on anything that touches it -- a `git stash` round trip,
+# the Edit tool saving a file -- producing a whole-file diff on an index
+# that is already LF. This file pins line endings explicitly so the
+# system-level setting has nothing left to decide.
+
+# Default: let git sniff text vs binary itself (text=auto), and normalise
+# whatever it calls text to LF in both the index and the working tree,
+# whatever the machine's own core.autocrlf says.
+* text=auto eol=lf
+
+# PowerShell scripts. `git ls-files --eol` on develop shows these already
+# stored LF, and PowerShell (both powershell.exe and pwsh) runs an
+# LF-only .ps1 without issue; pin LF explicitly so nothing flips it later
+# and the index never gets a mass rewrite to match a different pin.
+*.ps1 text eol=lf
+
+# cmd.exe batch files: none exist in this repo today, but cmd.exe's own
+# parser is documented to mishandle LF-only batch files on some Windows
+# versions (GOTO labels and multi-line constructs expect a CRLF line
+# terminator). Pin CRLF so a .bat/.cmd added later is correct by default
+# instead of inheriting the LF default above.
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# POSIX shell scripts must stay LF: a CRLF shebang line fails with
+# "/bin/sh^M: bad interpreter" under WSL, Git Bash and every CI runner
+# this repo uses.
+*.sh text eol=lf
+
+# uv's lockfile is plain text and already stored LF on develop; pin it
+# explicitly like every other text file instead of leaving it to the
+# catch-all rule above, since a tool-generated file is the first place a
+# future change to the default would be missed.
+uv.lock text eol=lf
+
+# Binary formats: never run through the text/eol normalisation machinery,
+# whatever the machine's line-ending settings are. None of these are
+# tracked in this repo today; the rules are here so one added later does
+# not silently get treated as text.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.webp binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.eot binary
+*.pdf binary
+*.zip binary
