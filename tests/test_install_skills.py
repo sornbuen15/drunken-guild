@@ -329,3 +329,78 @@ class TestSameResultAsTheScript:
         install.install_skills(ours_target, source=copy / "skills")
 
         assert tree(ours_target) == scripted
+
+
+class TestALinkPlantedAfterThePlanIsNotFollowed:
+    """Review of #186 (BLOCK): only the plan checked for a link, so one planted between the plan and
+    the write was followed, and the shipped files landed in the folder it pointed at."""
+
+    def test_a_skill_folder_turned_into_a_link_before_the_write_is_refused(
+        self, tmp_path, monkeypatch
+    ):
+        src = make_source(tmp_path, TWO)
+        target = tmp_path / "t"
+        target.mkdir()
+        elsewhere = tmp_path / "elsewhere"
+        elsewhere.mkdir()
+        real_plan = install._plan_skill
+
+        def plan_then_plant(name, folder, root):
+            action = real_plan(name, folder, root)
+            if name == "alpha" and not (root / "alpha").exists():
+                symlink_or_skip(root / "alpha", elsewhere, directory=True)
+            return action
+
+        monkeypatch.setattr(install, "_plan_skill", plan_then_plant)
+
+        with pytest.raises(install.InstallRefusedError):
+            install.install_skills(target, source=src)
+
+        assert list(elsewhere.iterdir()) == [], (
+            "the files were written through the link"
+        )
+
+    def test_a_nested_folder_turned_into_a_link_inside_a_skill_is_refused(
+        self, tmp_path
+    ):
+        src = make_source(tmp_path, TWO)
+        target = tmp_path / "t"
+        (target / "alpha").mkdir(parents=True)
+        elsewhere = tmp_path / "elsewhere"
+        elsewhere.mkdir()
+        symlink_or_skip(target / "alpha" / "extra", elsewhere, directory=True)
+
+        result = install.install_skills(target, source=src)
+
+        assert {a.name: a.status for a in result.skills}["alpha"] == "refused"
+        assert list(elsewhere.iterdir()) == []
+
+
+class TestPruneNamesMustBePlainNames:
+    def test__prune_never_removes_a_parent_looking_name(self, tmp_path):
+        root = tmp_path / "root"
+        target = root / "skills"
+        target.mkdir(parents=True)
+        (root / "keep.txt").write_bytes(b"keep" + bytes([10]))
+
+        removed = install._prune(
+            target,
+            [
+                install.Orphan("..", "retired"),
+                install.Orphan("a/b", "retired"),
+                install.Orphan(".", "retired"),
+            ],
+        )
+
+        assert removed == []
+        assert (root / "keep.txt").exists() and target.exists()
+
+    def test_hostile_lines_in_the_retired_list_are_ignored(self, tmp_path, monkeypatch):
+        fake = tmp_path / "scripts" / "install"
+        fake.mkdir(parents=True)
+        (fake / "retired_skills.txt").write_bytes(
+            b"# comment\nold-one\n..\n../../x\na/b\nc:d\n.\n"
+        )
+        monkeypatch.setattr(install, "_package_dir", lambda name: tmp_path / name)
+
+        assert install.retired_names() == frozenset({"old-one"})
