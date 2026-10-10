@@ -30,7 +30,7 @@ import shutil
 import sys
 import tempfile
 from dataclasses import dataclass, field
-from importlib import resources
+from importlib import util as importlib_util
 from pathlib import Path
 from typing import Optional, Sequence
 
@@ -70,14 +70,31 @@ class InstallResult:
     pruned: list[str] = field(default_factory=list)
 
 
+def _package_dir(name: str) -> Optional[Path]:
+    """Where an installed package's files live, found without importing it.
+
+    ``importlib.resources.files`` is not used: ``drunken_skills`` is the repository's ``skills/``
+    folder under an importable name and has no ``__init__.py``, so it is a namespace package and
+    ``files()`` hands back a multiplexed path that is not a directory (found by installing the
+    wheel into a clean venv; tests that run from the source tree never see it).
+    """
+    try:
+        spec = importlib_util.find_spec(name)
+    except (ImportError, ValueError):
+        return None
+    if spec is None or not spec.submodule_search_locations:
+        return None
+    for location in spec.submodule_search_locations:
+        if Path(location).is_dir():
+            return Path(location)
+    return None
+
+
 def packaged_skills_dir() -> Path:
     """The skills shipped with this install: the wheel's ``drunken_skills``, else the repo's ``skills/``."""
-    try:
-        root = Path(str(resources.files("drunken_skills")))
-        if root.is_dir():
-            return root
-    except (ModuleNotFoundError, TypeError):
-        pass
+    root = _package_dir("drunken_skills")
+    if root is not None:
+        return root
     candidate = _SOURCE_TREE / "skills"
     if candidate.is_dir():
         return candidate
@@ -90,12 +107,9 @@ def packaged_skills_dir() -> Path:
 def retired_names() -> frozenset[str]:
     """The only names ``--prune-apply`` may ever remove (``retired_skills.txt``, minus comments)."""
     candidates: list[Path] = []
-    try:
-        candidates.append(
-            Path(str(resources.files("scripts"))) / "install" / "retired_skills.txt"
-        )
-    except (ModuleNotFoundError, TypeError):
-        pass
+    scripts = _package_dir("scripts")
+    if scripts is not None:
+        candidates.append(scripts / "install" / "retired_skills.txt")
     candidates.append(_SOURCE_TREE / "scripts" / "install" / "retired_skills.txt")
     for path in candidates:
         if path.is_file():
