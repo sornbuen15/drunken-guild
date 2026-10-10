@@ -6,7 +6,7 @@ Accepted by the Boss, 2026-09-23. Built from `.ai/PRD.md` (REQ-001–022; REQ-00
 
 | context | requirements served | what it owns |
 |---|---|---|
-| **Flow** | REQ-001, REQ-004, REQ-012, REQ-016, REQ-017, REQ-021 | The ordered steps from requirement to validation, and how each step hands to the next |
+| **Flow** | REQ-001, REQ-004, REQ-012, REQ-016, REQ-017, REQ-021, REQ-024 | The ordered steps from requirement to validation, and how each step hands to the next |
 | **Routing** | REQ-002, REQ-010, REQ-011, REQ-013 | How an agent decides, unprompted, which skill, role or MCP tool a situation needs, and proof that it does |
 | **Instructions** | REQ-006, REQ-007, REQ-015 | The one instruction file every agent reads, and the adapters that lead each agent to it |
 | **Layering** | REQ-019, REQ-020 | Where a project's AI layer lives and how it gets there: kept out of the project's repository, held in one private config repo, put in place by init |
