@@ -143,22 +143,34 @@ If a previous version is installed under the old package name, `uv tool install 
 *"Executables already exist"*. `--force` is not the fix — it repoints the symlinks and leaves the
 old environment installed, still shipping a `drunken-board-mcp` this package no longer contains.
 
-Then generate the config for **your project** rather than writing it by hand:
+Then **declare the server once for the whole machine**. Do not put a `.mcp.json` in your project:
+the server is the same for every project (each tool takes the registry project id as its first
+argument, so no configuration decides which Jira is reached — DG-341), and a file in the project
+would be the guild showing up in a repository that may be handed to a customer (REQ-019).
+
+**Claude Code** — one command, any folder, run it yourself:
 
 ```bash
-./scripts/install/install_mcp.sh --out ~/Projects/my-project/.mcp.json
+claude mcp add --scope user drunken-jira-mcp -- "$(command -v drunken-jira-mcp)"
+claude mcp list        # drunken-jira-mcp ... ✔ Connected
 ```
 
-It prints by default and only writes when you pass `--out`.
+On Windows PowerShell the second argument is the full path `uv tool` printed
+(`C:\Users\<you>\.local\bin\drunken-jira-mcp.exe`): `claude mcp add --scope user drunken-jira-mcp -- <that path>`.
+Name the **installed** command, never one inside a project's `.venv`: it works until the venv is
+rebuilt, then fails with no visible link to the cause.
 
-**The same file is correct for every project.** It names the server and nothing else: each tool
-takes the registry project id as its first argument, so no configuration decides which Jira is
-reached (DG-341). It carries no absolute path either — a path here is one machine's directory
-layout in another repository's git history.
+**Other agents** (Antigravity, Aider, Gemini CLI) are 2.1; until then use that agent's own
+user-level MCP config. `./scripts/install/install_mcp.sh` prints the JSON to paste (it writes
+nothing unless you pass `--out`), and `scripts/onboard_project.py --merge-mcp-config <file>` merges
+it into a file that already declares other servers, by name, so those survive.
 
-To add the server to a host application's own config file instead, where other MCP servers are
-already declared, use `scripts/onboard_project.py --merge-mcp-config <file>`: it merges by name so
-those survive, and prunes only the servers this project has retired.
+**Already have a `.mcp.json` in a project?** Delete it from that project once the user-level entry
+shows *Connected*; if the project committed it, remove it with `git rm`. Leaving both works but
+loads the server twice.
+
+**Check:** open the project in a new Claude Code session and ask for the board
+(`jira_board_info`). If the tool is missing, `claude mcp list` says which scope holds the entry.
 
 ---
 

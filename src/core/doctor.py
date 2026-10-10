@@ -2659,10 +2659,100 @@ def missing_hook_types(hooks_dir_path: Path, hook_types: Sequence[str]) -> list[
     return missing
 
 
+def _native_pre_push_status(hooks_dir_path: Path) -> tuple[bool, str]:
+    """Whether DG-479's native ``pre-push`` hook is correctly installed in
+    *hooks_dir_path*, and a one-line reason either way.
+
+    Checked independently of :func:`declared_hook_types`/:func:`missing_
+    hook_types`, which read ``default_install_hook_types`` — and the
+    DG-479 decision takes ``pre-push`` out of that list entirely, so the
+    native hook is the sole owner of the stage and pre-commit's own
+    pre-push stage is never installed alongside it. A declared-types check
+    alone would therefore now report nothing wrong even with no push-time
+    scan installed at all — exactly the silent regression this exists to
+    catch, every time this check runs.
+
+    A local import of :mod:`core.git_hooks` — that module imports
+    :func:`hooks_dir` from here at its own top level, so importing it back
+    at this module's top level would be a cycle; by the time this function
+    actually runs, this module has long finished executing and the import
+    resolves normally.
+    """
+    from . import git_hooks
+
+    legacy = hooks_dir_path / f"{git_hooks.HOOK_FILENAME}{git_hooks.LEGACY_SUFFIX}"
+    if legacy.is_file():
+        return False, (
+            f"{legacy} exists — `pre-commit install --hook-type pre-push` "
+            "demoted the native privacy-scan hook to .legacy, which does "
+            "not run on this platform (DG-479_DECISION.md: the pre-commit "
+            "shim hands _run_legacy an MSYS-style path on Windows, so "
+            "os.access reports it not executable and it is silently "
+            "skipped). The push-time privacy scan is not actually running."
+        )
+
+    target = hooks_dir_path / git_hooks.HOOK_FILENAME
+    if not target.is_file():
+        return False, (
+            f"No native pre-push hook at {target} — the push-time privacy "
+            "scan (DG-479) is not installed."
+        )
+
+    if not git_hooks.is_ours(target):
+        return False, (
+            f"{target} exists but was not written by drunken-init — it "
+            "does not carry the drunken-guild marker, so the push-time "
+            "privacy scan is not confirmed to be running."
+        )
+
+    # Reviewer round 2, gap B: git invokes a hook file directly rather than
+    # through an interpreter it chooses, exactly like `missing_hook_types`
+    # already reasons for pre-commit/commit-msg -- a present-but-not-
+    # executable file never runs at all, the same failure as it not
+    # existing. Skipped on Windows, where `os.access(..., X_OK)` reports
+    # every file executable regardless of any real permission bit.
+    if sys.platform != "win32" and not os.access(target, os.X_OK):
+        return False, (
+            f"{target} carries the drunken-guild marker but is not "
+            "executable — git invokes a hook file directly, so this "
+            "never actually runs."
+        )
+
+    # Reviewer round 2, gap A: the marker alone only proves drunken-init
+    # wrote this file *once* -- it says nothing about whether the body
+    # still matches the shipped template. A human (or anything else)
+    # appending a line after the marker, or truncating the body, leaves
+    # the marker intact while the push-time scan silently stops doing
+    # anything at all. `Path.read_text()` already applies universal-
+    # newline translation on both sides, so a CRLF-converted copy that is
+    # otherwise byte-identical is never misread as tampering.
+    try:
+        installed = target.read_text(encoding="utf-8", errors="replace")
+        template = git_hooks._read_template()  # noqa: SLF001
+    except git_hooks.GitHooksTemplateMissingError:
+        # No source tree to read the template from at all (an installed
+        # `drunken-doctor`, not a dev checkout) -- cannot verify content,
+        # but the marker and the execute bit are still real signal.
+        return True, f"the native pre-push hook is installed at {target}"
+
+    if installed != template:
+        return False, (
+            f"{target} carries the drunken-guild marker but its content "
+            "does not match the shipped template — stale or hand-edited. "
+            "`drunken-init --install-git-hooks` replaces a stale hook of "
+            "ours in place (identified by the marker); it never touches a "
+            "foreign one."
+        )
+
+    return True, f"the native pre-push hook is installed at {target}"
+
+
 def _check_git_hooks_for_root(report: Report, name: str, git_root: Path) -> None:
     """`guard.git_hooks`: see :func:`declared_hook_types` and
     :func:`hooks_dir` for the two questions this answers in turn — what the
-    config declares, and what git itself reports as installed.
+    config declares, and what git itself reports as installed — plus
+    :func:`_native_pre_push_status` for the native ``pre-push`` hook
+    DG-479 moved out of that declared-types question altogether.
 
     A config that does not exist, or exists but never runs the
     operator-inventory guard, is a **skip**: this check's whole premise is
@@ -2707,6 +2797,23 @@ def _check_git_hooks_for_root(report: Report, name: str, git_root: Path) -> None
         return
 
     missing = missing_hook_types(resolved_hooks_dir, hook_types)
+    native_ok, native_detail = _native_pre_push_status(resolved_hooks_dir)
+
+    if missing and not native_ok:
+        report.add(
+            name,
+            "fail",
+            f"{', '.join(missing)} hook(s) declared in default_install_hook_types "
+            f"({', '.join(hook_types)}) are missing from {resolved_hooks_dir} — "
+            "a checkout that runs check_operator_inventory but never installed "
+            f"the hooks that run it is not actually guarded. Also: {native_detail}",
+            remediation=(
+                "pre-commit install; and drunken-init --install-git-hooks "
+                "for the native pre-push scan"
+            ),
+        )
+        return
+
     if missing:
         report.add(
             name,
@@ -2719,11 +2826,20 @@ def _check_git_hooks_for_root(report: Report, name: str, git_root: Path) -> None
         )
         return
 
+    if not native_ok:
+        report.add(
+            name,
+            "fail",
+            native_detail,
+            remediation="drunken-init --install-git-hooks",
+        )
+        return
+
     report.add(
         name,
         "ok",
         f"all {len(hook_types)} declared hook type(s) ({', '.join(hook_types)}) "
-        f"present in {resolved_hooks_dir}",
+        f"present in {resolved_hooks_dir}; {native_detail}",
     )
 
 

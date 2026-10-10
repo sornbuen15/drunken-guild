@@ -21,7 +21,7 @@ import sys
 import pytest
 import yaml  # dev-only oracle for DG-478; never imported by src/core/doctor.py
 
-from core import doctor
+from core import doctor, git_hooks
 from core.registry import ProjectRegistry
 
 GIT_IDENTITY = ["-c", "user.name=test", "-c", "user.email=test@example.invalid"]
@@ -101,6 +101,23 @@ def _write_hook(hooks_dir, name: str, executable: bool = True) -> None:
         hook.chmod(0o755)
     if not executable and sys.platform != "win32":
         hook.chmod(0o644)
+
+
+def _write_native_pre_push_hook(hooks_dir_path) -> None:
+    """A stand-in for `drunken-init --install-git-hooks` (DG-479): writes
+    the REAL, byte-identical shipped template -- not a fabricated stand-in
+    -- so `doctor._native_pre_push_status`'s content check (round 2 fix:
+    stale/modified content fails even with the marker present) agrees this
+    is a genuine, untouched install. Earlier revisions of this helper wrote
+    a fake one-liner carrying only the marker; that stopped being "ok" the
+    moment the content check existed, so every fixture needs the real
+    bytes now, not just the marker.
+    """
+    hooks_dir_path.mkdir(parents=True, exist_ok=True)
+    hook = hooks_dir_path / git_hooks.HOOK_FILENAME
+    hook.write_text(git_hooks._read_template(), encoding="utf-8")  # noqa: SLF001
+    if sys.platform != "win32":
+        hook.chmod(0o755)
 
 
 def find(report: doctor.Report, name: str) -> doctor.Check:
@@ -689,6 +706,7 @@ class TestAMissingDeclaredHookFails:
         )
         _commit_all(root, "initial")
         _write_hook(root / ".git" / "hooks", "pre-commit")
+        _write_native_pre_push_hook(root / ".git" / "hooks")
         # commit-msg hook deliberately never written.
 
         report = doctor.run_doctor(
@@ -711,6 +729,7 @@ class TestEveryDeclaredHookPresentIsOk:
         _commit_all(root, "initial")
         _write_hook(root / ".git" / "hooks", "pre-commit")
         _write_hook(root / ".git" / "hooks", "commit-msg")
+        _write_native_pre_push_hook(root / ".git" / "hooks")
 
         report = doctor.run_doctor(
             registry=_registry(tmp_path, "scratch", root), offline=True
@@ -754,6 +773,7 @@ class TestALinkedWorktreeIsJudgedByTheSharedHooks:
         # the worktree, which has no hooks directory of its own at all.
         _write_hook(main / ".git" / "hooks", "pre-commit")
         _write_hook(main / ".git" / "hooks", "commit-msg")
+        _write_native_pre_push_hook(main / ".git" / "hooks")
         assert not (worktree / ".git").is_dir()
 
         report = doctor.run_doctor(
@@ -916,6 +936,7 @@ class TestAnUnparseableDeclarationFailsLoud:
         (root / ".pre-commit-config.yaml").write_text(config, encoding="utf-8")
         _commit_all(root, "initial")
         _write_hook(root / ".git" / "hooks", "pre-commit")
+        _write_native_pre_push_hook(root / ".git" / "hooks")
         # commit-msg deliberately never written — the regression this
         # test exists to catch would silently never check for it at all.
         monkeypatch.setattr(doctor, "declared_hook_types", lambda text: ["pre-commit"])
@@ -944,6 +965,7 @@ class TestMalformedConfigDoesNotCrash:
         )
         _commit_all(root, "initial")
         _write_hook(root / ".git" / "hooks", "pre-commit")
+        _write_native_pre_push_hook(root / ".git" / "hooks")
 
         report = doctor.run_doctor(
             registry=_registry(tmp_path, "scratch", root), offline=True
@@ -1071,6 +1093,285 @@ class TestStripInlineCommentIsEscapeAware:
         scalar, exactly as ``_quote_state_after`` already treats it."""
         line = "key: 'can''t # not a comment'  # real comment"
         assert doctor._strip_inline_comment(line) == ("key: 'can''t # not a comment'  ")
+
+
+class TestNativePrePushHookCheck:
+    """DG-479: pre-push left `default_install_hook_types` entirely (the
+    native hook is its sole owner), so `missing_hook_types` alone would now
+    report nothing wrong even with no push-time scan installed at all.
+    `_native_pre_push_status` closes that gap, and `guard.git_hooks` folds
+    it into the same check regardless of what the config declares.
+    """
+
+    def test_a_missing_native_hook_fails_even_with_every_declared_type_present(
+        self, tmp_path
+    ):
+        root = tmp_path / "proj"
+        _init_repo(root)
+        (root / ".pre-commit-config.yaml").write_text(
+            GUARDED_CONFIG_FLOW, encoding="utf-8"
+        )
+        _commit_all(root, "initial")
+        _write_hook(root / ".git" / "hooks", "pre-commit")
+        _write_hook(root / ".git" / "hooks", "commit-msg")
+        # No native pre-push hook written at all.
+
+        report = doctor.run_doctor(
+            registry=_registry(tmp_path, "scratch", root), offline=True
+        )
+
+        check = find(report, "guard.git_hooks.scratch")
+        assert check.status == "fail", check.detail
+        assert "pre-push" in check.detail
+        assert check.remediation == "drunken-init --install-git-hooks"
+
+    def test_a_foreign_pre_push_hook_with_no_marker_fails(self, tmp_path):
+        root = tmp_path / "proj"
+        _init_repo(root)
+        (root / ".pre-commit-config.yaml").write_text(
+            GUARDED_CONFIG_FLOW, encoding="utf-8"
+        )
+        _commit_all(root, "initial")
+        _write_hook(root / ".git" / "hooks", "pre-commit")
+        _write_hook(root / ".git" / "hooks", "commit-msg")
+        hooks_dir_path = root / ".git" / "hooks"
+        (hooks_dir_path / "pre-push").write_text(
+            "#!/bin/sh\necho someone elses hook\nexit 0\n", encoding="utf-8"
+        )
+
+        report = doctor.run_doctor(
+            registry=_registry(tmp_path, "scratch", root), offline=True
+        )
+
+        check = find(report, "guard.git_hooks.scratch")
+        assert check.status == "fail", check.detail
+        assert "marker" in check.detail
+
+    def test_a_legacy_demoted_hook_fails_even_though_a_pre_push_file_exists(
+        self, tmp_path
+    ):
+        """DG-479_DECISION.md: `pre-commit install --hook-type pre-push`
+        demotes an existing native hook to `pre-push.legacy` and installs
+        its own shim as `pre-push` — which, on this Windows setup, never
+        actually chains to the `.legacy` file. A `pre-push` file existing
+        is therefore not enough; `.legacy` sitting next to it must fail on
+        its own, even if the `pre-push` file itself happens to carry the
+        marker (pre-commit's own shim does not, but this must not rely on
+        that alone)."""
+        root = tmp_path / "proj"
+        _init_repo(root)
+        (root / ".pre-commit-config.yaml").write_text(
+            GUARDED_CONFIG_FLOW, encoding="utf-8"
+        )
+        _commit_all(root, "initial")
+        _write_hook(root / ".git" / "hooks", "pre-commit")
+        _write_hook(root / ".git" / "hooks", "commit-msg")
+        hooks_dir_path = root / ".git" / "hooks"
+        _write_native_pre_push_hook(hooks_dir_path)
+        (hooks_dir_path / "pre-push.legacy").write_text(
+            "#!/bin/sh\nexit 0\n", encoding="utf-8"
+        )
+
+        report = doctor.run_doctor(
+            registry=_registry(tmp_path, "scratch", root), offline=True
+        )
+
+        check = find(report, "guard.git_hooks.scratch")
+        assert check.status == "fail", check.detail
+        assert "legacy" in check.detail.lower()
+
+    def test_a_correctly_installed_native_hook_is_ok(self, tmp_path):
+        root = tmp_path / "proj"
+        _init_repo(root)
+        (root / ".pre-commit-config.yaml").write_text(
+            GUARDED_CONFIG_FLOW, encoding="utf-8"
+        )
+        _commit_all(root, "initial")
+        _write_hook(root / ".git" / "hooks", "pre-commit")
+        _write_hook(root / ".git" / "hooks", "commit-msg")
+        _write_native_pre_push_hook(root / ".git" / "hooks")
+
+        report = doctor.run_doctor(
+            registry=_registry(tmp_path, "scratch", root), offline=True
+        )
+
+        check = find(report, "guard.git_hooks.scratch")
+        assert check.status == "ok", check.detail
+
+    def test_core_hookspath_is_honoured_for_the_native_hook_too(self, tmp_path):
+        root = tmp_path / "proj"
+        _init_repo(root)
+        (root / ".pre-commit-config.yaml").write_text(
+            GUARDED_CONFIG_FLOW, encoding="utf-8"
+        )
+        _commit_all(root, "initial")
+        (root / "myhooks").mkdir()
+        _git("config", "core.hooksPath", "myhooks", cwd=root)
+        _write_hook(root / "myhooks", "pre-commit")
+        _write_hook(root / "myhooks", "commit-msg")
+        _write_native_pre_push_hook(root / "myhooks")
+        # Nothing written under .git/hooks at all -- only `myhooks` counts.
+
+        report = doctor.run_doctor(
+            registry=_registry(tmp_path, "scratch", root), offline=True
+        )
+
+        check = find(report, "guard.git_hooks.scratch")
+        assert check.status == "ok", check.detail
+
+
+class TestNeuteredHookContentIsCaught:
+    """Reviewer round 2, gap A: the marker alone proved only "drunken-init
+    wrote this file once" -- it says nothing about whether the body still
+    matches the shipped template. A human (or anything else) appending
+    `exit 0` right after the marker, or truncating the body, leaves the
+    marker intact and used to read `native_ok=True` -- the privacy scan
+    reports healthy while doing nothing at all.
+    """
+
+    def _guarded_project(self, tmp_path):
+        root = tmp_path / "proj"
+        _init_repo(root)
+        (root / ".pre-commit-config.yaml").write_text(
+            GUARDED_CONFIG_FLOW, encoding="utf-8"
+        )
+        _commit_all(root, "initial")
+        _write_hook(root / ".git" / "hooks", "pre-commit")
+        _write_hook(root / ".git" / "hooks", "commit-msg")
+        return root
+
+    def test_marker_present_but_exit_0_appended_after_it_fails(self, tmp_path):
+        root = self._guarded_project(tmp_path)
+        hooks_dir_path = root / ".git" / "hooks"
+        _write_native_pre_push_hook(hooks_dir_path)
+        hook = hooks_dir_path / "pre-push"
+        hook.write_text(hook.read_text(encoding="utf-8") + "exit 0\n", encoding="utf-8")
+
+        report = doctor.run_doctor(
+            registry=_registry(tmp_path, "scratch", root), offline=True
+        )
+
+        check = find(report, "guard.git_hooks.scratch")
+        assert check.status == "fail", check.detail
+        assert "drunken-init --install-git-hooks" in check.detail or (
+            check.remediation
+            and "drunken-init --install-git-hooks" in check.remediation
+        )
+
+    def test_marker_present_but_body_truncated_fails(self, tmp_path):
+        root = self._guarded_project(tmp_path)
+        hooks_dir_path = root / ".git" / "hooks"
+        _write_native_pre_push_hook(hooks_dir_path)
+        hook = hooks_dir_path / "pre-push"
+        full = hook.read_text(encoding="utf-8")
+        hook.write_text(full[: len(full) // 2], encoding="utf-8")
+
+        report = doctor.run_doctor(
+            registry=_registry(tmp_path, "scratch", root), offline=True
+        )
+
+        check = find(report, "guard.git_hooks.scratch")
+        assert check.status == "fail", check.detail
+
+    def test_one_changed_character_in_the_template_fails(self, tmp_path):
+        root = self._guarded_project(tmp_path)
+        hooks_dir_path = root / ".git" / "hooks"
+        _write_native_pre_push_hook(hooks_dir_path)
+        hook = hooks_dir_path / "pre-push"
+        full = hook.read_text(encoding="utf-8")
+        # Flip exactly one character well past the marker line, so the
+        # marker check alone would still pass.
+        mutated = full.replace("python3 python py", "python3 pythonX py", 1)
+        assert mutated != full, "fixture did not actually change anything"
+        hook.write_text(mutated, encoding="utf-8")
+
+        report = doctor.run_doctor(
+            registry=_registry(tmp_path, "scratch", root), offline=True
+        )
+
+        check = find(report, "guard.git_hooks.scratch")
+        assert check.status == "fail", check.detail
+
+    def test_crlf_converted_but_otherwise_identical_still_passes(self, tmp_path):
+        """Line-ending normalisation alone must never be read as tampering
+        -- only real content drift."""
+        root = self._guarded_project(tmp_path)
+        hooks_dir_path = root / ".git" / "hooks"
+        _write_native_pre_push_hook(hooks_dir_path)
+        hook = hooks_dir_path / "pre-push"
+        crlf = hook.read_text(encoding="utf-8").replace("\n", "\r\n")
+        hook.write_text(crlf, encoding="utf-8", newline="")
+
+        report = doctor.run_doctor(
+            registry=_registry(tmp_path, "scratch", root), offline=True
+        )
+
+        check = find(report, "guard.git_hooks.scratch")
+        assert check.status == "ok", check.detail
+
+    def test_the_real_shipped_template_passes(self, tmp_path):
+        """Control: the real installer's own output must read ok -- proves
+        the content check isn't simply failing everything."""
+        root = self._guarded_project(tmp_path)
+        _write_native_pre_push_hook(root / ".git" / "hooks")
+
+        report = doctor.run_doctor(
+            registry=_registry(tmp_path, "scratch", root), offline=True
+        )
+
+        check = find(report, "guard.git_hooks.scratch")
+        assert check.status == "ok", check.detail
+
+
+@pytest.mark.skipif(
+    sys.platform == "win32", reason="NTFS has no POSIX execute bit to clear"
+)
+class TestNativeHookExecutableBitIsChecked:
+    """Reviewer round 2, gap B: `missing_hook_types` already treats a
+    present-but-non-executable pre-commit/commit-msg hook as missing on
+    POSIX (NTFS has no bit to check, so it is skipped there) --
+    `_native_pre_push_status` never checked this for the native hook at
+    all. git invokes a hook file directly; a `pre-push` with no execute
+    bit is never run, the same failure as it not existing.
+    """
+
+    def _guarded_project(self, tmp_path):
+        root = tmp_path / "proj"
+        _init_repo(root)
+        (root / ".pre-commit-config.yaml").write_text(
+            GUARDED_CONFIG_FLOW, encoding="utf-8"
+        )
+        _commit_all(root, "initial")
+        _write_hook(root / ".git" / "hooks", "pre-commit")
+        _write_hook(root / ".git" / "hooks", "commit-msg")
+        return root
+
+    def test_a_present_but_non_executable_native_hook_fails(self, tmp_path):
+        root = self._guarded_project(tmp_path)
+        hooks_dir_path = root / ".git" / "hooks"
+        _write_native_pre_push_hook(hooks_dir_path)
+        (hooks_dir_path / "pre-push").chmod(0o644)
+
+        report = doctor.run_doctor(
+            registry=_registry(tmp_path, "scratch", root), offline=True
+        )
+
+        check = find(report, "guard.git_hooks.scratch")
+        assert check.status == "fail", check.detail
+        assert "execut" in check.detail.lower()
+
+    def test_an_executable_native_hook_is_ok(self, tmp_path):
+        root = self._guarded_project(tmp_path)
+        hooks_dir_path = root / ".git" / "hooks"
+        _write_native_pre_push_hook(hooks_dir_path)
+        (hooks_dir_path / "pre-push").chmod(0o755)
+
+        report = doctor.run_doctor(
+            registry=_registry(tmp_path, "scratch", root), offline=True
+        )
+
+        check = find(report, "guard.git_hooks.scratch")
+        assert check.status == "ok", check.detail
 
 
 class TestDeclaredHookTypesMatchesYamlOnQuotedShapes:
