@@ -198,3 +198,32 @@ class TestSecretsAreWrittenLockedDown:
 class _Resolved:
     def __init__(self, path: Path) -> None:
         self.path = path
+
+
+class TestNoProjectMcpJsonIsWritten:
+    """DG-457: a project carries no .mcp.json; the server is declared once per machine."""
+
+    def test_write_mcp_config_refuses_and_points_at_the_install_step(
+        self, onboard, tmp_path, monkeypatch, capsys
+    ) -> None:
+        monkeypatch.setenv("DRUNKEN_HOME", str(tmp_path / "home"))
+        monkeypatch.setattr(
+            onboard.sys,
+            "argv",
+            [
+                "onboard_project.py",
+                "alpha",
+                "--jira-project-key",
+                "ALPHA",
+                "--path",
+                str(tmp_path),
+                "--write-mcp-config",
+            ],
+        )
+
+        code = onboard.main()
+
+        assert code == 1
+        assert not (tmp_path / ".mcp.json").exists()
+        err = capsys.readouterr().err
+        assert "claude mcp add --scope user" in err and "GETTING_STARTED" in err

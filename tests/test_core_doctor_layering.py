@@ -96,6 +96,26 @@ class TestATrackedAiLayerPathFails:
         assert check.status == "fail", check.detail
         assert "AGENTS.md" in check.detail
 
+    def test_a_tracked_mcp_json_fails_with_the_path_named(self, tmp_path):
+        # DG-457: the file holds one line naming a command and the server
+        # serves every project, so a project carries none (REQ-019).
+        root = tmp_path / "proj"
+        _init_repo(root)
+        (root / ".mcp.json").write_text(
+            '{"mcpServers": {"drunken-jira-mcp": {"command": "drunken-jira-mcp"}}}',
+            encoding="utf-8",
+        )
+        (root / "main.py").write_text("print('hi')", encoding="utf-8")
+        _commit_all(root, "initial")
+
+        report = doctor.run_doctor(
+            registry=_registry(tmp_path, "scratch", root), offline=True
+        )
+
+        check = find(report, "layering.tracked.scratch")
+        assert check.status == "fail", check.detail
+        assert ".mcp.json" in check.detail
+
     def test_a_tracked_nested_claude_md_fails_with_the_path_named(self, tmp_path):
         root = tmp_path / "proj"
         _init_repo(root)

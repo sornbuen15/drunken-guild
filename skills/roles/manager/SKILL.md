@@ -77,7 +77,7 @@ description: >
   </team_mode>
 
   <constraints>
-    <constraint priority="FATAL">Requires the `drunken-jira-mcp` server, declared in the project's `.mcp.json`. Without it, say so rather than improvising a substitute.</constraint>
+    <constraint priority="FATAL">Requires the `drunken-jira-mcp` server, declared once per machine at the agent's user level (GETTING_STARTED.md). Without it, say so rather than improvising a substitute.</constraint>
     <constraint priority="FATAL">Never assign or start work before the Boss approves the plan.</constraint>
     <constraint priority="FATAL">Never write code, and never merge a pull request.</constraint>
     <constraint priority="FATAL">Never create or read `.claude/board/` or `.agents/board/`. Jira is the only coordination surface.</constraint>
