@@ -2143,3 +2143,64 @@ class TestNonUtf8JiraFragment:
             init._read_jira_fragment(project_folder)  # noqa: SLF001
 
         assert "jira.json" in str(excinfo.value)
+
+
+class TestInstallGitHooksFlag:
+    """DG-479/DG-480: ``drunken-init --install-git-hooks`` is the one
+    supported command for putting the native pre-push hook into a
+    checkout (CLAUDE.md: an agent does not run it itself). End-to-end
+    through ``main()``, against a real scratch git repo made the current
+    working directory -- never the tracked worktree.
+    """
+
+    def _init_repo(self, root) -> None:
+        import subprocess
+
+        root.mkdir(parents=True, exist_ok=True)
+        subprocess.run(["git", "init", "-q"], cwd=root, capture_output=True, check=True)
+
+    def test_installs_the_native_hook_into_cwd_s_git_checkout(
+        self, tmp_path, monkeypatch
+    ) -> None:
+        from core import git_hooks
+
+        repo = tmp_path / "repo"
+        self._init_repo(repo)
+        monkeypatch.chdir(repo)
+
+        assert run("--install-git-hooks") == 0
+
+        target = repo / ".git" / "hooks" / "pre-push"
+        assert target.is_file()
+        assert git_hooks.is_ours(target)
+
+    def test_is_idempotent(self, tmp_path, monkeypatch) -> None:
+        repo = tmp_path / "repo"
+        self._init_repo(repo)
+        monkeypatch.chdir(repo)
+
+        assert run("--install-git-hooks") == 0
+        assert run("--install-git-hooks") == 0
+
+    def test_a_foreign_pre_push_hook_is_refused_not_overwritten(
+        self, tmp_path, monkeypatch, capsys
+    ) -> None:
+        repo = tmp_path / "repo"
+        self._init_repo(repo)
+        hooks_dir = repo / ".git" / "hooks"
+        hooks_dir.mkdir(parents=True, exist_ok=True)
+        foreign = hooks_dir / "pre-push"
+        foreign.write_text("#!/bin/sh\necho mine\nexit 0\n", encoding="utf-8")
+        monkeypatch.chdir(repo)
+
+        assert run("--install-git-hooks") == 1
+        assert foreign.read_text(encoding="utf-8") == "#!/bin/sh\necho mine\nexit 0\n"
+        assert "error:" in capsys.readouterr().out
+
+    def test_independent_of_project(self, tmp_path, monkeypatch) -> None:
+        """Works with no --project at all -- the flag is not gated on one."""
+        repo = tmp_path / "repo"
+        self._init_repo(repo)
+        monkeypatch.chdir(repo)
+
+        assert run("--install-git-hooks") == 0

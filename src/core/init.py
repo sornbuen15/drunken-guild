@@ -33,7 +33,7 @@ import sys
 from pathlib import Path
 from typing import Any, Optional
 
-from . import content_scan, exclude, layer_copy, paths, scaffold, secrets
+from . import content_scan, exclude, git_hooks, layer_copy, paths, scaffold, secrets
 from .errors import DrunkenError, ValidationError
 from .registry import SCHEMA_VERSION, validate_project_id
 
@@ -394,6 +394,18 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--registry", help="Registry file to write instead of the resolved default."
     )
+    parser.add_argument(
+        "--install-git-hooks",
+        action="store_true",
+        help=(
+            "Install the native pre-push privacy-scan hook (DG-479/DG-480) "
+            "into the current checkout's git hooks directory. Honours "
+            "core.hooksPath and a linked worktree's shared hooks dir; "
+            "refuses rather than overwrites or deletes a pre-push hook it "
+            "did not write itself. Independent of --project: runs against "
+            "--path if given, else the current working directory."
+        ),
+    )
     return parser
 
 
@@ -724,6 +736,48 @@ def _apply_guild_block(
     return f"guild block     : created with the block, {agents_path}"
 
 
+def _install_git_hooks(args: argparse.Namespace) -> str:
+    """``--install-git-hooks``'s own report line — a single call straight
+    through to :func:`core.git_hooks.install_pre_push_hook`."""
+    hooks_target = Path(args.path).expanduser() if args.path else Path.cwd()
+    return f"git hooks       : {git_hooks.install_pre_push_hook(hooks_target)}"
+
+
+def _build_written_report(
+    document: dict[str, Any],
+    project_id: Optional[str],
+    project_root: Optional[Path],
+    instructions_dir: Optional[Path],
+    existed_before: bool,
+    args: argparse.Namespace,
+) -> tuple[list[str], bool]:
+    """Every ``written`` report line ``main()`` prints, plus whether the
+    config-repo copy-in found drift — factored out purely to keep ``main``
+    itself under ruff's own complexity budget (C901); each branch here is
+    unchanged from what used to be inline in ``main``.
+    """
+    written: list[str] = []
+    if project_id and args.path and project_root is not None:
+        written = _generate_instruction_files(
+            document, project_id, instructions_dir, args
+        )
+
+    if args.guild_block and project_root is not None and project_id is not None:
+        written.append(
+            _apply_guild_block(instructions_dir, existed_before, args, project_id)
+        )
+
+    config_repo_drifted = False
+    if args.config_repo:
+        layer_lines, config_repo_drifted = _copy_ai_layer_in(document, project_id, args)
+        written.extend(layer_lines)
+
+    if args.install_git_hooks:
+        written.append(_install_git_hooks(args))
+
+    return written, config_repo_drifted
+
+
 def main() -> int:
     """Entry point for ``drunken-init``."""
     args = build_parser().parse_args()
@@ -786,22 +840,9 @@ def main() -> int:
         agents_path = instructions_dir / "AGENTS.md" if instructions_dir else None
         existed_before = bool(agents_path and agents_path.exists())
 
-        written: list[str] = []
-        if project_id and args.path and project_root is not None:
-            written = _generate_instruction_files(
-                document, project_id, instructions_dir, args
-            )
-
-        if args.guild_block and project_root is not None and project_id is not None:
-            written.append(
-                _apply_guild_block(instructions_dir, existed_before, args, project_id)
-            )
-
-        if args.config_repo:
-            layer_lines, config_repo_drifted = _copy_ai_layer_in(
-                document, project_id, args
-            )
-            written.extend(layer_lines)
+        written, config_repo_drifted = _build_written_report(
+            document, project_id, project_root, instructions_dir, existed_before, args
+        )
     except DrunkenError as exc:
         print(f"error: {exc}")
         if exc.remediation:

@@ -1,0 +1,101 @@
+#!/bin/sh
+# drunken-guild native pre-push hook (DG-479/DG-480) -- do not edit by hand.
+#
+# Installed by `drunken-init --install-git-hooks` (src/core/git_hooks.py).
+# Removing or editing this file removes the push-time privacy scan
+# entirely; `drunken-doctor`'s guard.git_hooks reports that gap and names
+# the install command that restores it.
+#
+# WHY NATIVE: pre-commit's own pre-push stage does not run for every push
+# (DG-479) -- pre_commit.commands.hook_impl._pre_push_ns reports "nothing
+# to push", and the hook process is never started at all, whenever every
+# pushed ref either deletes something or already points at a commit
+# reachable from a remote-tracking ref. A solo annotated tag pushed onto an
+# already-public commit (`git push origin v1`) and a push that is only ref
+# deletions both hit this; the tag's own message then reaches the remote
+# completely unscanned. git itself has no such gap: a *native* pre-push
+# hook -- this file, not managed by pre-commit -- is invoked for every
+# push git performs, reading the ref lines directly off its own stdin
+# rather than through pre-commit's filtering. That is also why pre-commit's
+# pre-push stage is not installed alongside this one (see
+# .pre-commit-config.yaml): two hooks racing to own the same stage is what
+# DG-479's decision record rules out.
+#
+# This also closes DG-480 (a brand-new repository's first push being
+# refused) for free: pre-commit's own "all_files" path for a from-scratch
+# push leaves both FROM and TO unset, which check_operator_inventory.py
+# correctly refuses rather than guess. This hook never hits that path at
+# all -- git always hands it the real local/remote sha for every ref line,
+# including a first push (remote sha all-zero), so there is always a real
+# TO to scan.
+#
+# Arguments: $1 remote name, $2 remote URL. $2 is passed to the scanner
+# (--remote-url) exactly as git gave it here -- never $1, which is not
+# set at all for an anonymous `git push <url> ...`, and never printed by
+# this script or the scanner: a remote URL can carry a credential or a
+# token.
+# Stdin: one line per ref this push would update:
+#   <local ref> SP <local sha> SP <remote ref> SP <remote sha> LF
+#
+# The scanner reads this stdin itself (--push-multi), forwarded here
+# completely untouched, and reads every ref line -- not just the first
+# (DG-479 round 3): a design that only looked at the first non-deletion
+# line and relied on the always-on global scan for the rest missed a
+# commit reachable from NOTHING under refs/heads/refs/tags (a detached
+# sha pushed directly, a branch deleted locally after the dirty commit was
+# made, refs/stash, refs/original/*) -- a real, reproduced leak, because
+# the global scan only ever walks local branches and tags by construction.
+# check_operator_inventory.py --push-multi instead unions every pushed
+# ref's local sha into one git log call rather than one per ref, so this
+# stays a single process invocation regardless of how many refs this push
+# touches (DG-479 round 2 found calling the scanner once per ref made a
+# 500-ref push take over six minutes; this does not).
+#
+# "Already public" is decided by asking the push target itself, once, via
+# `git ls-remote` (DG-479 round 4, the Boss: option A) -- not by any local
+# ref. A local ref under refs/remotes/* (or any other local bookkeeping)
+# used to be trusted as already-public by name alone, which a hand-made
+# ref at that path could abuse to self-exclude the very commit being
+# pushed through it; the remote's own live answer cannot be forged that
+# way. DRUNKEN_LS_REMOTE_TIMEOUT_SECONDS bounds how long that one network
+# call may take (default 20s); failing or timing out REFUSES the push
+# rather than falling back to a local guess.
+#
+# Fails closed: a missing python interpreter, a missing scanner script, an
+# unresolvable repository root, or an unreachable/slow push target all
+# refuse the push with a message, never silently let it through -- the
+# same rule check_operator_inventory.py itself already follows for every
+# other unresolvable case.
+
+find_python() {
+    for candidate in python3 python py; do
+        if command -v "$candidate" >/dev/null 2>&1; then
+            printf '%s\n' "$candidate"
+            return 0
+        fi
+    done
+    return 1
+}
+
+PYTHON=$(find_python) || {
+    echo "drunken-guild pre-push: no python interpreter (python3/python/py) found on PATH. Refusing the push rather than skipping the privacy scan." >&2
+    exit 1
+}
+
+REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || {
+    echo "drunken-guild pre-push: could not resolve the repository root. Refusing the push." >&2
+    exit 1
+}
+
+SCRIPT="$REPO_ROOT/scripts/check_operator_inventory.py"
+if [ ! -f "$SCRIPT" ]; then
+    echo "drunken-guild pre-push: $SCRIPT not found. Refusing the push rather than skipping the privacy scan." >&2
+    exit 1
+fi
+
+# stdin is forwarded to the scanner completely untouched -- it reads and
+# parses every ref line itself (--push-multi), including deciding whether
+# zero lines means "refuse" (a shape git itself never produces). $2 (the
+# push URL, exactly as git gave it) is the one thing the scanner asks for
+# "already public" -- never a local ref.
+"$PYTHON" "$SCRIPT" --push-multi --remote-url "$2"
