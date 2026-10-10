@@ -2237,3 +2237,44 @@ class TestCopyInRefusesWhenGitHangs:
 
         with pytest.raises(exclude.GitTimedOutError):
             layer_copy._has_staged_content(repo, "AGENTS.md")  # noqa: SLF001
+
+
+class TestAMcpJsonIsNeverCopiedIn:
+    """DG-457 review: ``.mcp.json`` is on the AI-layer list so the doctor flags a tracked one and
+    the exclude file hides a stray one — but a project carries none (REQ-019 Decided 2026-10-10),
+    so the copy-in must not be the thing that puts one there."""
+
+    def test_a_mcp_json_in_the_config_repo_is_not_copied_into_the_project(
+        self, tmp_path: Path
+    ) -> None:
+        repo = _init_repo(tmp_path / "project")
+        config_repo = _config_repo(tmp_path)
+        project_folder = config_repo / "sample"
+        project_folder.mkdir(parents=True)
+        (project_folder / "AGENTS.md").write_text("instructions\n", encoding="utf-8")
+        (project_folder / ".mcp.json").write_text(
+            '{"mcpServers": {"drunken-jira-mcp": {"command": "drunken-jira-mcp"}}}\n',
+            encoding="utf-8",
+        )
+
+        result = layer_copy.copy_ai_layer_in(
+            config_repo=config_repo,
+            project_id="sample",
+            project_root=repo,
+            git_root=repo,
+        )
+
+        assert not (repo / ".mcp.json").exists(), (
+            "the copy-in recreated the file DG-457 removes from a project"
+        )
+        assert result.copied == ("AGENTS.md",)
+
+    def test_the_file_list_never_offers_it(self, tmp_path: Path) -> None:
+        folder = tmp_path / "folder"
+        folder.mkdir()
+        (folder / ".mcp.json").write_text("{}\n", encoding="utf-8")
+        (folder / "CLAUDE.md").write_text("@AGENTS.md\n", encoding="utf-8")
+
+        assert [p.as_posix() for p in layer_copy.ai_layer_files_under(folder)] == [
+            "CLAUDE.md"
+        ]

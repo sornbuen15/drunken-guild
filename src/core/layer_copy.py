@@ -133,7 +133,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Sequence
 
-from .ai_layer import is_ai_layer_path
+from .ai_layer import is_copied_in_from_config_repo
 from .content_scan import (
     ALLOWLIST_FILENAME,
     apply_allowlist,
@@ -339,7 +339,7 @@ def ai_layer_files_under(root: Path) -> list[Path]:
                 continue
             if entry.is_file():
                 relative = entry.relative_to(root)
-                if is_ai_layer_path(relative.as_posix()):
+                if is_copied_in_from_config_repo(relative.as_posix()):
                     files.append(relative)
     return sorted(files)
 

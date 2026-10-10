@@ -82,6 +82,12 @@ AI_LAYER_ROOT_DIRS: tuple[str, ...] = (
     ".gemini",
 )
 
+#: Listed above so that `drunken-doctor` flags a tracked copy and the exclude file hides a stray one,
+#: but **never provided by a config repo**: a project carries no `.mcp.json` at all (REQ-019
+#: Decided 2026-10-10, DG-457), so the copy-in must not be what puts one there. Root-only, like the
+#: entry above.
+NEVER_COPIED_IN_FILES: tuple[str, ...] = (".mcp.json",)
+
 PathLike = Union[str, "PurePosixPath"]
 
 
@@ -122,3 +128,13 @@ def is_ai_layer_path(path: PathLike) -> bool:
     if normalised == first_segment and normalised in AI_LAYER_ROOT_FILES:
         return True
     return False
+
+
+def is_copied_in_from_config_repo(path: PathLike) -> bool:
+    """True when *path* is on the AI-layer list **and** a config repo may provide it.
+
+    The copy-in's own filter (:func:`core.layer_copy.ai_layer_files_under`): the one list, minus
+    :data:`NEVER_COPIED_IN_FILES`. Everything else that asks "is this the AI layer" — the doctor,
+    the exclude writer, the migration — keeps using :func:`is_ai_layer_path`.
+    """
+    return is_ai_layer_path(path) and _normalise(path) not in NEVER_COPIED_IN_FILES

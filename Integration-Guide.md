@@ -112,7 +112,7 @@ This installs four commands plus two pieces of plumbing: `drunken-init` (create 
 
 ### Step 2: Onboard the project
 
-One command registers it and writes its MCP config:
+One command registers it (no MCP file is written into the project — see Step 4):
 
 ```bash
 python /path/to/drunken-guild/scripts/onboard_project.py existing-project \
@@ -164,19 +164,18 @@ the one list of what to copy from `templates/` and where each file goes; a secon
 kind of copy that drifts. For an existing project, fill `AGENTS.md`'s build and test commands from
 what the project already runs — the placeholders read as instructions if left in.
 
-### Step 4: The MCP config
+### Step 4: The MCP server
 
-`--write-mcp-config` in step 2 already wrote this. It names the commands and carries no path at all, which is what keeps one machine's directory layout out of another repository's git history:
+A project carries no `.mcp.json` (REQ-019, DG-457), and `--write-mcp-config` now refuses. Declare the
+server once for the machine, at your agent's user level — for Claude Code:
 
-```json
-{
-  "mcpServers": {
-    "drunken-jira-mcp": { "command": "drunken-jira-mcp" }
-  }
-}
+```bash
+claude mcp add --scope user drunken-jira-mcp -- "$(command -v drunken-jira-mcp)"
+claude mcp list        # drunken-jira-mcp ... Connected
 ```
 
-This depends on step 1 — the command has to be on `PATH`. Without `uv tool install`, fall back to `uv run --directory /path/to/drunken-guild drunken-jira-mcp`, and keep that file out of git.
+This depends on step 1 — the command has to be installed. Name the installed command, never one
+inside a project's `.venv`. GETTING_STARTED.md has the Windows form and the check.
 
 For Cursor: **Settings > Features > MCP > Add New Server**, type `command`, `drunken-jira-mcp` with args `--project existing-project`, then the same for the other one.
 
