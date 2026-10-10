@@ -49,11 +49,13 @@ that needs a fixture-ordering review, not this.
 from __future__ import annotations
 
 import ast
+import ntpath
 import os
+import posixpath
 import sys
 from collections import defaultdict
 from dataclasses import dataclass, field
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 
 import pytest
 
@@ -137,23 +139,142 @@ def _derives_from_os_environ(node: ast.AST) -> bool:
     )
 
 
-def _mentions_tmp_path(node: ast.AST) -> bool:
-    """True if *node*'s subtree names `tmp_path` or `tmp_path_factory`
-    anywhere -- covers `tmp_path / "x"`, `str(tmp_path / "x")`, and
-    f-strings built from either, without hand-rolling each wrapper shape."""
-    return any(
-        isinstance(sub, ast.Name) and sub.id in {"tmp_path", "tmp_path_factory"}
-        for sub in ast.walk(node)
+#: Fixtures defined in `tests/conftest.py` that *return* a path under a
+#: per-test scratch directory, and so are as safe a provenance source for a
+#: `DRUNKEN_*` override as `tmp_path` itself -- each entry here must name
+#: the fixture and say why it qualifies, the same discipline
+#: `_ALLOWLISTED_UNPROVABLE` already applies to call sites. Deliberately
+#: empty today: `hermetic_drunken_home` (DG-460) *sets* `$DRUNKEN_HOME`
+#: itself and returns nothing a test could reuse, and no other fixture in
+#: `tests/conftest.py` hands back a scratch path by name. An expression
+#: naming a fixture not on this list is rejected (DG-484) -- add it here,
+#: with a reason, rather than widening what counts as "provenance".
+_SANDBOX_FIXTURE_ALLOWLIST: frozenset[str] = frozenset()
+
+
+def _is_safe_leaf_name(node: ast.AST, ctx: "_FunctionContext") -> bool:
+    """True for a bare `tmp_path`, a `tmp_path_factory.mktemp(...)` call, or
+    a name on `_SANDBOX_FIXTURE_ALLOWLIST` -- the only tokens a `/` join or
+    an f-string placeholder may be built from (DG-484). Anything else,
+    including a parameter that merely *looks* like a fixture, is rejected."""
+    if isinstance(node, ast.Name):
+        return node.id == "tmp_path" or node.id in _SANDBOX_FIXTURE_ALLOWLIST
+    return (
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "mktemp"
+        and isinstance(node.func.value, ast.Name)
+        and node.func.value.id == "tmp_path_factory"
     )
 
 
-def _mentions_a_fixture_parameter(node: ast.AST, param_names: set[str]) -> bool:
-    """True if *node*'s subtree names any parameter of the enclosing test
-    function -- covers `sandbox_home`, `str(sandbox_home)`,
-    `f"{sandbox_home}/x"`, and so on, the same way `_mentions_tmp_path`
-    covers its two built-in names."""
-    return any(
-        isinstance(sub, ast.Name) and sub.id in param_names for sub in ast.walk(node)
+def _is_absolute_or_escaping_segment(value: str) -> bool:
+    """True if *value*, used as a `/`-join's literal segment, can discard
+    everything to its left or walk back out of the scratch directory
+    (PR #172 review of DG-484, HIGH: `tmp_path / '/abs/real'` is accepted
+    by `pathlib.Path.__truediv__` and, on Windows, *replaces* `tmp_path`
+    entirely rather than joining under it -- `tmp_path / '..' / '..'`
+    walks back out the same way).
+
+    Checked against **both** OS flavours regardless of which one is
+    actually running this check (`ntpath.isabs`/`posixpath.isabs`, plus
+    `PureWindowsPath(...).drive` for a bare drive prefix like `"C:"` that
+    `ntpath.isabs` alone does not catch), because a test suite that
+    happens to run on Linux must still refuse the Windows-only escape and
+    vice versa -- the env var it builds may be read by either. `~` is
+    included because a later `os.path.expanduser` call on the result
+    would still expand it, even though `pathlib`/`os.path.join` do not."""
+    if value == "":
+        return False
+    if posixpath.isabs(value) or ntpath.isabs(value) or PureWindowsPath(value).drive:
+        return True
+    if value.startswith("~"):
+        return True
+    return ".." in value.replace("\\", "/").split("/")
+
+
+def _is_safe_join_operand(node: ast.AST, ctx: "_FunctionContext") -> bool:
+    """A right-hand `/` operand: a safe leaf, or a string literal that is
+    neither absolute nor escaping (DG-484 / PR #172 review) -- a bare
+    relative segment like `"home"` or `"a"` only."""
+    if _is_safe_leaf_name(node, ctx):
+        return True
+    return (
+        isinstance(node, ast.Constant)
+        and isinstance(node.value, str)
+        and not _is_absolute_or_escaping_segment(node.value)
+    )
+
+
+def _is_safe_join(node: ast.AST, ctx: "_FunctionContext") -> bool:
+    """True for a bare safe leaf, or a chain of `/` whose left side is
+    itself safe and whose right side is a safe leaf or a non-`..` string
+    literal -- `tmp_path / "a" / "b"`, not `tmp_path / helper()`."""
+    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Div):
+        return _is_safe_join(node.left, ctx) and _is_safe_join_operand(node.right, ctx)
+    return _is_safe_leaf_name(node, ctx)
+
+
+def _is_safe_wrapped(node: ast.AST, ctx: "_FunctionContext") -> bool:
+    """True for `str(X)`, `Path(X)`, or `os.fspath(X)` where *X* is itself
+    provenance-safe -- the only wrappers this check unwraps. A call to
+    anything else (a helper, `Path.home`, `os.path.expanduser`) is rejected
+    outright: SCOPE's "reject ... a Call" means *any* unrecognised one,
+    not just the ones that happen to look suspicious."""
+    if not isinstance(node, ast.Call) or node.keywords or len(node.args) != 1:
+        return False
+    func = node.func
+    is_str_or_path = isinstance(func, ast.Name) and func.id in {"str", "Path"}
+    is_os_fspath = (
+        isinstance(func, ast.Attribute)
+        and func.attr == "fspath"
+        and isinstance(func.value, ast.Name)
+        and func.value.id == "os"
+    )
+    if not (is_str_or_path or is_os_fspath):
+        return False
+    return _is_provenance_safe(node.args[0], ctx)
+
+
+def _is_safe_fstring(node: ast.AST, ctx: "_FunctionContext") -> bool:
+    """True for an f-string built only of plain text and placeholders that
+    are themselves provenance-safe -- `f"{tmp_path}/{tmp_path_factory.mktemp('x')}"`,
+    not `f"{tmp_path}/{Path.home()}"`: every `FormattedValue` must resolve,
+    and a conversion/format-spec is rejected as unrecognised rather than
+    assumed harmless."""
+    if not isinstance(node, ast.JoinedStr):
+        return False
+    for value in node.values:
+        if isinstance(value, ast.Constant):
+            continue
+        if (
+            isinstance(value, ast.FormattedValue)
+            and value.format_spec is None
+            and _is_provenance_safe(value.value, ctx)
+        ):
+            continue
+        return False
+    return True
+
+
+def _is_provenance_safe(node: ast.AST, ctx: "_FunctionContext") -> bool:
+    """True if *node*'s outermost shape is provably one of: a bare
+    `tmp_path`/allow-listed name, `tmp_path_factory.mktemp(...)`,
+    `str(...)`/`Path(...)`/`os.fspath(...)` of one of these, a `/` join of
+    these (literal segments allowed, `..` is not), or an f-string built
+    only from these and plain text (DG-484).
+
+    Anything else -- another `Name` (an unlisted fixture, a module), a
+    `Call` this doesn't recognise (`Path.home()`, `os.path.expanduser`, a
+    helper that may ignore its argument), or a conditional expression -- is
+    rejected outright. Mentioning a safe name *somewhere inside* a larger
+    expression this function doesn't trace is not provenance; only the
+    shapes above are.
+    """
+    return (
+        _is_safe_join(node, ctx)
+        or _is_safe_wrapped(node, ctx)
+        or _is_safe_fstring(node, ctx)
     )
 
 
@@ -322,14 +443,16 @@ def _is_sandbox_value_source(
     node: ast.AST, ctx: _FunctionContext, before_lineno: int, depth: int = 0
 ) -> bool:
     """True if *node* -- a `DRUNKEN_*` override's *value* -- provably comes
-    from a sandbox: a `tmp_path`/`tmp_path_factory`-derived expression, or a
-    fixture parameter of the enclosing test (trusted the way DG-460's own
-    fixtures are: injected by pytest, not hand-typed). A string literal,
-    `Path.home()`, `os.path.expanduser(...)`, or anything else is NOT
+    from a sandbox: its outermost shape is one `_is_provenance_safe`
+    recognises (DG-484), it derives from `os.environ`, or it is a local
+    variable name whose own, most recent assignment before *before_lineno*
+    recursively does. A string literal, `Path.home()`,
+    `os.path.expanduser(...)`, a helper call, a conditional expression, or
+    a parameter/fixture not on `_SANDBOX_FIXTURE_ALLOWLIST` is NOT
     recognised -- fail closed rather than guess."""
     if depth > _MAX_DEPTH:
         return False
-    if _mentions_tmp_path(node) or _mentions_a_fixture_parameter(node, ctx.param_names):
+    if _is_provenance_safe(node, ctx):
         return True
     if _derives_from_os_environ(node):
         return True
@@ -777,7 +900,12 @@ class TestOverrideValueMustComeFromASandboxSource:
         "def test_x(tmp_path):\n"
         "    subprocess.run(['python'], env={'DRUNKEN_HOME': str(tmp_path / 'home')})\n"
     )
-    _FIXTURE_PARAM_OVERRIDE_IS_SAFE = (
+    #: DG-484: a parameter is no longer trusted just because it is *a*
+    #: parameter of the enclosing test -- `sandbox_home` is not
+    #: `tmp_path`, not `tmp_path_factory`-derived, and not on the
+    #: documented allow-list in `tests/conftest.py` (which defines no such
+    #: fixture), so this must now be flagged rather than trusted.
+    _UNLISTED_FIXTURE_PARAM_OFFENDER = (
         "import os, subprocess\n"
         "def test_x(sandbox_home):\n"
         "    subprocess.run(\n"
@@ -821,12 +949,15 @@ class TestOverrideValueMustComeFromASandboxSource:
             == []
         )
 
-    def test_a_fixture_parameter_override_is_not_flagged(self) -> None:
+    def test_an_unlisted_fixture_parameter_override_is_now_flagged(self) -> None:
+        """DG-484: superseded by `TestOverrideValueRequiresRealProvenance`
+        below -- "any parameter of the enclosing test" is no longer enough
+        on its own."""
         assert (
             find_unsandboxed_subprocess_env_calls(
-                self._FIXTURE_PARAM_OVERRIDE_IS_SAFE, "x.py"
+                self._UNLISTED_FIXTURE_PARAM_OFFENDER, "x.py"
             )
-            == []
+            != []
         )
 
     def test_removing_the_value_check_misses_the_literal_path_offender(
@@ -852,6 +983,460 @@ class TestOverrideValueMustComeFromASandboxSource:
             "source must miss this offender -- if it doesn't, the real "
             "check isn't actually depending on _is_sandbox_value_source"
         )
+
+
+class TestOverrideValueRequiresRealProvenance:
+    """DG-484 (found in DG-477 review round 2, non-blocking): "mentions
+    `tmp_path` or a fixture parameter anywhere in the expression" let an
+    expression that *also* reaches the real home pass clean, because it
+    never checked where the value's *outermost* shape actually came from.
+    Every offender here is a real snippet parsed by the real, unmutated
+    checker -- not a monkeypatched stand-in for it."""
+
+    _FSTRING_MIXING_TMP_PATH_AND_REAL_HOME_OFFENDER = (
+        "import subprocess\n"
+        "from pathlib import Path\n"
+        "def test_x(tmp_path):\n"
+        "    subprocess.run(\n"
+        "        ['python'],\n"
+        "        env={'DRUNKEN_HOME': f'{tmp_path}/{Path.home()}'},\n"
+        "    )\n"
+    )
+    _CONDITIONAL_EXPRESSION_OFFENDER = (
+        "import subprocess\n"
+        "from pathlib import Path\n"
+        "def test_x(tmp_path, cond):\n"
+        "    subprocess.run(\n"
+        "        ['python'],\n"
+        "        env={\n"
+        "            'DRUNKEN_HOME': str(tmp_path) if cond else str(Path.home())\n"
+        "        },\n"
+        "    )\n"
+    )
+    _HELPER_CALL_IGNORING_ITS_ARGUMENT_OFFENDER = (
+        "import subprocess\n"
+        "def helper(_unused):\n"
+        "    return '/real/operator/home'\n"
+        "def test_x(tmp_path):\n"
+        "    subprocess.run(\n"
+        "        ['python'], env={'DRUNKEN_HOME': helper(tmp_path)}\n"
+        "    )\n"
+    )
+    _PARENT_TRAVERSAL_OFFENDER = (
+        "import subprocess\n"
+        "def test_x(tmp_path):\n"
+        "    subprocess.run(\n"
+        "        ['python'],\n"
+        "        env={'DRUNKEN_HOME': str(tmp_path / '..' / '..')},\n"
+        "    )\n"
+    )
+    _STRING_CONCAT_WITH_OS_ENVIRON_OFFENDER = (
+        "import os, subprocess\n"
+        "def test_x(tmp_path):\n"
+        "    subprocess.run(\n"
+        "        ['python'],\n"
+        "        env={'DRUNKEN_HOME': str(tmp_path) + os.environ['HOME']},\n"
+        "    )\n"
+    )
+    _SLASH_JOIN_OF_LITERAL_SEGMENTS_IS_SAFE = (
+        "import subprocess\n"
+        "def test_x(tmp_path):\n"
+        "    subprocess.run(\n"
+        "        ['python'], env={'DRUNKEN_HOME': str(tmp_path / 'a' / 'b')}\n"
+        "    )\n"
+    )
+    _FSTRING_OF_ONLY_TMP_PATH_AND_LITERAL_TEXT_IS_SAFE = (
+        "import subprocess\n"
+        "def test_x(tmp_path):\n"
+        "    subprocess.run(\n"
+        "        ['python'], env={'DRUNKEN_HOME': f'{tmp_path}/home'}\n"
+        "    )\n"
+    )
+    _OS_FSPATH_OF_TMP_PATH_IS_SAFE = (
+        "import os, subprocess\n"
+        "def test_x(tmp_path):\n"
+        "    subprocess.run(\n"
+        "        ['python'], env={'DRUNKEN_HOME': os.fspath(tmp_path)}\n"
+        "    )\n"
+    )
+    _TMP_PATH_FACTORY_MKTEMP_IS_SAFE = (
+        "import subprocess\n"
+        "def test_x(tmp_path_factory):\n"
+        "    subprocess.run(\n"
+        "        ['python'],\n"
+        "        env={\n"
+        "            'DRUNKEN_HOME': str(tmp_path_factory.mktemp('home'))\n"
+        "        },\n"
+        "    )\n"
+    )
+
+    def test_fstring_mixing_tmp_path_and_path_home_is_flagged(self) -> None:
+        assert (
+            find_unsandboxed_subprocess_env_calls(
+                self._FSTRING_MIXING_TMP_PATH_AND_REAL_HOME_OFFENDER, "x.py"
+            )
+            != []
+        )
+
+    def test_conditional_expression_between_a_safe_and_an_unsafe_value_is_flagged(
+        self,
+    ) -> None:
+        assert (
+            find_unsandboxed_subprocess_env_calls(
+                self._CONDITIONAL_EXPRESSION_OFFENDER, "x.py"
+            )
+            != []
+        )
+
+    def test_a_helper_call_that_ignores_tmp_path_is_flagged(self) -> None:
+        assert (
+            find_unsandboxed_subprocess_env_calls(
+                self._HELPER_CALL_IGNORING_ITS_ARGUMENT_OFFENDER, "x.py"
+            )
+            != []
+        )
+
+    def test_parent_traversal_segments_are_flagged(self) -> None:
+        assert (
+            find_unsandboxed_subprocess_env_calls(
+                self._PARENT_TRAVERSAL_OFFENDER, "x.py"
+            )
+            != []
+        )
+
+    def test_string_concatenation_with_os_environ_is_flagged(self) -> None:
+        assert (
+            find_unsandboxed_subprocess_env_calls(
+                self._STRING_CONCAT_WITH_OS_ENVIRON_OFFENDER, "x.py"
+            )
+            != []
+        )
+
+    def test_a_slash_join_of_only_tmp_path_and_literal_segments_is_not_flagged(
+        self,
+    ) -> None:
+        assert (
+            find_unsandboxed_subprocess_env_calls(
+                self._SLASH_JOIN_OF_LITERAL_SEGMENTS_IS_SAFE, "x.py"
+            )
+            == []
+        )
+
+    def test_an_fstring_of_only_tmp_path_and_literal_text_is_not_flagged(self) -> None:
+        assert (
+            find_unsandboxed_subprocess_env_calls(
+                self._FSTRING_OF_ONLY_TMP_PATH_AND_LITERAL_TEXT_IS_SAFE, "x.py"
+            )
+            == []
+        )
+
+    def test_os_fspath_of_tmp_path_is_not_flagged(self) -> None:
+        assert (
+            find_unsandboxed_subprocess_env_calls(
+                self._OS_FSPATH_OF_TMP_PATH_IS_SAFE, "x.py"
+            )
+            == []
+        )
+
+    def test_tmp_path_factory_mktemp_is_not_flagged(self) -> None:
+        assert (
+            find_unsandboxed_subprocess_env_calls(
+                self._TMP_PATH_FACTORY_MKTEMP_IS_SAFE, "x.py"
+            )
+            == []
+        )
+
+    def test_a_fixture_on_the_documented_allowlist_is_not_flagged(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The allow-list mechanism itself: a name added to it is trusted
+        bare, the same way `tmp_path` is -- proven by extending the real,
+        production allow-list rather than by stubbing the function that
+        reads it."""
+        module = sys.modules[__name__]
+        source = (
+            "import subprocess\n"
+            "def test_x(sandbox_home):\n"
+            "    subprocess.run(\n"
+            "        ['python'], env={'DRUNKEN_HOME': str(sandbox_home)}\n"
+            "    )\n"
+        )
+        assert find_unsandboxed_subprocess_env_calls(source, "x.py") != []
+
+        monkeypatch.setattr(
+            module, "_SANDBOX_FIXTURE_ALLOWLIST", frozenset({"sandbox_home"})
+        )
+
+        assert find_unsandboxed_subprocess_env_calls(source, "x.py") == []
+
+    def test_removing_the_provenance_check_misses_every_offender_above(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A REAL mutation of the production `_is_provenance_safe` -- always
+        `True` -- reproducing the DG-484 finding exactly: every offender
+        above must stop being flagged once this always says "safe"."""
+        module = sys.modules[__name__]
+        offenders = [
+            self._FSTRING_MIXING_TMP_PATH_AND_REAL_HOME_OFFENDER,
+            self._CONDITIONAL_EXPRESSION_OFFENDER,
+            self._HELPER_CALL_IGNORING_ITS_ARGUMENT_OFFENDER,
+            self._PARENT_TRAVERSAL_OFFENDER,
+            self._STRING_CONCAT_WITH_OS_ENVIRON_OFFENDER,
+        ]
+        for offender in offenders:
+            assert find_unsandboxed_subprocess_env_calls(offender, "x.py") != []
+
+        monkeypatch.setattr(module, "_is_provenance_safe", lambda *a, **k: True)
+
+        for offender in offenders:
+            assert find_unsandboxed_subprocess_env_calls(offender, "x.py") == [], (
+                "a provenance check that always says 'safe' must miss "
+                "every DG-484 offender above"
+            )
+
+    def test_removing_the_call_rejection_misses_the_helper_offender(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A REAL mutation that treats any `Call` as automatically safe --
+        the specific gap named in SCOPE ("reject any expression that also
+        contains ... a Call"). `_is_safe_wrapped` is the function that
+        would otherwise reject `helper(tmp_path)`; patched to always agree,
+        it must miss that offender."""
+        module = sys.modules[__name__]
+        assert (
+            find_unsandboxed_subprocess_env_calls(
+                self._HELPER_CALL_IGNORING_ITS_ARGUMENT_OFFENDER, "x.py"
+            )
+            != []
+        )
+
+        monkeypatch.setattr(module, "_is_safe_wrapped", lambda *a, **k: True)
+
+        assert (
+            find_unsandboxed_subprocess_env_calls(
+                self._HELPER_CALL_IGNORING_ITS_ARGUMENT_OFFENDER, "x.py"
+            )
+            == []
+        ), "a check that treats any Call as safe must miss the helper() offender"
+
+    def test_removing_the_allowlist_check_trusts_any_unlisted_fixture(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A REAL mutation of `_is_safe_leaf_name` that drops the
+        allow-list membership test, trusting *any* bare name the way the
+        pre-DG-484 code trusted any fixture parameter."""
+        module = sys.modules[__name__]
+        source = (
+            "import subprocess\n"
+            "def test_x(sandbox_home):\n"
+            "    subprocess.run(\n"
+            "        ['python'], env={'DRUNKEN_HOME': str(sandbox_home)}\n"
+            "    )\n"
+        )
+        assert find_unsandboxed_subprocess_env_calls(source, "x.py") != []
+
+        real_is_safe_leaf_name = module._is_safe_leaf_name
+
+        def _trusts_any_name(node: ast.AST, ctx: object) -> bool:
+            if isinstance(node, ast.Name):
+                return True
+            return bool(real_is_safe_leaf_name(node, ctx))
+
+        monkeypatch.setattr(module, "_is_safe_leaf_name", _trusts_any_name)
+
+        assert find_unsandboxed_subprocess_env_calls(source, "x.py") == [], (
+            "a check that trusts any bare Name, allow-listed or not, must "
+            "miss the unlisted fixture offender"
+        )
+
+
+class TestJoinLiteralsCannotDiscardOrEscapeTheSandbox:
+    """PR #172 review of DG-484, HIGH: `tmp_path / '/abs/real'` is the
+    exact `/`-join shape SCOPE allows, and `pathlib.Path.__truediv__`
+    treats an absolute right operand as a replacement, not a join -- on
+    Windows this silently discards `tmp_path` and reaches the real
+    `C:\\abs\\real`. Checked empirically (not just by reading the pathlib
+    docs): `PureWindowsPath(tmp_path) / '/abs/real'` evaluates to
+    `'C:\\abs\\real'`, keeping none of `tmp_path`.
+
+    Every offender here is a real snippet parsed by the real, unmutated
+    checker."""
+
+    _ABS_POSIX_OFFENDER = (
+        "import subprocess\n"
+        "def test_x(tmp_path):\n"
+        "    subprocess.run(\n"
+        "        ['python'], env={'DRUNKEN_HOME': str(tmp_path / '/abs/real')}\n"
+        "    )\n"
+    )
+    _DRIVE_PREFIX_OFFENDER = (
+        "import subprocess\n"
+        "def test_x(tmp_path):\n"
+        "    subprocess.run(\n"
+        "        ['python'], env={'DRUNKEN_HOME': str(tmp_path / 'C:/real')}\n"
+        "    )\n"
+    )
+    _UNC_OFFENDER = (
+        "import subprocess\n"
+        "def test_x(tmp_path):\n"
+        "    subprocess.run(\n"
+        "        ['python'],\n"
+        "        env={'DRUNKEN_HOME': str(tmp_path / '\\\\\\\\srv\\\\share')},\n"
+        "    )\n"
+    )
+    _TILDE_OFFENDER = (
+        "import subprocess\n"
+        "def test_x(tmp_path):\n"
+        "    subprocess.run(\n"
+        "        ['python'], env={'DRUNKEN_HOME': str(tmp_path / '~')}\n"
+        "    )\n"
+    )
+    _PATH_MULTI_ARG_OFFENDER = (
+        "import subprocess\n"
+        "from pathlib import Path\n"
+        "def test_x(tmp_path):\n"
+        "    subprocess.run(\n"
+        "        ['python'], env={'DRUNKEN_HOME': str(Path(tmp_path, '/abs'))}\n"
+        "    )\n"
+    )
+    _JOINPATH_OFFENDER = (
+        "import subprocess\n"
+        "def test_x(tmp_path):\n"
+        "    subprocess.run(\n"
+        "        ['python'],\n"
+        "        env={'DRUNKEN_HOME': str(tmp_path.joinpath('/abs'))},\n"
+        "    )\n"
+    )
+    _OS_PATH_JOIN_OFFENDER = (
+        "import os, subprocess\n"
+        "def test_x(tmp_path):\n"
+        "    subprocess.run(\n"
+        "        ['python'],\n"
+        "        env={'DRUNKEN_HOME': os.path.join(str(tmp_path), '/abs')},\n"
+        "    )\n"
+    )
+    _NON_LITERAL_RIGHT_OPERAND_OFFENDER = (
+        "import subprocess\n"
+        "def test_x(tmp_path, suffix):\n"
+        "    subprocess.run(\n"
+        "        ['python'], env={'DRUNKEN_HOME': str(tmp_path / suffix)}\n"
+        "    )\n"
+    )
+    _MULTI_SEGMENT_SAFE = (
+        "import subprocess\n"
+        "def test_x(tmp_path):\n"
+        "    subprocess.run(\n"
+        "        ['python'],\n"
+        "        env={'DRUNKEN_HOME': str(tmp_path / 'sub' / 'file.json')},\n"
+        "    )\n"
+    )
+    _TWO_LITERAL_SEGMENTS_SAFE = (
+        "import subprocess\n"
+        "def test_x(tmp_path):\n"
+        "    subprocess.run(\n"
+        "        ['python'], env={'DRUNKEN_HOME': str(tmp_path / 'a' / 'b')}\n"
+        "    )\n"
+    )
+    _FSTRING_ADJACENT_LITERAL_CONCAT_IS_NOT_A_DISCARD = (
+        "import subprocess\n"
+        "def test_x(tmp_path):\n"
+        "    subprocess.run(\n"
+        "        ['python'],\n"
+        "        env={'DRUNKEN_HOME': f'{tmp_path}' '/abs'},\n"
+        "    )\n"
+    )
+
+    @pytest.mark.parametrize(  # type: ignore[misc]
+        "offender",
+        [
+            _ABS_POSIX_OFFENDER,
+            _DRIVE_PREFIX_OFFENDER,
+            _UNC_OFFENDER,
+            _TILDE_OFFENDER,
+            _PATH_MULTI_ARG_OFFENDER,
+            _JOINPATH_OFFENDER,
+            _OS_PATH_JOIN_OFFENDER,
+            _NON_LITERAL_RIGHT_OPERAND_OFFENDER,
+        ],
+        ids=[
+            "abs_posix",
+            "drive_prefix",
+            "unc",
+            "tilde",
+            "path_multi_arg",
+            "joinpath",
+            "os_path_join",
+            "non_literal_right_operand",
+        ],
+    )
+    def test_each_discarding_or_unrecognised_join_is_flagged(
+        self, offender: str
+    ) -> None:
+        assert find_unsandboxed_subprocess_env_calls(offender, "x.py") != []
+
+    def test_a_multi_segment_relative_join_is_not_flagged(self) -> None:
+        assert (
+            find_unsandboxed_subprocess_env_calls(self._MULTI_SEGMENT_SAFE, "x.py")
+            == []
+        )
+
+    def test_two_literal_relative_segments_are_not_flagged(self) -> None:
+        assert (
+            find_unsandboxed_subprocess_env_calls(
+                self._TWO_LITERAL_SEGMENTS_SAFE, "x.py"
+            )
+            == []
+        )
+
+    def test_fstring_adjacent_literal_concatenation_is_not_flagged(self) -> None:
+        """Not a HIGH evasion like the `/`-join offenders above: Python
+        string concatenation can never discard a prefix the way
+        `pathlib.Path.__truediv__` does. Verified empirically --
+        `f'{tmp_path}' '/abs'` evaluates to `str(tmp_path) + '/abs'`,
+        which still contains the whole of `tmp_path`, unlike
+        `PureWindowsPath(tmp_path) / '/abs/real'`, which does not."""
+        assert (
+            tmp_path_value_is_preserved_by_fstring_concat()  # sanity, not AST
+        )
+        assert (
+            find_unsandboxed_subprocess_env_calls(
+                self._FSTRING_ADJACENT_LITERAL_CONCAT_IS_NOT_A_DISCARD, "x.py"
+            )
+            == []
+        )
+
+    def test_removing_the_absolute_literal_check_misses_the_abs_posix_offender(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A REAL mutation of the production `_is_absolute_or_escaping_segment`
+        -- the exact function this check added -- patched to always say
+        "not absolute", reproducing the evasion the reviewer found."""
+        module = sys.modules[__name__]
+        assert (
+            find_unsandboxed_subprocess_env_calls(self._ABS_POSIX_OFFENDER, "x.py")
+            != []
+        )
+
+        monkeypatch.setattr(
+            module, "_is_absolute_or_escaping_segment", lambda *a, **k: False
+        )
+
+        assert (
+            find_unsandboxed_subprocess_env_calls(self._ABS_POSIX_OFFENDER, "x.py")
+            == []
+        ), (
+            "a check that never recognises an absolute join segment must "
+            "miss the tmp_path / '/abs/real' offender"
+        )
+
+
+def tmp_path_value_is_preserved_by_fstring_concat() -> bool:
+    """The empirical check `test_fstring_adjacent_literal_concatenation_is_
+    not_flagged` cites: string concatenation keeps the whole prefix,
+    unlike `pathlib.Path.__truediv__` with an absolute right operand."""
+    sample = "C:/Users/example/scratch"
+    concatenated = f"{sample}/abs"
+    return concatenated == sample + "/abs" and sample in concatenated
 
 
 class TestMutationsAfterTheCopyAreTracked:

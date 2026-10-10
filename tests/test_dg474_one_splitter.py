@@ -33,6 +33,17 @@ from core import permission_rules as pr
 #: Covers every shape the ticket names: LF and CRLF continuations, quotes,
 #: `||`, `&`, `|&`, `;;`, a bare newline, `$(..)`, backticks, unterminated
 #: quotes, and a trailing backslash with nothing after it.
+#:
+#: `a |& b` and `a ;; b` are revised from the original ground truth (DG-476
+#: round 3, adversarial): two operators that abut with nothing between them
+#: used to have the earlier one overwritten and lost -- `|&` kept only `&`,
+#: `;;` kept only the second `;`. That was faithful to hook.py's own
+#: (now-deleted) copy at the time, but it is exactly the shape that let a
+#: subshell's `)` vanish the same way when it closed right next to another
+#: operator, leaving `cwd_is_hooks_dir` with nothing to tell "a subshell
+#: just closed here" from "nothing happened here" -- see
+#: `TestAbuttingOperatorsAreNotLostToAnEmptySegment` in
+#: `test_permission_rules.py`. Both operators are preserved now.
 TABLE: Final[list[tuple[str, list[tuple[str, str]]]]] = [
     ("git commit --no-ver\\\nify -m x", [("", "git commit --no-verify -m x")]),
     ("git commit --no-ver\\\r\nify -m x", [("", "git commit --no-verify -m x")]),
@@ -40,8 +51,8 @@ TABLE: Final[list[tuple[str, list[tuple[str, str]]]]] = [
     ("echo 'hello world'", [("", "echo 'hello world'")]),
     ("a || b", [("", "a"), ("||", "b")]),
     ("a & b", [("", "a"), ("&", "b")]),
-    ("a |& b", [("", "a"), ("&", "b")]),
-    ("a ;; b", [("", "a"), (";", "b")]),
+    ("a |& b", [("", "a"), ("|&", "b")]),
+    ("a ;; b", [("", "a"), (";;", "b")]),
     ("a\nb", [("", "a"), ("\n", "b")]),
     ("echo $(rm -rf /)", [("", "echo"), ("$(", "rm -rf /")]),
     ("echo `rm -rf /`", [("", "echo"), ("`", "rm -rf /")]),
