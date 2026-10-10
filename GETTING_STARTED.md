@@ -36,6 +36,19 @@ Python, no credentials and no server. Add the runtime only when you want work co
 
 ## Install the AI layer
 
+The usual way — from a release tag, no clone (needs `uv` and Git):
+
+```bash
+uv tool install git+https://github.com/sornbuen15/drunken-guild@v2.0.0   # pick the tag you want
+drunken-install all                                                       # → ~/.claude/skills and ~/.claude/agents
+drunken-install status                                                    # later: what an update would change
+```
+
+The skills and agents travel inside the package. `drunken-install all --dry-run` shows what it would
+write first. To update, install the newer tag with `uv tool install --force git+…@<tag>`, run
+`drunken-install status`, then `drunken-install all`. The rest of this section is the **contributor**
+path, from a clone:
+
 ```bash
 git clone https://github.com/sornbuen15/drunken-guild.git
 cd drunken-guild
