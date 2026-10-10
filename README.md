@@ -29,7 +29,36 @@ and each one names the server it requires.
 
 ---
 
-## Quick start — the AI layer
+## Quick start — install from a release tag (no clone)
+
+Needs [`uv`](https://docs.astral.sh/uv/) and Git. One install gives you the commands **and** the skills
+and agents, which travel inside the package:
+
+```bash
+uv tool install git+https://github.com/sornbuen15/drunken-guild@v2.0.0   # pick the tag you want
+drunken-install all                                                       # → ~/.claude/skills and ~/.claude/agents
+```
+
+Same on Windows PowerShell. `drunken-install` copies from the installed package, makes no model call,
+rewrites only files whose bytes differ, and never writes through a link. Add `--dry-run` to see first.
+
+To update, install the newer tag and say what changed *before* applying it:
+
+```bash
+uv tool install --force git+https://github.com/sornbuen15/drunken-guild@v2.1.0
+drunken-install status      # what an update would change + the changelog entry; writes nothing
+drunken-install all         # apply it
+```
+
+The update is installing the newer tag (a tag is a pin; this repository's text does not rely on
+`uv tool upgrade` moving it). `drunken-install skills --prune` lists retired skills still installed; `--prune --prune-apply` removes only the ones named
+in `scripts/install/retired_skills.txt`, never anything else. The agents are installed only if the
+skills they need are there; if not, none is installed and the refusal says which. Then declare the
+Jira server once per machine — see [GETTING_STARTED.md](./GETTING_STARTED.md).
+
+The clone-and-run path below stays for contributors.
+
+## Quick start — the AI layer, from a clone
 
 No Python, no credentials, no server. Clone and install:
 
