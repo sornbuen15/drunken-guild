@@ -430,3 +430,93 @@ class TestARootLinkPlantedAfterThePlan:
         assert list(elsewhere.iterdir()) == [], (
             "the files were written through the root link"
         )
+
+
+def junction_or_skip(link: Path, target: Path) -> None:
+    """A Windows junction (no privilege needed). ``Path.is_symlink()`` is False for these."""
+    if os.name != "nt":
+        pytest.skip("junctions exist on Windows only")
+    done = subprocess.run(
+        ["cmd", "/c", "mklink", "/J", str(link), str(target)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if done.returncode != 0:
+        pytest.skip(f"cannot create a junction here: {done.stderr or done.stdout}")
+
+
+class TestAJunctionIsALink:
+    """Review of #186 (BLOCK, reproduced): a junction used as --target from the start was written
+    straight through, because every check asked Path.is_symlink(), which is False for a junction."""
+
+    def test_a_junction_as_the_target_is_refused_from_the_start(self, tmp_path):
+        src = make_source(tmp_path, TWO)
+        real = tmp_path / "real"
+        real.mkdir()
+        link = tmp_path / "target-junction"
+        junction_or_skip(link, real)
+
+        with pytest.raises(install.InstallRefusedError):
+            install.install_skills(link, source=src)
+
+        assert list(real.iterdir()) == []
+
+    def test_a_junction_as_a_skill_folder_is_refused_and_the_rest_install(
+        self, tmp_path
+    ):
+        src = make_source(tmp_path, TWO)
+        target = tmp_path / "t"
+        target.mkdir()
+        real = tmp_path / "real"
+        real.mkdir()
+        junction_or_skip(target / "alpha", real)
+
+        result = install.install_skills(target, source=src)
+
+        assert {a.name: a.status for a in result.skills}["alpha"] == "refused"
+        assert list(real.iterdir()) == []
+        assert (target / "beta" / "SKILL.md").exists()
+
+    def test_a_junction_orphan_is_never_pruned_through(self, tmp_path, monkeypatch):
+        src = make_source(tmp_path, TWO)
+        target = tmp_path / "t"
+        target.mkdir()
+        real = tmp_path / "real"
+        real.mkdir()
+        (real / "keep.txt").write_bytes(b"keep")
+        junction_or_skip(target / "old-retired", real)
+        monkeypatch.setattr(
+            install, "retired_names", lambda: frozenset({"old-retired"})
+        )
+
+        install.install_skills(target, source=src, prune=True, prune_apply=True)
+
+        assert (real / "keep.txt").exists()
+
+
+class TestEachWriteTimeCheckStandsOnItsOwn:
+    """Review of #186: removing either of these left every test green."""
+
+    def test_the_component_walk_refuses_a_link_that_stays_inside_the_root(
+        self, tmp_path
+    ):
+        root = tmp_path / "root"
+        (root / "real").mkdir(parents=True)
+        symlink_or_skip(root / "alias", root / "real", directory=True)
+
+        with pytest.raises(install.InstallRefusedError):
+            install._assert_inside(root, root / "alias" / "SKILL.md")
+
+    def test_the_resolve_check_refuses_when_the_walk_sees_nothing(
+        self, tmp_path, monkeypatch
+    ):
+        root = tmp_path / "root"
+        root.mkdir()
+        outside = tmp_path / "outside"
+        outside.mkdir()
+        symlink_or_skip(root / "alias", outside, directory=True)
+        monkeypatch.setattr(install, "_behind_a_link", lambda *_a, **_k: None)
+
+        with pytest.raises(install.InstallRefusedError):
+            install._assert_inside(root, root / "alias" / "SKILL.md")

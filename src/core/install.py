@@ -162,7 +162,7 @@ def _skill_folders(source: Path) -> dict[str, Path]:
 def _files_in(folder: Path) -> list[Path]:
     out: list[Path] = []
     for path in sorted(folder.rglob("*")):
-        if path.is_symlink():
+        if _is_link(path):
             raise InstallRefusedError(
                 f"the source skill file {path} is a symlink.",
                 remediation="The shipped skills hold real files only; nothing was changed.",
@@ -180,11 +180,31 @@ def _differs(source: Path, target: Path) -> bool:
     return not target.is_file() or _digest(source) != _digest(target)
 
 
+#: Windows marks symlinks, junctions and every other reparse point with this attribute bit.
+_REPARSE_POINT = 0x400
+
+
+def _is_link(path: Path) -> bool:
+    """True for a symlink, and on Windows for a junction or any other reparse point.
+
+    ``Path.is_symlink()`` is False for a junction (checked on this Windows/Python build), and a
+    junction used as the install target was written straight through (review of #186). A reparse
+    point is treated as a link here, the conservative direction: the tool refuses and says so.
+    """
+    if path.is_symlink():
+        return True
+    try:
+        attributes = getattr(os.lstat(path), "st_file_attributes", 0)
+    except OSError:
+        return False
+    return bool(attributes & _REPARSE_POINT)
+
+
 def _behind_a_link(target_root: Path, path: Path) -> Optional[Path]:
     """The first link on the way from *target_root* (exclusive) down to *path*, if any."""
     current = path
     while current != target_root and target_root in current.parents:
-        if current.is_symlink():
+        if _is_link(current):
             return current
         current = current.parent
     return None
@@ -193,7 +213,7 @@ def _behind_a_link(target_root: Path, path: Path) -> Optional[Path]:
 def _plan_skill(name: str, src: Path, target_root: Path) -> SkillAction:
     dest = target_root / name
     rels = _files_in(src)
-    if dest.is_symlink():
+    if _is_link(dest):
         return SkillAction(name, "refused", reason=f"{dest} is a link, not touched")
     for rel in rels:
         link = _behind_a_link(target_root, dest / rel)
@@ -212,7 +232,7 @@ def _assert_inside(root: Path, target: Path) -> None:
     the write (review of #186, reproduced) would otherwise be followed. The root itself counts: a
     link planted AS the root makes every path below it resolve "inside" it.
     """
-    if root.is_symlink():
+    if _is_link(root):
         raise InstallRefusedError(
             f"{root} became a link while installing; refusing to write through it.",
             remediation="Nothing more was written; check what changed the target and run this again.",
@@ -239,7 +259,7 @@ def _write_atomic(source: Path, target: Path, root: Path) -> None:
     _assert_inside(root, target)
     target.parent.mkdir(parents=True, exist_ok=True)
     _assert_inside(root, target)
-    if target.is_symlink():
+    if _is_link(target):
         raise InstallRefusedError(
             f"{target} is a link.", remediation="Nothing more was written."
         )
@@ -264,7 +284,7 @@ def _installed_names(target_root: Path) -> list[str]:
         return []
     names = []
     for entry in sorted(target_root.iterdir()):
-        if entry.is_symlink() or (entry.is_dir() and (entry / "SKILL.md").is_file()):
+        if _is_link(entry) or (entry.is_dir() and (entry / "SKILL.md").is_file()):
             names.append(entry.name)
     return names
 
@@ -277,7 +297,7 @@ def _find_orphans(
         if name in ours or name in external:
             continue
         kind = "retired" if name in retired else "unrecognised"
-        note = "link, not touched" if (target_root / name).is_symlink() else ""
+        note = "link, not touched" if _is_link((target_root / name)) else ""
         orphans.append(Orphan(name, kind, note))
     return orphans
 
@@ -288,7 +308,7 @@ def _prune(target_root: Path, orphans: list[Orphan]) -> list[str]:
         path = target_root / orphan.name
         if orphan.kind != "retired" or not _plain_name(orphan.name):
             continue
-        if path.is_symlink() or not path.is_dir():
+        if _is_link(path) or not path.is_dir():
             continue
         shutil.rmtree(path)
         removed.append(orphan.name)
@@ -300,7 +320,7 @@ def _sync_index(source: Path, target_root: Path, apply: bool) -> bool:
     if not src.is_file():
         return False
     dest = target_root / "INDEX.md"
-    if dest.is_symlink():
+    if _is_link(dest):
         raise InstallRefusedError(
             f"{dest} is a link.", remediation="Nothing was changed."
         )
@@ -325,7 +345,7 @@ def install_skills(
             remediation="Run with --prune, read the list, then add --prune-apply.",
         )
     target_root = Path(target_root)
-    if target_root.is_symlink():
+    if _is_link(target_root):
         raise InstallRefusedError(
             f"the target {target_root} is a link.",
             remediation="Point --target at the real folder; nothing was changed.",
