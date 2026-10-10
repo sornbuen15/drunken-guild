@@ -27,7 +27,6 @@ import argparse
 import hashlib
 import json
 import os
-import re
 import shutil
 import sys
 import sysconfig
@@ -212,8 +211,14 @@ def _assert_inside(root: Path, target: Path) -> None:
     """Refuse to write *target* unless nothing between *root* and it is a link and it stays inside *root*.
 
     Checked again here, at write time, not only while planning: a link planted between the plan and
-    the write (review of #186, reproduced) would otherwise be followed.
+    the write (review of #186, reproduced) would otherwise be followed. The root itself counts: a
+    link planted AS the root makes every path below it resolve "inside" it.
     """
+    if root.is_symlink():
+        raise InstallRefusedError(
+            f"{root} became a link while installing; refusing to write through it.",
+            remediation="Nothing more was written; check what changed the target and run this again.",
+        )
     link = _behind_a_link(root, target)
     if link is not None:
         raise InstallRefusedError(
@@ -484,7 +489,9 @@ def install_agents(
         for action in result.agents:
             if action.status in ("new", "updated"):
                 _write_atomic(
-                    src_root / f"{action.name}.md", target_root / f"{action.name}.md"
+                    src_root / f"{action.name}.md",
+                    target_root / f"{action.name}.md",
+                    target_root,
                 )
     result.index_updated = _sync_index(src_root, target_root, apply)
     ours = set(_adapter_names(src_root))
@@ -522,9 +529,24 @@ def changelog_text() -> str:
 
 
 def newest_changelog_section(text: str) -> tuple[str, str]:
-    """(heading, body) of the first ``## `` section of *text*; empty strings when there is none."""
-    match = re.search(r"^## (.+?)[ \t]*$(.*?)(?=^## |\Z)", text, re.M | re.S)
-    return (match.group(1).strip(), match.group(2).strip()) if match else ("", "")
+    """(heading, body) of the first ``## `` section of *text*; a ``## `` inside a code fence is text.
+
+    Empty strings when there is no section.
+    """
+    heading = ""
+    body: list[str] = []
+    in_fence = False
+    for line in text.splitlines():
+        if line.lstrip().startswith(("```", "~~~")):
+            in_fence = not in_fence
+        if not in_fence and line.startswith("## "):
+            if heading:
+                break
+            heading = line[3:].strip()
+            continue
+        if heading:
+            body.append(line)
+    return heading, "\n".join(body).strip()
 
 
 def status(

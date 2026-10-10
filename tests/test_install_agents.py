@@ -378,3 +378,61 @@ class TestTheChangelog:
         )
 
         assert (heading, body) == ("3.0.0", "new things")
+
+
+class TestChangelogFences:
+    """Review of #187: a heading inside a code fence cut the displayed section short."""
+
+    def test_a_heading_inside_a_code_fence_is_text(self):
+        text = "\n".join(
+            [
+                "# Changelog",
+                "## 3.0.0",
+                "before",
+                "```",
+                "## not a heading",
+                "```",
+                "after",
+                "## 2.0.0",
+                "old",
+            ]
+        )
+
+        heading, body = install.newest_changelog_section(text)
+
+        assert heading == "3.0.0"
+        assert "## not a heading" in body and body.endswith("after")
+
+    def test_crlf_text_is_cut_the_same(self):
+        heading, body = install.newest_changelog_section(
+            "## 1.0.0\r\nx\r\n## 0.9\r\ny\r\n"
+        )
+
+        assert (heading, body) == ("1.0.0", "x")
+
+
+class TestAgentsWriteIsLinkSafeAtWriteTime:
+    def test_a_target_turned_into_a_link_before_the_write_is_refused(
+        self, tmp_path, monkeypatch
+    ):
+        src = make_agents(tmp_path, ROLES)
+        skills = installed_skills(tmp_path, ["manager", "worker"])
+        target = tmp_path / "agents-target"
+        elsewhere = tmp_path / "elsewhere"
+        elsewhere.mkdir()
+        real_plan = install._plan_agent
+
+        def plan_then_plant(name, src_root, root):
+            action = real_plan(name, src_root, root)
+            if not root.is_symlink() and not root.exists():
+                symlink_or_skip(root, elsewhere, directory=True)
+            return action
+
+        monkeypatch.setattr(install, "_plan_agent", plan_then_plant)
+
+        with pytest.raises((install.InstallRefusedError, FileExistsError, OSError)):
+            install.install_agents(target, skills, source=src)
+
+        assert list(elsewhere.iterdir()) == [], (
+            "agent files were written through the link"
+        )
