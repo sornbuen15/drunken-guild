@@ -12,17 +12,14 @@ Aider, Gemini CLI) read from a project's own checkout. **Out of scope**: the
 work itself — code, `README.md`, `.ai/PRD.md`, `.ai/DOMAIN.md` — and anything
 that is committed on purpose.
 
-**`.mcp.json` is deliberately not in this list, and the exclusion is pending a
-decision the Boss has not made.** REQ-019's own wording ("Jira configuration")
-could be read to reach it, but `core/config_gen.py` (DG-228) treats a
-repository's `.mcp.json` as vendor-neutral and meant to be committed and
-shared — names commands, never paths. Two ways to resolve this: **(A)** keep
-it excluded — `drunken-doctor` stays silent on it, `config_gen`/DG-228 keep
-writing a tracked, shared file; **(B)** include it — matches the REQ-019 text
-more literally, but then every project's already-committed `.mcp.json` needs
-a migration through init/exclude, not just a doctor warning. Nothing is built
-on either answer yet; see the DG-437 ticket comment and the PR for the
-question as put to the Boss.
+**`.mcp.json` is in this list, and a project should have none** (REQ-019 Decided
+2026-10-10, DG-457). The file holds one line naming a command, and
+`drunken-jira-mcp` serves every project because each `jira_*` tool takes the
+registry project id as its first argument, so the server is declared once per
+machine at the agent's user level (`claude mcp add --scope user`), never in a
+project. Listing it here makes `drunken-doctor`'s `layering.tracked` flag a
+committed copy and lets init keep a stray one out of git; `core/config_gen.py`
+still emits the same shape for a *host* config, which lives in the user's home.
 
 **Naming, for DG-438's implementer**: `core/doctor.py` already has an
 `AI_LAYER_ROOTS` — a different concept entirely (where *this repository's
@@ -68,6 +65,7 @@ AI_LAYER_ROOT_FILES: tuple[str, ...] = (
     ".aider.conf.yml",
     "CONVENTIONS.md",
     "CLAUDE.local.md",
+    ".mcp.json",
 )
 
 #: Directories recognised at the repository root only, and everything under
@@ -83,6 +81,12 @@ AI_LAYER_ROOT_DIRS: tuple[str, ...] = (
     ".claude",
     ".gemini",
 )
+
+#: Listed above so that `drunken-doctor` flags a tracked copy and the exclude file hides a stray one,
+#: but **never provided by a config repo**: a project carries no `.mcp.json` at all (REQ-019
+#: Decided 2026-10-10, DG-457), so the copy-in must not be what puts one there. Root-only, like the
+#: entry above.
+NEVER_COPIED_IN_FILES: tuple[str, ...] = (".mcp.json",)
 
 PathLike = Union[str, "PurePosixPath"]
 
@@ -124,3 +128,13 @@ def is_ai_layer_path(path: PathLike) -> bool:
     if normalised == first_segment and normalised in AI_LAYER_ROOT_FILES:
         return True
     return False
+
+
+def is_copied_in_from_config_repo(path: PathLike) -> bool:
+    """True when *path* is on the AI-layer list **and** a config repo may provide it.
+
+    The copy-in's own filter (:func:`core.layer_copy.ai_layer_files_under`): the one list, minus
+    :data:`NEVER_COPIED_IN_FILES`. Everything else that asks "is this the AI layer" — the doctor,
+    the exclude writer, the migration — keeps using :func:`is_ai_layer_path`.
+    """
+    return is_ai_layer_path(path) and _normalise(path) not in NEVER_COPIED_IN_FILES
