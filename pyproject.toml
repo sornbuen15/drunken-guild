@@ -96,8 +96,8 @@ drunken-jira-mcp = "jira_mcp.server:main"
 
 
 [tool.setuptools]
-packages = ["scripts", "core", "route", "jira_mcp", "drunken_skills"]
-package-dir = {"core" = "src/core", "route" = "src/route", "jira_mcp" = "src/jira_mcp", "drunken_skills" = "skills"}
+packages = ["scripts", "core", "route", "jira_mcp", "drunken_skills", "drunken_agents"]
+package-dir = {"core" = "src/core", "route" = "src/route", "jira_mcp" = "src/jira_mcp", "drunken_skills" = "skills", "drunken_agents" = "agents"}
 
 # DG-392: drunken-init reads the AGENTS.md template from the installed package.
 [tool.setuptools.package-data]
@@ -106,7 +106,12 @@ core = ["templates/*.md"]
 # `drunken_skills` is the repository's skills/ folder under an importable name. The retired-names
 # list the installer prunes by is read from scripts/install/.
 drunken_skills = ["**/*", ".external"]
+drunken_agents = ["*.md", "_sources.json"]
 scripts = ["install/retired_skills.txt"]
+
+# DG-501: the changelog travels beside the package so `drunken-install status` can quote it.
+[tool.setuptools.data-files]
+"share/drunken-guild" = ["CHANGELOG.md"]
 
 [tool.ruff.lint]
 select = ["E", "F", "B", "C90", "I"]

@@ -25,9 +25,11 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import json
 import os
 import shutil
 import sys
+import sysconfig
 import tempfile
 from dataclasses import dataclass, field
 from importlib import util as importlib_util
@@ -371,6 +373,242 @@ def install_skills(
     return result
 
 
+def packaged_agents_dir() -> Path:
+    """The agent adapters shipped with this install: the wheel's ``drunken_agents``, else ``agents/``."""
+    root = _package_dir("drunken_agents")
+    if root is not None:
+        return root
+    candidate = _SOURCE_TREE / "agents"
+    if candidate.is_dir():
+        return candidate
+    raise InstallRefusedError(
+        "no packaged agents were found, and this is not a source checkout.",
+        remediation="Reinstall: uv tool install --force <the guild>.",
+    )
+
+
+@dataclass
+class AgentsResult:
+    source: Path
+    target: Path
+    applied: bool
+    agents: list[SkillAction] = field(default_factory=list)
+    index_updated: bool = False
+    orphans: list[str] = field(default_factory=list)
+
+
+def _manifest_roles(source: Path) -> dict[str, str]:
+    """{role: skill it needs} from ``_sources.json``; any malformed entry is a refusal, never a skip."""
+    path = source / "_sources.json"
+    if not path.is_file():
+        raise InstallRefusedError(
+            f"{path} is missing, so no role's skill dependency can be verified.",
+            remediation="Reinstall the package; no agent was installed.",
+        )
+    try:
+        data = json.loads(path.read_text(encoding="utf-8-sig"))
+    except (OSError, ValueError) as exc:
+        raise InstallRefusedError(
+            f"{path} cannot be read as JSON: {exc}",
+            remediation="No agent was installed.",
+        ) from exc
+    if not isinstance(data, dict) or not data:
+        raise InstallRefusedError(
+            f"{path} must be a non-empty JSON object.",
+            remediation="No agent was installed.",
+        )
+    roles: dict[str, str] = {}
+    for role, entry in data.items():
+        skill = entry.get("skill") if isinstance(entry, dict) else None
+        if not isinstance(skill, str) or not skill.strip():
+            raise InstallRefusedError(
+                f"role {role!r} in {path} names no skill.",
+                remediation="No agent was installed.",
+            )
+        roles[role] = skill.strip()
+    return roles
+
+
+def _adapter_names(source: Path) -> list[str]:
+    return sorted(
+        p.stem for p in source.glob("*.md") if p.name != "INDEX.md" and p.is_file()
+    )
+
+
+def _agents_problems(
+    source: Path, roles: dict[str, str], skills_target: Path
+) -> list[str]:
+    """Every reason this install must write nothing (all-or-nothing, DG-459)."""
+    problems: list[str] = []
+    adapters = _adapter_names(source)
+    for name in adapters:
+        if name not in roles:
+            problems.append(f"agent {name!r} has no entry in _sources.json")
+    for name in roles:
+        if name not in adapters:
+            problems.append(
+                f"role {name!r} is in _sources.json but has no adapter file"
+            )
+    for name in adapters:
+        skill = roles.get(name)
+        if skill is None:
+            continue
+        skill_md = skills_target / skill / "SKILL.md"
+        if not skill_md.is_file():
+            problems.append(
+                f"agent {name!r} needs the {skill!r} skill, not installed at {skill_md}"
+            )
+    return problems
+
+
+def _plan_agent(name: str, src_root: Path, target_root: Path) -> SkillAction:
+    dest = target_root / f"{name}.md"
+    if dest.is_symlink():
+        return SkillAction(name, "refused", reason=f"{dest} is a link")
+    if not dest.exists():
+        return SkillAction(name, "new", [f"{name}.md"])
+    if _differs(src_root / f"{name}.md", dest):
+        return SkillAction(name, "updated", [f"{name}.md"])
+    return SkillAction(name, "unchanged")
+
+
+def install_agents(
+    target_root: Path,
+    skills_target: Path,
+    *,
+    source: Optional[Path] = None,
+    apply: bool = True,
+) -> AgentsResult:
+    """Plan or perform the install of the packaged agent adapters into *target_root*.
+
+    All-or-nothing: if the manifest is missing or malformed, an adapter and the manifest disagree, or
+    a role's skill is not installed under *skills_target*, **nothing is written** and the refusal
+    lists every problem (the shell script installed the roles it could and exited 1: DG-459).
+    """
+    target_root = Path(target_root)
+    if target_root.is_symlink():
+        raise InstallRefusedError(
+            f"the target {target_root} is a link.",
+            remediation="Point --agents-target at the real folder; nothing was changed.",
+        )
+    src_root = Path(source) if source is not None else packaged_agents_dir()
+    roles = _manifest_roles(src_root)
+    problems = _agents_problems(src_root, roles, Path(skills_target))
+    if problems:
+        raise InstallRefusedError(
+            "refusing to install any agent: " + "; ".join(problems) + ".",
+            remediation="Install the skills first (drunken-install skills), then run this again.",
+        )
+
+    result = AgentsResult(src_root, target_root, applied=apply)
+    result.agents = [
+        _plan_agent(n, src_root, target_root) for n in _adapter_names(src_root)
+    ]
+    if apply:
+        target_root.mkdir(parents=True, exist_ok=True)
+        for action in result.agents:
+            if action.status in ("new", "updated"):
+                _write_atomic(
+                    src_root / f"{action.name}.md",
+                    target_root / f"{action.name}.md",
+                    target_root,
+                )
+    result.index_updated = _sync_index(src_root, target_root, apply)
+    ours = set(_adapter_names(src_root))
+    if target_root.is_dir():
+        result.orphans = sorted(
+            p.stem
+            for p in target_root.glob("*.md")
+            if p.name != "INDEX.md" and p.stem not in ours
+        )
+    return result
+
+
+@dataclass
+class StatusReport:
+    skills_changes: list[str] = field(default_factory=list)
+    agents_changes: list[str] = field(default_factory=list)
+    retired_installed: list[str] = field(default_factory=list)
+    changelog_heading: str = ""
+    changelog_body: str = ""
+
+    @property
+    def up_to_date(self) -> bool:
+        return not (self.skills_changes or self.agents_changes)
+
+
+def changelog_text() -> str:
+    """The changelog: the installed data file, else the source tree's."""
+    for candidate in (
+        Path(sysconfig.get_path("data")) / "share" / "drunken-guild" / "CHANGELOG.md",
+        _SOURCE_TREE / "CHANGELOG.md",
+    ):
+        if candidate.is_file():
+            return candidate.read_text(encoding="utf-8-sig")
+    return ""
+
+
+def newest_changelog_section(text: str) -> tuple[str, str]:
+    """(heading, body) of the first ``## `` section of *text*; a ``## `` inside a code fence is text.
+
+    Empty strings when there is no section.
+    """
+    heading = ""
+    body: list[str] = []
+    in_fence = False
+    for line in text.splitlines():
+        if line.lstrip().startswith(("```", "~~~")):
+            in_fence = not in_fence
+        if not in_fence and line.startswith("## "):
+            if heading:
+                break
+            heading = line[3:].strip()
+            continue
+        if heading:
+            body.append(line)
+    return heading, "\n".join(body).strip()
+
+
+def status(
+    skills_target: Path,
+    agents_target: Path,
+    *,
+    skills_source: Optional[Path] = None,
+    agents_source: Optional[Path] = None,
+) -> StatusReport:
+    """What an update would change, by content. Read-only: writes and creates nothing."""
+    skills_src = (
+        Path(skills_source) if skills_source is not None else packaged_skills_dir()
+    )
+    agents_src = (
+        Path(agents_source) if agents_source is not None else packaged_agents_dir()
+    )
+    report = StatusReport()
+    folders = _skill_folders(skills_src)
+    for name, folder in folders.items():
+        action = _plan_skill(name, folder, Path(skills_target))
+        if action.status in ("new", "updated"):
+            report.skills_changes.append(f"{action.status}: {name}")
+        elif action.status == "refused":
+            report.skills_changes.append(f"refused: {name} ({action.reason})")
+    if _sync_index(skills_src, Path(skills_target), apply=False):
+        report.skills_changes.append("changed: INDEX.md")
+    for name in _adapter_names(agents_src):
+        action = _plan_agent(name, agents_src, Path(agents_target))
+        if action.status != "unchanged":
+            report.agents_changes.append(f"{action.status}: {name}")
+    retired = retired_names()
+    report.retired_installed = [
+        n
+        for n in _installed_names(Path(skills_target))
+        if n in retired and n not in folders
+    ]
+    report.changelog_heading, report.changelog_body = newest_changelog_section(
+        changelog_text()
+    )
+    return report
+
+
 def default_target() -> Path:
     home = os.environ.get("USERPROFILE") if os.name == "nt" else os.environ.get("HOME")
     if not home or not Path(home).is_absolute():
@@ -446,39 +684,130 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="drunken-install",
         description=(
-            "Install or update the guild's skills from this package into ~/.claude/skills. "
+            "Install or update the guild's skills and agents from this package into ~/.claude. "
             "No clone, no model call."
         ),
     )
     sub = parser.add_subparsers(dest="what", required=True)
-    skills = sub.add_parser("skills", help="install or update the skills")
-    skills.add_argument(
-        "--target", help="Folder to install into. Default: ~/.claude/skills."
+    for name, help_text in (
+        ("skills", "install or update the skills"),
+        ("agents", "install or update the agents (needs their skills installed first)"),
+        ("all", "skills, then agents — the usual update"),
+    ):
+        cmd = sub.add_parser(name, help=help_text)
+        cmd.add_argument("--target", help="Skills folder. Default: ~/.claude/skills.")
+        cmd.add_argument(
+            "--agents-target", help="Agents folder. Default: ~/.claude/agents."
+        )
+        cmd.add_argument(
+            "--dry-run",
+            action="store_true",
+            help="Show what would change; write nothing.",
+        )
+        if name != "agents":
+            cmd.add_argument(
+                "--prune",
+                action="store_true",
+                help="List retired skills still installed.",
+            )
+            cmd.add_argument(
+                "--prune-apply",
+                action="store_true",
+                help="With --prune: remove them. Only names on retired_skills.txt are ever removed.",
+            )
+    stat = sub.add_parser(
+        "status", help="say what an update would change, without applying it"
     )
-    skills.add_argument(
-        "--dry-run", action="store_true", help="Show what would change; write nothing."
-    )
-    skills.add_argument(
-        "--prune", action="store_true", help="List retired skills still installed."
-    )
-    skills.add_argument(
-        "--prune-apply",
-        action="store_true",
-        help="With --prune: remove them. Only names on retired_skills.txt are ever removed.",
+    stat.add_argument("--target", help="Skills folder. Default: ~/.claude/skills.")
+    stat.add_argument(
+        "--agents-target", help="Agents folder. Default: ~/.claude/agents."
     )
     return parser
+
+
+def default_agents_target() -> Path:
+    return default_target().parent / "agents"
+
+
+def _targets(args: argparse.Namespace) -> tuple[Path, Path]:
+    skills = Path(args.target).expanduser() if args.target else default_target()
+    agents = (
+        Path(args.agents_target).expanduser()
+        if args.agents_target
+        else (skills.parent / "agents" if args.target else default_agents_target())
+    )
+    return skills, agents
+
+
+def _print_agents(result: AgentsResult) -> None:
+    print(f"agents : {result.target}")
+    labels = {
+        "new": "[+] installed",
+        "updated": "[*] updated",
+        "unchanged": "[=] up to date",
+    }
+    for action in result.agents:
+        if action.status == "refused":
+            print(f"[!] refused    : {action.name} — {action.reason}")
+        else:
+            print(f"{labels[action.status]:<16}: {action.name}")
+    if result.index_updated:
+        print(
+            "INDEX.md       : " + ("written" if result.applied else "would be written")
+        )
+    for name in result.orphans:
+        print(f"installed here but not shipped (left in place): {name}")
+    if not result.applied:
+        print("dry run        : nothing was written.")
+
+
+def _print_status(report: StatusReport) -> None:
+    if report.up_to_date:
+        print("up to date: the installed skills and agents match this package.")
+    else:
+        print("an update would change:")
+        for line in (*report.skills_changes, *report.agents_changes):
+            print(f"  {line}")
+        print("apply it with: drunken-install all")
+    for name in report.retired_installed:
+        print(
+            f"retired, still installed: {name} (drunken-install skills --prune lists them)"
+        )
+    if report.changelog_heading:
+        print(f"\nchangelog — {report.changelog_heading}")
+        print(report.changelog_body)
+    else:
+        print("\nchangelog: not found in this install.")
+
+
+def _run(args: argparse.Namespace) -> int:
+    skills_target, agents_target = _targets(args)
+    if args.what == "status":
+        _print_status(status(skills_target, agents_target))
+        return 0
+    refused = False
+    if args.what in ("skills", "all"):
+        result = install_skills(
+            skills_target,
+            apply=not args.dry_run,
+            prune=args.prune,
+            prune_apply=args.prune_apply,
+        )
+        _print_report(result, prune=args.prune, prune_apply=args.prune_apply)
+        refused = any(a.status == "refused" for a in result.skills)
+    if args.what in ("agents", "all"):
+        if args.what == "all":
+            print()
+        agents = install_agents(agents_target, skills_target, apply=not args.dry_run)
+        _print_agents(agents)
+        refused = refused or any(a.status == "refused" for a in agents.agents)
+    return 1 if refused else 0
 
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
     args = build_parser().parse_args(argv)
     try:
-        target = Path(args.target).expanduser() if args.target else default_target()
-        result = install_skills(
-            target,
-            apply=not args.dry_run,
-            prune=args.prune,
-            prune_apply=args.prune_apply,
-        )
+        return _run(args)
     except DrunkenError as exc:
         print(f"error: {exc}", file=sys.stderr)
         if exc.remediation:
@@ -487,8 +816,6 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     except OSError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
-    _print_report(result, prune=args.prune, prune_apply=args.prune_apply)
-    return 1 if any(a.status == "refused" for a in result.skills) else 0
 
 
 if __name__ == "__main__":

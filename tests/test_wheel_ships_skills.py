@@ -18,7 +18,7 @@ import pytest
 
 REPO = Path(__file__).resolve().parent.parent
 
-NEEDED = ("pyproject.toml", "README.md", "LICENSE")
+NEEDED = ("pyproject.toml", "README.md", "LICENSE", "CHANGELOG.md")
 
 
 @pytest.fixture(scope="module")
@@ -29,7 +29,7 @@ def wheel(tmp_path_factory) -> zipfile.ZipFile:
     for name in NEEDED:
         if (REPO / name).is_file():
             shutil.copy2(REPO / name, work / name)
-    for folder in ("src", "scripts", "skills"):
+    for folder in ("src", "scripts", "skills", "agents"):
         shutil.copytree(
             REPO / folder,
             work / folder,
@@ -42,8 +42,7 @@ def wheel(tmp_path_factory) -> zipfile.ZipFile:
         text=True,
         check=False,
     )
-    if done.returncode != 0:
-        pytest.skip(f"the wheel could not be built here: {done.stderr[-300:]}")
+    assert done.returncode == 0, f"the wheel failed to build: {done.stderr[-600:]}"
     return zipfile.ZipFile(next(out.glob("*.whl")))
 
 
@@ -76,6 +75,26 @@ def test_the_wheel_installs_the_command(wheel) -> None:
     assert "drunken-install = core.install:main" in wheel.read(entry).decode("utf-8")
 
 
+def test_every_agent_adapter_and_the_manifest_are_inside_the_wheel(wheel) -> None:
+    names = set(wheel.namelist())
+    wanted = {
+        "drunken_agents/" + p.name
+        for p in (REPO / "agents").iterdir()
+        if p.is_file() and (p.suffix == ".md" or p.name == "_sources.json")
+    }
+
+    assert "drunken_agents/_sources.json" in wanted and wanted
+    assert not sorted(wanted - names), f"the wheel is missing {sorted(wanted - names)}"
+
+
+def test_the_changelog_travels_with_the_install(wheel) -> None:
+    data = [
+        n for n in wheel.namelist() if n.endswith("share/drunken-guild/CHANGELOG.md")
+    ]
+
+    assert data, "drunken-install status needs the changelog to quote"
+
+
 @pytest.fixture(scope="module")
 def installed_command(wheel, tmp_path_factory):
     """The built wheel installed into a clean venv: what a person who ran ``uv tool install`` has."""
@@ -101,7 +120,7 @@ def installed_command(wheel, tmp_path_factory):
     return exe
 
 
-def test_the_installed_command_finds_its_own_skills(
+def test_the_installed_command_finds_its_own_skills_and_agents(
     installed_command, tmp_path
 ) -> None:
     """Found by running it: ``importlib.resources.files`` returned a non-directory for the
@@ -109,7 +128,14 @@ def test_the_installed_command_finds_its_own_skills(
     skills = tmp_path / "claude" / "skills"
 
     done = subprocess.run(
-        [str(installed_command), "skills", "--target", str(skills)],
+        [
+            str(installed_command),
+            "all",
+            "--target",
+            str(skills),
+            "--agents-target",
+            str(skills.parent / "agents"),
+        ],
         capture_output=True,
         text=True,
         check=False,
@@ -121,6 +147,7 @@ def test_the_installed_command_finds_its_own_skills(
         REPO / "skills" / "flow" / "prd" / "SKILL.md"
     ).read_bytes()
     assert (skills / "INDEX.md").exists()
+    assert (skills.parent / "agents" / "worker.md").exists()
 
 
 def test_the_installed_prune_list_comes_from_the_wheel(
@@ -151,3 +178,23 @@ def test_the_installed_prune_list_comes_from_the_wheel(
         "the retired-names list was not found in the installed package"
     )
     assert (skills / name).exists(), "--prune alone removes nothing"
+
+
+def test_the_installed_status_quotes_the_changelog(installed_command, tmp_path) -> None:
+    done = subprocess.run(
+        [
+            str(installed_command),
+            "status",
+            "--target",
+            str(tmp_path / "s"),
+            "--agents-target",
+            str(tmp_path / "a"),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+        cwd=tmp_path,
+    )
+
+    assert done.returncode == 0, done.stderr[-400:]
+    assert "changelog" in done.stdout and "not found" not in done.stdout
