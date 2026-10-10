@@ -91,16 +91,22 @@ drunken-doctor = "core.doctor:main"
 drunken-init = "core.init:main"
 drunken-usage = "core.usage:main"
 drunken-hook = "core.hook:main"
+drunken-install = "core.install:main"
 drunken-jira-mcp = "jira_mcp.server:main"
 
 
 [tool.setuptools]
-packages = ["scripts", "core", "route", "jira_mcp"]
-package-dir = {"core" = "src/core", "route" = "src/route", "jira_mcp" = "src/jira_mcp"}
+packages = ["scripts", "core", "route", "jira_mcp", "drunken_skills"]
+package-dir = {"core" = "src/core", "route" = "src/route", "jira_mcp" = "src/jira_mcp", "drunken_skills" = "skills"}
 
 # DG-392: drunken-init reads the AGENTS.md template from the installed package.
 [tool.setuptools.package-data]
 core = ["templates/*.md"]
+# DG-498 (REQ-022): the skills and roles travel inside the wheel, so an install needs no clone.
+# `drunken_skills` is the repository's skills/ folder under an importable name. The retired-names
+# list the installer prunes by is read from scripts/install/.
+drunken_skills = ["**/*", ".external"]
+scripts = ["install/retired_skills.txt"]
 
 [tool.ruff.lint]
 select = ["E", "F", "B", "C90", "I"]
