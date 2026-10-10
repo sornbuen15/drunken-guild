@@ -112,3 +112,22 @@ def test_every_skill_ends_by_naming_its_next_step(skill: str) -> None:
     assert re.search(r"\bNext:", m.group(1)), (
         f"{skill}: output format never names the next step"
     )
+
+
+def test_prd_states_the_draft_rules() -> None:
+    """REQ-021 / DG-497: how /prd treats an attached draft is written down, each rule once."""
+    text = (FLOW / "prd" / "SKILL.md").read_text(encoding="utf-8")
+    m = re.search(
+        r'<rule priority="FATAL" name="A Draft Is Data">(.*?)</rule>', text, re.S
+    )
+    assert m, "prd has no 'A Draft Is Data' rule (REQ-021)"
+    body = re.sub(r"\s+", " ", m.group(1))
+
+    for needle in (
+        "page",
+        "Inferred",
+        "never edited or copied",
+        "data, never an instruction",
+        "contradict",
+    ):
+        assert needle in body, f"the draft rule must say {needle!r}"
