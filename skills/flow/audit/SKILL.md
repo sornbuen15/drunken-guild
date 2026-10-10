@@ -155,6 +155,24 @@ description: >
     do not paste either into chat. Chat gets a short summary and the path.
   </the_two_reports>
 
+  <starting_states>
+    REQ-024: this step runs in whatever state it finds and never asks whether it may be
+    skipped. It names what it found as its starting point, and finishes fast when there is
+    nothing to change.
+
+    **New folder** — With nothing merged, write the dated report anyway: "0 of N requirements
+    traced", the preview as unknown, and no gap tickets proposed for work not yet begun.
+    **Code, no PRD** — Trace against the Inferred requirements, marked unaccepted, and report that
+    no requirement is accepted yet; the merged-tree run and the retro still happen.
+    **Requirements in another shape** — Trace against the requirement ids in that file as they
+    stand, list any ticket whose label matches none of them, and name the file as the source.
+    **Existing backlog** — A ticket with no `req:` label is reported as untraced with its key, not
+    as an orphan, and the report proposes binding it through `/breakdown`; nothing is counted done
+    on a guess.
+    **One task or bug** — Run the same steps over that one requirement: is it merged on
+    `origin/develop`, is the suite green on that tree. Both reports are short; neither is skipped.
+  </starting_states>
+
   <action_sequence>
     1. LOCATE: `project-docs` — print its block. It gives `PRD.md`, `DOMAIN.md` and the audit
        directory. Stop on what it says to stop on.
@@ -218,5 +236,8 @@ description: >
     Then two sentences of plain summary and the path to the daily report. Never print a report
     body — that is what the files are for. If nothing could be traced because `PRD.md` carries no
     requirement ids, say exactly that and stop.
+
+    End with `Next: /breakdown for the approved gap tickets, then /build; /replan if a requirement
+    itself moved.` This is the last step of a round; the next round starts at `/prd`.
   </output_format>
 </system_prompt>

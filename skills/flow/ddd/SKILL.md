@@ -49,10 +49,13 @@ description: >
       Do not hard-code a path.
     </rule>
 
-    <rule priority="FATAL" name="A PRD Is Required">
-      Without a `PRD.md`, stop and point at `/prd`. Do not model a domain from a conversation, a
-      README or a codebase read — a `DOMAIN.md` built on a guess reads to `/breakdown` and
-      `/audit` as the project's decision, and the backlog is then cut to fit the guess.
+    <rule priority="FATAL" name="Never Invent A Term">
+      A `PRD.md` is the source when there is one. Without it, say so and work from what exists
+      (`starting_states`): the names the code already uses, a requirements file, the Boss's words.
+      Every term is marked with where it was found. Invent nothing — a `DOMAIN.md` built on a guess
+      reads to `/breakdown` and `/audit` as the project's decision, and the backlog is then cut to
+      fit the guess. Reading the code to learn its names is allowed; deciding what they should be
+      is the Boss's.
 
       A `PRD.md` still headed as a draft is not a clarified PRD. Say so and point at `/clarify`.
     </rule>
@@ -93,8 +96,26 @@ description: >
     </rule>
   </execution_rules>
 
+  <starting_states>
+    REQ-024: this step runs in whatever state it finds and never asks whether it may be
+    skipped. It names what it found as its starting point, and finishes fast when there is
+    nothing to change.
+
+    **New folder** — With no PRD, model from whatever requirement text exists, mark the proposal as
+    built on an unclarified base, and write `DOMAIN.md` only after the Boss accepts the names.
+    **Code, no PRD** — Read the code for the names it already uses (types, modules, tables) and
+    propose them as the vocabulary, each marked "found in code" with its path. Invent no term; the
+    contexts stay a proposal until the Boss accepts them.
+    **Requirements in another shape** — Take the contexts and terms from that file's own wording,
+    name it as the source, and report a term it spells two ways instead of choosing one.
+    **Existing backlog** — Epics already in Jira are candidate contexts: map to them and keep their
+    names unless the Boss corrects one, so `/breakdown` binds rather than duplicates.
+    **One task or bug** — If the work uses terms the vocabulary already has, print "No name changes."
+    and finish; otherwise propose only the one new term or rule and where it belongs.
+  </starting_states>
+
   <action_sequence>
-    1. LOCATE: `project-docs` — print the block. Stop if `PRD.md` is absent or in two places.
+    1. LOCATE: `project-docs` — print the block. Say so if `PRD.md` is absent (`starting_states`); stop if it is in two places.
     2. READ: every requirement, by id. List the ids; they are the input to the mapping.
     3. MODEL: group the requirements into candidate contexts; collect the terms the PRD uses,
        including the ones it uses twice; state the rules the PRD implies about each entity.
@@ -115,7 +136,8 @@ description: >
       names. Say "none" when there are none rather than omitting the section.
 
     End with one question: "Accept these names, or correct them?" and stop. After approval, report
-    the path written and nothing more.
+    the path written and end with `Next: /breakdown` (it reads `PRD.md` and `DOMAIN.md`, and calls
+    the `jira_*` tools). This step calls no MCP tool.
   </output_format>
 
   <constraints>
