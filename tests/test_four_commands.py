@@ -24,6 +24,9 @@ SCRIPT_LINE = re.compile(r"^(?P<name>[A-Za-z0-9._-]+)\s*=\s*\"(?P<target>[^\"]+)
 OPERATOR_COMMANDS = {
     "drunken-doctor",
     "drunken-init",
+    # DG-499 (REQ-022): installs and updates the skills and agents from the package; its reason is
+    # that the skills no longer need a clone to reach a machine.
+    "drunken-install",
     "drunken-usage",
 }
 
