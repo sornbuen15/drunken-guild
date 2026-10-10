@@ -134,10 +134,10 @@ description: >
        a reason to stop: follow `starting_states`, and never give a ticket a requirement id the PRD
        does not hold. SEARCH Jira next (below) before proposing a single row.
     2. PROBE: `jira_board_info` — issue types, settable fields, backlog present?
-    2b. SEARCH: `jira_search_issues` for what already exists — by `req:` label, then by the summary
-       words of each Epic and Task, labelled or not. A match is a **bind** row in the table (add
-       the label with `jira_edit_labels`, comment the acceptance), never a second ticket. A search
-       that could not be asked is "could not ask", not an empty result.
+    2b. SEARCH (read-only): `jira_search_issues` for what already exists — by `req:` label, then by
+       the summary words of each Epic and Task, labelled or not. A match is a **bind** row in the
+       table, never a second ticket. Nothing is written here: the bind itself happens in step 7,
+       after the yes. A search that could not be asked is "could not ask", not an empty result.
     3. MAP: one Epic per context; Stories from that context's requirements; Tasks sized to a day,
        parented to the Epic and naming their Story (if any) in the description; Subtasks only
        where steps are genuinely ordered.
@@ -148,7 +148,8 @@ description: >
     7. CREATE: on a yes, `jira_create_issue` top-down — Epic first, then each Story and each Task
        with the Epic as `parent` (a Task names its Story in the description, never as `parent`) —
        confirm each with `jira_search_issues`, and `jira_move_to_backlog` so nothing lands on the
-       board.
+       board. Then each **bind** row: `jira_edit_labels` to add its `req:` label, `jira_add_comment`
+       for the acceptance — the same approval covers it, and no bind is written before it.
     8. REPORT: the created keys, and the one open question about execution order.
   </action_sequence>
 
