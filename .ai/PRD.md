@@ -201,6 +201,11 @@ symlinked; hidden from git through `.git/info/exclude`, not `.gitignore`.
 repo included: a per-machine store outside every checkout (an environment variable or a file
 under the operator's home, referenced as `env://…` or `file://…#key`), and init only points at it.
 The Boss has said this since the project began; it is not to be asked again.
+**Evidence:** 2026-10-10 (DG-432) — Claude Code 2.1.289 on Windows loads a `CLAUDE.md` and a
+`.claude/settings.json` that git ignores through `.git/info/exclude`: a headless run read the first
+(canary reply) and honoured the second (model override); the same repository without the files did
+neither. Not yet verified: `.claude/skills`, `.claude/agents`, hooks in settings, a linked worktree,
+interactive mode, and every other agent.
 
 ### REQ-021 — /prd starts from a draft the Boss attaches
 **Class:** Should
@@ -297,9 +302,6 @@ small or large — all of it must work; the steps do not change, the size of eac
 - REQ-011 — result of the Antigravity run (Q4-A). Carry: changes one adapter.
 - REQ-014 — whether Antigravity has subagents: not yet checked. Carry: one adapter.
 - REQ-018 — which further languages (Go, Ruby) are in scope.
-- REQ-019, REQ-020 — whether Claude Code loads a CLAUDE.md and `.claude/settings.json` that git
-  ignores through `.git/info/exclude`: not yet checked (DG-432). Nothing is built on it until a
-  recorded run says so.
 - REQ-019 — how a project that already commits its AI layer is migrated.
 - REQ-008, REQ-022 — whether shipping skills inside the installed package changes how
   drunken-doctor and the tests read them (today they read `skills/` in the repository): not yet
