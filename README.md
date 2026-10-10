@@ -119,6 +119,18 @@ Re-running is safe: an untracked file that differs is skipped and named unless y
 `--overwrite-ai-layer`, and a file the project's own git already tracks is always refused. Claude
 Code reads the hidden `CLAUDE.md` and `.claude/settings.json` exactly like tracked ones (DG-432).
 
+**A project that already committed its AI layer** (the doctor's `layering.tracked` fails and
+`drunken-init` refuses) is moved out with one command. It shows the plan first; `--apply` performs
+it: the files are backed up outside the repository (owner-only on POSIX), the layer is excluded,
+then untracked with the deletion **staged — you commit it**. The files stay on disk. History is not
+rewritten, so anything secret that was ever committed must still be rotated, and until you commit,
+`git reset`, `git stash` or `git checkout` can put the files back under git.
+
+```bash
+uv run drunken-init --project alpha --migrate-ai-layer            # plan only
+uv run drunken-init --project alpha --migrate-ai-layer --apply    # back up, exclude, untrack
+```
+
 Two things never go in the config repo: a **credential** (it lives in no git repository; the
 registry holds a reference such as `file://~/.drunken/secrets.json#jira.alpha`) and an
 **`.mcp.json`** (a project carries none; declare the server once per machine — see
