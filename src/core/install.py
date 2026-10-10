@@ -209,8 +209,14 @@ def _assert_inside(root: Path, target: Path) -> None:
     """Refuse to write *target* unless nothing between *root* and it is a link and it stays inside *root*.
 
     Checked again here, at write time, not only while planning: a link planted between the plan and
-    the write (review of #186, reproduced) would otherwise be followed.
+    the write (review of #186, reproduced) would otherwise be followed. The root itself counts: a
+    link planted AS the root makes every path below it resolve "inside" it.
     """
+    if root.is_symlink():
+        raise InstallRefusedError(
+            f"{root} became a link while installing; refusing to write through it.",
+            remediation="Nothing more was written; check what changed the target and run this again.",
+        )
     link = _behind_a_link(root, target)
     if link is not None:
         raise InstallRefusedError(
