@@ -180,11 +180,14 @@ rather than what is built — and drunken-doctor fails when it does.
 **Decided:** 2026-10-02 — the Boss: applied to any project, the guild must never mix in; a project
 may be handed to a customer as source code, or be a private product. This repository is exempt
 (REQ-006).
-**Decided:** 2026-10-10 — `.mcp.json` is part of the AI layer (option B in `core/ai_layer.py`):
-it names the servers the agent talks to, which is how the AI works, not what is built. Init
-copies it in from the config repo and excludes it like AGENTS.md; an already-committed copy
-migrates through DG-446 (DG-457). The Boss had said so more than once; this line is so it is
-not asked again.
+**Decided:** 2026-10-10 — a project has **no `.mcp.json` at all** (neither option in
+`core/ai_layer.py`: not committed, not excluded). The file would hold one line naming a command,
+and `drunken-jira-mcp` already serves every project, because each `jira_*` tool takes the
+registry project id as its first argument. The server is declared once per machine, at the
+user level of each agent (Claude Code: `claude mcp add --scope user`), by the install step
+(GETTING_STARTED). Init stops writing the file and `drunken-doctor` flags a tracked one as
+AI-layer content (DG-457). The Boss had said so more than once; this line is so it is not asked
+again.
 
 ### REQ-020 — A project's AI layer comes from one private config repo
 **Class:** Must

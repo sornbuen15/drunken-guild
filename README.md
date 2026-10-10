@@ -158,16 +158,14 @@ part of this package (DG-265). Uninstalling first is what actually removes it fr
 drunken-doctor --project drunken-guild
 ```
 
-Another project's `.mcp.json` then names the command and nothing else, which keeps one machine's
-directory layout out of another repo's git history:
+Then declare the server **once per machine** at the user level of your agent — a project carries no
+`.mcp.json` (REQ-019). For Claude Code:
 
-```json
-{
-  "mcpServers": {
-    "drunken-jira-mcp": { "command": "drunken-jira-mcp" }
-  }
-}
+```bash
+claude mcp add --scope user drunken-jira-mcp -- "$(command -v drunken-jira-mcp)"
 ```
+
+The steps, the Windows form and the check are in [GETTING_STARTED.md](./GETTING_STARTED.md).
 
 > `uv tool install` ignores `uv.lock`, so the tool environment can drift inside the allowed
 > dependency range. Pass `--with-requirements` if you need it pinned.
