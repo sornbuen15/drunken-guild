@@ -27,7 +27,6 @@ import argparse
 import hashlib
 import json
 import os
-import re
 import shutil
 import sys
 import sysconfig
@@ -107,6 +106,13 @@ def packaged_skills_dir() -> Path:
     )
 
 
+def _plain_name(name: str) -> bool:
+    """A single path component: no separators, no drive, not '.' or '..', not empty."""
+    return (
+        bool(name) and name not in (".", "..") and not any(c in name for c in "/\\:\0")
+    )
+
+
 def retired_names() -> frozenset[str]:
     """The only names ``--prune-apply`` may ever remove (``retired_skills.txt``, minus comments)."""
     candidates: list[Path] = []
@@ -120,7 +126,9 @@ def retired_names() -> frozenset[str]:
             return frozenset(
                 line.strip()
                 for line in text.splitlines()
-                if line.strip() and not line.lstrip().startswith("#")
+                if line.strip()
+                and not line.lstrip().startswith("#")
+                and _plain_name(line.strip())
             )
     return frozenset()
 
@@ -199,8 +207,44 @@ def _plan_skill(name: str, src: Path, target_root: Path) -> SkillAction:
     return SkillAction(name, "updated" if changed else "unchanged", changed)
 
 
-def _write_atomic(source: Path, target: Path) -> None:
+def _assert_inside(root: Path, target: Path) -> None:
+    """Refuse to write *target* unless nothing between *root* and it is a link and it stays inside *root*.
+
+    Checked again here, at write time, not only while planning: a link planted between the plan and
+    the write (review of #186, reproduced) would otherwise be followed. The root itself counts: a
+    link planted AS the root makes every path below it resolve "inside" it.
+    """
+    if root.is_symlink():
+        raise InstallRefusedError(
+            f"{root} became a link while installing; refusing to write through it.",
+            remediation="Nothing more was written; check what changed the target and run this again.",
+        )
+    link = _behind_a_link(root, target)
+    if link is not None:
+        raise InstallRefusedError(
+            f"{link} became a link while installing; refusing to write through it.",
+            remediation="Nothing more was written; check what changed the target and run this again.",
+        )
+    resolved_root = root.resolve()
+    resolved_parent = target.parent.resolve()
+    if (
+        resolved_root != resolved_parent
+        and resolved_root not in resolved_parent.parents
+    ):
+        raise InstallRefusedError(
+            f"{target} resolves outside {root}; refusing to write it.",
+            remediation="Nothing more was written.",
+        )
+
+
+def _write_atomic(source: Path, target: Path, root: Path) -> None:
+    _assert_inside(root, target)
     target.parent.mkdir(parents=True, exist_ok=True)
+    _assert_inside(root, target)
+    if target.is_symlink():
+        raise InstallRefusedError(
+            f"{target} is a link.", remediation="Nothing more was written."
+        )
     fd, tmp_name = tempfile.mkstemp(dir=target.parent, prefix=".drunken-install-")
     try:
         with os.fdopen(fd, "wb") as handle:
@@ -214,7 +258,7 @@ def _write_atomic(source: Path, target: Path) -> None:
 
 def _apply_skill(action: SkillAction, src: Path, target_root: Path) -> None:
     for rel in action.files:
-        _write_atomic(src / rel, target_root / action.name / rel)
+        _write_atomic(src / rel, target_root / action.name / rel, target_root)
 
 
 def _installed_names(target_root: Path) -> list[str]:
@@ -244,7 +288,9 @@ def _prune(target_root: Path, orphans: list[Orphan]) -> list[str]:
     removed: list[str] = []
     for orphan in orphans:
         path = target_root / orphan.name
-        if orphan.kind != "retired" or path.is_symlink() or not path.is_dir():
+        if orphan.kind != "retired" or not _plain_name(orphan.name):
+            continue
+        if path.is_symlink() or not path.is_dir():
             continue
         shutil.rmtree(path)
         removed.append(orphan.name)
@@ -262,7 +308,7 @@ def _sync_index(source: Path, target_root: Path, apply: bool) -> bool:
         )
     changed = _differs(src, dest)
     if changed and apply:
-        _write_atomic(src, dest)
+        _write_atomic(src, dest, target_root)
     return changed
 
 
@@ -443,7 +489,9 @@ def install_agents(
         for action in result.agents:
             if action.status in ("new", "updated"):
                 _write_atomic(
-                    src_root / f"{action.name}.md", target_root / f"{action.name}.md"
+                    src_root / f"{action.name}.md",
+                    target_root / f"{action.name}.md",
+                    target_root,
                 )
     result.index_updated = _sync_index(src_root, target_root, apply)
     ours = set(_adapter_names(src_root))
@@ -481,9 +529,24 @@ def changelog_text() -> str:
 
 
 def newest_changelog_section(text: str) -> tuple[str, str]:
-    """(heading, body) of the first ``## `` section of *text*; empty strings when there is none."""
-    match = re.search(r"^## (.+?)[ \t]*$(.*?)(?=^## |\Z)", text, re.M | re.S)
-    return (match.group(1).strip(), match.group(2).strip()) if match else ("", "")
+    """(heading, body) of the first ``## `` section of *text*; a ``## `` inside a code fence is text.
+
+    Empty strings when there is no section.
+    """
+    heading = ""
+    body: list[str] = []
+    in_fence = False
+    for line in text.splitlines():
+        if line.lstrip().startswith(("```", "~~~")):
+            in_fence = not in_fence
+        if not in_fence and line.startswith("## "):
+            if heading:
+                break
+            heading = line[3:].strip()
+            continue
+        if heading:
+            body.append(line)
+    return heading, "\n".join(body).strip()
 
 
 def status(
