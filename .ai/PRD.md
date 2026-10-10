@@ -34,14 +34,20 @@ or an MCP tool is needed.
 two plain-language requests per skill and role (about 30), plus about 5 requests that should
 trigger nothing. Each scenario runs 3 times and passes when the right choice is made in at least
 2 of 3; every scenario must pass on every agent.
+**Decided:** 2026-10-09 — for 2.0.0 the scenario list runs on Claude Code; the other agents follow
+REQ-003's deferral.
 
 ### REQ-003 — It works with Claude Code, Antigravity and Aider
-**Class:** Must
+**Class:** Should
 **Acceptance:** The same standard works under Claude Code, Antigravity and Aider, each in that
 agent's own way.
 **Decided:** 2026-09-23 (Q1-A) — Aider is supported in full, by preload: `.aider.conf.yml` reads
 AGENTS.md and every skill's description at session start, so REQ-002 holds on Aider too. Cost
 accepted: those tokens are spent in every Aider session.
+**Decided:** 2026-10-09 — the Boss: Antigravity, Aider and Gemini CLI move out of 2.0.0 to 2.1.
+2.0.0 is Claude Code in full. Must → Should; the Aider and Antigravity parts of REQ-008 and
+REQ-011 go with it. Reason: no evidence yet of where those agents keep their skills (DG-394,
+DG-399), and the Boss's own projects run Claude Code.
 
 ### REQ-004 — Replan is its own step
 **Class:** Should
@@ -92,6 +98,8 @@ GitHub, without cloning the repository; skills and roles ship inside the install
 command is code, never a model call, so installing and updating costs no tokens. GitHub tags are
 the only channel for now; PyPI is a later decision. Built after the Layering work (REQ-019,
 REQ-020).
+**Decided:** 2026-10-09 — for 2.0.0 the install target is `~/.claude/` only; the Antigravity,
+Gemini CLI and Aider targets are 2.1 (REQ-003).
 
 ### REQ-009 — Gemini CLI is supported too
 **Class:** Could
@@ -109,6 +117,8 @@ hands to which role, which work must go through which MCP tool — what to use.
 **Decided:** 2026-09-23 (Q4-A) — whether Antigravity reads a root AGENTS.md is settled by one real
 Antigravity run before the delivery is chosen. Until that run, how Antigravity receives the
 routing table is open.
+**Decided:** 2026-10-09 — the Antigravity delivery is 2.1 (REQ-003); for 2.0.0 the table in
+AGENTS.md read by Claude Code is the whole requirement.
 
 ### REQ-012 — Each skill names its next step
 **Class:** Must
@@ -179,6 +189,10 @@ project folder, one init step copies that project's layer in from it, lists the 
 read AGENTS.md.
 **Decided:** 2026-10-02 — one config repo for all projects, not one each; files are copied, not
 symlinked; hidden from git through `.git/info/exclude`, not `.gitignore`.
+**Decided:** 2026-10-09 — Jira credentials live in no git repository, public or private, config
+repo included: a per-machine store outside every checkout (an environment variable or a file
+under the operator's home, referenced as `env://…` or `file://…#key`), and init only points at it.
+The Boss has said this since the project began; it is not to be asked again.
 
 ### REQ-021 — /prd starts from a draft the Boss attaches
 **Class:** Should
@@ -208,6 +222,22 @@ is a `drunken-doctor` failure; and an agent cannot skip or disable the git hooks
 **Decided:** 2026-10-06 — the Boss, after the 2026-09-23 leak (#89, #93) was found still
 uncleaned. Both leaks were test fixtures.
 
+### REQ-024 — Every step starts from what already exists
+**Class:** Must
+**Acceptance:** Each step of the flow runs in a project whatever state it finds — a new folder,
+code with no PRD, a PRD in another shape, a Jira backlog cut by someone else, or a single task
+or bug — without asking the Boss whether the step may be skipped. The step reads what is there
+(code, README, an older requirements file, existing tickets labelled or not), names it as its
+starting point, and finishes fast when it has nothing to change ("nothing to clarify",
+"no name changes", "no new tickets"). No step refuses to run because a document another step
+would have written is absent; it reports the absence and produces the smallest version it can.
+`/breakdown` searches existing tickets before `jira_create_issue` and never creates a duplicate.
+Found 2026-10-09: every flow skill except `/prd` stops at "no PRD.md"; `/ddd` forbids reading a
+codebase; `/breakdown` never searches before creating. 1.3.0 in other projects on this machine
+is unusable on an existing project for exactly this reason.
+**Decided:** 2026-10-09 — the Boss: new or existing project, with or without requirements,
+small or large — all of it must work; the steps do not change, the size of each step does.
+
 ## Inferred — not yet accepted
 - (none — all accepted by the Boss, 2026-09-23)
 - A user-level SessionStart hook that tells the agent to run init in a folder the guild does not
@@ -220,8 +250,6 @@ uncleaned. Both leaks were test fixtures.
 - REQ-019, REQ-020 — whether Claude Code loads a CLAUDE.md and `.claude/settings.json` that git
   ignores through `.git/info/exclude`: not yet checked (DG-432). Nothing is built on it until a
   recorded run says so.
-- REQ-020 — where Jira credentials live: not in the config repo, since no secret enters a commit,
-  private repo or not.
 - REQ-019 — how a project that already commits its AI layer is migrated.
 - REQ-008, REQ-022 — whether shipping skills inside the installed package changes how
   drunken-doctor and the tests read them (today they read `skills/` in the repository): not yet
