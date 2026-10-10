@@ -178,6 +178,11 @@ loads the server twice.
 
 ### Step 1 — Set up the project's rules
 
+> **Where these files come from.** If the project is one you will hand to someone else, or keep
+> private, its `AGENTS.md`, `CLAUDE.md` and `.claude/` do not belong in its git. Keep them in your
+> private config repo and copy them in with `drunken-init --config-repo <path>` — README, "Where a
+> project's AI layer comes from". The steps below still apply; only where the files live changes.
+
 `drunken-init`, run above, already wrote `~/Projects/my-project/AGENTS.md` and a one-line
 `CLAUDE.md` that imports it (REQ-015) — do not overwrite either by hand. What is left to copy from
 `templates/` is the session scratchpad and, if you use them, the Cursor/Aider pointer files:

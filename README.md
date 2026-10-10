@@ -101,6 +101,30 @@ You want `project.drunken-guild.jira` to come back naming *you*.
 > printed `OK … (project ALPHA)` while Jira answered *"No project could be found"*. Verify the key
 > against the API before trusting a green line.
 
+### Where a project's AI layer comes from
+
+A project that uses the guild must not carry the guild: its own git tracks none of `AGENTS.md`,
+`CLAUDE.md`, `.claude/` or the Jira configuration (REQ-019), and `drunken-doctor` fails when it does.
+Those files live in **one private config repo you own**, one folder per project named with the
+project's registered id (layout: [CONFIG_REPO.md](./CONFIG_REPO.md)). Clone it, then copy a
+project's folder in; the copied files are hidden from the project's git through
+`.git/info/exclude`:
+
+```bash
+git clone <your-private-config-repo> ~/config-repo        # once, by you
+uv run drunken-init --project alpha --config-repo ~/config-repo
+```
+
+Re-running is safe: an untracked file that differs is skipped and named unless you pass
+`--overwrite-ai-layer`, and a file the project's own git already tracks is always refused. Claude
+Code reads the hidden `CLAUDE.md` and `.claude/settings.json` exactly like tracked ones (DG-432).
+
+Two things never go in the config repo: a **credential** (it lives in no git repository; the
+registry holds a reference such as `file://~/.drunken/secrets.json#jira.alpha`) and an
+**`.mcp.json`** (a project carries none; declare the server once per machine — see
+[GETTING_STARTED.md](./GETTING_STARTED.md)). This repository is the exception: here the AI layer is
+the product and stays tracked.
+
 ### Giving an existing AGENTS.md the guild block
 
 `--path` on a project with no `AGENTS.md` writes one that already opens with the guild block — the

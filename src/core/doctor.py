@@ -1849,9 +1849,12 @@ def _check_project_layering(
             "fail",
             f"{len(tracked)} AI-layer path(s) tracked in git: " + ", ".join(tracked),
             remediation=(
-                "Untrack them (`git rm --cached <path>` for each) and exclude "
-                "them going forward — a project's AI layer stays out of its "
-                "own repository (REQ-019)."
+                "Move them out with `drunken-init --project <id> "
+                "--migrate-ai-layer` (plan first, `--apply` to do it) — a "
+                "project's AI layer stays out of its own repository "
+                "(REQ-019). A tracked .mcp.json is not replaced in the "
+                "project: declare drunken-jira-mcp once per machine "
+                "(`claude mcp add --scope user`, GETTING_STARTED.md)."
             ),
         )
         return

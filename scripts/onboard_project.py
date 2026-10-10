@@ -39,7 +39,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 from core import paths  # noqa: E402
 from core.config_gen import (  # noqa: E402
-    mcp_config,
     merge_into_host_config,
 )
 from core.registry import validate_project_id  # noqa: E402
@@ -97,7 +96,7 @@ def write_secrets(document: Dict[str, Any]) -> Path:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="onboard_project.py",
-        description="Register a project and give it a working .mcp.json.",
+        description="Register a project and give it a working Jira identity.",
         epilog=(
             "The MCP config it writes assumes the servers are installed as "
             "commands: run `uv tool install .` from drunken-guild first."
@@ -124,7 +123,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--write-mcp-config",
         action="store_true",
-        help="Write .mcp.json into --path. Overwrites any existing one.",
+        help=(
+            "Retired (DG-457): a project carries no .mcp.json. Refuses and prints the "
+            "one-time user-level command instead."
+        ),
     )
     parser.add_argument(
         "--merge-mcp-config",
@@ -174,9 +176,6 @@ def _report_plan(
     print(f"  present?      : {'yes' if have_credential else 'NO — add it first'}")
     if args.path:
         print(f"path            : {args.path}")
-    if args.write_mcp_config:
-        print(f"would write     : {Path(args.path or '.') / '.mcp.json'}")
-        print(json.dumps(mcp_config(args.project), indent=2))
     print("\nDry run: nothing written.")
 
 
@@ -197,6 +196,14 @@ def _report_host_merge(host: Path, project: str) -> None:
 
 def main() -> int:
     args = build_parser().parse_args()
+    if args.write_mcp_config:
+        print(
+            "error: a project carries no .mcp.json (DG-457, REQ-019). Declare the server once "
+            "per machine instead: claude mcp add --scope user drunken-jira-mcp -- <installed "
+            "path>. See GETTING_STARTED.md.",
+            file=sys.stderr,
+        )
+        return 1
     validate_project_id(args.project)
 
     url, email = args.jira_url, args.jira_email
@@ -247,17 +254,6 @@ def main() -> int:
     completed = subprocess.run(command, check=False)
     if completed.returncode != 0:
         return completed.returncode
-
-    if args.write_mcp_config:
-        if not args.path:
-            print(
-                "error: --write-mcp-config needs --path to know where to put it.",
-                file=sys.stderr,
-            )
-            return 1
-        target = Path(args.path) / ".mcp.json"
-        target.write_text(json.dumps(mcp_config(args.project), indent=2) + "\n")
-        print(f"mcp config      : {target}")
 
     if args.merge_mcp_config:
         _report_host_merge(Path(args.merge_mcp_config).expanduser(), args.project)
