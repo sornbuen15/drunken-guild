@@ -23,7 +23,8 @@ description: >
   <execution_rules>
     <rule priority="FATAL" name="Locate Before Reading">
       Find `PRD.md` with the `project-docs` skill and print its block first. No path is hard-coded
-      here. If there is no PRD, stop and point at `/prd`; this step does not write one.
+      here. If there is no PRD, say so and work from what the project does have (see
+      `starting_states`); this step does not write one.
     </rule>
 
     <rule priority="FATAL" name="Do Not Answer Your Own Questions">
@@ -93,8 +94,26 @@ description: >
     name it by id.
   </question_shape>
 
+  <starting_states>
+    REQ-024: this step runs in whatever state it finds and never asks whether it may be
+    skipped. It names what it found as its starting point, and finishes fast when there is
+    nothing to change.
+
+    **New folder** — With no PRD, say so in one line and sweep whatever requirement text the folder
+    has (a README, notes, the Boss's message). Ask what that text leaves open; answers are written
+    back once `/prd` has produced a PRD.
+    **Code, no PRD** — Sweep what the code and README show the project to do for the same classes of
+    ambiguity, name the file each question comes from, and ask. Nothing is recorded as decided.
+    **Requirements in another shape** — Run the sweep over that file as it stands; answers are
+    written into the PRD once `/prd` has carried the file over, and the source is never edited.
+    **Existing backlog** — Sweep the ticket descriptions and acceptance lines for the same classes
+    and quote the key beside each question.
+    **One task or bug** — If the acceptance is already measurable, print "Nothing to clarify." and
+    finish in that one message; otherwise ask the one to three questions it needs, ranked.
+  </starting_states>
+
   <action_sequence>
-    1. LOCATE: `project-docs` — print its block. No PRD means stop and point at `/prd`.
+    1. LOCATE: `project-docs` — print its block. No PRD: say so, then sweep what exists (`starting_states`).
     2. SWEEP: read every requirement against the classes above.
     3. RANK: order by how much the answer changes the build. Cut to about ten.
     4. ASK: print the list in one message and wait. Do not start work while waiting.
@@ -128,5 +147,8 @@ description: >
     **Every open item is labelled `BLOCKS /ddd` or `Carry`, with the reason in the same line.** Some
     ambiguity is fine to carry and saying which is the point of this step. If anything blocks, say
     so as the last line and do not continue.
+
+    Close with `Next: /ddd` when nothing blocks it (a requirement that must change goes back to
+    `/prd`). This step calls no MCP tool.
   </output_format>
 </system_prompt>

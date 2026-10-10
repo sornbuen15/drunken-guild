@@ -64,8 +64,26 @@ description: >
     position: where a ticket sits on the board stays the Boss's.
   </what_each_change_produces>
 
+  <starting_states>
+    REQ-024: this step runs in whatever state it finds and never asks whether it may be
+    skipped. It names what it found as its starting point, and finishes fast when there is
+    nothing to change.
+
+    **New folder** — With no plan to move, say "No plan yet." and record the change as the first
+    requirement through `/prd`'s rules, then show what `/breakdown` would cut from it.
+    **Code, no PRD** — Record the change in a PRD that `/prd` first proposes from the code, then
+    trace; with no tickets yet, the table is only the PRD diff.
+    **Requirements in another shape** — Apply the change against the requirement ids `/prd` carried
+    over, naming the source file, and leave that file itself untouched.
+    **Existing backlog** — Tickets that carry no `req:` label are listed as untraced beside the
+    traced ones; none of them is amended or closed on a guess.
+    **One task or bug** — A single changed requirement is one PRD diff and one table; print "No
+    tickets affected." and finish when nothing traces to it.
+  </starting_states>
+
   <action_sequence>
-    1. LOCATE: `project-docs` — print its block. `PRD.md` and `DOMAIN.md` are both required.
+    1. LOCATE: `project-docs` — print its block. A missing `PRD.md` or `DOMAIN.md` is reported and handled
+       by `starting_states`, not a reason to stop.
     2. PRD: the change, through the `prd` skill. Show the diff; write after a yes.
     3. TRACE: `jira_search_issues` per changed id.
     4. PROPOSE: one table: add, amend, close, and the separate list of work in progress. Halt.
