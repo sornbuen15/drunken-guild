@@ -22,22 +22,18 @@ Drunken-Guild exposes two separate MCP servers -- there is no single combined se
 
 > **`drunken-board-mcp` is retired and is not packaged.** DG-250 removed the local board: a board sitting next to Jira is a second surface that can disagree with the first, which is the failure DG-248 and DG-249 each cost a session to. It also cost 2,162 tokens per request for a server nothing should call. DG-265 removed it from `[project.scripts]` and from the package, so there is no command to declare — the code is kept at `_not_used/board-mcp/` because an agent does not delete. Do not create `.claude/board/` or `.agents/board/`. Jira is the only coordination surface -- the **assignee** says whose the work is, the **status** says where it is.
 
-It is not pre-registered anywhere. A project declares it in its own `.mcp.json`, which
-`scripts/install/install_mcp.sh` generates (Section 4, Step 4 shows the result):
+It is not pre-registered anywhere. A project carries **no** `.mcp.json` (REQ-019, DG-457): the
+server is declared once per machine at the agent's user level, and GETTING_STARTED.md has the
+steps. For Claude Code:
 
-```json
-{
-  "mcpServers": {
-    "drunken-jira-mcp": { "command": "drunken-jira-mcp" }
-  }
-}
+```bash
+claude mcp add --scope user drunken-jira-mcp -- "$(command -v drunken-jira-mcp)"
 ```
 
-> **Put it where the session starts.** A host reads `.mcp.json` from the directory a session is
-> opened in. A project whose code sits one level down — a DG-250 wrapper — needs the file at the
-> wrapper, not beside the code, or the session never sees it. And do not register these servers
-> once at user scope with a fixed `--project`: user scope reaches every session on the machine, so
-> every other project silently talks to that one project's Jira and Discord room.
+> **User scope is safe because the server takes no project.** It used to be unsafe: a user-scope
+> entry launched with a fixed `--project` made every other project talk to that one project's Jira
+> and Discord room. DG-341 removed the flag, so the same entry now serves every project, and the
+> project id travels in each tool call.
 
 > **The server takes no project (DG-341).** Every tool takes the registry project id as its first
 > argument, which is why one entry serves every project. The flag it replaces was what user scope
@@ -45,8 +41,8 @@ It is not pre-registered anywhere. A project declares it in its own `.mcp.json`,
 > with a project answered sessions that were not that project. Do **not** put a channel id here — the project id is
 > the reference and the registry holds the value.
 >
-> `.mcp.json` is operating config, not source. Per DG-250 it lives at the wrapper level, outside
-> the git repo, and `scripts/install/install_mcp.sh` generates it.
+> A project's repository holds no `.mcp.json`. `scripts/install/install_mcp.sh` prints the JSON for
+> an agent whose user-level config you edit by hand.
 
 Which project a server acts on comes from `--project <id>`, resolved against the central registry -- never from the working directory, and never from a `.env` next to the code. Add `"--project", "<id>"` to `args` when running a server against a project other than the one it was launched from.
 
@@ -54,7 +50,7 @@ Which project a server acts on comes from `--project <id>`, resolved against the
 
 
 
-If your tool auto-discovers project-level `.mcp.json`, you're done. Otherwise, point it at the same two commands manually (Section 4 below has a worked example for Cursor).
+If your tool reads a user-level MCP config, you're done once the entry is there. Otherwise, point it at the same command manually (Section 4 below has a worked example for Cursor).
 
 ---
 

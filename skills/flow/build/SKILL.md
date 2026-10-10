@@ -127,7 +127,7 @@ description: >
   </execution_rules>
 
   <constraints>
-    <constraint priority="FATAL">Requires the `drunken-jira-mcp` server, declared in the project's `.mcp.json`. Without it this skill cannot run — say so rather than falling back to a file or a shell script.</constraint>
+    <constraint priority="FATAL">Requires the `drunken-jira-mcp` server, declared once per machine at the agent's user level (GETTING_STARTED.md). Without it this skill cannot run — say so rather than falling back to a file or a shell script.</constraint>
     <constraint priority="FATAL">Probe `jira_board_info` before writing to Jira. Field ids differ per instance; never hardcode one found in a payload.</constraint>
     <constraint priority="FATAL">Never merge a pull request, and never push to `main` or `develop`.</constraint>
     <constraint priority="FATAL">Never create or write to `.claude/board/` or `.agents/board/`. The `board_*` tools are retired; a board beside Jira is a second surface that can disagree with it.</constraint>

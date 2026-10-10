@@ -92,13 +92,26 @@ class TestWorkIsNotTheAiLayer:
     def test_empty_path(self) -> None:
         assert not ai_layer.is_ai_layer_path("")
 
-    def test_mcp_config_is_deliberately_excluded(self) -> None:
-        # Committed on purpose today: vendor-neutral, names commands not
-        # paths (core/config_gen.py). Whether REQ-019's "Jira configuration"
-        # wording should reach it is an open question for the Boss (see the
-        # module docstring and the DG-437 PR/comment) — nothing is built on
-        # an answer yet, so this stays excluded for now.
-        assert not ai_layer.is_ai_layer_path(".mcp.json")
+
+class TestMcpJsonIsAiLayer:
+    """DG-457 / REQ-019 Decided 2026-10-10."""
+
+    def test_mcp_config_is_ai_layer(self) -> None:
+        # DG-457, REQ-019 Decided 2026-10-10: a project has no .mcp.json at
+        # all -- the server is declared once per machine at user scope -- so a
+        # tracked one is AI-layer content that `layering.tracked` must flag.
+        assert ai_layer.is_ai_layer_path(".mcp.json")
+
+    def test_mcp_config_is_root_only(self) -> None:
+        # Root-only, like .aider.conf.yml: a nested fixture or example
+        # .mcp.json (docs/examples/.mcp.json) is a file about MCP, not the
+        # project's own declaration.
+        assert not ai_layer.is_ai_layer_path("docs/examples/.mcp.json")
+        assert not ai_layer.is_ai_layer_path("sub/.mcp.json")
+
+    def test_similar_names_do_not_match(self) -> None:
+        assert not ai_layer.is_ai_layer_path(".mcp.json.bak")
+        assert not ai_layer.is_ai_layer_path("mcp.json")
 
 
 class TestNoFalsePositives:

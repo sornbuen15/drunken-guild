@@ -183,7 +183,7 @@ description: >
   </action_sequence>
 
   <constraints>
-    <constraint priority="FATAL">Requires the `drunken-jira-mcp` server, declared in the project's `.mcp.json`. Without it this skill cannot run — say so rather than falling back to a file or a shell script.</constraint>
+    <constraint priority="FATAL">Requires the `drunken-jira-mcp` server, declared once per machine at the agent's user level (GETTING_STARTED.md). Without it this skill cannot run — say so rather than falling back to a file or a shell script.</constraint>
     <constraint priority="FATAL">Never modify source or tests. Every fix leaves as a ticket.</constraint>
     <constraint priority="FATAL">Never report a suite result that was not produced by a live run on the merged tree.</constraint>
     <constraint priority="FATAL">Never count `IN REVIEW` as done, and never treat a merge as a deployment.</constraint>

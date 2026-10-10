@@ -150,7 +150,7 @@ description: >
   </output_format>
 
   <constraints>
-    <constraint priority="FATAL">Requires the `drunken-jira-mcp` server, declared in the project's `.mcp.json`. Without it this skill cannot run — say so rather than falling back to a file or a shell script.</constraint>
+    <constraint priority="FATAL">Requires the `drunken-jira-mcp` server, declared once per machine at the agent's user level (GETTING_STARTED.md). Without it this skill cannot run — say so rather than falling back to a file or a shell script.</constraint>
     <constraint priority="FATAL">Never create or write to `.claude/board/` or `.agents/board/`. The `board_*` tools are retired.</constraint>
     <constraint priority="FATAL">Never create a ticket at any level without its `req:REQ-xxx` label.</constraint>
     <constraint priority="FATAL">Never create anything before the Boss approves the printed hierarchy.</constraint>
