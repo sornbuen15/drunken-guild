@@ -74,10 +74,12 @@ in this very repository already says a reference without a scheme is an error, n
 that rule holds here too: `env://…` or `file://…#key`, never a token, channel id, workspace URL or
 account email inline.
 
-**Where Jira credentials live is an open PRD question (`.ai/PRD.md`, Open — for /clarify, REQ-020)
-and is not decided by this page.** The Jira *configuration* — board id, project key, the field ids
-`jira_board_info` reports — may live in a project's folder, because none of that is a secret; the
-credential itself is a separate, still-open question and nothing here answers it.
+**Jira credentials live in no git repository, this one included** (REQ-020, Decided 2026-10-09). The
+Jira *configuration* — board id, project key, the field ids `jira_board_info` reports — may live in
+a project's folder, because none of that is a secret; the credential itself sits in a per-machine
+store outside every checkout, and the folder holds only a reference to it (`env://…` or
+`file://…#key`). Likewise a project's folder holds no `.mcp.json`: the server is declared once per
+machine (REQ-019, Decided 2026-10-10).
 
 ---
 
