@@ -19,6 +19,10 @@ which is the right answer far more often than a verdict is. Silence is not
 """
 
 import json
+import os
+import subprocess
+import time
+from pathlib import Path
 
 import pytest
 
@@ -29,13 +33,16 @@ DENY_RULES = [pr.Rule.parse("Bash(rm -rf:*)"), pr.Rule.parse("Read(**/.env)")]
 ALLOW_RULES = [pr.Rule.parse("Bash(git status:*)")]
 
 
-def payload(tool_name="Bash", command="whoami", mode="default", **extra):
-    return {
+def payload(tool_name="Bash", command="whoami", mode="default", cwd=None, **extra):
+    result = {
         "hook_event_name": "PreToolUse",
         "tool_name": tool_name,
         "tool_input": {"command": command} if tool_name == "Bash" else extra,
         "permission_mode": mode,
     }
+    if cwd is not None:
+        result["cwd"] = cwd
+    return result
 
 
 class TestDenyIsNotNegotiable:
@@ -1379,3 +1386,711 @@ class TestDG476Round3SubshellAndGroupCwdScoping:
             payload(command="{ cd .git/hooks; echo x > pre-commit; }"), self.NO_RULES
         )
         assert decision.permission == "deny"
+
+
+def _run_git(*args: str, cwd: Path) -> subprocess.CompletedProcess[str]:
+    result = subprocess.run(
+        ["git", *args],
+        cwd=cwd,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, (
+        f"git {' '.join(args)} failed in {cwd}: {result.stderr}"
+    )
+    return result
+
+
+def _init_repo(path: Path) -> Path:
+    path.mkdir(parents=True, exist_ok=True)
+    _run_git("init", "-q", cwd=path)
+    _run_git("config", "user.email", "test@example.com", cwd=path)
+    _run_git("config", "user.name", "Test", cwd=path)
+    (path / "README.md").write_text("scratch\n", encoding="utf-8")
+    _run_git("add", "README.md", cwd=path)
+    _run_git("commit", "-q", "-m", "initial", cwd=path)
+    return path
+
+
+def _add_worktree(main_repo: Path, worktree_path: Path, branch: str) -> Path:
+    _run_git(
+        "worktree",
+        "add",
+        "-q",
+        "-b",
+        branch,
+        str(worktree_path),
+        "HEAD",
+        cwd=main_repo,
+    )
+    return worktree_path
+
+
+NO_RULES = pr.Rules(allow=[], deny=[])
+
+
+class TestDG482LinkedWorktreeHooksDir:
+    """DG-482: `_HOOKS_DIR_PATTERN` matched only the main checkout's own
+    `.git/hooks`. Every agent works in a linked worktree (DG-288), where
+    `.git` is a *file* and the shared hooks dir is the main repository's --
+    this is the static-text half of the fix: the `.git/worktrees/<name>/
+    hooks` shape, and the absolute path into the main repo's hooks dir,
+    both of which a linked worktree actually produces.
+    """
+
+    def test_worktree_is_a_file_not_a_directory(self, tmp_path: Path) -> None:
+        """Proves the fixture is the real shape this ticket is about -- a
+        test that cannot fail this way proves nothing about worktrees."""
+        main_repo = _init_repo(tmp_path / "main")
+        worktree = _add_worktree(main_repo, tmp_path / "wt", "wt-proof")
+        assert (worktree / ".git").is_file()
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "rm -rf .git/worktrees/wt/hooks",
+            "mv .git/worktrees/wt/hooks /tmp/backup",
+            "cp -r .git/worktrees/wt/hooks /tmp/backup",
+            "chmod -R 000 .git/worktrees/wt/hooks",
+            "ln -sf /dev/null .git/worktrees/wt/hooks/pre-commit",
+            "tee .git/worktrees/wt/hooks/pre-commit < /dev/null",
+            "echo bad > .git/worktrees/wt/hooks/pre-commit",
+            "echo bad >> .git/worktrees/wt/hooks/pre-commit",
+            "echo bad >| .git/worktrees/wt/hooks/pre-commit",
+            "echo bad 2> .git/worktrees/wt/hooks/pre-commit",
+            "echo bad &> .git/worktrees/wt/hooks/pre-commit",
+            "sed -i s/x/y/ .git/worktrees/wt/hooks/pre-commit",
+            "del .git\\worktrees\\wt\\hooks\\pre-commit",
+        ],
+    )
+    def test_mutating_the_worktree_hooks_shape_is_denied(self, command) -> None:
+        decision = hook.decide(payload(command=command), NO_RULES)
+        assert decision.permission == "deny", f"{command!r} should be denied"
+
+    @pytest.mark.parametrize(
+        "command",
+        ["cat .git/worktrees/wt/hooks/pre-commit", "ls .git/worktrees/wt/hooks"],
+    )
+    def test_reading_the_worktree_hooks_shape_is_not_denied(self, command) -> None:
+        decision = hook.decide(payload(command=command), NO_RULES)
+        assert decision.permission is None, f"{command!r} should not be denied"
+
+    def test_write_tool_targeting_the_worktree_hooks_shape_is_denied(self) -> None:
+        decision = hook.decide(
+            payload(tool_name="Write", file_path=".git/worktrees/wt/hooks/pre-push"),
+            NO_RULES,
+        )
+        assert decision.permission == "deny"
+
+    def test_edit_tool_targeting_the_worktree_hooks_shape_windows_backslash(
+        self,
+    ) -> None:
+        decision = hook.decide(
+            payload(
+                tool_name="Edit", path="C:\\repo\\.git\\worktrees\\wt\\hooks\\pre-push"
+            ),
+            NO_RULES,
+        )
+        assert decision.permission == "deny"
+
+    def test_absolute_main_repo_hooks_path_from_a_linked_worktree_redirect(
+        self, tmp_path: Path
+    ) -> None:
+        """A redirect naming the *main* repo's absolute hooks path, run as
+        if from inside the worktree (``cwd`` set accordingly) -- the shape
+        the ticket's finding names explicitly."""
+        main_repo = _init_repo(tmp_path / "main")
+        worktree = _add_worktree(main_repo, tmp_path / "wt", "wt-abs")
+        hooks_dir = _run_git(
+            "rev-parse", "--git-path", "hooks", cwd=worktree
+        ).stdout.strip()
+        command = f"echo bad > {hooks_dir}/pre-commit"
+        decision = hook.decide(payload(command=command, cwd=str(worktree)), NO_RULES)
+        assert decision.permission == "deny", command
+
+
+class TestDG482ResolveDynamicHooksDirsUnionsBothReads:
+    """DG-482 (2)/(3), at the unit level: `_resolve_dynamic_hooks_dirs`
+    unions *both* reads -- `git rev-parse --git-path hooks` and
+    `git config --get core.hooksPath` -- rather than trusting one alone.
+    On the git version this repository tests against, the first already
+    reflects `core.hooksPath`, so an end-to-end test through `decide()`
+    cannot tell "both reads happened" apart from "only the first did" --
+    this test can, with the git calls themselves replaced."""
+
+    def test_both_reads_are_unioned_into_the_result(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        hook._resolve_dynamic_hooks_dirs.cache_clear()
+        seen_args: list[tuple[str, ...]] = []
+
+        # Absolute on *whatever platform runs this test* -- a hardcoded
+        # `C:/...` is absolute on Windows but not by `os.path.isabs`'s own
+        # rules on POSIX (no drive letter there), and a bare `/from/...` is
+        # the reverse; either one would be silently joined onto *tmp_path*
+        # on the platform where it is not absolute, which is not what this
+        # test is isolating. Built from *tmp_path* itself, which is always
+        # absolute on the platform it came from.
+        rev_parse_hooks = str(tmp_path / "from-rev-parse" / "hooks")
+        config_hooks = str(tmp_path / "from-config" / "hooks")
+
+        def fake_run_git(args, repo_root, *, timeout=None, text=True):
+            seen_args.append(tuple(args))
+            if tuple(args[:2]) == ("rev-parse", "--git-path"):
+                return subprocess.CompletedProcess(
+                    args, 0, stdout=f"{rev_parse_hooks}\n", stderr=""
+                )
+            if tuple(args[:2]) == ("config", "--get"):
+                return subprocess.CompletedProcess(
+                    args, 0, stdout=f"{config_hooks}\n", stderr=""
+                )
+            return subprocess.CompletedProcess(args, 1, stdout="", stderr="")
+
+        monkeypatch.setattr(hook, "run_git", fake_run_git)
+        dirs = hook._resolve_dynamic_hooks_dirs(str(tmp_path))
+
+        assert hook._normalise_path_for_match(rev_parse_hooks) in dirs
+        assert hook._normalise_path_for_match(config_hooks) in dirs
+        assert ("config", "--get", "core.hooksPath") in seen_args, (
+            "the core.hooksPath config read must actually run, not only "
+            "git rev-parse --git-path hooks"
+        )
+
+
+class TestDG482ResolvedHooksDirAndCoreHooksPath:
+    """DG-482 (2)/(3): the shared hooks dir resolved once via
+    `git rev-parse --git-path hooks` (which already honours
+    `core.hooksPath`), and `core.hooksPath` read directly -- the case the
+    *textual* patterns can never cover on their own, because an operator can
+    name the custom directory anything at all.
+    """
+
+    def setup_custom_hooks_repo(self, tmp_path: Path) -> tuple[Path, Path]:
+        main_repo = _init_repo(tmp_path / "main")
+        custom_hooks = tmp_path / "unrelated-name"
+        custom_hooks.mkdir()
+        _run_git("config", "core.hooksPath", str(custom_hooks), cwd=main_repo)
+        hook._resolve_dynamic_hooks_dirs.cache_clear()
+        return main_repo, custom_hooks
+
+    @pytest.mark.parametrize(
+        "command_template",
+        [
+            "rm -rf {d}",
+            "mv {d} /tmp/backup",
+            "cp -r {d} /tmp/backup",
+            "chmod -R 000 {d}",
+            "tee {d}/pre-commit < /dev/null",
+            "echo bad > {d}/pre-commit",
+            "echo bad >> {d}/pre-commit",
+            "echo bad 2> {d}/pre-commit",
+            "sed -i s/x/y/ {d}/pre-commit",
+        ],
+    )
+    def test_mutating_the_custom_hooks_path_dir_is_denied(
+        self, tmp_path: Path, command_template: str
+    ) -> None:
+        main_repo, custom_hooks = self.setup_custom_hooks_repo(tmp_path)
+        command = command_template.format(d=str(custom_hooks))
+        decision = hook.decide(payload(command=command, cwd=str(main_repo)), NO_RULES)
+        assert decision.permission == "deny", command
+
+    def test_reading_the_custom_hooks_path_dir_is_not_denied(
+        self, tmp_path: Path
+    ) -> None:
+        main_repo, custom_hooks = self.setup_custom_hooks_repo(tmp_path)
+        decision = hook.decide(
+            payload(command=f"cat {custom_hooks}/pre-commit", cwd=str(main_repo)),
+            NO_RULES,
+        )
+        assert decision.permission is None
+
+    def test_write_tool_targeting_the_custom_hooks_path_dir_is_denied(
+        self, tmp_path: Path
+    ) -> None:
+        main_repo, custom_hooks = self.setup_custom_hooks_repo(tmp_path)
+        decision = hook.decide(
+            payload(
+                tool_name="Write",
+                file_path=str(custom_hooks / "pre-push"),
+                cwd=str(main_repo),
+            ),
+            NO_RULES,
+        )
+        assert decision.permission == "deny"
+
+    def test_cd_into_custom_hooks_path_dir_then_bare_redirect_is_denied(
+        self, tmp_path: Path
+    ) -> None:
+        main_repo, custom_hooks = self.setup_custom_hooks_repo(tmp_path)
+        command = f"cd {custom_hooks} && echo x > pre-push"
+        decision = hook.decide(payload(command=command, cwd=str(main_repo)), NO_RULES)
+        assert decision.permission == "deny", command
+
+    def test_without_a_cwd_the_custom_hooks_path_dir_is_not_recognised(
+        self, tmp_path: Path
+    ) -> None:
+        """Documented limit: resolving `core.hooksPath` needs a real `cwd`.
+        A payload that never carries one (no agent call omits it in
+        practice, but `decide()` must still degrade safely) falls back to
+        the textual patterns alone, rather than crashing or guessing at
+        `os.getcwd()` (which would break `decide()`'s own purity)."""
+        _main_repo, custom_hooks = self.setup_custom_hooks_repo(tmp_path)
+        decision = hook.decide(payload(command=f"rm -rf {custom_hooks}"), NO_RULES)
+        assert decision.permission is None
+
+    def test_a_non_repository_cwd_fails_safe_rather_than_crashing(
+        self, tmp_path: Path
+    ) -> None:
+        plain_dir = tmp_path / "not-a-repo"
+        plain_dir.mkdir()
+        hook._resolve_dynamic_hooks_dirs.cache_clear()
+        decision = hook.decide(
+            payload(command="rm -rf /some/unrelated/path", cwd=str(plain_dir)),
+            NO_RULES,
+        )
+        assert decision.permission is None
+
+    def test_a_missing_cwd_path_fails_safe_rather_than_crashing(self) -> None:
+        hook._resolve_dynamic_hooks_dirs.cache_clear()
+        decision = hook.decide(
+            payload(
+                command="rm -rf /some/unrelated/path",
+                cwd=str(Path("C:/definitely/does/not/exist/anywhere")),
+            ),
+            NO_RULES,
+        )
+        assert decision.permission is None
+
+
+class TestDG482RelativeCoreHooksPathIsCanonicalised:
+    """DG-482 review round 2, HIGH: a *relative* `core.hooksPath` was never
+    canonicalised. `_resolve_dynamic_hooks_dirs` joined it onto `cwd` with
+    plain `os.path.join`, no `..`/`.` collapsing and no symlink resolution,
+    so neither the same relative spelling nor the real absolute path ever
+    matched the stored, uncollapsed text. Real repos throughout: a relative
+    `core.hooksPath` resolves the same way a real git hook actually sees it
+    -- relative to wherever the git call that reports it is run from, which
+    is *cwd* here (verified separately against a real `pre-commit` hook and
+    against `git rev-parse --git-path hooks` run from a subdirectory).
+    """
+
+    def _repo_with_relative_hooks_path(
+        self, tmp_path: Path, hooks_path: str
+    ) -> tuple[Path, Path]:
+        """*hooks_path* is the literal `core.hooksPath` value configured,
+        relative to the repo root. Returns ``(repo, real_absolute_hooks_dir)``
+        -- the latter resolved independently, via `os.path.normpath`, not
+        reusing any of `hook.py`'s own canonicalisation, so the test does
+        not simply check the implementation against itself."""
+        repo = _init_repo(tmp_path / "main")
+        _run_git("config", "core.hooksPath", hooks_path, cwd=repo)
+        real_dir = Path(os.path.normpath(str(repo / hooks_path)))
+        real_dir.mkdir(parents=True, exist_ok=True)
+        hook._resolve_dynamic_hooks_dirs.cache_clear()
+        return repo, real_dir
+
+    def test_relative_inside_the_repo_is_denied_by_the_same_spelling(
+        self, tmp_path: Path
+    ) -> None:
+        repo, _real_dir = self._repo_with_relative_hooks_path(tmp_path, "hooks-dir")
+        decision = hook.decide(
+            payload(command="echo x > hooks-dir/pre-push", cwd=str(repo)), NO_RULES
+        )
+        assert decision.permission == "deny"
+
+    def test_relative_inside_the_repo_is_denied_by_its_absolute_equivalent(
+        self, tmp_path: Path
+    ) -> None:
+        repo, real_dir = self._repo_with_relative_hooks_path(tmp_path, "hooks-dir")
+        hook._resolve_dynamic_hooks_dirs.cache_clear()
+        command = f"echo x > {real_dir}\\pre-push"
+        decision = hook.decide(payload(command=command, cwd=str(repo)), NO_RULES)
+        assert decision.permission == "deny", command
+
+    def test_relative_outside_the_repo_is_denied_by_the_same_spelling(
+        self, tmp_path: Path
+    ) -> None:
+        repo, _real_dir = self._repo_with_relative_hooks_path(
+            tmp_path, "../customhooks"
+        )
+        decision = hook.decide(
+            payload(command="echo x > ../customhooks/pre-push", cwd=str(repo)),
+            NO_RULES,
+        )
+        assert decision.permission == "deny"
+
+    def test_relative_outside_the_repo_is_denied_by_its_absolute_equivalent(
+        self, tmp_path: Path
+    ) -> None:
+        repo, real_dir = self._repo_with_relative_hooks_path(tmp_path, "../customhooks")
+        hook._resolve_dynamic_hooks_dirs.cache_clear()
+        command = f"rm -rf {real_dir}"
+        decision = hook.decide(payload(command=command, cwd=str(repo)), NO_RULES)
+        assert decision.permission == "deny", command
+
+    def test_a_different_relative_spelling_of_the_same_real_directory_is_denied(
+        self, tmp_path: Path
+    ) -> None:
+        """`./sub/../../customhooks/pre-push` is a different string from
+        `../customhooks/pre-push` but the same real file -- `..` has to be
+        collapsed, not merely compared textually."""
+        repo, _real_dir = self._repo_with_relative_hooks_path(
+            tmp_path, "../customhooks"
+        )
+        command = "echo x > ./sub/../../customhooks/pre-push"
+        decision = hook.decide(payload(command=command, cwd=str(repo)), NO_RULES)
+        assert decision.permission == "deny", command
+
+    def test_relative_hooks_path_resolved_from_a_subdirectory_cwd_is_denied(
+        self, tmp_path: Path
+    ) -> None:
+        """`git rev-parse --git-path hooks` itself answers relative to
+        *whichever* directory it is run from -- `../customhooks` from the
+        repo root, `../../customhooks` from `sub` -- so the real absolute
+        location must still be found when the payload `cwd` is the
+        subdirectory, not just the repo root."""
+        repo, real_dir = self._repo_with_relative_hooks_path(tmp_path, "../customhooks")
+        subdir = repo / "sub"
+        subdir.mkdir()
+        (subdir / "r.txt").write_text("x\n", encoding="utf-8")
+        _run_git("add", "sub/r.txt", cwd=repo)
+        _run_git("commit", "-q", "-m", "add sub", cwd=repo)
+        hook._resolve_dynamic_hooks_dirs.cache_clear()
+
+        relative_command = "echo x > ../../customhooks/pre-push"
+        decision = hook.decide(
+            payload(command=relative_command, cwd=str(subdir)), NO_RULES
+        )
+        assert decision.permission == "deny", relative_command
+
+        hook._resolve_dynamic_hooks_dirs.cache_clear()
+        absolute_command = f"rm -rf {real_dir}"
+        decision2 = hook.decide(
+            payload(command=absolute_command, cwd=str(subdir)), NO_RULES
+        )
+        assert decision2.permission == "deny", absolute_command
+
+    def test_relative_hooks_path_from_a_linked_worktree_is_denied(
+        self, tmp_path: Path
+    ) -> None:
+        """`core.hooksPath` lives in the shared config every worktree reads
+        -- a relative spelling must still resolve correctly when the agent
+        is actually working from the *linked* worktree (DG-288), not the
+        main checkout."""
+        main_repo = _init_repo(tmp_path / "main")
+        _run_git("config", "core.hooksPath", "../customhooks", cwd=main_repo)
+        custom_hooks = tmp_path / "customhooks"
+        custom_hooks.mkdir()
+        worktree = _add_worktree(main_repo, tmp_path / "wt", "wt-relhooks")
+        hook._resolve_dynamic_hooks_dirs.cache_clear()
+
+        relative_command = "echo x > ../customhooks/pre-push"
+        decision = hook.decide(
+            payload(command=relative_command, cwd=str(worktree)), NO_RULES
+        )
+        assert decision.permission == "deny", relative_command
+
+        hook._resolve_dynamic_hooks_dirs.cache_clear()
+        absolute_command = f"rm -rf {custom_hooks}"
+        decision2 = hook.decide(
+            payload(command=absolute_command, cwd=str(worktree)), NO_RULES
+        )
+        assert decision2.permission == "deny", absolute_command
+
+    def test_reading_the_relative_hooks_path_dir_is_not_denied(
+        self, tmp_path: Path
+    ) -> None:
+        repo, _real_dir = self._repo_with_relative_hooks_path(
+            tmp_path, "../customhooks"
+        )
+        decision = hook.decide(
+            payload(command="cat ../customhooks/pre-push", cwd=str(repo)), NO_RULES
+        )
+        assert decision.permission is None
+
+    def test_an_unrelated_relative_path_stays_allowed(self, tmp_path: Path) -> None:
+        repo, _real_dir = self._repo_with_relative_hooks_path(
+            tmp_path, "../customhooks"
+        )
+        decision = hook.decide(
+            payload(command="rm -rf ../some-other-sibling-dir", cwd=str(repo)),
+            NO_RULES,
+        )
+        assert decision.permission is None
+
+
+class TestDG482FailSafeWhenGitItselfErrors:
+    """DG-482: a git failure other than a plain non-zero exit (a timeout, a
+    missing binary, a permission error) must not crash `decide()` --
+    `_resolve_dynamic_hooks_dirs` degrades to an empty set, same as "not a
+    repository" does, rather than letting the exception escape."""
+
+    def test_resolve_dynamic_hooks_dirs_returns_empty_when_run_git_raises(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        hook._resolve_dynamic_hooks_dirs.cache_clear()
+
+        def raising_run_git(args, repo_root, *, timeout=None, text=True):
+            raise hook.GitCommandError("simulated git failure")
+
+        monkeypatch.setattr(hook, "run_git", raising_run_git)
+        dirs = hook._resolve_dynamic_hooks_dirs(str(tmp_path))
+        assert dirs == frozenset()
+
+    def test_decide_does_not_crash_when_git_resolution_raises(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        hook._resolve_dynamic_hooks_dirs.cache_clear()
+
+        def raising_run_git(args, repo_root, *, timeout=None, text=True):
+            raise hook.GitCommandError("simulated git failure")
+
+        monkeypatch.setattr(hook, "run_git", raising_run_git)
+        decision = hook.decide(
+            payload(command="rm -rf /tmp/x", cwd=str(tmp_path)), NO_RULES
+        )
+        assert decision.permission is None
+
+
+class TestDG482HooksPathCommandSubstitution:
+    """DG-482 (4): `$(git rev-parse --git-path hooks)` (or the backtick
+    spelling, or `--git-common-dir`) used as a mutating verb's or a
+    redirect's target is denied as text -- never evaluated."""
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "rm -rf $(git rev-parse --git-path hooks)",
+            "rm -rf `git rev-parse --git-path hooks`",
+            "mv $(git rev-parse --git-path hooks)/pre-commit /tmp/x",
+            "echo bad > $(git rev-parse --git-path hooks)/pre-commit",
+            "rm -rf $(git rev-parse --git-common-dir)/hooks",
+            'rm -rf "$(git rev-parse --git-path hooks)"',
+            "chmod -R 000 $(git rev-parse --git-path hooks)",
+        ],
+    )
+    def test_each_substitution_shape_as_a_target_is_denied(self, command) -> None:
+        decision = hook.decide(payload(command=command), NO_RULES)
+        assert decision.permission == "deny", f"{command!r} should be denied"
+
+    def test_running_the_substitution_read_only_with_no_mutating_verb_is_not_denied(
+        self,
+    ) -> None:
+        decision = hook.decide(
+            payload(command="echo $(git rev-parse --git-path hooks)"), NO_RULES
+        )
+        assert decision.permission is None
+
+
+class TestDG482HooksPathSubstitutionRound2:
+    """DG-482 review round 2, HIGH: round 1 only matched `--git-path hooks`
+    and `--git-common-dir`. `--git-dir`, `--absolute-git-dir` and
+    `--show-toplevel` -- every other `git rev-parse` form that yields a
+    path under the git dir -- were not denied, and the redirect-target
+    cases were missed even when the *substitution itself* was recognised,
+    because `pr.segments_with_leading_operator` severs an unquoted `$(`/`)`
+    pair from whatever trails it, so the redirect operator and its target
+    end up in different segments."""
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "echo x > $(git rev-parse --git-dir)/hooks/pre-push",
+            'rm -rf "$(git rev-parse --show-toplevel)/.git/hooks"',
+            "tee `git rev-parse --git-dir`/hooks/pre-push < /dev/null",
+            "cp x $(git rev-parse --absolute-git-dir)/hooks/pre-push",
+            "echo x > $(  git   rev-parse   --git-dir  )/hooks/pre-push",
+            "echo x > $(git rev-parse --absolute-git-dir)/hooks/pre-push",
+            "mv a $(git rev-parse --git-common-dir)/hooks/pre-push",
+            "rm -rf `git rev-parse --show-toplevel`/.git/hooks",
+            'echo x > "$(git rev-parse --git-dir)"/hooks/pre-push',
+        ],
+    )
+    def test_each_widened_substitution_shape_as_a_target_is_denied(
+        self, command
+    ) -> None:
+        decision = hook.decide(payload(command=command), NO_RULES)
+        assert decision.permission == "deny", f"{command!r} should be denied"
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "ls $(git rev-parse --git-dir)/hooks",
+            "cat $(git rev-parse --git-path hooks)/pre-push",
+            "cat $(git rev-parse --git-dir)/config",
+            "echo $(git rev-parse --show-toplevel)/src",
+            "ls $(git rev-parse --absolute-git-dir)",
+        ],
+    )
+    def test_a_read_or_an_unrelated_use_of_the_same_substitution_stays_allowed(
+        self, command
+    ) -> None:
+        decision = hook.decide(payload(command=command), NO_RULES)
+        assert decision.permission is None, f"{command!r} should not be denied"
+
+    def test_an_unrelated_cd_and_redirect_sharing_one_command_stays_allowed(
+        self,
+    ) -> None:
+        """The regression this round found while fixing the above: a plain
+        `.git/hooks` text in an unrelated `cd`, combined with an unrelated
+        redirect elsewhere in the same raw command, must not be denied just
+        because both happen to appear somewhere in the same string."""
+        decision = hook.decide(
+            payload(command="cd .git/hooks && echo bad > C:\\tmp\\out"), NO_RULES
+        )
+        assert decision.permission is None
+
+
+class TestDG482OneSharedPattern:
+    """DG-481 round 3's lesson, applied here: the widened hooks-dir shape
+    must be defined once and read by every caller, not re-spelled."""
+
+    def test_token_pattern_and_search_pattern_share_the_worktrees_core(self) -> None:
+        assert hook._HOOKS_DIR_CORE in hook._HOOKS_DIR_PATTERN.pattern
+        assert hook._HOOKS_DIR_CORE in hook._HOOKS_DIR_TOKEN_PATTERN.pattern
+
+
+class TestDG482FalsePositivesStayAllowed:
+    """Everything that merely *contains* `.git`, `hooks`, or a path that
+    looks adjacent to them, but is not actually the hooks dir, must stay
+    undenied -- the false-positive list, extended with paths drawn from
+    this repository's own tree."""
+
+    @pytest.mark.parametrize(
+        "path",
+        [
+            ".githooks",
+            ".git.hooks.txt",
+            "src/hooks",
+            "docs/hooks/x.md",
+            "my.git/hooks-notes",
+            "src/core/hook.py",
+            "src/core/permission_rules.py",
+            "tests/test_hook.py",
+            "tests/test_permission_rules.py",
+            "skills/workflow/git-workflow/SKILL.md",
+            "skills/workflow/jira-tickets/SKILL.md",
+            ".claude/settings.json",
+            ".claude/settings.local.json",
+            "scripts/verify_clean_install.sh",
+            "scripts/check_doc_drift.py",
+            "agents/INDEX.md",
+            "skills/INDEX.md",
+            "RETIRED.md",
+            "SESSION_CHECKPOINT.md",
+            "pyproject.toml",
+            "uv.lock",
+            ".gitignore",
+            ".gitattributes",
+            "src/core/doctor.py",
+            "src/core/init.py",
+            "src/core/exclude.py",
+            "src/core/ai_layer.py",
+            "src/core/layer_copy.py",
+            "examples/hooks/sample.md",
+        ],
+    )
+    def test_the_path_alone_stays_allowed_for_bash_reads(self, path) -> None:
+        decision = hook.decide(payload(command=f"cat {path}"), NO_RULES)
+        assert decision.permission is None, f"{path!r} should not be denied"
+
+    @pytest.mark.parametrize(
+        "path",
+        [
+            ".githooks",
+            ".git.hooks.txt",
+            "src/hooks",
+            "docs/hooks/x.md",
+            "my.git/hooks-notes",
+            "src/core/hook.py",
+            "tests/test_hook.py",
+        ],
+    )
+    def test_the_path_alone_stays_allowed_for_edit(self, path) -> None:
+        decision = hook.decide(payload(tool_name="Edit", path=path), NO_RULES)
+        assert decision.permission is None, f"{path!r} should not be denied"
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "rm -rf .githooks",
+            "rm -rf .git.hooks.txt",
+            "rm -rf src/hooks",
+            "rm -rf docs/hooks/x.md",
+            "rm -rf my.git/hooks-notes",
+        ],
+    )
+    def test_mutating_the_lookalike_paths_still_stays_allowed(self, command) -> None:
+        decision = hook.decide(payload(command=command), NO_RULES)
+        assert decision.permission is None, f"{command!r} should not be denied"
+
+
+class TestDG482PerformanceAndCaching:
+    """DG-482 performance requirements: `decide()` stays fast, the git
+    resolution is cached (so repeated calls in the same repo pay for at
+    most one subprocess pair), and nothing is run at all for commands that
+    carry no path-like token."""
+
+    def test_the_git_resolution_gate_skips_commands_with_no_path_token(self) -> None:
+        assert hook._might_reference_protected_dir("git status") is False
+        assert hook._might_reference_protected_dir("echo hello world") is False
+        assert hook._might_reference_protected_dir("rm -rf /tmp/x") is True
+
+    def test_resolution_is_cached_across_repeated_calls(self, tmp_path: Path) -> None:
+        main_repo = _init_repo(tmp_path / "main")
+        hook._resolve_dynamic_hooks_dirs.cache_clear()
+        info_before = hook._resolve_dynamic_hooks_dirs.cache_info()
+        hook._resolve_dynamic_hooks_dirs(str(main_repo))
+        hook._resolve_dynamic_hooks_dirs(str(main_repo))
+        hook._resolve_dynamic_hooks_dirs(str(main_repo))
+        info_after = hook._resolve_dynamic_hooks_dirs.cache_info()
+        assert info_after.misses - info_before.misses == 1
+        assert info_after.hits - info_before.hits == 2
+
+    def test_a_thousand_ordinary_calls_stay_fast(self, tmp_path: Path) -> None:
+        main_repo = _init_repo(tmp_path / "main")
+        hook._resolve_dynamic_hooks_dirs.cache_clear()
+        commands = [
+            "git status",
+            "ls -la",
+            "echo hello",
+            "git log --oneline -5",
+            "rm -rf /tmp/scratch",
+            "cat README.md",
+        ]
+        started = time.monotonic()
+        for i in range(1000):
+            hook.decide(
+                payload(command=commands[i % len(commands)], cwd=str(main_repo)),
+                NO_RULES,
+            )
+        elapsed = time.monotonic() - started
+        assert elapsed < 5.0, f"1000 decide() calls took {elapsed:.2f}s"
+
+
+class TestDG482NoStateLeaksBetweenCalls:
+    def test_a_resolved_custom_hooks_path_in_one_repo_does_not_leak_to_another(
+        self, tmp_path: Path
+    ) -> None:
+        repo_a = _init_repo(tmp_path / "a")
+        custom_a = tmp_path / "a-hooks"
+        custom_a.mkdir()
+        _run_git("config", "core.hooksPath", str(custom_a), cwd=repo_a)
+
+        repo_b = _init_repo(tmp_path / "b")
+
+        hook._resolve_dynamic_hooks_dirs.cache_clear()
+        decision_a = hook.decide(
+            payload(command=f"rm -rf {custom_a}", cwd=str(repo_a)), NO_RULES
+        )
+        decision_b = hook.decide(
+            payload(command=f"rm -rf {custom_a}", cwd=str(repo_b)), NO_RULES
+        )
+        assert decision_a.permission == "deny"
+        assert decision_b.permission is None, (
+            "repo b never configured core.hooksPath to a-hooks, so a "
+            "command naming it must not be denied just because repo a's "
+            "resolution happened first"
+        )
