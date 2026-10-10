@@ -404,3 +404,29 @@ class TestPruneNamesMustBePlainNames:
         monkeypatch.setattr(install, "_package_dir", lambda name: tmp_path / name)
 
         assert install.retired_names() == frozenset({"old-one"})
+
+
+class TestARootLinkPlantedAfterThePlan:
+    def test_the_target_root_turned_into_a_link_before_the_write_is_refused(
+        self, tmp_path, monkeypatch
+    ):
+        src = make_source(tmp_path, TWO)
+        target = tmp_path / "t"
+        elsewhere = tmp_path / "elsewhere"
+        elsewhere.mkdir()
+        real_plan = install._plan_skill
+
+        def plan_then_plant(name, folder, root):
+            action = real_plan(name, folder, root)
+            if not root.exists():
+                symlink_or_skip(root, elsewhere, directory=True)
+            return action
+
+        monkeypatch.setattr(install, "_plan_skill", plan_then_plant)
+
+        with pytest.raises((install.InstallRefusedError, OSError)):
+            install.install_skills(target, source=src)
+
+        assert list(elsewhere.iterdir()) == [], (
+            "the files were written through the root link"
+        )
