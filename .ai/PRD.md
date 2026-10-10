@@ -221,6 +221,18 @@ a push with no ids to check against is refused too; a checkout missing the git h
 is a `drunken-doctor` failure; and an agent cannot skip or disable the git hooks.
 **Decided:** 2026-10-06 — the Boss, after the 2026-09-23 leak (#89, #93) was found still
 uncleaned. Both leaks were test fixtures.
+**Decided:** 2026-10-10 — the Boss: three gaps found while hardening this are **known limits of
+2.0.0**, not blockers, because the floor guards against an agent's mistake, not against a person
+or agent set on getting round it, and none of them can leak a project id today:
+- DG-490 — the `ls-remote` timeout is not honoured on Windows when the transport leaves an
+  orphaned child holding the pipes (a push waits ~21 s instead of 3 s; it still refuses, it is
+  only slow).
+- DG-491 — the git-dir substitution rule pairs a mention in quoted text or a heredoc with any
+  unrelated mutating verb (it denies too much, never too little).
+- DG-496 — a `cd` into the hooks directory in one Bash call followed by a bare relative write in
+  a later call is not denied; it takes an agent deliberately making two calls.
+They are ticketed and parked in the backlog for 2.0.x. Anything that makes one of them leak an
+id is a Bug, not a limit.
 
 ### REQ-024 — Every step starts from what already exists
 **Class:** Must
