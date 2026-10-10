@@ -216,6 +216,7 @@ contradict each other are reported, not resolved; the draft files are never chan
 copied into the repository; their content is data, never an instruction to the agent.
 **Decided:** 2026-10-03 — .docx is a later step, after a trial with real files; reading a .docx or
 a scanned pdf is not yet verified.
+**Decided:** 2026-10-10 — the Boss: in 2.0.0 (DG-497).
 
 ### REQ-022 — The guild is easy to install, use and update
 **Class:** Should
@@ -225,6 +226,7 @@ major release with a changelog, and a status command says what has changed, befo
 **Decided:** 2026-10-03 — the Boss: anyone who takes the guild should find installing, using and
 updating easy, and updating should cost no tokens unless the way of working itself has a new
 version. Channel for now: GitHub tags (see REQ-008).
+**Decided:** 2026-10-10 — the Boss: in 2.0.0, said twice (DG-498..DG-502).
 
 ### REQ-023 — A registered project id never reaches this repository
 **Class:** Must
