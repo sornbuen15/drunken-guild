@@ -2204,3 +2204,106 @@ class TestInstallGitHooksFlag:
         monkeypatch.chdir(repo)
 
         assert run("--install-git-hooks") == 0
+
+
+class TestMigrateAiLayerCommand:
+    """DG-446: ``--migrate-ai-layer`` shows a plan, ``--apply`` performs it, and this
+    repository's own checkout is never migrated (REQ-006)."""
+
+    def _register(self, tmp_path, checkout) -> None:
+        # Register without the refused copy-in path: write the registry entry directly.
+        state = tmp_path / "state"
+        state.mkdir(parents=True, exist_ok=True)
+        (state / "projects.json").write_text(
+            json.dumps({"version": 2, "projects": {"app": {"path": str(checkout)}}}),
+            encoding="utf-8",
+        )
+
+    def test_default_is_a_plan_that_changes_nothing(self, tmp_path, capsys) -> None:
+        checkout = tmp_path / "app"
+        checkout.mkdir(parents=True)
+        _run_git("init", "-q", cwd=checkout)
+        _run_git("config", "user.email", "test@example.com", cwd=checkout)
+        _run_git("config", "user.name", "Test", cwd=checkout)
+        (checkout / "AGENTS.md").write_text("tracked rules\n", encoding="utf-8")
+        _run_git("add", "-A", cwd=checkout)
+        _run_git("commit", "-q", "-m", "tracked", cwd=checkout)
+        self._register(tmp_path, checkout)
+
+        code = run("--project", "app", "--migrate-ai-layer")
+
+        out = capsys.readouterr().out
+        assert code == 0
+        assert "would migrate" in out and "AGENTS.md" in out and "--apply" in out
+        assert _run_git("ls-files", cwd=checkout).stdout.split() == ["AGENTS.md"]
+
+    def test_apply_backs_up_untracks_and_leaves_the_file(
+        self, tmp_path, capsys
+    ) -> None:
+        checkout = tmp_path / "app"
+        checkout.mkdir(parents=True)
+        _run_git("init", "-q", cwd=checkout)
+        _run_git("config", "user.email", "test@example.com", cwd=checkout)
+        _run_git("config", "user.name", "Test", cwd=checkout)
+        (checkout / "AGENTS.md").write_text("tracked rules\n", encoding="utf-8")
+        (checkout / "main.py").write_text("x = 1\n", encoding="utf-8")
+        _run_git("add", "-A", cwd=checkout)
+        _run_git("commit", "-q", "-m", "tracked", cwd=checkout)
+        self._register(tmp_path, checkout)
+        backup = tmp_path / "bk"
+
+        code = run(
+            "--project",
+            "app",
+            "--migrate-ai-layer",
+            "--apply",
+            "--backup-dir",
+            str(backup),
+        )
+
+        out = capsys.readouterr().out
+        assert code == 0, out
+        assert _run_git("ls-files", cwd=checkout).stdout.split() == ["main.py"]
+        assert (checkout / "AGENTS.md").read_text(encoding="utf-8") == "tracked rules\n"
+        assert (backup / "AGENTS.md").read_text(encoding="utf-8") == "tracked rules\n"
+        assert "commit them yourself" in out
+
+    def test_this_repositorys_own_checkout_is_refused(self, tmp_path, capsys) -> None:
+        checkout = tmp_path / "guild"
+        checkout.mkdir(parents=True)
+        _run_git("init", "-q", cwd=checkout)
+        (checkout / "pyproject.toml").write_text(
+            '[project]\nname = "drunken-guild"\n', encoding="utf-8"
+        )
+        (checkout / "AGENTS.md").write_text("the product\n", encoding="utf-8")
+        _run_git("add", "-A", cwd=checkout)
+        _run_git(
+            "-c",
+            "user.name=t",
+            "-c",
+            "user.email=t@e.invalid",
+            "commit",
+            "-q",
+            "-m",
+            "x",
+            cwd=checkout,
+        )
+        state = tmp_path / "state"
+        state.mkdir(parents=True, exist_ok=True)
+        (state / "projects.json").write_text(
+            json.dumps({"version": 2, "projects": {"guild": {"path": str(checkout)}}}),
+            encoding="utf-8",
+        )
+
+        code = run("--project", "guild", "--migrate-ai-layer", "--apply")
+
+        assert code == 1
+        assert "REQ-006" in capsys.readouterr().out
+        assert _run_git("ls-files", cwd=checkout).stdout.split() == [
+            "AGENTS.md",
+            "pyproject.toml",
+        ]
+
+    def test_it_needs_a_project(self, capsys) -> None:
+        assert run("--migrate-ai-layer") == 1
+        assert "needs --project" in capsys.readouterr().out
