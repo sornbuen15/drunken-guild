@@ -112,6 +112,25 @@ description: >
     saying when and why. Deleting it breaks the trace from any ticket that referenced it.
   </prd_shape>
 
+  <starting_states>
+    REQ-024: this step runs in whatever state it finds and never asks whether it may be
+    skipped. It names what it found as its starting point, and finishes fast when there is
+    nothing to change.
+
+    **New folder** — Interview the Boss in one batch of questions and write the Brief and the
+    requirements from the answers alone; a gap stays a written gap.
+    **Code, no PRD** — Read the README, the manifests and the tests, then propose a PRD of what
+    already exists. Every requirement read from code names its file and goes under Inferred until
+    the Boss accepts it; ask only what is new on top.
+    **Requirements in another shape** — Any .md, .txt or .pdf that states requirements is a source:
+    carry each statement into a REQ id with the source named, report contradictions instead of
+    resolving them, and never change or copy the source file.
+    **Existing backlog** — Tickets already in Jira are evidence of intent. List their summaries as
+    Inferred candidates for the Boss to accept; write no ticket and leave every `req:` label alone.
+    **One task or bug** — Add one requirement, or amend the one the bug breaks, in a single shown
+    diff with no interview; everything else in the file is reported as unchanged.
+  </starting_states>
+
   <action_sequence>
     1. LOCATE: `project-docs` — print its block. Stop on what it says to stop on.
     2. ROUTE: an existing `PRD.md` → update. An older split set → offer consolidation and wait.
@@ -148,7 +167,7 @@ description: >
     Ambiguous and unresolved:
       - REQ-004: "fast" is not a number.
       - REQ-009: no acceptance sentence.
-    Run /clarify next. This step wrote no ticket.
+    Next: /clarify. This step wrote no ticket and calls no MCP tool.
     ```
 
     If nothing was written — the Boss said no, or the interview went unanswered — say exactly that

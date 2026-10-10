@@ -109,10 +109,35 @@ description: >
     </rule>
   </execution_rules>
 
+  <starting_states>
+    REQ-024: this step runs in whatever state it finds and never asks whether it may be
+    skipped. It names what it found as its starting point, and finishes fast when there is
+    nothing to change.
+
+    **New folder** — With no PRD or DOMAIN, print the smallest hierarchy the available text supports,
+    each row marked "requirement to be added to PRD.md". Create nothing until the Boss accepts the
+    table and the PRD line exists.
+    **Code, no PRD** — Cut tickets from the change the Boss describes, label each with the Inferred
+    requirement id it would become, and say that the id is unaccepted. Existing code is not
+    re-ticketed.
+    **Requirements in another shape** — Use the ids `/prd` assigned when it carried the file over;
+    a row that cites a statement with no id is reported as a gap, not given an id here.
+    **Existing backlog** — Search Jira before proposing anything: by `req:` label, then by the
+    summary words of each Epic and Task. A match becomes a "bind" row (add the `req:` label with
+    `jira_edit_labels`, comment the acceptance); only unmatched rows are "create". Never duplicate.
+    **One task or bug** — Propose one Task or Bug under the Epic that already owns the requirement,
+    with its label, and print "No new tickets." when a ticket for it already exists.
+  </starting_states>
+
   <action_sequence>
-    1. LOCATE: `project-docs` — print the block. `PRD.md` and `DOMAIN.md` are both required; point
-       at `/prd` or `/ddd` for a missing one rather than working from what you can infer.
+    1. LOCATE: `project-docs` — print the block. A missing `PRD.md` or `DOMAIN.md` is reported, not
+       a reason to stop: follow `starting_states`, and never give a ticket a requirement id the PRD
+       does not hold. SEARCH Jira next (below) before proposing a single row.
     2. PROBE: `jira_board_info` — issue types, settable fields, backlog present?
+    2b. SEARCH: `jira_search_issues` for what already exists — by `req:` label, then by the summary
+       words of each Epic and Task, labelled or not. A match is a **bind** row in the table (add
+       the label with `jira_edit_labels`, comment the acceptance), never a second ticket. A search
+       that could not be asked is "could not ask", not an empty result.
     3. MAP: one Epic per context; Stories from that context's requirements; Tasks sized to a day,
        parented to the Epic and naming their Story (if any) in the description; Subtasks only
        where steps are genuinely ordered.
@@ -137,8 +162,8 @@ description: >
   <output_format>
     Print the `project-docs` block, then the proposal, then halt:
 
-    - **Hierarchy** — a table: Epic / Story / Task | summary | `req:REQ-xxx` | urgency label |
-      sequence-or-parallel. Indent the levels so the tree reads at a glance.
+    - **Hierarchy** — a table: Epic / Story / Task | create or bind (existing key) | summary |
+      `req:REQ-xxx` | urgency label | sequence-or-parallel. Indent the levels so the tree reads at a glance.
     - **Coverage** — requirements that reach no Task, and Tasks that carry no requirement. Say
       "none" rather than omitting the section.
     - **Sequencing** — which Tasks share files and must run one after another, and which share
@@ -146,7 +171,8 @@ description: >
     - End with two questions: "Create these tickets?" and "Execute in sequence or in parallel?"
 
     After creation, report a table of created keys with their parent and labels, and state that
-    everything is in the backlog in `TODO`, unassigned.
+    everything is in the backlog in `TODO`, unassigned. End with `Next: /build` on the first
+    ticket the Boss moves to the board (the worker role runs it, the reviewer role reads its PR).
   </output_format>
 
   <constraints>
