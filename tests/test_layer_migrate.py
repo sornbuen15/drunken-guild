@@ -270,3 +270,74 @@ class TestSecretShapedContentIsReportedNeverPrinted:
             "reporting is not a reason to leave it tracked"
         )
         assert result.history_note, "git history still holds it; say so"
+
+
+class TestAnInterruptedRunCanBeRerun:
+    """Review of #183: a run that stopped after untracking but before excluding read as 'nothing to
+    migrate' on the rerun. Excluding first means a stop leaves the files still tracked."""
+
+    def test_a_failed_untrack_leaves_the_files_tracked_and_the_rerun_finishes(
+        self, tmp_path, backups, monkeypatch
+    ):
+        root = make_project(tmp_path / "alpha", LAYER)
+
+        def boom(*_a, **_k):
+            raise layer_migrate.MigrationError("git went away")
+
+        monkeypatch.setattr(layer_migrate, "_untrack", boom)
+        with pytest.raises(layer_migrate.MigrationError):
+            layer_migrate.migrate_ai_layer_out(root, backups / "run1", apply=True)
+        assert "AGENTS.md" in tracked(root), "the first run must not look finished"
+        monkeypatch.undo()
+
+        second = layer_migrate.migrate_ai_layer_out(root, backups / "run2", apply=True)
+
+        assert sorted(second.migrated) == [
+            ".claude/settings.json",
+            "AGENTS.md",
+            "CLAUDE.md",
+        ]
+        assert tracked(root) == ["main.py"]
+        assert (backups / "run1").exists(), (
+            "the first backup is never clobbered by the rerun"
+        )
+
+    def test_the_exclude_is_written_before_the_index_changes(
+        self, tmp_path, backups, monkeypatch
+    ):
+        root = make_project(tmp_path / "alpha", LAYER)
+        seen = {}
+        real = layer_migrate._untrack
+
+        def spy(git_root, rels):
+            seen["exclude_at_untrack"] = "AGENTS.md" in exclude_text(root)
+            real(git_root, rels)
+
+        monkeypatch.setattr(layer_migrate, "_untrack", spy)
+        layer_migrate.migrate_ai_layer_out(root, backups / "run1", apply=True)
+
+        assert seen["exclude_at_untrack"] is True
+
+
+class TestTheBackupIsVerifiedAndPrivate:
+    def test_a_backup_that_does_not_match_stops_before_the_index_changes(
+        self, tmp_path, backups, monkeypatch
+    ):
+        # Review of #183: removing the compare left every test green.
+        root = make_project(tmp_path / "alpha", LAYER)
+        index_before = git("ls-files", "-s", cwd=root)
+        monkeypatch.setattr(layer_migrate.filecmp, "cmp", lambda *_a, **_k: False)
+
+        with pytest.raises(layer_migrate.MigrationError):
+            layer_migrate.migrate_ai_layer_out(root, backups / "run1", apply=True)
+
+        assert git("ls-files", "-s", cwd=root) == index_before
+
+    @pytest.mark.skipif(os.name == "nt", reason="Windows ignores POSIX mode bits")
+    def test_the_backup_is_owner_only_on_posix(self, tmp_path, backups):
+        root = make_project(tmp_path / "alpha", LAYER)
+
+        result = layer_migrate.migrate_ai_layer_out(root, backups / "run1", apply=True)
+
+        assert (result.backup_dir.stat().st_mode & 0o077) == 0
+        assert ((result.backup_dir / "AGENTS.md").stat().st_mode & 0o077) == 0

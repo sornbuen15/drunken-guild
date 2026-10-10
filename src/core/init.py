@@ -863,6 +863,10 @@ def _run_migrate_ai_layer(args: argparse.Namespace) -> int:
         print(
             "staged          : the deletions; review `git status` and commit them yourself"
         )
+        print(
+            "careful         : until you commit, `git reset`, `git stash` or `git checkout` "
+            "can put the files back under git; the files themselves stay, and the backup is above"
+        )
         print(f"note            : {result.history_note}")
     else:
         print(

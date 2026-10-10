@@ -9,9 +9,12 @@ REQ-019: a project under the guild tracks none of its AI layer. A project that a
    The backup is read back and compared before anything else happens.
 2. **Restore** a tracked file that was missing from disk, from the index, so the agent still finds
    its instructions after the untracking.
-3. **Untrack** with ``git rm --cached``: the files stay on disk, and the deletion is *staged*. The
+3. **Exclude** the layer from then on, through :func:`core.exclude.exclude_ai_layer`. This comes
+   *before* the untracking on purpose: a run that stops between the two leaves files that are
+   still tracked, so a rerun still finds them, instead of untracked-but-visible files that no
+   rerun would ever look at (review of #183).
+4. **Untrack** with ``git rm --cached``: the files stay on disk, and the deletion is *staged*. The
    person commits it; this module never commits in somebody's repository.
-4. **Exclude** the layer from then on, through :func:`core.exclude.exclude_ai_layer`.
 
 The list of paths is :mod:`core.ai_layer`'s one list, read through
 :func:`core.doctor.tracked_ai_layer_paths` — the same answer the doctor check gives, so "what the
@@ -28,6 +31,7 @@ refused whole, before anything changes.
 from __future__ import annotations
 
 import filecmp
+import os
 import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -129,6 +133,19 @@ def _prepare_backup_dir(backup_dir: Path, git_root: Path) -> None:
             remediation="Pass an empty or new directory; nothing was changed.",
         )
     backup_dir.mkdir(parents=True, exist_ok=True)
+    _private(backup_dir, directory=True)
+
+
+def _private(path: Path, *, directory: bool) -> None:
+    """Owner-only, best effort: the backup holds whatever secret the layer held (review of #183).
+
+    POSIX gets 0700/0600. Windows ignores most of the mode bits, so there the backup is as private
+    as its parent directory (under the state directory by default) — this does not claim more.
+    """
+    try:
+        os.chmod(path, 0o700 if directory else 0o600)
+    except OSError:
+        pass
 
 
 def _back_up(git_root: Path, rels: list[str], backup_dir: Path) -> list[str]:
@@ -138,8 +155,13 @@ def _back_up(git_root: Path, rels: list[str], backup_dir: Path) -> list[str]:
         source = git_root / rel
         target = backup_dir / rel
         target.parent.mkdir(parents=True, exist_ok=True)
+        for parent in target.parents:
+            if parent == backup_dir.parent:
+                break
+            _private(parent, directory=True)
         if source.is_file():
             shutil.copy2(source, target)
+            _private(target, directory=False)
             if not filecmp.cmp(source, target, shallow=False):
                 raise MigrationError(
                     f"the backup of {rel} does not match the original.",
@@ -147,6 +169,7 @@ def _back_up(git_root: Path, rels: list[str], backup_dir: Path) -> list[str]:
                 )
         else:
             target.write_bytes(_index_bytes(git_root, rel))
+            _private(target, directory=False)
             missing.append(rel)
     return missing
 
@@ -206,6 +229,6 @@ def migrate_ai_layer_out(
         target.write_bytes((backup_dir / rel).read_bytes())
     result.restored = missing
 
-    _untrack(git_root, rels)
     exclude.exclude_ai_layer(git_root)
+    _untrack(git_root, rels)
     return result
