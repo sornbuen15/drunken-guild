@@ -30,10 +30,20 @@ import json
 import os
 import re
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
-from . import content_scan, exclude, git_hooks, layer_copy, paths, scaffold, secrets
+from . import (
+    content_scan,
+    exclude,
+    git_hooks,
+    layer_copy,
+    layer_migrate,
+    paths,
+    scaffold,
+    secrets,
+)
 from .errors import DrunkenError, ValidationError
 from .registry import SCHEMA_VERSION, validate_project_id
 
@@ -187,7 +197,7 @@ def _refuse_if_already_tracked(git_root: Path, project_root: Path) -> None:
     own git already tracks AGENTS.md/CLAUDE.md (DG-442, REQ-019/020).
 
     The migration for an existing project that already tracks these files is
-    an open PRD question and is not attempted here — drunken-init surfaces
+    ``--migrate-ai-layer`` (DG-446, :mod:`core.layer_migrate`) — this surfaces
     the conflict instead of silently proceeding as though the project's own
     git did not already own them.
     """
@@ -198,9 +208,9 @@ def _refuse_if_already_tracked(git_root: Path, project_root: Path) -> None:
             "git; drunken-init no longer writes a project's "
             "AGENTS.md/CLAUDE.md as a tracked file (REQ-019/REQ-020).",
             remediation=(
-                "Untrack it first (`git rm --cached <path>`) if it should "
-                "come from the AI layer instead. The migration itself is an "
-                "open PRD question and is not performed by drunken-init."
+                "Move the project's committed AI layer out with "
+                "`drunken-init --project <id> --migrate-ai-layer` (it shows "
+                "the plan first; add --apply to do it), then run this again."
             ),
         )
 
@@ -389,6 +399,28 @@ def build_parser() -> argparse.ArgumentParser:
             "and reported, never overwritten. A file the project's own git "
             "already tracks is always refused outright, with or without "
             "this flag."
+        ),
+    )
+    parser.add_argument(
+        "--migrate-ai-layer",
+        action="store_true",
+        help=(
+            "Move a REGISTERED project's committed AI layer (AGENTS.md, CLAUDE.md, "
+            ".claude/, ...) out of its git (DG-446): back it up outside the repo, "
+            "untrack it (staged, never committed for you), exclude it. Shows the "
+            "plan only unless --apply is also given. Needs --project."
+        ),
+    )
+    parser.add_argument(
+        "--apply",
+        action="store_true",
+        help="With --migrate-ai-layer: perform the plan instead of only showing it.",
+    )
+    parser.add_argument(
+        "--backup-dir",
+        help=(
+            "With --migrate-ai-layer --apply: an empty or new directory OUTSIDE the "
+            "project for the backup. Default: <state dir>/backups/<project>-<UTC time>."
         ),
     )
     parser.add_argument(
@@ -778,11 +810,93 @@ def _build_written_report(
     return written, config_repo_drifted
 
 
+def _migration_backup_dir(args: argparse.Namespace, project_id: str) -> Path:
+    if args.backup_dir:
+        return Path(args.backup_dir).expanduser()
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    return paths.home().path / "backups" / f"{project_id}-{stamp}"
+
+
+def _run_migrate_ai_layer(args: argparse.Namespace) -> int:
+    """``--migrate-ai-layer``: plan or perform it for one registered project (DG-446).
+
+    Reads the registry and never writes it, and refuses this repository's own checkout, whose
+    AI layer is the product and stays tracked (REQ-006).
+    """
+    if not args.project:
+        raise ValidationError(
+            "--migrate-ai-layer needs --project.",
+            remediation="Name the registered project whose AI layer should move out of its git.",
+        )
+    project_id = validate_project_id(args.project)
+    document = _ensure_registry_document(args.registry or str(paths.registry_path()))
+    entry = document["projects"].get(project_id)
+    if not entry or not entry.get("path"):
+        raise ValidationError(
+            f"{project_id!r} is not registered with a path.",
+            remediation="Register it first: drunken-init --project <id> --path <checkout>.",
+        )
+    project_root = Path(entry["path"])
+    git_root = _resolve_git_root(entry, project_root)
+    if _target_is_this_repository(git_root):
+        raise ValidationError(
+            f"{project_id!r} is this repository's own checkout; its AI layer is the product "
+            "and stays tracked (REQ-006).",
+            remediation="Nothing to migrate here.",
+        )
+
+    result = layer_migrate.migrate_ai_layer_out(
+        git_root, _migration_backup_dir(args, project_id), apply=bool(args.apply)
+    )
+    if not result.migrated:
+        print(f"nothing to migrate: {git_root} tracks no AI-layer file")
+        return 0
+    verb = "migrated" if result.applied else "would migrate"
+    for rel in result.migrated:
+        print(f"{verb:<15} : {rel}")
+    for rel in result.restored:
+        print(f"restored        : {rel} (was missing on disk; taken from the index)")
+    for line in result.findings:
+        print(f"finding         : {line}")
+    if result.applied:
+        print(f"backup          : {result.backup_dir}")
+        print(
+            "staged          : the deletions; review `git status` and commit them yourself"
+        )
+        print(
+            "careful         : until you commit, `git reset`, `git stash` or `git checkout` "
+            "can put the files back under git; the files themselves stay, and the backup is above"
+        )
+        print(f"note            : {result.history_note}")
+    else:
+        print(
+            "dry run         : nothing changed. Add --apply to back up, untrack and exclude."
+        )
+    return 0
+
+
+def _migrate_main(args: argparse.Namespace) -> int:
+    """``_run_migrate_ai_layer`` with the same error reporting ``main`` gives every other run."""
+    try:
+        return _run_migrate_ai_layer(args)
+    except DrunkenError as exc:
+        print(f"error: {exc}")
+        if exc.remediation:
+            print(f"  -> {exc.remediation}")
+        return 1
+    except OSError as exc:
+        print(f"error: {exc}")
+        return 1
+
+
 def main() -> int:
     """Entry point for ``drunken-init``."""
     args = build_parser().parse_args()
 
     config_repo_drifted = False
+
+    if args.migrate_ai_layer:
+        return _migrate_main(args)
 
     try:
         registry_file = args.registry or str(paths.registry_path())
