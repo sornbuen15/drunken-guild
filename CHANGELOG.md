@@ -5,11 +5,11 @@ A change to **how the flow itself works** is a minor or major release and has an
 
 The top heading is the version this tree declares in `pyproject.toml`; `Unreleased` stands in
 while a release is being prepared, and is renamed to the version when it is tagged
-(`tests/test_changelog.py`).
+(`tests/test_install_agents.py::TestTheChangelog`).
 
-## Unreleased
+## 2.0.0 — 2026-10-11
 
-Heading towards **2.0.0**. The flow is one standard that an agent can run on any project.
+The flow is one standard that an agent can run on any project.
 
 ### The flow (REQ-001, REQ-004, REQ-012, REQ-021, REQ-024)
 - Seven steps: `/prd` → `/clarify` → `/ddd` → `/breakdown` → `/build` → `/audit`, and `/replan`.
