@@ -1935,7 +1935,7 @@ def _check_project_content_scan(
         return
 
     findings = []
-    for relative in ai_layer_files_under(git_root):
+    for relative in ai_layer_files_under(git_root, skip_dependency_dirs=True):
         findings.extend(
             content_scan.scan_file(git_root / relative, relative.as_posix())
         )

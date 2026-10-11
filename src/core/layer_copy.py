@@ -266,7 +266,9 @@ def _resolve_project_folder(config_repo: Path, project_id: str) -> Path:
     return project_folder
 
 
-def ai_layer_files_under(root: Path) -> list[Path]:
+def ai_layer_files_under(
+    root: Path, *, skip_dependency_dirs: bool = False
+) -> list[Path]:
     """Every regular file under *root* that is on the AI-layer list,
     relative to *root*.
 
@@ -317,6 +319,14 @@ def ai_layer_files_under(root: Path) -> list[Path]:
     every real ``.git`` directory has), a file only counts if its first
     line starts with ``gitdir:`` (an ordinary git worktree pointer) —
     before this walk trusts it as a boundary.
+
+    **Installed dependencies are not the project's AI layer (DG-505).** With
+    *skip_dependency_dirs* the walk also steps over a directory that is a real
+    dependency install — judged by the same rule as the ``.git`` marker above,
+    a marker the installer itself writes, never a name alone (see
+    :func:`_is_dependency_install`). doctor's check passes it for a registered
+    project's checkout; the config-repo walk does not, its folder is
+    author-controlled.
     """
     files: list[Path] = []
     stack = [root]
@@ -335,6 +345,8 @@ def ai_layer_files_under(root: Path) -> list[Path]:
                     # way), so this never mistakes root's own `.git` for a
                     # nested one.
                     continue
+                if skip_dependency_dirs and _is_dependency_install(entry):
+                    continue
                 stack.append(entry)
                 continue
             if entry.is_file():
@@ -342,6 +354,29 @@ def ai_layer_files_under(root: Path) -> list[Path]:
                 if is_copied_in_from_config_repo(relative.as_posix()):
                     files.append(relative)
     return sorted(files)
+
+
+def _is_dependency_install(directory: Path) -> bool:
+    """Whether *directory* is an installed-dependency tree, by a marker its installer writes.
+
+    A name alone never counts: a folder called ``.venv``, ``node_modules`` or ``vendor`` with no
+    marker could be hiding a leak, which is exactly what this walk exists to catch.
+
+    * a Python virtual environment: ``pyvenv.cfg`` (any name: ``.venv``, ``env``, a custom one);
+    * npm / yarn / pnpm: a ``node_modules`` holding ``.package-lock.json``, ``.yarn-integrity`` or
+      ``.modules.yaml``;
+    * Composer: a ``vendor`` holding ``composer/installed.json``.
+    """
+    if (directory / "pyvenv.cfg").is_file():
+        return True
+    if directory.name == "node_modules":
+        return any(
+            (directory / marker).is_file()
+            for marker in (".package-lock.json", ".yarn-integrity", ".modules.yaml")
+        )
+    if directory.name == "vendor":
+        return (directory / "composer" / "installed.json").is_file()
+    return False
 
 
 def _is_real_git_marker(candidate: Path) -> bool:
