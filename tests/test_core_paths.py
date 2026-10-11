@@ -359,6 +359,139 @@ class TestWindowsPermissionsUseTheAcl:
 
         assert paths.is_group_or_world_accessible(target) is False
 
+    def test_the_owner_sid_fallback_alone_is_not_accessible_to_others(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        """DG-509 re-review round 3: the fifth trusted entry — the raw SID
+        ``_icacls_principal()`` falls back to when nothing names a user — had
+        no test that would notice its own deletion from the trusted set."""
+        self._as_windows_user(monkeypatch, username=None)
+        target = tmp_path / "state"
+        target.mkdir()
+        monkeypatch.setattr(
+            paths,
+            "_windows_icacls_output",
+            lambda path: (
+                f"{path} {paths.ICACLS_OWNER_SID}:(F)\n"
+                "\n"
+                "Successfully processed 1 files; Failed processing 0 files.\n"
+            ),
+        )
+
+        assert paths.is_group_or_world_accessible(target) is False
+
+    def test_a_well_known_name_qualified_by_a_foreign_host_is_not_trusted(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        """DG-509 re-review round 3, HIGH: the round-2 fix still trusted
+        ``SYSTEM``/``ADMINISTRATORS``/``CREATOR OWNER``/``OWNER RIGHTS`` with
+        *any* qualifier at all — so ``FOREIGNHOST\\Administrators`` read as
+        this machine's own trusted Administrators group, a fail-open on
+        exactly the question this check exists to answer. A well-known name
+        is only trusted unqualified, qualified by a fixed pseudo-authority
+        (``BUILTIN``, ``NT AUTHORITY``), or qualified by this machine/domain
+        — never by an arbitrary other one."""
+        self._as_windows_user(monkeypatch)
+        monkeypatch.delenv("USERDOMAIN", raising=False)
+        monkeypatch.setenv("COMPUTERNAME", "HOST1")
+        target = tmp_path / "state"
+        target.mkdir()
+        monkeypatch.setattr(
+            paths,
+            "_windows_icacls_output",
+            lambda path: (
+                f"{path} alpha:(OI)(CI)(F)\n"
+                "                          FOREIGNHOST\\Administrators:(OI)(CI)(F)\n"
+                "\n"
+                "Successfully processed 1 files; Failed processing 0 files.\n"
+            ),
+        )
+
+        assert paths.is_group_or_world_accessible(target) is True
+
+    def test_a_system_qualified_by_a_foreign_host_is_not_trusted(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        self._as_windows_user(monkeypatch)
+        monkeypatch.delenv("USERDOMAIN", raising=False)
+        monkeypatch.setenv("COMPUTERNAME", "HOST1")
+        target = tmp_path / "state"
+        target.mkdir()
+        monkeypatch.setattr(
+            paths,
+            "_windows_icacls_output",
+            lambda path: (
+                f"{path} alpha:(OI)(CI)(F)\n"
+                "                          FOREIGNHOST\\SYSTEM:(OI)(CI)(F)\n"
+                "\n"
+                "Successfully processed 1 files; Failed processing 0 files.\n"
+            ),
+        )
+
+        assert paths.is_group_or_world_accessible(target) is True
+
+    def test_a_creator_owner_qualified_by_a_foreign_host_is_not_trusted(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        self._as_windows_user(monkeypatch)
+        monkeypatch.delenv("USERDOMAIN", raising=False)
+        monkeypatch.setenv("COMPUTERNAME", "HOST1")
+        target = tmp_path / "state"
+        target.mkdir()
+        monkeypatch.setattr(
+            paths,
+            "_windows_icacls_output",
+            lambda path: (
+                f"{path} alpha:(OI)(CI)(F)\n"
+                "                          FOREIGNHOST\\CREATOR OWNER:(OI)(CI)(F)\n"
+                "\n"
+                "Successfully processed 1 files; Failed processing 0 files.\n"
+            ),
+        )
+
+        assert paths.is_group_or_world_accessible(target) is True
+
+    def test_builtin_qualified_administrators_is_trusted(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        """The pseudo-authority ``BUILTIN`` is a fixed Windows qualifier, not
+        a machine or domain name — it is trusted regardless of the current
+        machine, unlike ``FOREIGNHOST`` above."""
+        self._as_windows_user(monkeypatch)
+        target = tmp_path / "state"
+        target.mkdir()
+        monkeypatch.setattr(
+            paths,
+            "_windows_icacls_output",
+            lambda path: (
+                f"{path} alpha:(OI)(CI)(F)\n"
+                "                          BUILTIN\\Administrators:(OI)(CI)(F)\n"
+                "\n"
+                "Successfully processed 1 files; Failed processing 0 files.\n"
+            ),
+        )
+
+        assert paths.is_group_or_world_accessible(target) is False
+
+    def test_nt_authority_qualified_system_is_trusted(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        self._as_windows_user(monkeypatch)
+        target = tmp_path / "state"
+        target.mkdir()
+        monkeypatch.setattr(
+            paths,
+            "_windows_icacls_output",
+            lambda path: (
+                f"{path} alpha:(OI)(CI)(F)\n"
+                "                          NT AUTHORITY\\SYSTEM:(OI)(CI)(F)\n"
+                "\n"
+                "Successfully processed 1 files; Failed processing 0 files.\n"
+            ),
+        )
+
+        assert paths.is_group_or_world_accessible(target) is False
+
     def test_posix_path_never_consults_icacls(self, monkeypatch, tmp_path) -> None:
         """is_windows() is the only seam between the two branches. Proven by
         showing the ACL path is never reached when it answers False, rather

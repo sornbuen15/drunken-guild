@@ -149,6 +149,10 @@ def is_group_or_world_accessible(path: Path) -> bool:
 #: Principals an ACE naming them does not make *is_group_or_world_accessible*
 #: true: the machine's own trusted accounts, and the two spellings
 #: ``icacls`` uses for "whoever owns this" when it cannot resolve a name.
+#: Membership alone is not enough to trust an ACE — see
+#: :func:`_windows_is_trusted_principal`: a *qualified* ACE naming one of
+#: these only counts when the qualifier is itself trustworthy, never an
+#: arbitrary other machine's own identically-named account or group.
 _WINDOWS_TRUSTED_PRINCIPALS: Final = frozenset(
     {
         "SYSTEM",
@@ -158,6 +162,14 @@ _WINDOWS_TRUSTED_PRINCIPALS: Final = frozenset(
         ICACLS_OWNER_SID.upper(),
     }
 )
+
+#: The fixed Windows pseudo-authorities a well-known name is legitimately
+#: qualified by, regardless of which machine or domain this is — unlike
+#: ``FOREIGNHOST\Administrators``, ``BUILTIN\Administrators`` always means
+#: the same, local, trusted group everywhere. Deliberately not extended to
+#: ``NT SERVICE``: nothing in this check's current fixtures or real-world
+#: ``icacls`` output needs it, and adding it un-asked would widen trust.
+_WINDOWS_PSEUDO_AUTHORITIES: Final = frozenset({"BUILTIN", "NT AUTHORITY"})
 
 #: The two lines ``icacls <path>`` ends every successful run with — never an
 #: ACE, always the summary. Matched to know where the ACE lines stop,
@@ -244,19 +256,53 @@ def _windows_current_machine() -> str:
     return os.environ.get("USERDOMAIN") or os.environ.get("COMPUTERNAME") or ""
 
 
+def _windows_is_trusted_principal(
+    full: str, current_user: str, current_machine: str
+) -> bool:
+    """Whether a single ACE principal (already upper-cased) is the current
+    user, the owner, or one of the machine's own trusted accounts — never
+    merely a name that *looks* like one.
+
+    DG-509 re-review round 2: trusting "the current user" by its bare short
+    name alone accepted ``OTHERMACHINE\\alpha`` as if it were this machine's
+    own ``alpha``. Round 3: the same mistake was still there for the
+    well-known names — ``FOREIGNHOST\\Administrators`` read as the trusted
+    local Administrators group purely because the *name* after the ``\\``
+    matched, regardless of what came before it. Both now require the
+    qualifier itself to be trustworthy: unqualified, a fixed Windows
+    pseudo-authority (``BUILTIN``, ``NT AUTHORITY``) for a well-known name,
+    or this machine's own name/domain for either a well-known name or the
+    current user. An arbitrary other qualifier trusts nothing, however
+    familiar the name after the ``\\`` looks.
+    """
+    if "\\" in full:
+        qualifier, _, name = full.partition("\\")
+        qualifier = qualifier.strip()
+        name = name.strip()
+    else:
+        qualifier, name = "", full.strip()
+
+    if name in _WINDOWS_TRUSTED_PRINCIPALS:
+        if not qualifier:
+            return True
+        if qualifier in _WINDOWS_PSEUDO_AUTHORITIES:
+            return True
+        return bool(current_machine) and qualifier == current_machine
+
+    if name == current_user:
+        if not qualifier:
+            return True
+        return bool(current_machine) and qualifier == current_machine
+
+    return False
+
+
 def _windows_is_group_or_world_accessible(path: Path) -> bool:
     """DG-509: accessible to others when an ACE names anyone but the current
     user, the owner, or one of the machine's own trusted accounts — an
     ``Everyone``, ``BUILTIN\\Users`` or ``NT AUTHORITY\\Authenticated Users``
-    ACE included, since none of those is any one of those three.
-
-    DG-509 re-review: "the current user" is deliberately **not** "any ACE
-    whose last ``\\``-component matches ``USERNAME``" — that accepted
-    ``OTHERMACHINE\\alpha`` as if it were this machine's own ``alpha``, a
-    fail-open on the actual security question this check exists to answer.
-    A qualified ACE (``MACHINE\\user``) only matches when *both* halves do;
-    an unqualified one matches on the bare name, since that is what
-    ``icacls`` prints for a local, unqualified grant.
+    ACE included, since none of those is any one of those three. See
+    :func:`_windows_is_trusted_principal` for exactly what "trusted" means.
 
     Unparseable or unrunnable ``icacls`` output answers ``True`` — the same,
     conservative "warn" this check always gave on Windows before DG-509 —
@@ -272,16 +318,8 @@ def _windows_is_group_or_world_accessible(path: Path) -> bool:
     current_machine = _windows_current_machine().upper()
     for principal in principals:
         full = principal.upper()
-        short = principal.rsplit("\\", 1)[-1].strip().upper()
-        if full in _WINDOWS_TRUSTED_PRINCIPALS or short in _WINDOWS_TRUSTED_PRINCIPALS:
-            continue
-        if "\\" in full:
-            qualifier, _, name = full.partition("\\")
-            if qualifier.strip() == current_machine and name.strip() == current_user:
-                continue
-        elif full == current_user:
-            continue
-        return True
+        if not _windows_is_trusted_principal(full, current_user, current_machine):
+            return True
     return False
 
 
