@@ -39,10 +39,17 @@ Python, no credentials and no server. Add the runtime only when you want work co
 The usual way — from a release tag, no clone (needs `uv` and Git):
 
 ```bash
-uv tool install git+https://github.com/sornbuen15/drunken-guild@v2.0.0   # pick the tag you want
+uv tool install git+https://github.com/sornbuen15/drunken-guild@v2.0.2   # pick the tag you want
 drunken-install all                                                       # → ~/.claude/skills and ~/.claude/agents
+drunken-install extras --apply                                            # optional: the older skills and agents (UI/UX, Laravel, QA, security ...)
+drunken-install hook --apply                                              # every session gets the routing rule, with or without an AGENTS.md
 drunken-install status                                                    # later: what an update would change
+drunken-doctor                                                            # proves it: routes.session_hook runs the recorded command
 ```
+
+On Windows, close **every** Claude window before `uv tool install --force`: the running MCP server holds
+the tool's files open and the install ends with "Access is denied". If that happened, delete
+`%APPDATA%\uv\tools\drunken-guild` and install again without `--force`.
 
 The skills and agents travel inside the package. `drunken-install all --dry-run` shows what it would
 write first. To update, install the newer tag with `uv tool install --force git+…@<tag>`, run
@@ -76,7 +83,7 @@ ls ~/.claude/skills/
 and `/isolate` are standards that read files and nothing else; `jira-tickets` is the reference for
 the shape of a ticket, and it reads as documentation whether or not a server is there. All seven
 install and work standalone. The general engineering standards — architecture, security, UI/UX,
-testing and the rest — are in the optional `drunken-extras` plugin, and need nothing else either.
+testing and the rest — are the optional extras (`drunken-install extras`, below), and need nothing else either.
 
 The other 5 coordinate work. `/breakdown`, `/replan`, `/build` and `/audit` call `jira_*` tools and name
 `drunken-jira-mcp` in their own constraints — without the runtime declared they will **say so and
@@ -296,6 +303,12 @@ loads the server twice.
 > private, its `AGENTS.md`, `CLAUDE.md` and `.claude/` do not belong in its git. Keep them in your
 > private config repo and copy them in with `drunken-init --config-repo <path>` — README, "Where a
 > project's AI layer comes from". The steps below still apply; only where the files live changes.
+>
+> **One cost to know before you do that.** A new `git worktree` copies tracked files only, so a project
+> whose `AGENTS.md` is untracked has **no `AGENTS.md` in any new worktree**, and an agent started there
+> runs without the guild block (found on a real project, DG-511). Until `drunken-init` can sync the
+> layer into worktrees, either keep these files tracked in a private repository, or copy them into each
+> new worktree yourself; `drunken-install hook` (below) carries the routing rule either way.
 
 `drunken-init`, run above, already wrote `~/Projects/my-project/AGENTS.md` and a one-line
 `CLAUDE.md` that imports it (REQ-015) — do not overwrite either by hand. What is left to copy from

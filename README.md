@@ -35,8 +35,10 @@ Needs [`uv`](https://docs.astral.sh/uv/) and Git. One install gives you the comm
 and agents, which travel inside the package:
 
 ```bash
-uv tool install git+https://github.com/sornbuen15/drunken-guild@v2.0.0   # pick the tag you want
+uv tool install git+https://github.com/sornbuen15/drunken-guild@v2.0.2   # pick the tag you want
 drunken-install all                                                       # → ~/.claude/skills and ~/.claude/agents
+drunken-install extras --apply                                            # optional: the older skills and agents
+drunken-install hook --apply                                              # routing rule in every session (see GETTING_STARTED)
 ```
 
 Same on Windows PowerShell. `drunken-install` copies from the installed package, makes no model call,
@@ -153,6 +155,13 @@ Re-running is safe: an untracked file that differs is skipped and named unless y
 `--overwrite-ai-layer`, and a file the project's own git already tracks is always refused. Claude
 Code reads the hidden `CLAUDE.md` and `.claude/settings.json` exactly like tracked ones (DG-432).
 
+**The cost of keeping them out of git:** a new `git worktree` copies tracked files only, so a worktree
+created after the move has **no `AGENTS.md`**, and an agent started there runs without the guild block
+(a real project hit this, DG-511; the one-worktree-per-agent rule makes every agent run affected).
+Until `drunken-init` can sync the layer into worktrees, copy the files into each new worktree yourself,
+or weigh this against simply keeping them tracked in a **private** repository. `drunken-install hook`
+(above) puts the routing rule into every session either way.
+
 **A project that already committed its AI layer** (the doctor's `layering.tracked` fails and
 `drunken-init` refuses) is moved out with one command. It shows the plan first; `--apply` performs
 it: the files are backed up outside the repository (owner-only on POSIX), the layer is excluded,
@@ -260,8 +269,8 @@ reviewer  — one round on the plan, tests before implementation, the PR before 
 
 One agent can play all three, or a team can split them. The fifteen specialist agents that came
 before these roles — fintech, insurance, mobile, desktop, voice, AI systems and the original
-generalists — live on unchanged as the optional `drunken-extras` plugin in
-[`plugins/drunken-extras/`](./plugins/drunken-extras/).
+generalists — live on unchanged in
+[`plugins/drunken-extras/`](./plugins/drunken-extras/); `drunken-install extras --apply` installs them.
 
 ### The flow — seven commands
 
@@ -309,7 +318,7 @@ first time it matters, the AI asks the project owner and records the answer in t
 
 `flow` · `workflow` · `documents` — the skills the flow uses. The general engineering standards
 (architecture, security, UI/UX, testing, cloud, product, leadership) moved unchanged to the optional
-`drunken-extras` plugin in [`plugins/drunken-extras/`](./plugins/drunken-extras/).
+extras in [`plugins/drunken-extras/`](./plugins/drunken-extras/); `drunken-install extras --apply` installs them.
 
 Full catalogue with triggers: [`skills/INDEX.md`](./skills/INDEX.md).
 

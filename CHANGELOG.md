@@ -49,6 +49,7 @@ the routing is **not measured yet**.
 - `content_scan` reads `.claude`/`.gemini` at any depth, a differently cased `.Claude`, and a
   nested `.mcp.json`; a real `.venv`, `node_modules` or `vendor` install is still stepped over
   (DG-508).
+- The install documents pinned `v2.0.0`, left out `extras` and `hook`, did not say to close every Claude window before `uv tool install --force` on Windows, and taught moving a project's AI layer out of git without saying that a new git worktree then has no `AGENTS.md` (DG-511); README and GETTING_STARTED now say all four.
 - The installer no longer explodes on two Windows junctions that point at each other: it walks
   without entering a link and still refuses it (DG-510).
 
