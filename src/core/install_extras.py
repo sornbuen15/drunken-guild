@@ -47,6 +47,7 @@ __all__ = [
     "plan_extras",
     "install_extras",
     "extras_status",
+    "extras_overview",
     "print_report",
 ]
 
@@ -177,21 +178,48 @@ def plan_extras(
 
 
 def _plan_skill_action(name: str, src: Path, target_root: Path) -> _Action:
+    """Plan one skill folder.
+
+    An interrupted install — the folder exists but one of its files never landed — is its own
+    state, ``"incomplete"``, never ``"unchanged"``: a missing file used to be found by the same
+    ``_differs`` check as a byte mismatch, then dropped again because the ``existing_mismatch``
+    filter required ``(dest / r).is_file()`` before counting it, so a folder missing a file and
+    matching on every file that *was* there read as fully up to date and ``--apply`` never
+    finished the job. ``action.files`` holds exactly the files that are safe to write — the
+    missing ones, never a file that exists and differs — so the caller can write unconditionally
+    without re-deriving which files those are.
+    """
     dest = target_root / name
     if _is_link(dest):
         return _Action(name, "refused", reason=f"{dest} is a link, not touched")
     rels = [p.relative_to(src) for p in sorted(src.rglob("*")) if p.is_file()]
     if not dest.exists():
         return _Action(name, "new", [r.as_posix() for r in rels])
-    changed = [r.as_posix() for r in rels if _differs(src / r, dest / r)]
-    if changed:
-        existing_mismatch = any(
-            (dest / r).is_file() and _differs(src / r, dest / r) for r in rels
-        )
-        if existing_mismatch:
-            return _Action(
-                name, "differs", reason=f"{dest} exists and differs; not overwritten"
+    missing = [r for r in rels if not (dest / r).is_file()]
+    differing = [
+        r for r in rels if (dest / r).is_file() and _differs(src / r, dest / r)
+    ]
+    missing_names = [r.as_posix() for r in missing]
+    if differing:
+        reason = (
+            f"{dest} exists and "
+            + (
+                f"{len(differing)} file(s) differ"
+                if len(differing) > 1
+                else f"{differing[0].as_posix()} differs"
             )
+            + "; not overwritten"
+        )
+        if missing:
+            reason += f" ({len(missing)} file(s) also missing and will be filled)"
+        return _Action(name, "differs", missing_names, reason=reason)
+    if missing:
+        return _Action(
+            name,
+            "incomplete",
+            missing_names,
+            reason=f"{dest} exists but is missing: {', '.join(missing_names)}",
+        )
     return _Action(name, "unchanged")
 
 
@@ -220,8 +248,13 @@ def install_extras(
         if (result.source / "skills").is_dir()
         else {}
     )
+    # `action.files` is already exactly the files it is safe to write: every file of a new skill,
+    # or only the missing ones of an "incomplete" or partially-"differs" folder — never a file
+    # that exists and differs, and never a file that already matches. Writing whatever it lists,
+    # unconditionally, is what fills a folder an earlier interrupted run never finished without
+    # ever touching a file that's already there.
     for action in result.skills:
-        if action.status != "new":
+        if not action.files:
             continue
         skills_target.mkdir(parents=True, exist_ok=True)
         src_folder = skill_folders[action.name]
@@ -231,7 +264,7 @@ def install_extras(
             )
 
     for action in result.agents:
-        if action.status != "new":
+        if not action.files:
             continue
         agents_target.mkdir(parents=True, exist_ok=True)
         _write_atomic(
@@ -240,6 +273,32 @@ def install_extras(
             agents_target,
         )
     return result
+
+
+def extras_overview(
+    skills_target: Path,
+    agents_target: Path,
+    *,
+    source: Optional[Path] = None,
+) -> tuple[int, int, list[str]]:
+    """``(available, installed, lines)`` — ``installed`` counts everything that is not fully
+    missing (``"unchanged"``, ``"differs"`` and ``"incomplete"`` all mean *something* is on disk).
+    Read-only: writes and creates nothing.
+    """
+    result = plan_extras(skills_target, agents_target, source=source)
+    actions = (*result.skills, *result.agents)
+    lines: list[str] = []
+    for action in actions:
+        if action.status == "new":
+            lines.append(f"missing: {action.name}")
+        elif action.status == "differs":
+            lines.append(f"differs: {action.name} ({action.reason})")
+        elif action.status == "incomplete":
+            lines.append(f"incomplete: {action.name} ({action.reason})")
+        elif action.status == "refused":
+            lines.append(f"refused: {action.name} ({action.reason})")
+    installed = sum(1 for a in actions if a.status != "new")
+    return len(actions), installed, lines
 
 
 def extras_status(
@@ -252,15 +311,7 @@ def extras_status(
 
     Read-only: writes and creates nothing.
     """
-    result = plan_extras(skills_target, agents_target, source=source)
-    lines: list[str] = []
-    for action in (*result.skills, *result.agents):
-        if action.status == "new":
-            lines.append(f"missing: {action.name}")
-        elif action.status == "differs":
-            lines.append(f"differs: {action.name} ({action.reason})")
-        elif action.status == "refused":
-            lines.append(f"refused: {action.name} ({action.reason})")
+    _, _, lines = extras_overview(skills_target, agents_target, source=source)
     return lines
 
 
@@ -275,6 +326,8 @@ def print_report(result: ExtrasResult) -> None:
     for action in (*result.skills, *result.agents):
         if action.status == "differs":
             print(f"[!] differs    : {action.name} — {action.reason}")
+        elif action.status == "incomplete":
+            print(f"[~] incomplete : {action.name} — {action.reason}")
         elif action.status == "refused":
             print(f"[!] refused    : {action.name} — {action.reason}")
         else:

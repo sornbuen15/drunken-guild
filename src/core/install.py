@@ -534,6 +534,12 @@ class StatusReport:
     # DG-512: extras is optional, so it is never folded into up_to_date — a missing extra is
     # expected unless the operator has asked for it.
     extras_changes: list[str] = field(default_factory=list)
+    #: How many extras exist and how many are not fully missing (installed, partial or differing).
+    #: Reviewer round 2: printing all 31 "missing: <name>" lines on a machine with none of them
+    #: installed is noise, not status — a count covers that case, and the per-name lines are kept
+    #: for when there is actually something to look at (installed, partial, or differing).
+    extras_total: int = 0
+    extras_installed: int = 0
 
     @property
     def up_to_date(self) -> bool:
@@ -612,8 +618,8 @@ def status(
     from . import install_extras
 
     try:
-        report.extras_changes = install_extras.extras_status(
-            skills_target, agents_target
+        report.extras_total, report.extras_installed, report.extras_changes = (
+            install_extras.extras_overview(skills_target, agents_target)
         )
     except InstallRefusedError:
         pass
@@ -800,10 +806,16 @@ def _print_status(report: StatusReport) -> None:
         print(
             f"retired, still installed: {name} (drunken-install skills --prune lists them)"
         )
-    if report.extras_changes:
-        print("\nextras (optional, drunken-install extras --apply):")
-        for line in report.extras_changes:
-            print(f"  {line}")
+    if report.extras_total:
+        if report.extras_installed == 0:
+            print(
+                f"\nextras: {report.extras_total} available, 0 installed "
+                "(drunken-install extras --apply)"
+            )
+        else:
+            print("\nextras (optional, drunken-install extras --apply):")
+            for line in report.extras_changes:
+                print(f"  {line}")
     if report.changelog_heading:
         print(f"\nchangelog — {report.changelog_heading}")
         print(report.changelog_body)
