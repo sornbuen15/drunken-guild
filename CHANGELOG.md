@@ -7,6 +7,19 @@ The top heading is the version this tree declares in `pyproject.toml`; `Unreleas
 while a release is being prepared, and is renamed to the version when it is tagged
 (`tests/test_install_agents.py::TestTheChangelog`).
 
+## Unreleased
+
+### Fixed
+- `drunken-doctor`'s `paths.home.permissions` warning (and `paths.auth_db.permissions`) could
+  never clear on Windows: the check read `path.stat().st_mode`, which `pathlib` synthesizes there
+  from a single read-only attribute bit rather than the real ACL, so a directory always reported
+  as world-accessible — the warning stayed even right after running the `icacls` command the
+  report itself printed. On Windows the check now runs `icacls` and reads the ACL it reports,
+  treating `Everyone`, `BUILTIN\Users`, `NT AUTHORITY\Authenticated Users` and similar as other
+  principals; the current user, `SYSTEM`, `Administrators` and the owner are not. If `icacls`
+  cannot be run or its output cannot be parsed, the check still warns rather than silently passing.
+  POSIX is unchanged (DG-509).
+
 ## 2.0.1 — 2026-10-11
 
 Found by the first `drunken-doctor` run of the installed 2.0.0 on real projects.

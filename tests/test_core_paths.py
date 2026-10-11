@@ -135,6 +135,128 @@ class TestPermissions:
         assert paths.is_group_or_world_accessible(target) is False
 
 
+class TestWindowsPermissionsUseTheAcl:
+    """DG-509: ``path.stat().st_mode`` is synthesized on Windows — a directory
+    is always reported as ``0o755`` regardless of its real ACL — so this check
+    was always true there and the warning it drives could never clear, even
+    right after the operator ran the printed ``icacls`` command. On Windows,
+    decide from the ACL ``icacls`` reports instead.
+    """
+
+    @staticmethod
+    def _owner_only(path) -> str:
+        """``icacls`` strips its own leading-path column by exact string
+        match, not by counting characters — so this fixture must echo back
+        whatever path it was actually asked about, same as the real tool."""
+        return (
+            f"{path} alpha:(OI)(CI)(F)\n"
+            "\n"
+            "Successfully processed 1 files; Failed processing 0 files.\n"
+        )
+
+    @staticmethod
+    def _builtin_users(path) -> str:
+        return (
+            f"{path} BUILTIN\\Users:(OI)(CI)(RX)\n"
+            "                          alpha:(OI)(CI)(F)\n"
+            "\n"
+            "Successfully processed 1 files; Failed processing 0 files.\n"
+        )
+
+    @staticmethod
+    def _everyone(path) -> str:
+        return (
+            f"{path} Everyone:(OI)(CI)(F)\n"
+            "                          alpha:(OI)(CI)(F)\n"
+            "\n"
+            "Successfully processed 1 files; Failed processing 0 files.\n"
+        )
+
+    def _as_windows_user(self, monkeypatch, username: str | None = "alpha") -> None:
+        monkeypatch.setattr(paths, "is_windows", lambda: True)
+        for name in ("LOGNAME", "USER", "LNAME", "USERNAME"):
+            monkeypatch.delenv(name, raising=False)
+        if username is not None:
+            monkeypatch.setenv("USERNAME", username)
+
+    def test_an_owner_only_acl_is_not_accessible_to_others(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        self._as_windows_user(monkeypatch)
+        target = tmp_path / "state"
+        target.mkdir()
+        monkeypatch.setattr(paths, "_windows_icacls_output", self._owner_only)
+
+        assert paths.is_group_or_world_accessible(target) is False
+
+    def test_builtin_users_on_the_acl_is_accessible_to_others(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        """Mutation check: a Windows branch hardcoded to always return False
+        would pass the owner-only test above but must fail here."""
+        self._as_windows_user(monkeypatch)
+        target = tmp_path / "state"
+        target.mkdir()
+        monkeypatch.setattr(paths, "_windows_icacls_output", self._builtin_users)
+
+        assert paths.is_group_or_world_accessible(target) is True
+
+    def test_everyone_on_the_acl_is_accessible_to_others(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        self._as_windows_user(monkeypatch)
+        target = tmp_path / "state"
+        target.mkdir()
+        monkeypatch.setattr(paths, "_windows_icacls_output", self._everyone)
+
+        assert paths.is_group_or_world_accessible(target) is True
+
+    def test_icacls_failing_to_run_keeps_the_conservative_warning(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        """Mutation check: a Windows branch hardcoded to always return True
+        would also pass this one, which is why the owner-only test above has
+        to fail on it instead."""
+        self._as_windows_user(monkeypatch)
+        target = tmp_path / "state"
+        target.mkdir()
+        monkeypatch.setattr(paths, "_windows_icacls_output", lambda path: None)
+
+        assert paths.is_group_or_world_accessible(target) is True
+
+    def test_unparseable_icacls_output_keeps_the_conservative_warning(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        self._as_windows_user(monkeypatch)
+        target = tmp_path / "state"
+        target.mkdir()
+        monkeypatch.setattr(
+            paths, "_windows_icacls_output", lambda path: "garbage, no ACEs here\n"
+        )
+
+        assert paths.is_group_or_world_accessible(target) is True
+
+    def test_posix_path_never_consults_icacls(self, monkeypatch, tmp_path) -> None:
+        """is_windows() is the only seam between the two branches. Proven by
+        showing the ACL path is never reached when it answers False, rather
+        than by asserting on chmod'd mode bits — `st_mode` on this very host
+        is pathlib's own Windows synthesis, the thing this ticket is about,
+        so it cannot be the oracle for "the POSIX branch ran unchanged"."""
+        monkeypatch.setattr(paths, "is_windows", lambda: False)
+        calls: list[Path] = []
+        monkeypatch.setattr(
+            paths,
+            "_windows_icacls_output",
+            lambda path: calls.append(path) or "unused",
+        )
+        target = tmp_path / "auth.json"
+        target.write_text("{}")
+
+        paths.is_group_or_world_accessible(target)
+
+        assert calls == [], "the POSIX branch must never consult icacls"
+
+
 class TestDescribe:
     def test_reports_every_location_with_its_source(
         self, monkeypatch, tmp_path
