@@ -20,6 +20,46 @@ while a release is being prepared, and is renamed to the version when it is tagg
   cannot be run or its output cannot be parsed, the check still warns rather than silently passing.
   POSIX is unchanged (DG-509).
 
+## 2.0.2 — 2026-10-12
+
+Makes the guild's skills and agents reach a session, brings the older ones back, and fixes what
+the installed 2.0.1 showed on real projects. Delivery is proven; whether the model then follows
+the routing is **not measured yet**.
+
+### Added
+- `drunken-install context` prints the routing rule and the skills and agents actually installed
+  (names only, at most 2,500 characters, never raises), and `drunken-install hook` (plan by
+  default, `--apply`, `--remove`) puts it into the user Claude settings as a SessionStart hook, so
+  every session gets it with or without a project `AGENTS.md`. The hook records the absolute path
+  of the executable, backs up `settings.json` first, refuses invalid JSON, never touches other
+  keys, and `drunken-doctor` (`routes.session_hook`) runs the recorded command to prove it works
+  (DG-513). `scripts/measure_routing.py` measures which Skill and Agent tools a session really calls.
+- `drunken-install extras` installs the 16 older skills (including `universal-ui`,
+  `universal-ux`) and 15 specialist agents (including `laravel-developer`, `qa-engineer`,
+  `security-engineer`) that lived in `plugins/drunken-extras` and were installed nowhere. Plan by
+  default, `--apply` writes, `--only` picks names, nothing is removed or overwritten. Retired items
+  (local-board kanban skills, unlicensed packs) are not restored (DG-512).
+
+### Fixed
+- `drunken-doctor` no longer warns forever about `~/.drunken` permissions on Windows: it reads the
+  ACL from `icacls` instead of a synthesized mode, and an ACL that still grants another account
+  warns (DG-509).
+- An empty, BOM-prefixed or truncated `projects.json` gives a typed error naming the file instead of a
+  traceback, and a registry with a `version` but no `projects` object is refused (DG-507).
+- `content_scan` reads `.claude`/`.gemini` at any depth, a differently cased `.Claude`, and a
+  nested `.mcp.json`; a real `.venv`, `node_modules` or `vendor` install is still stepped over
+  (DG-508).
+- The installer no longer explodes on two Windows junctions that point at each other: it walks
+  without entering a link and still refuses it (DG-510).
+
+### Known and open
+- Whether a session that receives the routing then calls the skills and agents is not measured; the
+  one scratch run without the hook and the one with it both called none.
+- A project's AI layer is absent in a new git worktree when it is untracked (DG-511).
+- The hang first reported for one installer test on Windows did not reproduce and is not explained
+  (DG-510); locale-dependent `icacls` parsing and a real domain-joined machine are unverified (DG-509).
+- The server-side registry reader still silently drops a version-2-looking file without `projects`.
+
 ## 2.0.1 — 2026-10-11
 
 Found by the first `drunken-doctor` run of the installed 2.0.0 on real projects.
