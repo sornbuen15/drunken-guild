@@ -725,43 +725,55 @@ class TestLeakedGitEnvironmentDoesNotMisreportTrackedPaths:
 
 class TestThisRepositorysOwnCheckoutIsExemptWhenInstalled:
     """DG-503: run from the installed package there is no source tree, so ``repo_root`` is None and
-    the exemption never fired; the checkout was failed for tracking the AI layer it authors."""
+    the exemption never fired; the checkout was failed for tracking the AI layer it authors.
 
-    def _own_checkout(self, tmp_path):
-        root = tmp_path / "guild"
+    The exemption needs the operator's registry id AND the checkout's own pyproject to agree
+    (review of #189): a pyproject alone is a string any project controls."""
+
+    def _checkout(self, tmp_path, pyproject_name):
+        root = tmp_path / "checkout"
         _init_repo(root)
+        newline = chr(10)
         (root / "pyproject.toml").write_text(
-            '[project]\nname = "drunken-guild"\n', encoding="utf-8"
+            "[project]" + newline + f'name = "{pyproject_name}"' + newline,
+            encoding="utf-8",
         )
         (root / "AGENTS.md").write_text(
-            "author: Claude Code <claude@drunken.local>\n", encoding="utf-8"
+            "author: Claude Code <claude@drunken.local>" + newline, encoding="utf-8"
         )
         _commit_all(root, "initial")
         return root
 
-    def test_layering_and_content_scan_skip_it_without_a_source_tree(self, tmp_path):
-        root = self._own_checkout(tmp_path)
+    def test_registered_as_drunken_guild_and_declaring_it_is_exempt(self, tmp_path):
+        root = self._checkout(tmp_path, "drunken-guild")
 
         report = doctor.run_doctor(
-            registry=_registry(tmp_path, "scratch", root), offline=True
+            registry=_registry(tmp_path, "drunken-guild", root), offline=True
         )
 
-        for name in ("layering.tracked.scratch", "content_scan.scratch"):
+        for name in ("layering.tracked.drunken-guild", "content_scan.drunken-guild"):
             check = find(report, name)
             assert check.status == "skip", f"{name}: {check.status} {check.detail}"
             assert "own checkout" in check.detail
 
-    def test_a_project_that_only_resembles_it_still_fails(self, tmp_path):
-        root = tmp_path / "other"
-        _init_repo(root)
-        (root / "pyproject.toml").write_text(
-            '[project]\nname = "drunken-guild-fork"\n', encoding="utf-8"
-        )
-        (root / "AGENTS.md").write_text("rules\n", encoding="utf-8")
-        _commit_all(root, "initial")
+    def test_another_registry_id_cannot_claim_it_by_declaring_the_name(self, tmp_path):
+        # The reviewer's reproduction: a spoofed pyproject under a registry id of the operator's own.
+        root = self._checkout(tmp_path, "drunken-guild")
 
         report = doctor.run_doctor(
-            registry=_registry(tmp_path, "scratch", root), offline=True
+            registry=_registry(tmp_path, "alpha", root), offline=True
         )
 
-        assert find(report, "layering.tracked.scratch").status == "fail"
+        assert find(report, "layering.tracked.alpha").status == "fail"
+        assert find(report, "content_scan.alpha").status == "fail"
+
+    def test_registered_as_drunken_guild_but_declaring_another_name_still_fails(
+        self, tmp_path
+    ):
+        root = self._checkout(tmp_path, "drunken-guild-fork")
+
+        report = doctor.run_doctor(
+            registry=_registry(tmp_path, "drunken-guild", root), offline=True
+        )
+
+        assert find(report, "layering.tracked.drunken-guild").status == "fail"
