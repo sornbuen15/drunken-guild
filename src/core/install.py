@@ -531,7 +531,7 @@ class StatusReport:
     retired_installed: list[str] = field(default_factory=list)
     changelog_heading: str = ""
     changelog_body: str = ""
-    # DG-515: extras is optional, so it is never folded into up_to_date — a missing extra is
+    # DG-512: extras is optional, so it is never folded into up_to_date — a missing extra is
     # expected unless the operator has asked for it.
     extras_changes: list[str] = field(default_factory=list)
 
@@ -734,7 +734,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--agents-target", help="Agents folder. Default: ~/.claude/agents."
     )
 
-    # DG-515: the drunken-extras plugin's optional skills and agents — plan by default, never prunes.
+    # DG-512: the drunken-extras plugin's optional skills and agents — plan by default, never prunes.
     extras = sub.add_parser(
         "extras",
         help="plan or install the optional drunken-extras skills and agents (plan by default)",

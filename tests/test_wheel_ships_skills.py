@@ -76,7 +76,7 @@ def test_the_wheel_installs_the_command(wheel) -> None:
 
 
 def test_every_drunken_extras_skill_is_inside_the_wheel(wheel) -> None:
-    """DG-515: plugins/drunken-extras/skills/ stays the single source of truth — the wheel carries
+    """DG-512: plugins/drunken-extras/skills/ stays the single source of truth — the wheel carries
     it under drunken_extras, nothing is duplicated into drunken_skills."""
     names = set(wheel.namelist())
     extras_skills = REPO / "plugins" / "drunken-extras" / "skills"

@@ -95,7 +95,7 @@ empty file is a claim that there are none — not a default. Do not overwrite an
 ### Older skills and agents
 
 Sixteen general engineering skills and fifteen domain-specialist agents from before the 2.0.0
-re-scope live in `plugins/drunken-extras/` but were never wired into any installer (DG-515) — they
+re-scope live in `plugins/drunken-extras/` but were never wired into any installer (DG-512) — they
 reach no machine until you ask for them:
 
 ```bash

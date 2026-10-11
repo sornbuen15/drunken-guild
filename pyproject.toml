@@ -108,7 +108,7 @@ core = ["templates/*.md"]
 drunken_skills = ["**/*", ".external"]
 drunken_agents = ["*.md", "_sources.json"]
 scripts = ["install/retired_skills.txt"]
-# DG-515: the drunken-extras plugin's skills and agents travel inside the wheel too, so
+# DG-512: the drunken-extras plugin's skills and agents travel inside the wheel too, so
 # `drunken-install extras` needs no clone, the same reason DG-498 gave the core skills/agents.
 drunken_extras = ["**/*"]
 
