@@ -30,8 +30,9 @@ sense. Keep the two apart by name; do not let a future edit conflate them.
 
 from __future__ import annotations
 
-from pathlib import PurePosixPath
-from typing import Union
+import re
+from pathlib import Path, PurePosixPath
+from typing import Optional, Union
 
 #: Basenames recognised at *any* depth: a project's AI layer is not only at
 #: the repository root for these three — a monorepo may carry
@@ -138,3 +139,90 @@ def is_copied_in_from_config_repo(path: PathLike) -> bool:
     the exclude writer, the migration — keeps using :func:`is_ai_layer_path`.
     """
     return is_ai_layer_path(path) and _normalise(path) not in NEVER_COPIED_IN_FILES
+
+
+#: The declared package name of this repository's own ``pyproject.toml`` —
+#: see :func:`target_is_this_repository`.
+THIS_REPOSITORY_PACKAGE_NAME = "drunken-guild"
+
+#: A TOML string value at the start of a line's remainder after ``=``:
+#: either quote style, capturing only what is between the matching pair and
+#: deliberately not anchored at the end — so ``"drunken-guild"  # comment``
+#: still matches the value alone, the trailing comment included. This is
+#: not a general TOML parser (no escape handling); it only has to recognise
+#: the one line shape ``name = "..."`` already relied on elsewhere in this
+#: codebase (``core.doctor.declared_version``), slightly hardened against
+#: the one false negative DG-442 review found: a trailing comment.
+_TOML_STRING_VALUE_RE = re.compile(r"""^\s*(?:"([^"]*)"|'([^']*)')""")
+
+
+def _parse_toml_string_value(raw_value: str) -> Optional[str]:
+    """The quoted value at the start of *raw_value*, or ``None`` when it
+    does not open with a quote at all (unquoted, or empty)."""
+    match = _TOML_STRING_VALUE_RE.match(raw_value)
+    if not match:
+        return None
+    return match.group(1) if match.group(1) is not None else match.group(2)
+
+
+def target_is_this_repository(git_root: Path) -> bool:
+    """Whether *git_root* is this repository's own checkout (DG-442 review).
+
+    Read from *git_root*'s own ``pyproject.toml`` — ``[project] name =
+    "drunken-guild"`` — never from ``__file__``. A ``__file__``-based signal
+    (``core.doctor.source_tree_root()``) answers the wrong question here: it
+    asks "where did *this running copy of the code* come from", which is
+    ``None`` for the installed CLI (``uv tool install`` resolves inside a
+    virtualenv with no ``skills/`` to find) — exactly the only case that
+    matters for a real run. This asks "what does *the target* declare",
+    which is answerable (or not) regardless of how drunken-init itself was
+    started.
+
+    ``pyproject.toml`` over a new marker file: it is already tracked by this
+    repository on purpose (CLAUDE.md: "the AI layer stays in git,
+    deliberately" — and so does the rest of the source tree), it is already
+    the one canonical "what package is this" file, and it is already read
+    this same line-scanned way (``[project]`` section, no TOML dependency)
+    by :func:`core.doctor.declared_version` for the sibling question "what
+    version does this source tree declare" — reusing that shape rather than
+    inventing a second one that every real clone would need to carry too.
+
+    DG-442 review: a leading UTF-8 BOM and an unquoted trailing ``#``
+    comment on the ``name =`` line both used to read as a false negative
+    (misclassifying this repository itself as "a project under the
+    guild"). ``"utf-8-sig"`` quietly strips a BOM when present and is
+    byte-identical to ``"utf-8"`` when there is none, so every file is
+    still read exactly once either way. The value itself is parsed with
+    :func:`_parse_toml_string_value` rather than a bare ``strip('"')``,
+    which only strips from the two ends and left a trailing comment's text
+    fused onto the value. Every false-*positive* guard already in place —
+    exact string equality against ``THIS_REPOSITORY_PACKAGE_NAME``, no
+    fuzzy or substring matching, no match at all on an unquoted value — is
+    unchanged.
+    """
+    pyproject = git_root / "pyproject.toml"
+    try:
+        lines = pyproject.read_text(encoding="utf-8-sig").splitlines()
+    except (OSError, UnicodeDecodeError):
+        # DG-456: a pyproject.toml that is not decodable as UTF-8 (a BOM-
+        # less UTF-16 file, stray Latin-1 bytes, ...) used to raise
+        # UnicodeDecodeError straight out of drunken-init — a traceback
+        # instead of a normal run. The safe direction is the same one
+        # already taken for an unreadable or missing file: treat the
+        # target as "not this repository" and say nothing alarming.
+        # Nothing is read from the file again once this is caught, so no
+        # file content ever reaches an error message or stdout.
+        return False
+
+    in_project = False
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith("["):
+            if in_project:
+                break
+            in_project = stripped == "[project]"
+            continue
+        if in_project and stripped.startswith("name") and "=" in stripped:
+            name = _parse_toml_string_value(stripped.split("=", 1)[1])
+            return name == THIS_REPOSITORY_PACKAGE_NAME
+    return False

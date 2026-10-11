@@ -1785,6 +1785,20 @@ def tracked_ai_layer_paths(git_root: Path) -> Optional[list[str]]:
     return sorted(path for path in tracked if ai_layer.is_ai_layer_path(path))
 
 
+def _registered_as_this_repository(project_id: str, git_root: Path) -> bool:
+    """Whether the operator registered *git_root* as this repository: the registry id is
+    ``drunken-guild`` AND the checkout's own pyproject declares that package (DG-503).
+
+    The pyproject alone is a string the checkout controls: a fork or vendored copy under another
+    registry id could silence the two leak checks by declaring it (review of #189, reproduced). The
+    registry id is the operator's own statement, so both must agree. A fork registered under
+    another id therefore still fails — the safe direction.
+    """
+    return project_id == ai_layer.THIS_REPOSITORY_PACKAGE_NAME and (
+        ai_layer.target_is_this_repository(git_root)
+    )
+
+
 def _check_project_layering(
     report: Report,
     project_id: str,
@@ -1826,7 +1840,9 @@ def _check_project_layering(
     root = config.resolved_path("this operation")
     git_root = root / config.git_root if config.git_root else root
 
-    if repo_root is not None and _same_checkout(git_root, repo_root):
+    if (
+        repo_root is not None and _same_checkout(git_root, repo_root)
+    ) or _registered_as_this_repository(project_id, git_root):
         report.add(
             name,
             "skip",
@@ -1904,7 +1920,9 @@ def _check_project_content_scan(
     root = config.resolved_path("this operation")
     git_root = root / config.git_root if config.git_root else root
 
-    if repo_root is not None and _same_checkout(git_root, repo_root):
+    if (
+        repo_root is not None and _same_checkout(git_root, repo_root)
+    ) or _registered_as_this_repository(project_id, git_root):
         report.add(
             name,
             "skip",
