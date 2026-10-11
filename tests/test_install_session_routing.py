@@ -350,18 +350,25 @@ class TestHook:
     ) -> None:
         """DG-513 item 1: the exact absolute path can differ run to run (a
         reinstall, a different venv) — detection must not key off the exact
-        string or every later run would add a second entry forever."""
+        string or every later run would add a second entry forever.
+
+        Built from ``tmp_path``/the native executable name (not a Windows
+        literal): a hardcoded ``C:\\...`` path parses as a single,
+        unsplittable basename on POSIX — ``Path.name`` only recognises
+        ``/`` there — so the old literal passed on Windows and failed on
+        every Linux CI runner (caught in review of this PR, round 3)."""
+        exe_name = (
+            "drunken-install.exe" if install.os.name == "nt" else "drunken-install"
+        )
         settings_path = tmp_path / "settings.json"
+        old_path = tmp_path / "old" / exe_name
+        new_path = tmp_path / "new" / exe_name
         monkeypatch.setattr(
-            install,
-            "resolve_hook_command",
-            lambda: (r'"C:\old\drunken-install.exe" context', True),
+            install, "resolve_hook_command", lambda: (f'"{old_path}" context', True)
         )
         install.apply_hook(settings_path, apply=True)
         monkeypatch.setattr(
-            install,
-            "resolve_hook_command",
-            lambda: (r'"D:\new\drunken-install.exe" context', True),
+            install, "resolve_hook_command", lambda: (f'"{new_path}" context', True)
         )
         plan = install.plan_hook(settings_path)
         assert plan.action == "already-present"
@@ -512,12 +519,50 @@ class TestIsGuildCommand:
     def test_accepts_case_insensitively(self) -> None:
         assert install._is_guild_command("DRUNKEN-INSTALL.EXE context") is True
 
-    def test_accepts_a_quoted_absolute_path_with_a_space(self) -> None:
+    @pytest.mark.skipif(
+        install.os.name != "nt", reason="a backslash path is a Windows literal"
+    )
+    def test_accepts_a_quoted_absolute_path_with_a_space_on_windows(self) -> None:
         assert (
             install._is_guild_command(
                 r'"C:\Program Files\guild\drunken-install.exe" context'
             )
             is True
+        )
+
+    def test_accepts_a_quoted_absolute_path_with_a_space_posix_style(self) -> None:
+        """The POSIX twin of the Windows-only case above: a forward-slash
+        path with a space in a directory name, single-quoted the way
+        ``shlex.quote`` would wrap it — runs, and must pass, on both
+        platforms, since ``/`` is a path separator ``pathlib`` recognises
+        everywhere."""
+        assert (
+            install._is_guild_command("'/usr/local bin/drunken-install' context")
+            is True
+        )
+
+    def test_basename_extraction_under_simulated_posix(self, monkeypatch) -> None:
+        """This suite only ever runs on Windows; ``os.name`` is forced here
+        to prove ``_is_guild_command`` is correct on POSIX too, not just
+        assumed. ``pathlib.Path`` dispatches to ``WindowsPath``/``PosixPath``
+        by checking ``os.name`` at call time (verified separately, not
+        cached at import), so this genuinely exercises POSIX basename
+        semantics rather than merely pretending to.
+
+        A real POSIX ``drunken-install`` is recognised correctly by a
+        forward-slash path. A Windows-style backslash path is *correctly*
+        rejected under forced-POSIX semantics too — ``/`` is pathlib's only
+        separator there — which is exactly why round 3 of this review's
+        test fixtures had to stop hardcoding Windows literals: real POSIX
+        production code never produces one, but a Windows-shaped *test*
+        fixture run under real POSIX CI was indistinguishable from this.
+        """
+        monkeypatch.setattr(install.os, "name", "posix")
+        assert (
+            install._is_guild_command("/usr/local/bin/drunken-install context") is True
+        )
+        assert (
+            install._is_guild_command(r'"C:\old\drunken-install.exe" context') is False
         )
 
     def test_a_look_alike_is_never_removed_by_hook_remove(self, tmp_path) -> None:
