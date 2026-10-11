@@ -1826,7 +1826,9 @@ def _check_project_layering(
     root = config.resolved_path("this operation")
     git_root = root / config.git_root if config.git_root else root
 
-    if repo_root is not None and _same_checkout(git_root, repo_root):
+    if (
+        repo_root is not None and _same_checkout(git_root, repo_root)
+    ) or ai_layer.target_is_this_repository(git_root):
         report.add(
             name,
             "skip",
@@ -1904,7 +1906,9 @@ def _check_project_content_scan(
     root = config.resolved_path("this operation")
     git_root = root / config.git_root if config.git_root else root
 
-    if repo_root is not None and _same_checkout(git_root, repo_root):
+    if (
+        repo_root is not None and _same_checkout(git_root, repo_root)
+    ) or ai_layer.target_is_this_repository(git_root):
         report.add(
             name,
             "skip",

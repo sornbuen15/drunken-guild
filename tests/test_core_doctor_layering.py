@@ -721,3 +721,47 @@ class TestLeakedGitEnvironmentDoesNotMisreportTrackedPaths:
             f"into a false pass or skip. Got {check.status}: {check.detail}"
         )
         assert "AGENTS.md" in check.detail, check.detail
+
+
+class TestThisRepositorysOwnCheckoutIsExemptWhenInstalled:
+    """DG-503: run from the installed package there is no source tree, so ``repo_root`` is None and
+    the exemption never fired; the checkout was failed for tracking the AI layer it authors."""
+
+    def _own_checkout(self, tmp_path):
+        root = tmp_path / "guild"
+        _init_repo(root)
+        (root / "pyproject.toml").write_text(
+            '[project]\nname = "drunken-guild"\n', encoding="utf-8"
+        )
+        (root / "AGENTS.md").write_text(
+            "author: Claude Code <claude@drunken.local>\n", encoding="utf-8"
+        )
+        _commit_all(root, "initial")
+        return root
+
+    def test_layering_and_content_scan_skip_it_without_a_source_tree(self, tmp_path):
+        root = self._own_checkout(tmp_path)
+
+        report = doctor.run_doctor(
+            registry=_registry(tmp_path, "scratch", root), offline=True
+        )
+
+        for name in ("layering.tracked.scratch", "content_scan.scratch"):
+            check = find(report, name)
+            assert check.status == "skip", f"{name}: {check.status} {check.detail}"
+            assert "own checkout" in check.detail
+
+    def test_a_project_that_only_resembles_it_still_fails(self, tmp_path):
+        root = tmp_path / "other"
+        _init_repo(root)
+        (root / "pyproject.toml").write_text(
+            '[project]\nname = "drunken-guild-fork"\n', encoding="utf-8"
+        )
+        (root / "AGENTS.md").write_text("rules\n", encoding="utf-8")
+        _commit_all(root, "initial")
+
+        report = doctor.run_doctor(
+            registry=_registry(tmp_path, "scratch", root), offline=True
+        )
+
+        assert find(report, "layering.tracked.scratch").status == "fail"
