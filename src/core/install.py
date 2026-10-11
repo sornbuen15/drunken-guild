@@ -878,16 +878,12 @@ ROUTING_RULE: Final = (
 #: (:func:`resolve_hook_command`) — a last resort, not the usual case.
 GUILD_HOOK_FALLBACK: Final = "drunken-install context"
 
-#: Matches any command this tool would have written for the SessionStart
-#: hook, bare or as an absolute path, quoted or not — e.g. ``drunken-install
-#: context``, ``"C:\...\drunken-install.exe" context``, ``/usr/local/bin/
-#: drunken-install context``. Detection must survive the exact path changing
-#: between machines or reinstalls (review of DG-513 item 1): writing an
-#: absolute path and then comparing against the literal fallback string
-#: would see every later run as a *new* entry and duplicate it forever.
-_GUILD_COMMAND_PATTERN: Final = re.compile(
-    r"drunken-install(\.exe)?[\"']?\s+context\s*$", re.IGNORECASE
-)
+#: The two program basenames :func:`_is_guild_command` accepts, casefolded.
+#: Not a substring/regex match (round 2 of DG-513's review): an unanchored
+#: pattern accepted ``evil-drunken-install.exe context`` and
+#: ``"not-drunken-install.exe" context`` as our own entry, and the doctor
+#: check would then *execute* whatever that command actually was.
+_GUILD_PROGRAM_BASENAMES: Final = frozenset({"drunken-install", "drunken-install.exe"})
 
 #: Hard cap on the text handed to a host every single session (REQ/DG-513
 #: item 5): the first real measurement on a real machine came to 3,624
@@ -897,11 +893,6 @@ _GUILD_COMMAND_PATTERN: Final = re.compile(
 CONTEXT_CHAR_LIMIT: Final = 2500
 
 _SENTENCE_END = re.compile(r"(?<=[.!?])\s")
-#: Scrubbed out of the printed context defensively (REQ: no absolute paths or
-#: usernames in session-start text), even though every description it reads
-#: comes from this repository's own, reviewed files.
-_WINDOWS_HOME = re.compile(r"[A-Za-z]:[\\/](?:Users|home)[\\/][^\s\\/]+")
-_POSIX_HOME = re.compile(r"/(?:home|Users)/[^\s/]+")
 
 
 def _frontmatter(text: str) -> dict[str, str]:
@@ -957,9 +948,16 @@ def _truncate_sentence(description: str, limit: int = 160) -> str:
 
 
 def _scrub(text: str) -> str:
-    """Remove anything that looks like a per-machine home path, then force ASCII."""
-    text = _WINDOWS_HOME.sub("~", text)
-    text = _POSIX_HOME.sub("~", text)
+    """Force ASCII.
+
+    Round 2 of DG-513's review: this used to also strip anything that
+    looked like a per-machine home path, but `render_context` has not
+    passed a description through here since item 5 switched to
+    names-only — nothing it is ever called on can contain one, so that
+    half of the function (and its two tests) was asserting against dead
+    code. Names alone could in principle be unusual, which is the only
+    reason this still exists at all.
+    """
     return text.encode("ascii", "ignore").decode("ascii")
 
 
@@ -1181,7 +1179,26 @@ def _load_settings(path: Path) -> dict[str, Any]:
 
 
 def _is_guild_command(command: Any) -> bool:
-    return isinstance(command, str) and bool(_GUILD_COMMAND_PATTERN.search(command))
+    """Is *command* exactly ``<drunken-install> context`` — nothing else?
+
+    Exactly two tokens after splitting (:func:`_split_hook_command`, the
+    same splitter :func:`verify_hook_command` runs it through): a program
+    whose basename, casefolded, is ``drunken-install`` or
+    ``drunken-install.exe``, and a second token that is exactly
+    ``"context"``. Anything with extra arguments, a shell operator as a
+    literal token, or a program name that merely *contains* ``drunken-
+    install`` is not ours — identification, not execution-time trust; see
+    :func:`is_trusted_hook_command` for the second layer.
+    """
+    if not isinstance(command, str):
+        return False
+    try:
+        argv = _split_hook_command(command)
+    except ValueError:
+        return False
+    if len(argv) != 2 or argv[1] != "context":
+        return False
+    return Path(argv[0]).name.casefold() in _GUILD_PROGRAM_BASENAMES
 
 
 def _is_guild_entry(hook_entry: Any) -> bool:
@@ -1382,6 +1399,49 @@ def _split_hook_command(command: str) -> list[str]:
         # An unterminated quote, say — fall back to the crudest possible
         # split rather than raise out of a doctor check.
         return command.split()
+
+
+def _real_path(raw: str) -> str:
+    """A path's canonical form for comparing two commands' programs.
+
+    ``os.path.normcase`` lower-cases on Windows (filesystem paths there are
+    case-insensitive) and is a no-op on POSIX; ``os.path.realpath`` resolves
+    ``..``/symlinks. Comparing this, not the raw strings, is what makes two
+    different-looking paths to the same file compare equal — and two
+    same-named files in different directories compare *unequal*, which is
+    the whole point.
+    """
+    return os.path.normcase(os.path.realpath(raw))
+
+
+def is_trusted_hook_command(command: str) -> bool:
+    """Does *command*'s program resolve to **this installation's own**
+    ``drunken-install`` — not merely a file of the right name?
+
+    DG-513 round 2, layer (b): identification (:func:`_is_guild_command`)
+    only checks the *shape* of the command — a program named exactly
+    ``drunken-install.exe`` sitting in an attacker-controlled directory
+    passes it. This is the check the doctor runs before actually executing
+    anything: the program must resolve to the same file as what
+    :func:`resolve_hook_command` would produce right now, or to
+    ``shutil.which("drunken-install")`` — both describe *this machine's*
+    real installation, never the command recorded in a settings file.
+    """
+    argv = _split_hook_command(command)
+    if not argv:
+        return False
+    candidate = _real_path(argv[0])
+
+    current_command, resolved = resolve_hook_command()
+    if resolved:
+        current_argv = _split_hook_command(current_command)
+        if current_argv and _real_path(current_argv[0]) == candidate:
+            return True
+
+    found = shutil.which("drunken-install")
+    if found and _real_path(found) == candidate:
+        return True
+    return False
 
 
 def verify_hook_command(command: str, *, timeout: float = 5.0) -> tuple[bool, str]:

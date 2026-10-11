@@ -197,21 +197,6 @@ class TestContext:
         text = install.context_json(skills, agents)
         assert str(tmp_path) not in text
 
-    def test_scrubs_a_windows_home_path_in_a_description(self, tmp_path: Path) -> None:
-        skills = tmp_path / "skills"
-        agents = tmp_path / "agents"
-        make_skill(skills, "alpha", r"See C:\Users\alpha\notes for background.")
-        text = install.render_context(skills, agents)
-        assert "C:\\Users\\alpha" not in text
-        assert r"\notes" not in text
-
-    def test_scrubs_a_posix_home_path_in_a_description(self, tmp_path: Path) -> None:
-        skills = tmp_path / "skills"
-        agents = tmp_path / "agents"
-        make_skill(skills, "beta", "See /home/alpha/notes for background.")
-        text = install.render_context(skills, agents)
-        assert "/home/alpha" not in text
-
     def test_cli_context_exits_zero_and_prints_json(
         self, tmp_path: Path, capsys
     ) -> None:
@@ -491,6 +476,84 @@ class TestHook:
         assert "already" in out.lower() or "present" in out.lower()
 
 
+class TestIsGuildCommand:
+    """DG-513 round 2, HIGH: ``_is_guild_command`` used to be an unanchored
+    substring match (``_GUILD_COMMAND_PATTERN.search()``), so a look-alike
+    program name or a trailing shell fragment was accepted as *our* entry —
+    and the doctor check would then execute whatever that command actually
+    was. Identification now requires exactly two tokens: a program whose
+    basename (casefold) is ``drunken-install`` or ``drunken-install.exe``,
+    followed by exactly ``context``."""
+
+    def test_rejects_a_look_alike_program_name_with_a_prefix(self) -> None:
+        assert install._is_guild_command('"not-drunken-install.exe" context') is False
+
+    def test_rejects_a_look_alike_program_name_in_a_directory(self) -> None:
+        assert (
+            install._is_guild_command(r'"C:\attacker\evil-drunken-install.exe" context')
+            is False
+        )
+
+    def test_rejects_a_shell_injection_disguised_as_our_command(self) -> None:
+        assert (
+            install._is_guild_command("cmd /c calc.exe & drunken-install.exe context")
+            is False
+        )
+
+    def test_rejects_a_trailing_shell_fragment(self) -> None:
+        assert install._is_guild_command("drunken-install context && rm x") is False
+
+    def test_rejects_an_extra_argument(self) -> None:
+        assert install._is_guild_command("drunken-install context extra") is False
+
+    def test_accepts_the_bare_command(self) -> None:
+        assert install._is_guild_command(install.GUILD_HOOK_FALLBACK) is True
+
+    def test_accepts_case_insensitively(self) -> None:
+        assert install._is_guild_command("DRUNKEN-INSTALL.EXE context") is True
+
+    def test_accepts_a_quoted_absolute_path_with_a_space(self) -> None:
+        assert (
+            install._is_guild_command(
+                r'"C:\Program Files\guild\drunken-install.exe" context'
+            )
+            is True
+        )
+
+    def test_a_look_alike_is_never_removed_by_hook_remove(self, tmp_path) -> None:
+        """Identification feeding removal too: a look-alike must survive
+        ``hook --remove`` untouched, and the real entry can sit beside it."""
+        settings_path = tmp_path / "settings.json"
+        settings_path.write_text(
+            json.dumps(
+                {
+                    "hooks": {
+                        "SessionStart": [
+                            {
+                                "matcher": "",
+                                "hooks": [
+                                    {
+                                        "type": "command",
+                                        "command": '"not-drunken-install.exe" context',
+                                    }
+                                ],
+                            }
+                        ]
+                    }
+                }
+            ),
+            encoding="utf-8",
+        )
+        install.apply_hook(settings_path, apply=True, remove=True)
+        data = json.loads(settings_path.read_text(encoding="utf-8"))
+        commands = [
+            h.get("command")
+            for entry in data["hooks"]["SessionStart"]
+            for h in entry.get("hooks", [])
+        ]
+        assert '"not-drunken-install.exe" context' in commands
+
+
 class TestResolveHookCommand:
     def test_prefers_drunken_install_on_path(self, monkeypatch) -> None:
         monkeypatch.setattr(
@@ -592,3 +655,128 @@ class TestVerifyHookCommand:
         ok, reason = install.verify_hook_command("")
         assert ok is False
         assert "no command" in reason
+
+
+class TestIsTrustedHookCommand:
+    """DG-513 round 2, HIGH, layer (b): a program named exactly
+    ``drunken-install``/``drunken-install.exe`` passes identification but
+    must still not be executed unless it resolves to *this installation's
+    own* binary — an attacker's file of the right name, anywhere else on
+    disk, must not be run just because its name matches."""
+
+    def test_trusts_the_path_resolve_hook_command_would_itself_produce(
+        self, tmp_path, monkeypatch
+    ) -> None:
+        real = tmp_path / "drunken-install.exe"
+        real.write_bytes(b"")
+        monkeypatch.setattr(
+            install, "resolve_hook_command", lambda: (f'"{real}" context', True)
+        )
+        assert install.is_trusted_hook_command(f'"{real}" context') is True
+
+    def test_trusts_a_path_shutil_which_would_itself_return(
+        self, tmp_path, monkeypatch
+    ) -> None:
+        real = tmp_path / "drunken-install"
+        real.write_bytes(b"")
+        monkeypatch.setattr(install, "resolve_hook_command", lambda: (BARE, False))
+        monkeypatch.setattr(install.shutil, "which", lambda name: str(real))
+        assert install.is_trusted_hook_command(f'"{real}" context') is True
+
+    def test_does_not_trust_a_same_named_file_in_a_different_directory(
+        self, tmp_path, monkeypatch
+    ) -> None:
+        real = tmp_path / "real" / "drunken-install.exe"
+        real.parent.mkdir()
+        real.write_bytes(b"")
+        attacker = tmp_path / "attacker" / "drunken-install.exe"
+        attacker.parent.mkdir()
+        attacker.write_bytes(b"")
+        monkeypatch.setattr(
+            install, "resolve_hook_command", lambda: (f'"{real}" context', True)
+        )
+        monkeypatch.setattr(install.shutil, "which", lambda name: None)
+        assert install.is_trusted_hook_command(f'"{attacker}" context') is False
+
+    def test_doctor_does_not_execute_an_untrusted_but_matching_command(
+        self, tmp_path, monkeypatch
+    ) -> None:
+        """The doctor must not even call ``subprocess.run`` for this case —
+        a monkeypatched ``subprocess.run`` that raises proves it."""
+        from core import doctor
+
+        settings_path = tmp_path / "settings.json"
+        attacker = tmp_path / "drunken-install.exe"
+        attacker.write_bytes(b"")
+        settings_path.write_text(
+            json.dumps(
+                {
+                    "hooks": {
+                        "SessionStart": [
+                            {
+                                "matcher": "",
+                                "hooks": [
+                                    {
+                                        "type": "command",
+                                        "command": f'"{attacker}" context',
+                                    }
+                                ],
+                            }
+                        ]
+                    }
+                }
+            ),
+            encoding="utf-8",
+        )
+        monkeypatch.setattr(install, "resolve_hook_command", lambda: (BARE, False))
+        monkeypatch.setattr(install.shutil, "which", lambda name: None)
+
+        def must_not_run(*_args, **_kwargs):
+            raise AssertionError(
+                "subprocess.run must not be called for an untrusted command"
+            )
+
+        monkeypatch.setattr(install.subprocess, "run", must_not_run)
+        report = doctor.Report()
+        doctor._check_session_hook(report, settings_path)
+        check = next(c for c in report.checks if c.name == "routes.session_hook")
+        assert check.status == "warn"
+        assert "not this installation" in check.detail
+
+    def test_doctor_does_not_execute_for_a_look_alike_identification_failure(
+        self, tmp_path, monkeypatch
+    ) -> None:
+        """A look-alike that fails identification outright (round 2's item
+        1a) must also never reach ``subprocess.run``."""
+        from core import doctor
+
+        settings_path = tmp_path / "settings.json"
+        settings_path.write_text(
+            json.dumps(
+                {
+                    "hooks": {
+                        "SessionStart": [
+                            {
+                                "matcher": "",
+                                "hooks": [
+                                    {
+                                        "type": "command",
+                                        "command": '"not-drunken-install.exe" context',
+                                    }
+                                ],
+                            }
+                        ]
+                    }
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        def must_not_run(*_args, **_kwargs):
+            raise AssertionError("subprocess.run must not be called for a look-alike")
+
+        monkeypatch.setattr(install.subprocess, "run", must_not_run)
+        report = doctor.Report()
+        doctor._check_session_hook(report, settings_path)
+        check = next(c for c in report.checks if c.name == "routes.session_hook")
+        assert check.status == "warn"

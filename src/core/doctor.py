@@ -1271,6 +1271,11 @@ def _check_session_hook(report: Report, settings_path: Optional[Path] = None) ->
     ``context`` subcommand at all, and every one of those fails *silently*
     at session start. So once an entry is found, it is actually run, with a
     short timeout, and checked for the JSON a working one prints.
+
+    DG-513 round 2: that execution is itself a surface. Before running
+    anything, the recorded program must resolve to *this installation's
+    own* ``drunken-install`` (:func:`core.install.is_trusted_hook_command`)
+    — a same-named file anywhere else on disk is reported, never run.
     """
     path = (
         settings_path if settings_path is not None else install.default_settings_path()
@@ -1284,6 +1289,15 @@ def _check_session_hook(report: Report, settings_path: Optional[Path] = None) ->
             "routes.session_hook",
             "warn",
             f"No SessionStart hook for the guild in {path}.",
+            remediation="drunken-install hook --apply",
+        )
+        return
+    if not install.is_trusted_hook_command(plan.command):
+        report.add(
+            "routes.session_hook",
+            "warn",
+            f"The SessionStart entry in {path} points at {plan.command!r}, which is "
+            "not this installation's drunken-install; not executed.",
             remediation="drunken-install hook --apply",
         )
         return
