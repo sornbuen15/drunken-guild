@@ -27,14 +27,16 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import shutil
 import sys
 import sysconfig
 import tempfile
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from importlib import util as importlib_util
 from pathlib import Path
-from typing import Optional, Sequence
+from typing import Any, Final, Optional, Sequence
 
 from .errors import DrunkenError, ValidationError
 
@@ -722,6 +724,31 @@ def build_parser() -> argparse.ArgumentParser:
     stat.add_argument(
         "--agents-target", help="Agents folder. Default: ~/.claude/agents."
     )
+
+    ctx = sub.add_parser(
+        "context",
+        help="print the SessionStart routing context as one JSON object (for a hook's stdout)",
+    )
+    ctx.add_argument("--target", help="Skills folder. Default: ~/.claude/skills.")
+    ctx.add_argument(
+        "--agents-target", help="Agents folder. Default: ~/.claude/agents."
+    )
+
+    hook = sub.add_parser(
+        "hook",
+        help="manage the SessionStart hook that runs 'drunken-install context'",
+    )
+    hook.add_argument(
+        "--settings", help="Claude settings file. Default: ~/.claude/settings.json."
+    )
+    hook.add_argument(
+        "--apply", action="store_true", help="Write the change. Default: plan only."
+    )
+    hook.add_argument(
+        "--remove",
+        action="store_true",
+        help="Remove the guild's hook entry instead of adding it.",
+    )
     return parser
 
 
@@ -780,7 +807,403 @@ def _print_status(report: StatusReport) -> None:
         print("\nchangelog: not found in this install.")
 
 
+#: DG-session-routing: a session calls no skill and no agent when nothing at
+#: session start tells it to — a project's own ``AGENTS.md`` may be absent (a
+#: fresh ``git worktree``), and there is no ``SessionStart`` hook anywhere.
+#: ``drunken-install context`` is the fix that depends on neither: it is the
+#: command a host's ``SessionStart`` hook runs, and it prints the routing
+#: rule plus what this machine actually has installed, so an agent is told
+#: once, every session, rather than relying on a file that may not exist or a
+#: model that may not remember.
+ROUTING_RULE: Final = (
+    "Guild routing, read before doing the work yourself: a new project or a "
+    "requirement that changed -> run /prd, then /clarify, /ddd, /breakdown, in "
+    "that order. A ticket that is ready to build -> run /build, carried out by "
+    "the worker agent; its pull request is read by the reviewer agent before "
+    "the Boss merges it. Planning or breaking work into tickets -> use the "
+    "manager agent. A Jira ticket to write, read or move -> use /jira-tickets. "
+    "Git: branch, commit, PR, merge strategy -> use /git-workflow. End of day "
+    "or closing a session -> run /audit. Call the skill or agent with the "
+    "Skill or Agent tool instead of doing the work yourself. When the project "
+    "already has an example of what is asked, follow it and do not ask the "
+    "Boss which option to choose."
+)
+
+#: The command the SessionStart hook runs, and the one string
+#: :func:`_guild_hook_entry` is detected by on every later run — see its
+#: module docstring note on idempotency.
+GUILD_HOOK_COMMAND: Final = "drunken-install context"
+
+_SENTENCE_END = re.compile(r"(?<=[.!?])\s")
+#: Scrubbed out of the printed context defensively (REQ: no absolute paths or
+#: usernames in session-start text), even though every description it reads
+#: comes from this repository's own, reviewed files.
+_WINDOWS_HOME = re.compile(r"[A-Za-z]:[\\/](?:Users|home)[\\/][^\s\\/]+")
+_POSIX_HOME = re.compile(r"/(?:home|Users)/[^\s/]+")
+
+
+def _frontmatter(text: str) -> dict[str, str]:
+    """``{key: value}`` from a ``SKILL.md``/agent ``.md``'s YAML frontmatter.
+
+    Deliberately not a YAML parser — PyYAML is not a declared runtime
+    dependency of this package — just enough to read a flat ``key: value`` or
+    a folded (``>``) block scalar, which is every form this repository's own
+    files use.
+    """
+    lines = text.splitlines()
+    if not lines or lines[0].strip() != "---":
+        return {}
+    values: dict[str, str] = {}
+    key: Optional[str] = None
+    buf: list[str] = []
+
+    def flush() -> None:
+        if key is not None:
+            values[key] = " ".join(part for part in buf if part).strip()
+
+    for line in lines[1:]:
+        if line.strip() == "---":
+            break
+        if line[:1] not in ("", " ", "\t") and ":" in line:
+            flush()
+            name, _, rest = line.partition(":")
+            key = name.strip()
+            rest = rest.strip()
+            buf = [rest] if rest not in ("", ">", "|", ">-", "|-") else []
+        elif key is not None:
+            buf.append(line.strip())
+    flush()
+    return values
+
+
+def _truncate_sentence(description: str, limit: int = 160) -> str:
+    """The first sentence of *description*, hard-capped at *limit* characters."""
+    description = description.strip()
+    if not description:
+        return ""
+    match = _SENTENCE_END.search(description)
+    first = description[: match.start() + 1] if match else description
+    if len(first) > limit:
+        first = first[: limit - 1].rstrip() + "…"
+    return first
+
+
+def _scrub(text: str) -> str:
+    """Remove anything that looks like a per-machine home path, then force ASCII."""
+    text = _WINDOWS_HOME.sub("~", text)
+    text = _POSIX_HOME.sub("~", text)
+    return text.encode("ascii", "ignore").decode("ascii")
+
+
+def _skill_entries(skills_target: Path) -> list[tuple[str, str]]:
+    """{name: first sentence of its description} for every skill actually installed."""
+    out: list[tuple[str, str]] = []
+    if not skills_target.is_dir():
+        return out
+    for entry in sorted(skills_target.iterdir()):
+        skill_md = entry / "SKILL.md"
+        if not entry.is_dir() or not skill_md.is_file():
+            continue
+        try:
+            text = skill_md.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+        description = _frontmatter(text).get("description", "")
+        if description:
+            out.append((entry.name, _truncate_sentence(description)))
+    return out
+
+
+def _agent_entries(agents_target: Path) -> list[tuple[str, str]]:
+    """{name: first sentence of its description} for every agent actually installed."""
+    out: list[tuple[str, str]] = []
+    if not agents_target.is_dir():
+        return out
+    for md in sorted(agents_target.glob("*.md")):
+        if md.name == "INDEX.md" or not md.is_file():
+            continue
+        try:
+            text = md.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+        description = _frontmatter(text).get("description", "")
+        if description:
+            out.append((md.stem, _truncate_sentence(description)))
+    return out
+
+
+def render_context(skills_target: Path, agents_target: Path) -> str:
+    """The routing rule plus what is actually installed here. Never raises."""
+    try:
+        skills = _skill_entries(Path(skills_target))
+    except OSError:
+        skills = []
+    try:
+        agents = _agent_entries(Path(agents_target))
+    except OSError:
+        agents = []
+    parts = [ROUTING_RULE]
+    if skills:
+        parts.append(
+            "Installed skills: "
+            + "; ".join(f"{name}: {desc}" for name, desc in skills)
+            + "."
+        )
+    if agents:
+        parts.append(
+            "Installed agents: "
+            + "; ".join(f"{name}: {desc}" for name, desc in agents)
+            + "."
+        )
+    return _scrub(" ".join(parts))
+
+
+def context_json(skills_target: Path, agents_target: Path) -> str:
+    """One JSON object on a line, for a ``SessionStart`` hook's stdout.
+
+    Must never raise and must never be slow: on any error this prints the
+    minimal routing rule rather than propagate, because a hook that fails
+    noisily at every session start is worse than one that says less.
+    """
+    try:
+        text = render_context(skills_target, agents_target)
+    except Exception:  # noqa: BLE001 - a hook's stdout must never be a traceback
+        text = ROUTING_RULE
+    payload = {
+        "hookSpecificOutput": {
+            "hookEventName": "SessionStart",
+            "additionalContext": text,
+        }
+    }
+    try:
+        return json.dumps(payload, ensure_ascii=True)
+    except (TypeError, ValueError):
+        return json.dumps(
+            {
+                "hookSpecificOutput": {
+                    "hookEventName": "SessionStart",
+                    "additionalContext": ROUTING_RULE,
+                }
+            },
+            ensure_ascii=True,
+        )
+
+
+@dataclass
+class HookPlan:
+    """What ``drunken-install hook`` found, and what it would do about it."""
+
+    settings_path: Path
+    action: str  # "add" | "already-present" | "remove" | "not-present" | "refused"
+    reason: str = ""
+
+
+def default_settings_path() -> Path:
+    """``~/.claude/settings.json`` — the same home resolution as :func:`default_target`."""
+    return default_target().parent / "settings.json"
+
+
+def _load_settings(path: Path) -> dict[str, Any]:
+    try:
+        data = json.loads(path.read_text(encoding="utf-8-sig"))
+    except (OSError, ValueError) as exc:
+        raise InstallRefusedError(
+            f"{path} is not valid JSON: {exc}",
+            remediation="Fix the file by hand; nothing here was changed.",
+        ) from exc
+    if not isinstance(data, dict):
+        raise InstallRefusedError(
+            f"{path} must contain a JSON object at the top level.",
+            remediation="Nothing here was changed.",
+        )
+    hooks = data.get("hooks")
+    if hooks is not None and not isinstance(hooks, dict):
+        raise InstallRefusedError(
+            f"{path}: 'hooks' is not an object.",
+            remediation="Fix 'hooks' by hand; nothing here was changed.",
+        )
+    return data
+
+
+def _is_guild_entry(hook_entry: Any) -> bool:
+    if not isinstance(hook_entry, dict):
+        return False
+    for h in hook_entry.get("hooks") or []:
+        if isinstance(h, dict) and h.get("command") == GUILD_HOOK_COMMAND:
+            return True
+    return False
+
+
+def _guild_present(settings: dict[str, Any]) -> bool:
+    hooks = settings.get("hooks")
+    if not isinstance(hooks, dict):
+        return False
+    session_start = hooks.get("SessionStart")
+    if not isinstance(session_start, list):
+        return False
+    return any(_is_guild_entry(entry) for entry in session_start)
+
+
+def plan_hook(settings_path: Path, *, remove: bool = False) -> HookPlan:
+    """What applying (or removing) the guild's SessionStart hook would do. Read-only."""
+    settings_path = Path(settings_path)
+    if not settings_path.is_file():
+        return HookPlan(
+            settings_path,
+            "not-present" if remove else "add",
+            ""
+            if remove
+            else "the settings file does not exist yet; it would be created",
+        )
+    try:
+        settings = _load_settings(settings_path)
+    except InstallRefusedError as exc:
+        return HookPlan(settings_path, "refused", str(exc))
+    present = _guild_present(settings)
+    if remove:
+        return HookPlan(settings_path, "remove" if present else "not-present")
+    return HookPlan(settings_path, "already-present" if present else "add")
+
+
+def _merge_add(settings: dict[str, Any]) -> dict[str, Any]:
+    new_settings = dict(settings)
+    hooks = dict(settings.get("hooks") or {})
+    session_start = list(hooks.get("SessionStart") or [])
+    session_start.append(
+        {
+            "matcher": "",
+            "hooks": [{"type": "command", "command": GUILD_HOOK_COMMAND}],
+        }
+    )
+    hooks["SessionStart"] = session_start
+    new_settings["hooks"] = hooks
+    return new_settings
+
+
+def _merge_remove(settings: dict[str, Any]) -> dict[str, Any]:
+    new_settings = dict(settings)
+    hooks = dict(settings.get("hooks") or {})
+    session_start = [
+        e for e in (hooks.get("SessionStart") or []) if not _is_guild_entry(e)
+    ]
+    if session_start:
+        hooks["SessionStart"] = session_start
+    else:
+        hooks.pop("SessionStart", None)
+    if hooks:
+        new_settings["hooks"] = hooks
+    else:
+        new_settings.pop("hooks", None)
+    return new_settings
+
+
+def _backup(path: Path) -> Path:
+    """Copy *path* to a sibling ``<name>.bak-<UTC stamp>``, created exclusively."""
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    suffix = 0
+    while True:
+        name = f"{path.name}.bak-{stamp}" + (f"-{suffix}" if suffix else "")
+        candidate = path.with_name(name)
+        try:
+            fd = os.open(candidate, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        except FileExistsError:
+            suffix += 1
+            continue
+        break
+    with os.fdopen(fd, "wb") as handle:
+        handle.write(path.read_bytes())
+    return candidate
+
+
+def _write_json_atomic(path: Path, data: dict[str, Any], root: Path) -> None:
+    _assert_inside(root, path)
+    if _is_link(path):
+        raise InstallRefusedError(
+            f"{path} is a link.", remediation="Nothing was written."
+        )
+    fd, tmp_name = tempfile.mkstemp(dir=path.parent, prefix=".drunken-install-")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            json.dump(data, handle, indent=2)
+            handle.write("\n")
+        os.replace(tmp_name, path)
+    except BaseException:
+        Path(tmp_name).unlink(missing_ok=True)
+        raise
+
+
+def apply_hook(
+    settings_path: Path, *, apply: bool = False, remove: bool = False
+) -> HookPlan:
+    """Plan (``apply=False``) or perform adding/removing the guild's SessionStart hook."""
+    settings_path = Path(settings_path)
+    plan = plan_hook(settings_path, remove=remove)
+    if plan.action == "refused":
+        if apply:
+            raise InstallRefusedError(plan.reason, remediation="Nothing was changed.")
+        return plan
+    if not apply or plan.action in ("already-present", "not-present"):
+        return plan
+
+    root = settings_path.parent
+    if _is_link(settings_path) or _is_link(root):
+        raise InstallRefusedError(
+            f"{settings_path} sits behind a link.",
+            remediation="Nothing was changed.",
+        )
+    existed = settings_path.is_file()
+    settings = _load_settings(settings_path) if existed else {}
+    root.mkdir(parents=True, exist_ok=True)
+    if existed:
+        _backup(settings_path)
+    new_settings = _merge_remove(settings) if remove else _merge_add(settings)
+    _write_json_atomic(settings_path, new_settings, root)
+    return plan
+
+
+def _print_hook_plan(plan: HookPlan, *, apply: bool) -> None:
+    print(f"settings : {plan.settings_path}")
+    labels = {
+        "add": "would add" if not apply else "added",
+        "already-present": "already present",
+        "remove": "would remove" if not apply else "removed",
+        "not-present": "not present (nothing to remove)",
+        "refused": f"refused — {plan.reason}",
+    }
+    print(f"SessionStart hook ({GUILD_HOOK_COMMAND}): {labels[plan.action]}")
+    if plan.action == "add" and plan.reason and not apply:
+        print(f"  {plan.reason}")
+    if not apply and plan.action in ("add", "remove"):
+        print("dry run  : nothing was written. Add --apply to write it.")
+
+
 def _run(args: argparse.Namespace) -> int:
+    if args.what == "context":
+        try:
+            skills_target, agents_target = _targets(args)
+            print(context_json(skills_target, agents_target))
+        except Exception:  # noqa: BLE001 - a hook's stdout must never be a traceback
+            print(
+                json.dumps(
+                    {
+                        "hookSpecificOutput": {
+                            "hookEventName": "SessionStart",
+                            "additionalContext": ROUTING_RULE,
+                        }
+                    },
+                    ensure_ascii=True,
+                )
+            )
+        return 0
+    if args.what == "hook":
+        settings_path = (
+            Path(args.settings).expanduser()
+            if args.settings
+            else default_settings_path()
+        )
+        plan = apply_hook(settings_path, apply=args.apply, remove=args.remove)
+        _print_hook_plan(plan, apply=args.apply)
+        return 1 if plan.action == "refused" else 0
     skills_target, agents_target = _targets(args)
     if args.what == "status":
         _print_status(status(skills_target, agents_target))

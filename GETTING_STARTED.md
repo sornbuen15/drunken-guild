@@ -87,6 +87,30 @@ are, it tells you to just ask them there.
 If you have no Jira, you can still run `/prd`, `/clarify` and `/ddd` — skip the next section and
 stop the flow at `DOMAIN.md`.
 
+### Make sure it gets used
+
+Installing the skills is not the same as a session *calling* them. A session can start in a fresh
+`git worktree` with no `AGENTS.md`, with no `SessionStart` hook configured anywhere, and the model
+can simply do the work itself and never reach for a skill or an agent — nothing forced it to look.
+Two commands close that gap, independent of any one project's own files:
+
+```bash
+drunken-install context          # what a SessionStart hook prints: the routing rule, plus what
+                                  # is actually installed on this machine — run it by hand to see
+drunken-install hook --apply     # installs that as a SessionStart hook in ~/.claude/settings.json
+```
+
+`drunken-install hook` is a plan by default — add `--apply` to write it, `--remove` to take it back
+out. It merges one entry into the existing file; everything else there, including other hooks, is
+left alone, and running it twice changes nothing the second time. `drunken-doctor` reports
+`routes.session_hook`: `WARN` with this exact fix command when the hook is missing, `OK` when it is
+there.
+
+**What this does not prove:** the hook makes the routing text available to every session; it does
+not measure whether an agent actually reads it and calls the right skill or agent instead of doing
+the work itself. `scripts/measure_routing.py` is a start at measuring that — run it yourself,
+before and after, against a real project; nobody has run it yet.
+
 ### Skills not authored here
 
 `skills/.external` lists skills that are installed but deliberately not authored in this repo. An
