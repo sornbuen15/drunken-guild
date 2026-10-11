@@ -271,6 +271,7 @@ def ai_layer_files_under(
     *,
     skip_dependency_dirs: bool = False,
     tracked_ai_layer: frozenset[str] = frozenset(),
+    file_predicate: Callable[[str], bool] = is_copied_in_from_config_repo,
 ) -> list[Path]:
     """Every regular file under *root* that is on the AI-layer list,
     relative to *root*.
@@ -339,6 +340,18 @@ def ai_layer_files_under(
     skipped, and a one-line marker file dropped beside a leaked secret hides nothing. Left open and
     named: an UNTRACKED instruction file nested deeper than its own marker directory, which only a
     project author who deliberately builds a fake virtualenv around a leak could arrange.
+
+    **A wider file filter does not widen the dependency skip (DG-508).** *file_predicate*
+    decides which already-walked *file* is collected — the default,
+    :func:`core.ai_layer.is_copied_in_from_config_repo`, is what the config-repo copy-in itself
+    needs. A caller that wants a wider question answered (`drunken-doctor`'s content_scan, DG-508,
+    passes :func:`core.ai_layer.is_content_scan_path`) never, by doing that, loosens the
+    *directory*-level dependency-install skip above: that check keeps asking the narrower
+    predicate (:func:`core.ai_layer.is_copied_in_from_config_repo`, not *file_predicate*) for
+    "does this directory hold the project's own AI layer", so a dependency install that happens
+    to contain a nested ``.claude`` or ``.mcp.json`` is still skipped whole, exactly as DG-505
+    requires — *file_predicate* only ever sees files inside a directory the walk already chose
+    to descend into.
     """
     files: list[Path] = []
     stack = [root]
@@ -367,7 +380,7 @@ def ai_layer_files_under(
                 continue
             if entry.is_file():
                 relative = entry.relative_to(root)
-                if is_copied_in_from_config_repo(relative.as_posix()):
+                if file_predicate(relative.as_posix()):
                     files.append(relative)
     return sorted(files)
 

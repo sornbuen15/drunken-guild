@@ -96,6 +96,90 @@ class TestATokenShapedAiLayerFileFails:
         assert check.status == "skip", check.detail
 
 
+class TestNestedAndDifferentlyCasedAiLayerFilesAreScanned:
+    """DG-508: content_scan did not read a token-shaped value in a nested
+    `packages/x/.claude/settings.json`, in a root `.Claude/settings.json` (different case from
+    `.claude/`), or a nested `.mcp.json` — all three on `core.ai_layer.is_content_scan_path`'s
+    wider list now, even though `layering.tracked`'s narrower `is_ai_layer_path` still does not
+    claim any of them (no change to what the config-repo copy-in provides)."""
+
+    def _token(self):
+        return "ghp_" + "d" * 36
+
+    def _report(self, tmp_path, root):
+        return doctor.run_doctor(
+            registry=_registry(tmp_path, "scratch", root), offline=True
+        )
+
+    def test_nested_claude_settings_json_in_a_subpackage_is_flagged(self, tmp_path):
+        root = tmp_path / "proj"
+        _init_repo(root)
+        nested = root / "packages" / "x" / ".claude"
+        nested.mkdir(parents=True)
+        (nested / "settings.json").write_text(
+            json.dumps({"token": self._token()}), encoding="utf-8"
+        )
+        (root / "main.py").write_text("print('hi')", encoding="utf-8")
+        _commit_all(root, "initial")
+
+        check = find(self._report(tmp_path, root), "content_scan.scratch")
+
+        assert check.status == "fail", check.detail
+        assert "packages/x/.claude/settings.json" in check.detail
+
+    def test_a_differently_cased_root_claude_dir_is_flagged(self, tmp_path):
+        root = tmp_path / "proj"
+        _init_repo(root)
+        cased = root / ".Claude"
+        cased.mkdir()
+        (cased / "settings.json").write_text(
+            json.dumps({"token": self._token()}), encoding="utf-8"
+        )
+        (root / "main.py").write_text("print('hi')", encoding="utf-8")
+        _commit_all(root, "initial")
+
+        check = find(self._report(tmp_path, root), "content_scan.scratch")
+
+        assert check.status == "fail", check.detail
+        assert ".Claude/settings.json" in check.detail
+
+    def test_a_nested_mcp_json_is_flagged(self, tmp_path):
+        root = tmp_path / "proj"
+        _init_repo(root)
+        nested = root / "packages" / "x"
+        nested.mkdir(parents=True)
+        (nested / ".mcp.json").write_text(
+            json.dumps({"token": self._token()}), encoding="utf-8"
+        )
+        (root / "main.py").write_text("print('hi')", encoding="utf-8")
+        _commit_all(root, "initial")
+
+        check = find(self._report(tmp_path, root), "content_scan.scratch")
+
+        assert check.status == "fail", check.detail
+        assert "packages/x/.mcp.json" in check.detail
+
+    def test_a_nested_claude_dir_inside_a_real_dependency_install_is_still_skipped(
+        self, tmp_path
+    ):
+        # DG-505's guarantee must still hold: the wider content-scan predicate decides which
+        # *files* are read inside a directory the walk already chose to descend into — it must
+        # never override the directory-level decision to skip a real dependency install.
+        root = tmp_path / "proj"
+        _init_repo(root)
+        venv_pkg = root / ".venv" / "Lib" / "site-packages" / "pkg" / ".claude"
+        venv_pkg.mkdir(parents=True)
+        (root / ".venv" / "pyvenv.cfg").write_text("home = x", encoding="utf-8")
+        (venv_pkg / "settings.json").write_text(self._token(), encoding="utf-8")
+        (root / ".gitignore").write_text(".venv/" + chr(10), encoding="utf-8")
+        (root / "main.py").write_text("print('hi')", encoding="utf-8")
+        _commit_all(root, "initial")
+
+        check = find(self._report(tmp_path, root), "content_scan.scratch")
+
+        assert check.status == "ok", check.detail
+
+
 class TestSymlinkedAiLayerDirectoryIsNeverFollowed:
     def test_a_symlinked_claude_dir_is_not_walked_into(self, tmp_path):
         root = tmp_path / "proj"
