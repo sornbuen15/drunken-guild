@@ -102,9 +102,20 @@ drunken-install hook --apply     # installs that as a SessionStart hook in ~/.cl
 
 `drunken-install hook` is a plan by default — add `--apply` to write it, `--remove` to take it back
 out. It merges one entry into the existing file; everything else there, including other hooks, is
-left alone, and running it twice changes nothing the second time. `drunken-doctor` reports
-`routes.session_hook`: `WARN` with this exact fix command when the hook is missing, `OK` when it is
-there.
+left alone, and running it twice changes nothing the second time. The command it writes is an
+**absolute path** to `drunken-install`, not the bare name — a bare command fails silently (no
+context, no visible error) the moment the directory running the hook does not have it on `PATH`,
+which is the normal case for a project's own `.venv`. `drunken-doctor` reports
+`routes.session_hook`: it does not just look for the entry, it actually **runs** the recorded
+command with a short timeout and checks it prints the expected JSON — `WARN` with the reason (not
+found, wrong exit code, bad output) and this exact fix command when it does not work, `OK` when it
+does.
+
+A concurrent edit to `settings.json` between `drunken-install hook --apply` reading the file and
+writing it back is detected and refused rather than silently overwritten — run it again. One thing
+this does **not** preserve: an NTFS ACL set directly on `settings.json` (an `icacls` grant, say) is
+not carried across the atomic replace `--apply` performs; re-apply any such ACL afterward if you
+rely on one.
 
 **What this does not prove:** the hook makes the routing text available to every session; it does
 not measure whether an agent actually reads it and calls the right skill or agent instead of doing

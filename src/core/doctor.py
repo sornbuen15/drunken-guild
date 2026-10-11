@@ -1265,6 +1265,12 @@ def _check_session_hook(report: Report, settings_path: Optional[Path] = None) ->
     parse is one Claude Code may not be reading either, and the actionable
     advice is "open it and look", not the fix command below, which would not
     help.
+
+    DG-513 item 1: presence in the file is not the same as it working — the
+    recorded program can be missing, moved, or too old to have the
+    ``context`` subcommand at all, and every one of those fails *silently*
+    at session start. So once an entry is found, it is actually run, with a
+    short timeout, and checked for the JSON a working one prints.
     """
     path = (
         settings_path if settings_path is not None else install.default_settings_path()
@@ -1273,13 +1279,26 @@ def _check_session_hook(report: Report, settings_path: Optional[Path] = None) ->
     if plan.action == "refused":
         report.add("routes.session_hook", "skip", f"{path}: {plan.reason}")
         return
-    if plan.action == "already-present":
-        report.add("routes.session_hook", "ok", f"SessionStart hook present in {path}.")
+    if plan.action != "already-present":
+        report.add(
+            "routes.session_hook",
+            "warn",
+            f"No SessionStart hook for the guild in {path}.",
+            remediation="drunken-install hook --apply",
+        )
+        return
+    ok, reason = install.verify_hook_command(plan.command)
+    if ok:
+        report.add(
+            "routes.session_hook",
+            "ok",
+            f"SessionStart hook present in {path} and runs correctly.",
+        )
         return
     report.add(
         "routes.session_hook",
         "warn",
-        f"No SessionStart hook for the guild in {path}.",
+        f"SessionStart hook in {path} does not work: {reason}.",
         remediation="drunken-install hook --apply",
     )
 
