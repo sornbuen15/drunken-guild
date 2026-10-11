@@ -225,3 +225,120 @@ class TestInstalledDependenciesAreNotTheProjectsAiLayer:
 
         assert check.status == "fail", check.detail
         assert "AGENTS.md" in check.detail
+
+
+class TestAMarkerCannotHideTheProjectsOwnAiLayer:
+    """Review of #192 (BLOCK): a one-line marker file planted where the AI layer lives made the walk
+    skip it, hiding a real secret from the one check that exists to find it."""
+
+    def _token(self):
+        return "ghp_" + "c" * 36
+
+    def _report(self, tmp_path, root):
+        return doctor.run_doctor(
+            registry=_registry(tmp_path, "scratch", root), offline=True
+        )
+
+    def test_a_marker_inside_the_claude_directory_does_not_hide_its_settings(
+        self, tmp_path
+    ):
+        root = tmp_path / "proj"
+        _init_repo(root)
+        (root / ".claude").mkdir()
+        (root / ".claude" / "pyvenv.cfg").write_text("home = x", encoding="utf-8")
+        (root / ".claude" / "settings.json").write_text(
+            json.dumps({"token": self._token()}), encoding="utf-8"
+        )
+
+        check = find(self._report(tmp_path, root), "content_scan.scratch")
+
+        assert check.status == "fail", check.detail
+
+    def test_a_marker_inside_the_gemini_directory_does_not_hide_it_either(
+        self, tmp_path
+    ):
+        root = tmp_path / "proj"
+        _init_repo(root)
+        (root / ".gemini").mkdir()
+        (root / ".gemini" / "pyvenv.cfg").write_text("home = x", encoding="utf-8")
+        (root / ".gemini" / "settings.json").write_text(
+            json.dumps({"token": self._token()}), encoding="utf-8"
+        )
+
+        check = find(self._report(tmp_path, root), "content_scan.scratch")
+
+        assert check.status == "fail", check.detail
+
+    def test_a_marker_beside_a_committed_agents_md_does_not_hide_it(self, tmp_path):
+        root = tmp_path / "proj"
+        _init_repo(root)
+        (root / "packages" / "x").mkdir(parents=True)
+        (root / "packages" / "x" / "pyvenv.cfg").write_text(
+            "home = x", encoding="utf-8"
+        )
+        (root / "packages" / "x" / "AGENTS.md").write_text(
+            self._token(), encoding="utf-8"
+        )
+        _commit_all(root, "initial")
+
+        check = find(self._report(tmp_path, root), "content_scan.scratch")
+
+        assert check.status == "fail", check.detail
+        assert "packages/x/AGENTS.md" in check.detail
+
+    def test_a_marker_above_a_deeper_committed_instruction_file_does_not_hide_it(
+        self, tmp_path
+    ):
+        root = tmp_path / "proj"
+        _init_repo(root)
+        deep = root / "packages" / "x" / "sub"
+        deep.mkdir(parents=True)
+        (root / "packages" / "x" / "pyvenv.cfg").write_text(
+            "home = x", encoding="utf-8"
+        )
+        (deep / "CLAUDE.md").write_text(self._token(), encoding="utf-8")
+        _commit_all(root, "initial")
+
+        check = find(self._report(tmp_path, root), "content_scan.scratch")
+
+        assert check.status == "fail", check.detail
+
+    def test_an_untracked_real_venv_is_still_skipped_beside_tracked_files(
+        self, tmp_path
+    ):
+        # The point of the PR still holds: a venv no commit touches is not the project's AI layer.
+        root = tmp_path / "proj"
+        _init_repo(root)
+        (root / "AGENTS.md").write_text("rules", encoding="utf-8")
+        venv = root / ".venv" / "lib" / "pkg"
+        venv.mkdir(parents=True)
+        (root / ".venv" / "pyvenv.cfg").write_text("home = x", encoding="utf-8")
+        (venv / "CLAUDE.md").write_text(self._token(), encoding="utf-8")
+        (root / ".gitignore").write_text(".venv/" + chr(10), encoding="utf-8")
+        _commit_all(root, "initial")
+
+        check = find(self._report(tmp_path, root), "content_scan.scratch")
+
+        assert check.status == "ok", check.detail
+
+    def test_a_marker_beside_an_untracked_excluded_instruction_file_does_not_hide_it(
+        self, tmp_path
+    ):
+        # A layered project's AI layer is untracked and excluded: git cannot vouch for it, so the
+        # directory holding it must not be skippable on a marker alone.
+        root = tmp_path / "proj"
+        _init_repo(root)
+        (root / "packages" / "x").mkdir(parents=True)
+        (root / "packages" / "x" / "pyvenv.cfg").write_text(
+            "home = x", encoding="utf-8"
+        )
+        (root / "packages" / "x" / "AGENTS.md").write_text(
+            self._token(), encoding="utf-8"
+        )
+        (root / ".git" / "info" / "exclude").write_text(
+            "AGENTS.md" + chr(10), encoding="utf-8"
+        )
+
+        check = find(self._report(tmp_path, root), "content_scan.scratch")
+
+        assert check.status == "fail", check.detail
