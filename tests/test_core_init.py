@@ -2463,3 +2463,34 @@ class TestRemoveProject:
         backups = list(target.parent.glob("projects.json.bak-*"))
         assert len(backups) == 1 and str(backups[0]) in out
         assert not list(target.parent.glob("*.tmp*")), "no temp file may be left behind"
+
+    def test_a_symlinked_registry_stays_a_link_and_the_real_file_is_updated(
+        self, tmp_path
+    ):
+        # Review of #193: os.replace swapped the LINK for a plain file and left the real target stale.
+        state = tmp_path / "state"
+        state.mkdir()
+        real = tmp_path / "elsewhere" / "projects.json"
+        real.parent.mkdir()
+        real.write_text(
+            json.dumps(
+                {
+                    "version": 2,
+                    "projects": {"alpha": {"path": "a"}, "beta": {"path": "b"}},
+                }
+            ),
+            encoding="utf-8",
+        )
+        link = state / "projects.json"
+        try:
+            os.symlink(real, link)
+        except OSError as exc:
+            pytest.skip(f"cannot create a symlink here: {exc}")
+
+        code = run("--remove-project", "beta")
+
+        assert code == 0
+        assert link.is_symlink(), "the registry path must still be the link"
+        assert sorted(json.loads(real.read_text(encoding="utf-8"))["projects"]) == [
+            "alpha"
+        ]

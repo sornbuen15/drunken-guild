@@ -864,13 +864,16 @@ def _swap_registry(registry_file: str, document: dict[str, Any]) -> None:
     A crash mid-write can no longer leave the registry empty (review of #193): the old file stays
     until the new one is complete. The temp file is removed if anything fails.
     """
-    directory = os.path.dirname(registry_file) or "."
+    # A registry that is a symlink or junction is written THROUGH, as before: swap onto the real
+    # file, never replace the link itself (review of #193, reproduced).
+    target = os.path.realpath(registry_file)
+    directory = os.path.dirname(target) or "."
     fd, temp_name = tempfile.mkstemp(dir=directory, prefix=".projects-", suffix=".tmp")
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as handle:
             json.dump(document, handle, indent=4)
             handle.write("\n")
-        os.replace(temp_name, registry_file)
+        os.replace(temp_name, target)
     except BaseException:
         try:
             os.unlink(temp_name)
