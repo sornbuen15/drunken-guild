@@ -600,18 +600,96 @@ class TestIsGuildCommand:
 
 
 class TestResolveHookCommand:
-    def test_prefers_drunken_install_on_path(self, monkeypatch) -> None:
+    """DG-514 blocker B. ``resolve_hook_command`` must record the installation actually RUNNING
+    the call, not whichever ``drunken-install`` merely happens to be first on PATH — reproduced
+    for real: running ``hook --apply`` from a venv's own executable recorded a different, older
+    installation found by ``shutil.which`` first. The order is now (1) the running executable via
+    ``sys.argv[0]`` (2) a sibling of ``sys.executable`` (3) ``shutil.which`` (4) the bare fallback.
+    Every test here clears ``sys.argv`` to a harmless value first so this machine's own real
+    ``pytest``/``python`` argv[0] never accidentally satisfies tier (1).
+    """
+
+    @pytest.fixture(autouse=True)
+    def _harmless_argv0(self, monkeypatch) -> None:
+        monkeypatch.setattr(install.sys, "argv", ["not-drunken-install"])
+
+    def test_prefers_the_running_executable_over_everything_else(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        """The exact reproduced defect: the running executable must win even when a DIFFERENT
+        installation is both on PATH and a sibling of ``sys.executable``."""
+        running = tmp_path / "running" / "drunken-install.exe"
+        running.parent.mkdir(parents=True)
+        running.write_bytes(b"")
+        monkeypatch.setattr(install.sys, "argv", [str(running)])
+
+        other_sibling_dir = tmp_path / "other-venv" / "Scripts"
+        other_sibling_dir.mkdir(parents=True)
+        (other_sibling_dir / "drunken-install.exe").write_bytes(b"")
+        monkeypatch.setattr(
+            install.sys, "executable", str(other_sibling_dir / "python.exe")
+        )
         monkeypatch.setattr(
             install.shutil, "which", lambda name: r"C:\bin\drunken-install.exe"
         )
+
         command, resolved = install.resolve_hook_command()
         assert resolved is True
-        assert r"C:\bin\drunken-install.exe" in command
-        assert command.endswith("context")
+        assert str(running) in command
+        assert r"C:\bin\drunken-install.exe" not in command
+        assert str(other_sibling_dir) not in command
 
-    def test_quotes_a_path_containing_a_space_on_windows(self, monkeypatch) -> None:
+    @pytest.mark.skipif(
+        install.os.name != "nt", reason="Windows-only launcher behaviour"
+    )
+    def test_the_running_executable_is_still_found_when_argv0_lacks_the_exe_suffix(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        """A Windows console-script launcher reports ``sys.argv[0]`` WITHOUT the ``.exe`` suffix
+        relative to the file actually on disk (confirmed by reproduction against a real installed
+        tool) -- the running-executable tier must still resolve this, not silently fall through to
+        a worse tier."""
+        running = tmp_path / "running" / "drunken-install.exe"
+        running.parent.mkdir(parents=True)
+        running.write_bytes(b"")
+        argv0_without_suffix = str(running)[: -len(".exe")]
+        monkeypatch.setattr(install.sys, "argv", [argv0_without_suffix])
+        monkeypatch.setattr(install.shutil, "which", lambda name: None)
+
+        command, resolved = install.resolve_hook_command()
+        assert resolved is True
+        assert str(running) in command
+
+    def test_falls_back_to_a_sibling_of_the_running_interpreter_before_path(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        """Tier (2) over tier (3): when argv[0] does not resolve, a sibling of the running
+        interpreter must still be preferred over a different installation merely on PATH."""
+        sibling_dir = tmp_path / "this-venv" / "Scripts"
+        sibling_dir.mkdir(parents=True)
+        sibling = sibling_dir / (
+            "drunken-install.exe" if install.os.name == "nt" else "drunken-install"
+        )
+        sibling.write_bytes(b"")
+        monkeypatch.setattr(install.sys, "executable", str(sibling_dir / "python.exe"))
+        monkeypatch.setattr(
+            install.shutil, "which", lambda name: r"C:\bin\drunken-install.exe"
+        )
+
+        command, resolved = install.resolve_hook_command()
+        assert resolved is True
+        assert str(sibling_dir) in command
+        assert r"C:\bin\drunken-install.exe" not in command
+
+    def test_quotes_a_path_containing_a_space_on_windows(
+        self, monkeypatch, tmp_path
+    ) -> None:
         monkeypatch.setattr(install, "os", install.os)
         monkeypatch.setattr(install.os, "name", "nt")
+        # Neither tier (1) nor tier (2) must resolve here, or they would win over PATH before
+        # this test ever reaches the path it means to check -- this dev venv's own
+        # .venv/Scripts/drunken-install.exe would otherwise satisfy tier (2) by accident.
+        monkeypatch.setattr(install.sys, "executable", str(tmp_path / "python.exe"))
         monkeypatch.setattr(
             install.shutil,
             "which",
@@ -620,6 +698,20 @@ class TestResolveHookCommand:
         command, resolved = install.resolve_hook_command()
         assert resolved is True
         assert command.startswith('"C:\\Program Files\\guild\\drunken-install.exe"')
+
+    def test_falls_back_to_drunken_install_on_path_when_nothing_else_resolves(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        # Same reasoning as above: tier (2) must not accidentally resolve via this dev venv's
+        # own sibling drunken-install.exe before PATH is ever consulted.
+        monkeypatch.setattr(install.sys, "executable", str(tmp_path / "python.exe"))
+        monkeypatch.setattr(
+            install.shutil, "which", lambda name: r"C:\bin\drunken-install.exe"
+        )
+        command, resolved = install.resolve_hook_command()
+        assert resolved is True
+        assert r"C:\bin\drunken-install.exe" in command
+        assert command.endswith("context")
 
     def test_falls_back_to_a_sibling_of_the_running_interpreter(
         self, monkeypatch, tmp_path

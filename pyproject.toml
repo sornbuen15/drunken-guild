@@ -132,14 +132,18 @@ max-complexity = 10
 asyncio_mode = "strict"
 markers = [
     "e2e: mark test as end-to-end",
-    "routing: sends the routing scenarios to a live agent and spends tokens (DG-398)"
+    "routing: sends the routing scenarios to a live agent and spends tokens (DG-398)",
+    "integration: builds a real wheel and installs it into a throwaway venv (DG-514, slow — minutes, not seconds)"
 ]
 # `-m "not e2e"` is what the e2e marker always meant -- its own comment says
 # "so it doesn't run on standard unit test runs unless requested", but nothing
 # ever deselected it, so every plain `pytest` filed two real tickets into the
 # live Jira project. Run them on purpose with `pytest -m e2e`.
 # `routing` spends tokens the same way; run it with `pytest -m routing`.
-addopts = "--cov=src --cov-report=term-missing -v -m 'not e2e and not routing'"
+# `integration` is slow for a different reason -- a real `uv build` and `uv venv` per run, not a
+# live call anywhere -- but belongs out of the default run for the same reason: `pytest -m
+# integration` before a tag (see scripts/release_smoke.py), never on every plain `pytest`.
+addopts = "--cov=src --cov-report=term-missing -v -m 'not e2e and not routing and not integration'"
 testpaths = ["tests"]
 
 [tool.mypy]

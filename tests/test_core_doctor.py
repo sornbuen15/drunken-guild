@@ -54,7 +54,7 @@ def registry(tmp_path) -> ProjectRegistry:
 def _identity_response() -> mock.MagicMock:
     response = mock.MagicMock()
     response.read.return_value = json.dumps(
-        {"accountId": "abc", "displayName": "R. Jakkawan"}
+        {"accountId": "abc", "displayName": "R. Alpha"}
     ).encode()
     response.__enter__.return_value = response
     return response
@@ -354,7 +354,7 @@ class TestJiraVerification:
 
         check = find(report, "project.alpha.jira")
         assert check.status == "ok"
-        assert "R. Jakkawan" in check.detail
+        assert "R. Alpha" in check.detail
 
     def test_a_rejected_credential_is_a_failure_not_an_empty_board(
         self, registry

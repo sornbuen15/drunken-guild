@@ -48,7 +48,7 @@ async def test_a_comment_added_is_the_comment_read_back(
             "comments": [
                 {
                     "id": "9001",
-                    "author": {"displayName": "R. Jakkawan"},
+                    "author": {"displayName": "R. Alpha"},
                     "created": "2026-10-01T12:00:00.000+0000",
                     "body": _adf_paragraph("Fixed in DG-407."),
                 }
@@ -63,7 +63,7 @@ async def test_a_comment_added_is_the_comment_read_back(
     assert posted == {"ok": True, "id": "9001"}
     assert comments == [
         {
-            "author": "R. Jakkawan",
+            "author": "R. Alpha",
             "created": "2026-10-01T12:00:00.000+0000",
             "body": "Fixed in DG-407.",
         }

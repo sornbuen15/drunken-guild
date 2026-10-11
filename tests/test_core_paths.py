@@ -562,7 +562,7 @@ class TestSecureCommand:
     def test_a_directory_on_windows_gets_icacls_and_never_chmod(
         self, monkeypatch, tmp_path
     ) -> None:
-        self._on_windows_as(monkeypatch, "argig")
+        self._on_windows_as(monkeypatch, "alpha")
         target = tmp_path / "state"
         target.mkdir()
 
@@ -573,7 +573,7 @@ class TestSecureCommand:
         assert "/inheritance:r" in command, (
             "inherited ACEs are how everyone else got access in the first place"
         )
-        assert '"argig:(OI)(CI)F"' in command, (
+        assert '"alpha:(OI)(CI)F"' in command, (
             "a directory grants the owner full control over what it will contain"
         )
         assert f'"{target}"' in command, "a Windows home path can contain spaces"
@@ -582,13 +582,13 @@ class TestSecureCommand:
         self, monkeypatch, tmp_path
     ) -> None:
         """(OI)(CI) on a file is meaningless — nothing is created inside one."""
-        self._on_windows_as(monkeypatch, "argig")
+        self._on_windows_as(monkeypatch, "alpha")
         target = tmp_path / "auth.json"
         target.write_text("{}")
 
         command = paths.secure_command(target)
 
-        assert '"argig:F"' in command, command
+        assert '"alpha:F"' in command, command
         assert "(OI)" not in command
 
     def test_a_posix_shells_username_never_reaches_icacls(
@@ -597,7 +597,7 @@ class TestSecureCommand:
         """Git Bash, MSYS and a Docker image all set USER on Windows, and
         `getpass.getuser` returns that in preference to USERNAME. icacls
         resolves Windows accounts, so it is USERNAME or nothing."""
-        self._on_windows_as(monkeypatch, "argig")
+        self._on_windows_as(monkeypatch, "alpha")
         monkeypatch.setenv("USER", "root")
         monkeypatch.setenv("LOGNAME", "root")
         target = tmp_path / "state"
@@ -609,7 +609,7 @@ class TestSecureCommand:
             "icacls would answer 'No mapping between account names and "
             "security IDs was done'"
         )
-        assert '"argig:(OI)(CI)F"' in command, command
+        assert '"alpha:(OI)(CI)F"' in command, command
 
     def test_no_username_at_all_still_yields_a_runnable_command(
         self, monkeypatch, tmp_path

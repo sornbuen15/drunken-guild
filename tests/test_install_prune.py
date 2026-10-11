@@ -99,14 +99,25 @@ def _sandbox(tmp_path: Path, seed: bool = True) -> tuple[Path, Path]:
     return sandbox, home
 
 
-#: A name genuinely on retired_skills.txt that is ALSO shipped today under
-#: plugins/drunken-extras/skills/ in this actual repository -- not a
-#: stand-in, the real thing review finding #1's doctor-side test already
-#: covers (`test_a_retired_name_that_is_also_a_drunken_extras_skill_is_never_prunable`
-#: in tests/test_ai_layer_drift.py). Picked by checking both real files
-#: below, so a future edit to either list fails this loudly rather than
-#: silently testing nothing.
+#: DG-514: used to be a name genuinely on retired_skills.txt that was ALSO
+#: shipped under plugins/drunken-extras/skills/ in this actual repository --
+#: the real bug a guard test now refuses to let back onto retired_skills.txt
+#: (tests/test_install_extras_retired_overlap.py), so that overlap no longer
+#: exists in the committed file. The regression these two tests guard
+#: against is "a name reappears on BOTH lists at once", which the real repo
+#: must never exhibit again -- so the overlap is seeded inside the sandbox's
+#: own copy of retired_skills.txt instead, the same way `_seed_extras_skill`
+#: already seeds a synthetic drunken-extras skill for this same scenario.
 A_RETIRED_NAME_SHIPPED_UNDER_EXTRAS = "acronym-namer"
+
+
+def _seed_retired_entry(sandbox: Path, name: str) -> None:
+    """Add *name* to the sandbox's own copy of retired_skills.txt, simulating the one state the
+    real file must never be in again: a name on the retired list that is also shipped under
+    plugins/drunken-extras/skills/ at the same time."""
+    retired_file = sandbox / "scripts" / "install" / "retired_skills.txt"
+    with retired_file.open("a", encoding="utf-8") as fh:
+        fh.write(f"\n{name}\n")
 
 
 def _seed_extras_skill(sandbox: Path, name: str) -> None:
@@ -386,24 +397,16 @@ class TestTheShInstallerPrunesOnlyKnownRetiredSkills:
         `$_extras`), already in the script, had no test for the .sh
         installer at all -- only doctor's own copy of the rule
         (`test_a_retired_name_that_is_also_a_drunken_extras_skill_is_never_prunable`)
-        was covered. Uses the real name this repository ships under both
-        `retired_skills.txt` and `plugins/drunken-extras/skills/` today, so a
-        drift between the two lists fails this for the right reason."""
-        retired_file = REPO_ROOT / "scripts" / "install" / "retired_skills.txt"
-        assert A_RETIRED_NAME_SHIPPED_UNDER_EXTRAS in retired_file.read_text(
-            encoding="utf-8"
-        ), "fixture premise: this name must still be on retired_skills.txt"
-        assert (
-            REPO_ROOT
-            / "plugins"
-            / "drunken-extras"
-            / "skills"
-            / A_RETIRED_NAME_SHIPPED_UNDER_EXTRAS
-            / "SKILL.md"
-        ).is_file(), "fixture premise: this name must still ship under drunken-extras"
-
+        was covered. DG-514 removed the real overlap between
+        `retired_skills.txt` and `plugins/drunken-extras/skills/` from the
+        committed repository (a name on both lists at once is exactly the
+        data-loss bug that ticket fixed, and a guard test now refuses to let
+        it reappear) -- so this seeds the one state that must never happen
+        into the sandbox's OWN copy of both lists, rather than relying on it
+        existing in the real repository today."""
         sandbox, home = _sandbox(tmp_path, seed=False)
         _seed_extras_skill(sandbox, A_RETIRED_NAME_SHIPPED_UNDER_EXTRAS)
+        _seed_retired_entry(sandbox, A_RETIRED_NAME_SHIPPED_UNDER_EXTRAS)
         skill_dir = _skill_path(home, A_RETIRED_NAME_SHIPPED_UNDER_EXTRAS)
         skill_dir.mkdir(parents=True)
         (skill_dir / "SKILL.md").write_text("moved, not retired\n", encoding="utf-8")
@@ -705,24 +708,15 @@ class TestThePs1InstallerPrunesConsistentlyWithTheShOne:
     ):
         """Review finding #1's extras exclusion (`-notcontains $Extras`),
         already in the script, had no test for the .ps1 installer at all --
-        only doctor's own copy of the rule was covered. Uses the real name
-        this repository ships under both `retired_skills.txt` and
-        `plugins/drunken-extras/skills/` today."""
-        retired_file = REPO_ROOT / "scripts" / "install" / "retired_skills.txt"
-        assert A_RETIRED_NAME_SHIPPED_UNDER_EXTRAS in retired_file.read_text(
-            encoding="utf-8"
-        ), "fixture premise: this name must still be on retired_skills.txt"
-        assert (
-            REPO_ROOT
-            / "plugins"
-            / "drunken-extras"
-            / "skills"
-            / A_RETIRED_NAME_SHIPPED_UNDER_EXTRAS
-            / "SKILL.md"
-        ).is_file(), "fixture premise: this name must still ship under drunken-extras"
-
+        only doctor's own copy of the rule was covered. DG-514 removed the
+        real overlap between `retired_skills.txt` and
+        `plugins/drunken-extras/skills/` from the committed repository (see
+        the `.sh` version of this test for why) -- so this seeds the one
+        state that must never happen into the sandbox's OWN copy of both
+        lists instead."""
         sandbox, home = _sandbox(tmp_path, seed=False)
         _seed_extras_skill(sandbox, A_RETIRED_NAME_SHIPPED_UNDER_EXTRAS)
+        _seed_retired_entry(sandbox, A_RETIRED_NAME_SHIPPED_UNDER_EXTRAS)
         skill_dir = _skill_path(home, A_RETIRED_NAME_SHIPPED_UNDER_EXTRAS)
         skill_dir.mkdir(parents=True)
         (skill_dir / "SKILL.md").write_text("moved, not retired\n", encoding="utf-8")

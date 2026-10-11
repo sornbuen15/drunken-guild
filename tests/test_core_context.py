@@ -242,7 +242,7 @@ class TestVerifyJiraIdentity:
         response = self._respond(
             {
                 "accountId": "abc123",
-                "displayName": "R. Jakkawan",
+                "displayName": "R. Alpha",
                 "emailAddress": "someone@example.com",
             }
         )
@@ -251,7 +251,7 @@ class TestVerifyJiraIdentity:
             result = context.verify_jira_identity()
 
         assert result.account_id == "abc123"
-        assert result.display_name == "R. Jakkawan"
+        assert result.display_name == "R. Alpha"
 
     def test_it_asks_the_identity_endpoint_not_search(self, registry) -> None:
         context = ProjectContext.build("alpha", registry)
