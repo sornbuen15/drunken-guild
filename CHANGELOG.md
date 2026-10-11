@@ -7,6 +7,29 @@ The top heading is the version this tree declares in `pyproject.toml`; `Unreleas
 while a release is being prepared, and is renamed to the version when it is tagged
 (`tests/test_install_agents.py::TestTheChangelog`).
 
+## 2.0.1 — 2026-10-11
+
+Found by the first `drunken-doctor` run of the installed 2.0.0 on real projects.
+
+### Fixed
+- `drunken-doctor` no longer fails this repository's own checkout when it runs from the installed
+  package, and the exemption needs the registry id `drunken-guild` as well as the checkout's own
+  pyproject (a pyproject alone is a string any project controls) (DG-503).
+- `content_scan` no longer reads a third-party package's `CLAUDE.md` inside a project's `.venv`,
+  `node_modules` or Composer `vendor` as the project's own AI layer. A directory is stepped over only
+  by a marker the installer writes, never by name, and never when it is `.claude`/`.gemini` at the
+  root, directly holds an instruction file, or has a git-tracked one below it (DG-505).
+
+### Added
+- `drunken-init --remove-project <id>` removes a registry entry after copying the whole registry to
+  `projects.json.bak-<UTC time>`; it refuses an unknown or empty id, writes through a symlinked
+  registry, swaps the file atomically, and cannot be combined with another action (DG-506).
+
+### Known and open
+- An unreadable or empty registry still raises a traceback (DG-507); `.claude`, `.mcp.json` nested or
+  in another case are not read by `content_scan` (DG-508); a pyproject line scan can be fooled by a
+  multiline string (DG-504); DG-490, DG-491, DG-496 as in 2.0.0.
+
 ## 2.0.0 — 2026-10-11
 
 The flow is one standard that an agent can run on any project.
