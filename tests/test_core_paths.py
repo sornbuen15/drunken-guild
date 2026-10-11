@@ -359,13 +359,20 @@ class TestWindowsPermissionsUseTheAcl:
 
         assert paths.is_group_or_world_accessible(target) is False
 
-    def test_the_owner_sid_fallback_alone_is_not_accessible_to_others(
+    def test_the_owner_sid_literal_alone_is_not_accessible_to_others(
         self, monkeypatch, tmp_path
     ) -> None:
         """DG-509 re-review round 3: the fifth trusted entry — the raw SID
         ``_icacls_principal()`` falls back to when nothing names a user — had
-        no test that would notice its own deletion from the trusted set."""
-        self._as_windows_user(monkeypatch, username=None)
+        no test that would notice its own deletion from the trusted set.
+
+        A real, known username is deliberately kept here (unlike the
+        no-username fallback tests elsewhere): if ``_icacls_principal()``
+        also happened to return the same SID, the "is this the current
+        user" branch would mask the trusted-set entry's own deletion. This
+        only exercises the set membership itself.
+        """
+        self._as_windows_user(monkeypatch)
         target = tmp_path / "state"
         target.mkdir()
         monkeypatch.setattr(
