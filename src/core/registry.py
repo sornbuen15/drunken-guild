@@ -22,6 +22,7 @@ import json
 import os
 import re
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Dict, Final, Optional
 
 from .errors import RegistryError, ValidationError
@@ -66,11 +67,25 @@ class JiraIdentity:
 
 @dataclass(frozen=True)
 class DiscordIdentity:
-    """Which Discord channel this project's approvals belong to."""
+    """Where this project's one-way notifications go.
 
-    channel_id: str
-    credential: str | None = None
-    """Optional per-project bot token reference; the daemon's own is the default."""
+    Discord used to be a conversation: a bot in a room, a channel id to post
+    approvals into and a token to post them with. It is a notice board now
+    (DG-355), so one field is enough — the webhook that a PR-ready or
+    audit-gaps message is sent to.
+
+    ``legacy_channel_id`` is kept for one purpose: a registry written before
+    this change still carries a ``channel_id``, and silently ignoring it would
+    leave an operator believing notifications are configured when nothing will
+    be sent. :mod:`core.doctor` reports it. Nothing rewrites the operator's
+    registry on their behalf.
+    """
+
+    webhook: str | None = None
+    """A secret *reference* to a webhook URL — never the URL, which is a
+    credential: anyone holding it can post as the bot."""
+
+    legacy_channel_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -99,6 +114,24 @@ class ProjectConfig:
             )
         return self.path
 
+    def resolved_path(self, reason: str) -> Path:
+        """The checkout path, resolved the one way every per-project check uses.
+
+        DG-445: three call sites each wrapped the raw registry string in
+        ``Path()`` directly, so a project registered with ``~/checkout`` —
+        valid JSON, never rejected on write — read back as a literal
+        directory named ``~`` that does not exist, and every check on it
+        silently skipped rather than failing. ``~`` is expanded here, once,
+        so a skip means "no path declared", never "path declared but not
+        understood".
+
+        A relative path is left relative, resolved against the process's
+        current working directory the same way any other relative
+        :class:`~pathlib.Path` is — nothing here makes it absolute, and
+        nothing here anchors it to the registry file's own location.
+        """
+        return Path(self.require_path(reason)).expanduser()
+
 
 def _parse_jira(data: Any) -> Optional[JiraIdentity]:
     if not isinstance(data, dict):
@@ -114,13 +147,13 @@ def _parse_jira(data: Any) -> Optional[JiraIdentity]:
 def _parse_discord(data: Any) -> Optional[DiscordIdentity]:
     if not isinstance(data, dict):
         return None
+    webhook = data.get("webhook")
     channel_id = data.get("channel_id")
-    if channel_id is None:
+    if webhook is None and channel_id is None:
         return None
-    credential = data.get("credential")
     return DiscordIdentity(
-        channel_id=str(channel_id),
-        credential=str(credential) if credential else None,
+        webhook=str(webhook) if webhook else None,
+        legacy_channel_id=str(channel_id) if channel_id else None,
     )
 
 

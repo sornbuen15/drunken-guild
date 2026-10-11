@@ -1,0 +1,62 @@
+{
+  "manager": {
+    "skill": "manager",
+    "model": "claude-opus-5",
+    "tools": [
+      "Read",
+      "Write",
+      "Glob",
+      "Grep",
+      "Agent",
+      "WebSearch",
+      "WebFetch",
+      "mcp__drunken-jira-mcp__jira_search_issues",
+      "mcp__drunken-jira-mcp__jira_get_comments",
+      "mcp__drunken-jira-mcp__jira_create_issue",
+      "mcp__drunken-jira-mcp__jira_board_info",
+      "mcp__drunken-jira-mcp__jira_assign",
+      "mcp__drunken-jira-mcp__jira_add_comment",
+      "mcp__drunken-jira-mcp__jira_move_to_backlog",
+      "mcp__drunken-jira-mcp__jira_move_to_board",
+      "mcp__drunken-jira-mcp__jira_transition_issue",
+      "mcp__drunken-jira-mcp__jira_edit_labels",
+      "mcp__drunken-jira-mcp__jira_edit_issue"
+    ]
+  },
+  "worker": {
+    "skill": "worker",
+    "model": "claude-sonnet-5",
+    "tools": [
+      "Read",
+      "Edit",
+      "Write",
+      "Bash",
+      "Glob",
+      "Grep",
+      "WebSearch",
+      "WebFetch",
+      "mcp__drunken-jira-mcp__jira_start_task",
+      "mcp__drunken-jira-mcp__jira_submit_for_review",
+      "mcp__drunken-jira-mcp__jira_add_comment",
+      "mcp__drunken-jira-mcp__jira_search_issues",
+      "mcp__drunken-jira-mcp__jira_get_comments",
+      "mcp__drunken-jira-mcp__jira_edit_labels",
+      "mcp__drunken-jira-mcp__jira_edit_issue"
+    ]
+  },
+  "reviewer": {
+    "skill": "reviewer",
+    "model": "claude-sonnet-5",
+    "tools": [
+      "Read",
+      "Bash",
+      "Glob",
+      "Grep",
+      "WebSearch",
+      "WebFetch",
+      "mcp__drunken-jira-mcp__jira_search_issues",
+      "mcp__drunken-jira-mcp__jira_get_comments",
+      "mcp__drunken-jira-mcp__jira_add_comment"
+    ]
+  }
+}

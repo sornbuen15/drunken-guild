@@ -64,9 +64,9 @@
         "hooks": [
           {
             "type": "command",
-            "command": "uv run --directory \"${CLAUDE_PROJECT_DIR:-.}\" drunken-approval-hook",
-            "timeout": 1800,
-            "statusMessage": "Checking with the Boss\u2026"
+            "command": "uv run --directory \"${CLAUDE_PROJECT_DIR:-.}\" drunken-hook",
+            "timeout": 30,
+            "statusMessage": "Checking the deny floor\u2026"
           }
         ]
       }

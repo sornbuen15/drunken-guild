@@ -1,0 +1,9 @@
+{
+  "name": "drunken-extras",
+  "description": "Optional extras from drunken-guild, outside its core flow: fifteen specialist agents (mobile, desktop, fintech, insurance, voice, AI systems and the original generalists) and fifteen general engineering standards as skills (architecture, security, UI/UX, testing, cloud, product, leadership). Install only if you want them.",
+  "author": {
+    "name": "Drunken Programmer"
+  },
+  "repository": "https://github.com/sornbuen15/drunken-guild",
+  "license": "MIT"
+}

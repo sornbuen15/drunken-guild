@@ -1,7 +1,7 @@
 #!/bin/bash
 # Deploy skills from this repo to ~/.claude/skills/
 # Works from any directory and any clone location.
-# Usage: bash scripts/install/install_skills.sh
+# Usage: bash scripts/install/install_skills.sh [--index-only] [--prune [--prune-apply]]
 
 set -euo pipefail
 
@@ -16,33 +16,70 @@ NC='\033[0m'
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 LOCAL_SKILLS_DIR="$PROJECT_ROOT/skills"
+
+# An empty or unset $HOME must refuse outright, not resolve to
+# ".claude/skills" relative to wherever the shell happens to be — that is how
+# a run from the wrong directory could touch an unintended tree instead of
+# failing loudly (DG-359 review finding #3).
+if [ -z "${HOME:-}" ]; then
+  echo -e "${RED}\$HOME is empty or unset. Refusing to guess an install target.${NC}" >&2
+  exit 1
+fi
 GLOBAL_SKILLS_DIR="$HOME/.claude/skills"
 
-# Antigravity reads the same skills from its own tree. Unlike the agents, a
-# skill needs no rewriting on the way across -- nothing under skills/ names a
-# per-agent index path -- so we symlink it rather than holding a second copy.
-ANTIGRAVITY_SKILLS_DIR="${ANTIGRAVITY_SKILLS_DIR:-$HOME/.gemini/config/skills}"
-
 # --index-only rebuilds the repository's INDEX.md and writes nothing else --
-# not to ~/.claude, not to Antigravity, not to any target. It exists because
+# not to ~/.claude, not to any target. It exists because
 # the index is generated but also committed, so it goes stale on any change to
 # a skill's name or description, and the only way to refresh it used to be to
 # perform an install. An agent that must not install had no way to keep a
 # tracked file correct, and hand-editing it drifts from the generator's output
 # by a byte or two per line, which is worse than stale.
+#
+# --prune and --prune-apply are DG-359. This script copied skills in and
+# removed nothing: after the 2.0.0 re-scope, 34 retired skill directories
+# stayed installed beside the 11 this repository ships. "An agent does not
+# delete" (CLAUDE.md) applies here too, least of all in the operator's home,
+# so removal is opt-in, dry-run by default, and -- after review finding #1 --
+# restricted to names this repository actually knows are retired:
+#   (no flag)            -- unchanged: report extras, remove nothing
+#   --prune               -- list what --prune-apply would remove, remove nothing
+#   --prune --prune-apply -- remove ONLY orphans listed on
+#                            scripts/install/retired_skills.txt; anything
+#                            else unshipped is reported "unrecognised" and
+#                            never removed, because an unshipped directory is
+#                            not proof it is safe to delete -- a hand-written,
+#                            never-shipped skill was deleted by the first cut
+#                            of this feature, which pruned any orphan.
+# --prune-apply alone (without --prune) is refused: nothing decides to delete
+# without first being told what it would delete. A symlink is never followed
+# or removed, listed or applied: `-L` on the target is checked before every
+# `rm -rf`.
 INDEX_ONLY=false
-case "${1:-}" in
-  "") ;;
-  --index-only) INDEX_ONLY=true ;;
-  *)
-    # DG-302: an unrecognized flag used to fall through here and run a real
-    # install -- `--help`, typed to check usage, did exactly that. Anything
-    # this script does not know must refuse, not proceed.
-    echo -e "${RED}Unrecognized argument: ${1}${NC}" >&2
-    echo "Usage: $0 [--index-only]" >&2
-    exit 1
-    ;;
-esac
+PRUNE=false
+PRUNE_APPLY=false
+for arg in "$@"; do
+  case "$arg" in
+    --index-only) INDEX_ONLY=true ;;
+    --prune) PRUNE=true ;;
+    --prune-apply) PRUNE_APPLY=true ;;
+    *)
+      # DG-302: an unrecognized flag used to fall through here and run a real
+      # install -- `--help`, typed to check usage, did exactly that. Anything
+      # this script does not know must refuse, not proceed.
+      echo -e "${RED}Unrecognized argument: ${arg}${NC}" >&2
+      echo "Usage: $0 [--index-only] [--prune [--prune-apply]]" >&2
+      exit 1
+      ;;
+  esac
+done
+if [ "$INDEX_ONLY" = true ] && { [ "$PRUNE" = true ] || [ "$PRUNE_APPLY" = true ]; }; then
+  echo -e "${RED}--index-only writes nothing outside the repo; it has nothing to prune.${NC}" >&2
+  exit 1
+fi
+if [ "$PRUNE_APPLY" = true ] && [ "$PRUNE" = false ]; then
+  echo -e "${RED}--prune-apply requires --prune: list what would be removed first.${NC}" >&2
+  exit 1
+fi
 INDEX_FILE="$GLOBAL_SKILLS_DIR/INDEX.md"
 
 echo -e "${BLUE}=================================================${NC}"
@@ -52,20 +89,8 @@ echo -e "  Project:  $PROJECT_ROOT"
 echo -e "  Source:   $LOCAL_SKILLS_DIR"
 echo -e "  Target:   $GLOBAL_SKILLS_DIR"
 
-# Written to only if it already exists, and only ever *added to*. That
-# directory is shared: alongside ours it holds ~30 Apache-2.0 skills shipped by
-# Google and Antigravity's own template, none of which have another copy on
-# this machine. Never replace the directory, never sync with --delete, and do
-# not create it -- a machine with no Antigravity should not grow a config for
-# one because an installer ran.
-INSTALL_ANTIGRAVITY=false
 if [ "$INDEX_ONLY" = true ]; then
   echo -e "${YELLOW}  --index-only: rebuilding skills/INDEX.md, installing nothing${NC}"
-elif [ -d "$ANTIGRAVITY_SKILLS_DIR" ]; then
-  INSTALL_ANTIGRAVITY=true
-  echo -e "  Also:     $ANTIGRAVITY_SKILLS_DIR"
-else
-  echo -e "${YELLOW}  Antigravity not found at $ANTIGRAVITY_SKILLS_DIR — skipping that variant${NC}"
 fi
 echo ""
 
@@ -93,11 +118,6 @@ fi
 
 NEW_COUNT=0
 UPDATED_COUNT=0
-# Same reason as install_agents.sh: one pair of counters can only describe one
-# target, and reporting more work than happened is the same defect as reporting
-# less. See DG-272.
-AG_NEW_COUNT=0
-AG_UPDATED_COUNT=0
 
 _skill_list=$(mktemp)
 find "$LOCAL_SKILLS_DIR" -type f -name "SKILL.md" | sort > "$_skill_list"
@@ -137,27 +157,6 @@ while IFS= read -r skill_file; do
     _copy_dir "$skill_dir" "$TARGET_DIR"
   fi
 
-  if [ "$INSTALL_ANTIGRAVITY" = true ]; then
-    if [ -e "$ANTIGRAVITY_SKILLS_DIR/$skill_name" ] || [ -L "$ANTIGRAVITY_SKILLS_DIR/$skill_name" ]; then
-      AG_UPDATED_COUNT=$((AG_UPDATED_COUNT + 1))
-    else
-      AG_NEW_COUNT=$((AG_NEW_COUNT + 1))
-    fi
-    # DG-302: refuse rather than rm -rf a path built from variables that
-    # could theoretically be empty or point outside the target directory --
-    # a script under the already-allowlisted `Bash(./scripts/*.sh)` gets none
-    # of the protection .claude/settings.json's deny list gives a direct
-    # `rm -rf` tool call, so this check is the only guard that exists.
-    _ag_target="$ANTIGRAVITY_SKILLS_DIR/$skill_name"
-    if [ -z "$ANTIGRAVITY_SKILLS_DIR" ] || [ -z "$skill_name" ] \
-      || [ "${_ag_target#"$ANTIGRAVITY_SKILLS_DIR"/}" = "$_ag_target" ]; then
-      echo -e "${RED}Refusing to touch '$_ag_target' -- not a clean child of \$ANTIGRAVITY_SKILLS_DIR${NC}" >&2
-      exit 1
-    fi
-    rm -rf "$_ag_target"
-    ln -s "$GLOBAL_SKILLS_DIR/$skill_name" "$_ag_target"
-  fi
-
   if [ "$INDEX_ONLY" = true ]; then
     :
   elif [ "$IS_NEW" = true ]; then
@@ -193,7 +192,7 @@ while IFS= read -r skill_file; do
   fi
 
   # The description is what an agent reads to decide whether a skill is
-  # relevant at all, and CLAUDE.md routes every lookup through this index -- so
+  # relevant at all, and AGENTS.md routes every lookup through this index -- so
   # a blank one makes the skill effectively invisible. The previous extractor
   # understood only the folded `description: >` form, and nine of the skills
   # here write it on one line, so nine were published with no description.
@@ -253,38 +252,187 @@ cp "$INDEX_FILE" "$LOCAL_SKILLS_DIR/INDEX.md"
 
 echo ""
 echo -e "${GREEN}Done.${NC} $NEW_COUNT new  |  $UPDATED_COUNT updated"
-if [ "$INSTALL_ANTIGRAVITY" = true ]; then
-  echo -e "  Antigravity: $AG_NEW_COUNT new  |  $AG_UPDATED_COUNT updated"
-fi
 echo -e "  INDEX.md: $INDEX_FILE"
 
-# Anything installed that this repo does not produce. Reported, never deleted:
-# removing is the operator's call, and a stale skill still being offered to
-# every session is worth knowing about either way.
+# Anything installed that this repo does not produce. Reported, never deleted
+# unless it is on RETIRED_FILE and --prune-apply is the operator's own choice:
+# a stale skill still being offered to every session is worth knowing about
+# either way, but "not ours" is not the same claim as "safe to delete" --
+# that was DG-359 review finding #1, confirmed by reproduction: the first cut
+# of this pruned ANY unshipped directory and deleted a hand-written skill
+# that had never been this repository's to begin with.
 #
 # skills/.external lists third-party skills that legitimately have no source
 # here, so they are not named every run.
 EXTERNAL_FILE="$LOCAL_SKILLS_DIR/.external"
-_installed=$(find "$GLOBAL_SKILLS_DIR" -mindepth 2 -maxdepth 2 -name "SKILL.md" \
-  -exec dirname {} \; | xargs -n1 basename 2>/dev/null | sort -u)
-_ours=$(while IFS= read -r f; do basename "$(dirname "$f")"; done \
-  < <(find "$LOCAL_SKILLS_DIR" -type f -name "SKILL.md") | sort -u)
+RETIRED_FILE="$SCRIPT_DIR/retired_skills.txt"
+
+# `find -print0` / `read -d ''`, not line-based reading: a directory name
+# carrying a literal newline would otherwise split into two apparent entries
+# downstream, in a part of the script whose output decides what gets deleted
+# (DG-359 review finding #3). Not `xargs -n1 basename` either: some xargs
+# implementations (observed with MSYS's on Windows) still invoke the command
+# once, with no operand, on zero input, rather than running it zero times --
+# on a clean install with nothing to report, `basename: missing operand`
+# then failed under `set -o pipefail` right where nothing was wrong at all.
+# A plain `find -mindepth 2 -name SKILL.md` never descends into a symlinked
+# top-level entry (GNU find does not follow a symlink encountered during
+# descent without `-L`), so a skill name that is actually a symlink to
+# somewhere else would be invisible here -- never counted as installed,
+# never reported, never reaching the link-skip check below at all.
+# Confirmed by reproduction: a real symlink built this way was silently
+# absent from every list this script prints (DG-359 review finding #2).
+# Scanning top-level entries directly, and deciding per entry, is what makes
+# a symlink visible to the orphan/retire classification so it can be
+# reported and explicitly skipped rather than silently ignored.
+_installed=$(
+  while IFS= read -r -d '' entry; do
+    _name="$(basename "$entry")"
+    if [ -L "$entry" ] || [ -f "$entry/SKILL.md" ]; then
+      printf '%s\n' "$_name"
+    fi
+  done < <(find "$GLOBAL_SKILLS_DIR" -mindepth 1 -maxdepth 1 -print0) \
+    | sort -u
+)
+_ours=$(
+  while IFS= read -r -d '' f; do basename "$(dirname "$f")"; done \
+    < <(find "$LOCAL_SKILLS_DIR" -type f -name "SKILL.md" -print0) \
+    | sort -u
+)
+# `grep -vE` exits 1 when every line is a comment or blank — true today, since
+# .external lists no name yet — and under `set -e` that killed the script
+# right after printing "Done.", before this whole orphan/prune section ever
+# ran. Same disease as the `|| true` guards above: an optional extraction
+# whose "found nothing" is ordinary, not a failure.
 _external=""
-[ -f "$EXTERNAL_FILE" ] && _external=$(grep -vE '^\s*(#|$)' "$EXTERNAL_FILE" | sort -u)
+[ -f "$EXTERNAL_FILE" ] && _external=$(grep -vE '^\s*(#|$)' "$EXTERNAL_FILE" | sort -u || true)
+_retired_listed=""
+[ -f "$RETIRED_FILE" ] && _retired_listed=$(grep -vE '^\s*(#|$)' "$RETIRED_FILE" | tr -d '\r' | sort -u || true)
+# A name can be on the tracked retired list and also be shipped today under
+# plugins/drunken-extras/skills/ -- the list is not proof against drift
+# either. Whatever is currently shipped there wins over "retired": this must
+# never be able to delete a skill the guild still ships under another
+# surface, the same rule doctor's `_check_ai_layer` applies.
+EXTRAS_DIR="$PROJECT_ROOT/plugins/drunken-extras/skills"
+_extras=""
+if [ -d "$EXTRAS_DIR" ]; then
+  _extras=$(
+    while IFS= read -r -d '' f; do basename "$(dirname "$f")"; done \
+      < <(find "$EXTRAS_DIR" -mindepth 2 -maxdepth 2 -name "SKILL.md" -print0) \
+      | sort -u
+  )
+fi
+_retired=$(comm -23 <(printf '%s\n' "$_retired_listed" | sort -u) <(printf '%s\n' "$_extras" | sort -u))
 
 _orphans=$(comm -23 <(echo "$_installed") <(printf '%s\n%s\n' "$_ours" "$_external" | sort -u))
 if [ -n "$_orphans" ]; then
   echo ""
-  echo -e "${YELLOW}Installed but not produced here:${NC}"
-  echo "$_orphans" | sed 's|^|  ~/.claude/skills/|'
-  echo -e "  Left in place. Add to skills/.external if intended, or remove them yourself."
+  # Split what is not ours into what the tracked list says is retired (the
+  # only names --prune-apply may ever remove) and everything else, which is
+  # reported but never removed automatically -- it might be a hand-written
+  # skill with no relationship to this repository at all.
+  _retired_orphans=$(comm -12 <(echo "$_orphans") <(printf '%s\n' "$_retired" | sort -u))
+  _unrecognised_orphans=$(comm -23 <(echo "$_orphans") <(printf '%s\n' "$_retired" | sort -u))
+
+  if [ "$PRUNE" = true ]; then
+    if [ "$PRUNE_APPLY" = true ]; then
+      echo -e "${YELLOW}Removing (--prune-apply) -- retired, on $RETIRED_FILE:${NC}"
+    else
+      echo -e "${YELLOW}Would remove (--prune, dry run) -- retired, on $RETIRED_FILE:${NC}"
+    fi
+    if [ -n "$_retired_orphans" ]; then
+      while IFS= read -r _name; do
+        [ -z "$_name" ] && continue
+        _target="$GLOBAL_SKILLS_DIR/$_name"
+        # Never follow or remove a link. `-L` is true for a symlink to
+        # anything, present or not; a reparse point that is a Windows
+        # junction is covered by the `.ps1` installer's own
+        # `ReparsePoint` check, since `[ -L ]` does not reliably see a
+        # junction from this shell (DG-359 review finding #2).
+        if [ -L "$_target" ]; then
+          echo "  $_target (link, not touched)"
+          continue
+        fi
+        # The preview and the apply run both name what they are about to
+        # remove whole: a retired directory holding only the SKILL.md this
+        # repository shipped is one thing, and a retired directory a user
+        # dropped their own notes or subfolders into is another -- the old
+        # output said "$_target" either way and removed both the same,
+        # silently, on --prune-apply. `find ... -mindepth 1 -maxdepth 1` lists
+        # exactly what the SKILL.md check compares against: a single file
+        # named SKILL.md and nothing else at the top level.
+        _top_entries=$(find "$_target" -mindepth 1 -maxdepth 1)
+        _total_files=$(find "$_target" -type f | wc -l | tr -d ' ')
+        if [ "$_top_entries" = "$_target/SKILL.md" ] && [ -f "$_target/SKILL.md" ]; then
+          echo "  $_target ($_total_files file)"
+        else
+          echo "  $_target ($_total_files files -- holds more than SKILL.md)"
+        fi
+        if [ "$PRUNE_APPLY" = true ]; then
+          rm -rf -- "$_target"
+        fi
+      done <<< "$_retired_orphans"
+    else
+      echo "  (none)"
+    fi
+    if [ "$PRUNE_APPLY" = true ]; then
+      echo -e "  Removed. The operator chose --prune-apply; nothing here decided on its own."
+    else
+      echo -e "  Nothing removed. Re-run with --prune --prune-apply to remove these."
+    fi
+    if [ -n "$_unrecognised_orphans" ]; then
+      echo ""
+      echo -e "${YELLOW}Unrecognised, never pruned automatically:${NC}"
+      echo "$_unrecognised_orphans" | sed 's|^|  ~/.claude/skills/|'
+      echo -e "  Add to skills/.external if it is yours, or to $RETIRED_FILE if it is retired."
+    fi
+  else
+    echo -e "${YELLOW}Installed but not produced here:${NC}"
+    echo "$_orphans" | sed 's|^|  ~/.claude/skills/|'
+    echo -e "  Left in place. Add to skills/.external if intended. --prune lists what --prune --prune-apply would remove -- only names on $RETIRED_FILE, never anything else."
+  fi
+fi
+
+# A name on the retired list is not guaranteed to be a directory at all: it
+# might be a plain file (an operator's own note, or a leftover from a manual
+# edit) sharing the name of something this repository once shipped. The
+# `_installed` scan above only ever looks for a directory holding SKILL.md or
+# a link, so a plain file here was previously invisible to every list this
+# script prints -- never counted as installed, never reported as an orphan,
+# never reaching this far at all. It is reported, on every --prune run,
+# independently of the orphan set, and never touched: a plain file is not a
+# skill directory, so nothing here decides what it is safe to do with it.
+if [ "$PRUNE" = true ] && [ -n "$_retired" ]; then
+  _retired_file_names=""
+  while IFS= read -r _name; do
+    [ -z "$_name" ] && continue
+    _rtarget="$GLOBAL_SKILLS_DIR/$_name"
+    if [ -f "$_rtarget" ] && [ ! -L "$_rtarget" ]; then
+      _retired_file_names="${_retired_file_names}${_name}
+"
+    fi
+  done <<< "$_retired"
+  if [ -n "$_retired_file_names" ]; then
+    echo ""
+    echo -e "${YELLOW}Retired name on disk as a plain file:${NC}"
+    while IFS= read -r _name; do
+      [ -z "$_name" ] && continue
+      echo "  $GLOBAL_SKILLS_DIR/$_name (not a skill directory, left alone)"
+    done <<< "$_retired_file_names"
+  fi
 fi
 
 # Group directories from an older sync that copied the tree instead of
 # flattening it. This script installs by basename and can never create one, so
 # anything shaped like a group is a leftover holding a frozen old copy.
-_groups=$(find "$GLOBAL_SKILLS_DIR" -mindepth 1 -maxdepth 1 -type d \
-  '!' -exec test -e "{}/SKILL.md" ';' -print | xargs -n1 basename 2>/dev/null | sort)
+# `-print0` / `read -d ''`, not `xargs -n1 basename` — see the comment above
+# `_installed`.
+_groups=$(
+  while IFS= read -r -d '' d; do basename "$d"; done \
+    < <(find "$GLOBAL_SKILLS_DIR" -mindepth 1 -maxdepth 1 -type d \
+        '!' -exec test -e "{}/SKILL.md" ';' -print0) \
+    | sort
+)
 if [ -n "$_groups" ]; then
   echo ""
   echo -e "${YELLOW}Leftover group directories from an older sync:${NC}"

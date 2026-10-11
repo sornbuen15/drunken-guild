@@ -4,12 +4,13 @@ can never be."""
 
 import json
 import urllib.error
+from pathlib import Path
 from unittest import mock
 
 import pytest
 
 from core import secrets
-from core.context import ProjectContext, ResolvedDiscord
+from core.context import ProjectContext
 from core.errors import ConfigError, SecretError, UpstreamError
 from core.redact import forget_secrets, redact
 from core.registry import ProjectRegistry
@@ -26,30 +27,13 @@ V2_DOCUMENT = {
                 "project_key": "ALPHA",
                 "credential": "env://JIRA_TOKEN_ALPHA",
             },
-            "discord": {"channel_id": "123456789012345678"},
+            "discord": {"webhook": "env://DISCORD_WEBHOOK_ALPHA"},
         },
         "bare": {"path": "/abs/bare"},
+        "monorepo-package": {"path": "/abs/monorepo/packages/sample", "git_root": ".."},
         "incomplete": {
             "path": "/abs/incomplete",
             "jira": {"url": "https://example.atlassian.net", "project_key": "INC"},
-        },
-        "roomed": {
-            "path": "/abs/roomed",
-            "discord": {
-                "channel_id": "222222222222222222",
-                "credential": "env://DISCORD_TOKEN_ROOMED",
-            },
-        },
-        "bad-discord-ref": {
-            "path": "/abs/bad-discord-ref",
-            "discord": {
-                "channel_id": "333333333333333333",
-                "credential": "nosuchscheme://wherever",
-            },
-        },
-        "roomless": {
-            "path": "/abs/roomless",
-            "discord": {"channel_id": "", "credential": "env://DISCORD_TOKEN_ROOMED"},
         },
         "inline-secret": {
             "path": "/abs/inline",
@@ -69,7 +53,6 @@ def clean_state(monkeypatch):
     secrets.clear_cache()
     forget_secrets()
     monkeypatch.setenv("JIRA_TOKEN_ALPHA", "a-valid-looking-token-value")
-    monkeypatch.setenv("DISCORD_TOKEN_ROOMED", "a-discord-bot-token-value")
     yield
     secrets.clear_cache()
     forget_secrets()
@@ -95,7 +78,7 @@ class TestBuild:
         context = ProjectContext.build("alpha", registry)
 
         assert context.jira.project_key == "ALPHA"
-        assert context.discord.channel_id == "123456789012345678"
+        assert context.discord.webhook == "env://DISCORD_WEBHOOK_ALPHA"
 
     def test_a_project_without_jira_builds_fine(self, registry) -> None:
         """Board-only projects exist and must not be forced to configure Jira."""
@@ -160,10 +143,6 @@ class TestRequireAccessors:
 
         assert "credential reference" in caught.value.remediation
 
-    def test_require_discord_explains_what_to_add(self, registry) -> None:
-        with pytest.raises(ConfigError, match="no Discord channel"):
-            ProjectContext.build("bare", registry).require_discord()
-
 
 class TestPaths:
     def test_git_root_points_into_the_subdirectory_when_declared(
@@ -179,8 +158,56 @@ class TestPaths:
             str(ProjectContext.build("bare", registry).git_root_path()) == "/abs/bare"
         )
 
+    def test_git_root_can_ascend_for_a_project_registered_at_a_subfolder(
+        self, registry
+    ) -> None:
+        """DG-441 comment (a): a project whose registered *path* is itself a
+        subfolder of a larger repository (a monorepo package) needs the
+        *opposite* offset from ALPHA's — ascending, not descending. Nothing
+        in ``git_root``'s implementation (a plain ``Path`` join, never
+        resolved here) restricts it to one direction; this is the other
+        one, proven the same way the descending case already is.
+
+        Built with ``Path`` rather than a literal ``"/abs/..."`` string
+        (review finding): on Windows, ``Path("/abs/.../sample") / ".."``
+        renders with backslashes, so a literal forward-slashed expected
+        value fails there for a platform reason that has nothing to do
+        with what this test is actually proving — the ascending join
+        itself, which this now compares against the same construction the
+        code under test performs.
+        """
+        context = ProjectContext.build("monorepo-package", registry)
+        expected = str(Path("/abs/monorepo/packages/sample") / "..")
+        assert str(context.git_root_path()) == expected
+
     def test_board_defaults_to_the_claude_convention(self, registry) -> None:
         assert ProjectContext.build("bare", registry).board_dir_path().name == "board"
+
+    def test_root_path_expands_a_registered_tilde(self, tmp_path, monkeypatch) -> None:
+        """DG-445: ``root_path()`` used to wrap ``config.path`` in ``Path()``
+        directly, so a project registered with ``"~/checkout"`` read back as
+        a literal directory named ``~`` that never exists — every check on
+        it then found "no checkout" rather than the real one. Seen failing
+        against that code: it asserted ``str(root) == str(checkout)`` and
+        got ``"~/checkout"`` back unexpanded."""
+        monkeypatch.setenv("HOME", str(tmp_path))
+        monkeypatch.setenv("USERPROFILE", str(tmp_path))
+        monkeypatch.delenv("HOMEDRIVE", raising=False)
+        monkeypatch.delenv("HOMEPATH", raising=False)
+        checkout = tmp_path / "checkout"
+        checkout.mkdir()
+        target = tmp_path / "projects.json"
+        target.write_text(
+            json.dumps({"version": 2, "projects": {"tilde": {"path": "~/checkout"}}}),
+            encoding="utf-8",
+        )
+        tilde_registry = ProjectRegistry(str(target))
+
+        root = ProjectContext.build("tilde", tilde_registry).root_path()
+
+        assert root == checkout, (
+            f"a registered '~/checkout' must resolve to {checkout}, got {root}"
+        )
 
     def test_board_honours_an_explicit_directory(self, tmp_path) -> None:
         target = tmp_path / "projects.json"
@@ -303,91 +330,23 @@ class TestCredentialContainment:
                 assert "a-valid-looking-token-value" not in json.dumps(exc.to_dict())
 
 
-class TestRequireDiscordResolvesTheCredential:
-    """DG-315. `require_jira()` handed back a ready credential and
-    `require_discord()` handed back a reference, with nothing in either type to
-    say they differed.
+class TestTheDiscordIdentityIsCarriedRaw:
+    """Nothing resolves a Discord credential on the way up any more.
 
-    A caller reaching for the obviously symmetric API sent `file://…#key` as a
-    token. Discord answers 401 to that, which reads exactly like a bad token or
-    a bot that was never invited to the room -- so the hour after it goes into
-    checking the bot's permissions, not the two lines that caused it.
+    `require_discord()` existed to hand back a token with the reference already
+    resolved (DG-315). There is no token: a webhook URL is the credential, and
+    `core.notify` resolves it at the moment of sending, which is the only place
+    it is needed. What the context carries is the reference, which is safe to
+    display and is what `drunken-doctor` reports.
     """
 
-    def test_it_returns_a_resolved_object_not_the_raw_identity(self, registry) -> None:
-        """The type is the fix. Everything else here is a consequence of it."""
-        result = ProjectContext.build("roomed", registry).require_discord()
-
-        assert isinstance(result, ResolvedDiscord)
-        assert result.channel_id == "222222222222222222"
-
-    def test_the_token_is_the_value_and_not_the_reference(self, registry) -> None:
-        """The specific failure: `env://DISCORD_TOKEN_ROOMED` reaching Discord
-        as though it were a token."""
-        result = ProjectContext.build("roomed", registry).require_discord()
-
-        assert result.token is not None
-        assert result.token.reveal() == "a-discord-bot-token-value"
-        assert "env://" not in result.token.reveal()
-
-    def test_the_token_will_not_print_itself(self, registry) -> None:
-        """`Secret` masks on interpolation, so a header built by hand is
-        visibly wrong at the first log line rather than silently plausible."""
-        result = ProjectContext.build("roomed", registry).require_discord()
-
-        assert "a-discord-bot-token-value" not in f"{result.token}"
-        assert "a-discord-bot-token-value" not in repr(result)
-
-    def test_no_credential_means_the_daemons_own_token(self, registry) -> None:
-        """The ordinary case, and it must not be an error: one bot serves every
-        room, and only a project overriding it sets `credential`."""
-        result = ProjectContext.build("alpha", registry).require_discord()
-
-        assert result.channel_id == "123456789012345678"
-        assert result.token is None
-
-    def test_a_reference_that_does_not_resolve_names_the_fix(self, registry) -> None:
-        """This repo's rule: every error carries a remediation, because
-        "unknown scheme" only tells an agent to give up."""
-        with pytest.raises(ConfigError, match="did not resolve") as caught:
-            ProjectContext.build("bad-discord-ref", registry).require_discord()
-
-        remediation = caught.value.remediation
-        assert "reference" in remediation
-        assert "never the token itself" in remediation
-
-    def test_a_blank_channel_id_is_caught_here_rather_than_at_discord(
-        self, registry
-    ) -> None:
-        """`_parse_discord` only rejects a *missing* channel_id, so an empty
-        string arrives as a DiscordIdentity and would post nowhere."""
-        with pytest.raises(ConfigError, match="no channel_id") as caught:
-            ProjectContext.build("roomless", registry).require_discord()
-
-        assert "room id" in caught.value.remediation
-
-
-class TestBuildStaysToleranceOfBrokenDiscordConfig:
-    """Why the resolve happens in the accessor and not in `build()`.
-
-    `drunken-doctor` builds a context for every registered project to read
-    `discord.channel_id`, and reporting a broken credential is its whole job --
-    dying on the way up would take the report with it. Jira can resolve eagerly
-    because a server that builds a context is about to call Jira; Discord
-    cannot.
-    """
-
-    def test_building_a_project_with_an_unresolvable_credential_succeeds(
-        self, registry
-    ) -> None:
-        context = ProjectContext.build("bad-discord-ref", registry)
+    def test_the_reference_is_what_the_field_holds(self, registry) -> None:
+        context = ProjectContext.build("alpha", registry)
 
         assert context.discord is not None
-        assert context.discord.channel_id == "333333333333333333"
+        assert context.discord.webhook == "env://DISCORD_WEBHOOK_ALPHA"
 
-    def test_the_raw_identity_is_still_what_the_field_holds(self, registry) -> None:
-        """Doctor reads `context.discord.channel_id` directly. Changing the
-        field's type would have been an invisible break in a different file."""
-        context = ProjectContext.build("roomed", registry)
-
-        assert context.discord.credential == "env://DISCORD_TOKEN_ROOMED"
+    def test_a_project_with_no_discord_block_is_not_an_error(self, registry) -> None:
+        """Notifications are optional, so their absence is a state rather than
+        a fault — the distinction doctor reports on."""
+        assert ProjectContext.build("bare", registry).discord is None

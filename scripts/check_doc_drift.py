@@ -34,7 +34,7 @@ class Retired(NamedTuple):
 
 #: Every name that has been removed. Add to this in the PR that removes one.
 RETIRED = (
-    Retired("--workspace", "DG-224", "--project <id>"),
+    Retired("--workspace", "DG-224", "the project argument on each tool"),
     Retired("drunken-register", "S11 / 2.2.0", "drunken-init"),
     Retired("jira_mcp/config.py", "DG-224 (S3)", "core.registry + core.secrets"),
     Retired("AGY_DAEMON_SOCKET", "DG-244", "DRUNKEN_DAEMON_SOCKET"),
@@ -51,6 +51,126 @@ RETIRED = (
     Retired("Drunken Team", "DG-274", "Drunken Guild"),
     Retired("drunken-ai-team", "DG-274", "drunken-guild"),
     Retired("Drunken-Team-Guide.md", "DG-274", "Drunken-Guild-Guide.md"),
+    # Two template sets stood side by side, and the stale one -- a bridge
+    # script, a retired board tool, three commit formats -- was the one the
+    # integration guide sent new projects to.
+    Retired(".guild_templates", "DG-337", "templates/"),
+    Retired("migrate_env_to_registry.py", "DG-351", "scripts/set_secret.py"),
+    Retired(
+        "clean_host_config.py",
+        "DG-351",
+        "onboard_project.py --merge-mcp-config, which prunes on every merge",
+    ),
+    # The Antigravity plumbing (DG-349). `templates/AGENTS.md` is deliberately
+    # not listed: the re-scope's vendor-neutral AGENTS.md template may reuse
+    # the name, and a guard that fires on the replacement is a guard that gets
+    # switched off.
+    Retired(".agents/AGENTS.md", "DG-349", "AGENTS.md"),
+    Retired(".agents/hooks.json", "DG-349", ".claude/settings.json hooks"),
+    Retired(
+        "install_host_docs.sh", "DG-349", "nothing; the global file was Antigravity's"
+    ),
+    Retired(
+        "check_worktree_isolation.py", "DG-349", "git-workflow's One Working Tree rule"
+    ),
+    Retired(
+        "sync_customizations.py", "DG-349", "install_skills.sh / install_agents.sh"
+    ),
+    Retired(
+        "antigravity_payload_debug", "DG-349", "nothing; the mapping it logged is gone"
+    ),
+    # Five skills that serve no step of the flow, and the bridge one of them
+    # needed (DG-352). The fifteen general skills that moved to the extras
+    # plugin are not listed: they still exist, just not in skills/.
+    Retired("python-quality-gates", "DG-352", "the project's own AGENTS.md commands"),
+    Retired("project-hygiene", "DG-352", "git-workflow"),
+    Retired("confluence-sync", "DG-352", "nothing in the core flow"),
+    Retired("confluence_bridge.py", "DG-352", "nothing in the core flow"),
+    Retired("zero-defect-mindset", "DG-352", "the /build step"),
+    Retired("ai-output", "DG-352", "the /build step"),
+    # The local pre-push hook duplicated a server-side ruleset that cannot be
+    # bypassed, with one that can -- by not being installed (DG-354).
+    Retired("setup_git_hooks.py", "DG-354", "the GitHub rulesets on main and develop"),
+    # The ten skills the flow commands replace (DG-353). Only the skill
+    # names are listed, not their slash commands: `/refine` and `/next` are
+    # also Discord commands that still exist, and a guard that fires on a live
+    # command is a guard that gets switched off. Add the slash commands when
+    # the Discord lane goes.
+    Retired("spec-to-backlog", "DG-353", "the `breakdown` skill (/breakdown)"),
+    Retired("backlog-refinement", "DG-353", "the `breakdown` skill (/breakdown)"),
+    Retired("task-estimation", "DG-353", "a task is sized to a day in /breakdown"),
+    Retired("issue-intake", "DG-353", "the Bug path of the `breakdown` skill"),
+    Retired("audit-to-backlog", "DG-353", "the `audit` skill (/audit)"),
+    Retired("local-progress-reporter", "DG-353", "the `audit` skill (/audit)"),
+    Retired("project-audit-reviewer", "DG-353", "the `audit` skill (/audit)"),
+    Retired("test-report-generator", "DG-353", "the `audit` skill (/audit)"),
+    Retired("core-engineering", "DG-353", "the `build` skill (/build)"),
+    Retired("anti-regression", "DG-353", "the `build` skill (/build)"),
+    # The Discord approval machinery, away mode, and the scripts that only the
+    # daemon reached (DG-355). The slash commands go in here at last: the
+    # comment above `spec-to-backlog` said to add them "when the Discord lane
+    # goes", because a guard that fires on a live command is a guard that gets
+    # switched off. This is that change.
+    Retired("drunken-listen", "DG-355", "nothing; there is no daemon to run"),
+    Retired("drunken-away", "DG-355", "nothing; the terminal prompt is the only one"),
+    Retired("drunken-discord-mcp", "DG-355", "core.notify, sent from hooks and CI"),
+    Retired("drunken-approval-hook", "DG-355", "drunken-hook"),
+    Retired("request_boss_approval", "DG-355", "ask the Boss in the conversation"),
+    Retired("check_approvals", "DG-355", "nothing; no approval is submitted now"),
+    Retired("discord_listener.py", "DG-355", "nothing; the daemon is retired"),
+    Retired("discord_router.py", "DG-355", "nothing; the daemon is retired"),
+    Retired("approval_manager.py", "DG-355", "nothing; the daemon is retired"),
+    Retired("jira_bridge.py", "DG-355", "the drunken-jira-mcp tools"),
+    Retired("qa_automation.py", "DG-355", "the /audit step"),
+    Retired("setup_daemon_service.py", "DG-355", "nothing; there is no daemon"),
+    Retired("check_pending_approval.py", "DG-355", "nothing; no approval can be open"),
+    Retired("away mode", "DG-355", "nothing; the harness prompt is the only layer"),
+    Retired("Away mode", "DG-355", "nothing; the harness prompt is the only layer"),
+    Retired("/refine", "DG-355", "the `breakdown` skill (/breakdown)"),
+    Retired("/next", "DG-355", "the `breakdown` skill (/breakdown)"),
+    Retired("/qa", "DG-355", "the `build` and `audit` steps"),
+    # DG-341. Deliberately the *MCP server* spelling and not a bare
+    # `--project`: the flag is alive and correct on `drunken-doctor`,
+    # `drunken-init` and `drunken-usage`, so a bare entry would fire on every
+    # line that documents those and get switched off within a day.
+    Retired(
+        "drunken-jira-mcp --project",
+        "DG-341",
+        "the project argument on each tool; the server takes none",
+    ),
+    Retired(
+        '"args": ["--project"',
+        "DG-341",
+        "no args at all — one MCP entry serves every project",
+    ),
+    # DG-356. Four commands ship; these two answered questions nothing asks any
+    # more. The library behind `drunken-config` survives — what is retired is
+    # the command, so the name is what the guard looks for.
+    Retired(
+        "drunken-config",
+        "DG-356",
+        "install_mcp.sh for the config; drunken-doctor --requirements for the pins",
+    ),
+    Retired("drunken-status", "DG-356", "the /audit step"),
+    # Retired with the Discord lane but missed by this list until DG-360 found
+    # CLAUDE.md still explaining how to call it, five sessions later. A rule
+    # about a function nobody can call is worse than no rule: it is read as
+    # current.
+    Retired("require_discord", "DG-355", "nothing; no Discord credential is resolved"),
+    Retired("--kind install", "DG-356", "drunken-doctor --requirements"),
+    Retired("--kind host", "DG-356", "onboard_project.py --merge-mcp-config"),
+    # DG-427. A 211-line rulebook that predated REQ-015's one-line CLAUDE.md
+    # adapter and restated coordination rules a project's own AGENTS.md now
+    # owns. Moved out of templates/ to _not_used/ (uncommitted); RETIRED.md
+    # carries the row. The name below is also a substring of the
+    # already-retired dotted name above (DG-337's ".guild_templates/"), so a
+    # line naming that one trips both -- test_doc_drift.py's own fixture for
+    # DG-337 accounts for it rather than assuming an exact count of one.
+    Retired(
+        "templates/CLAUDE.md",
+        "DG-427",
+        "a project's own AGENTS.md (REQ-015), written by drunken-init",
+    ),
 )
 
 #: Documents whose job is to record what changed. They have to be able to name
@@ -98,13 +218,35 @@ SKIPPED_DIRS = frozenset(
     {".venv", ".git", "node_modules", "build", "not_use", ".claude", ".mypy_cache"}
 )
 
+#: `tests/fixtures/` is not scanned as a document source (DG-430, gap 3): it
+#: holds realistic-looking markdown built on purpose to prove *other*
+#: checkers notice (or refuse) a stray file, never a document someone reads
+#: for instructions. `documents()` used a blanket `rglob("*.md")` with no
+#: exception for it, so any such fixture was silently counted here too --
+#: narrower than skipping all of `tests/`, which still carries a real
+#: document (`tests/test_jira_workflow.md`) that belongs in the scan.
+_FIXTURES_PREFIX = ("tests", "fixtures")
+
+
+def _under_fixtures(path: Path) -> bool:
+    """Case-sensitive on purpose (DG-433): `SKIPPED_DIRS` above is matched
+    the same way, an exact-string set lookup against each path segment, and
+    this repository's own directories are created lower-case. Folding case
+    here while `SKIPPED_DIRS` stays exact would make the two exclusion
+    rules disagree about what "the same name" means for no documented
+    reason — if a case-insensitive filesystem ever produces a real
+    `Tests/Fixtures/`, fix both together rather than one in isolation."""
+    parts = path.relative_to(REPO_ROOT).parts
+    return parts[: len(_FIXTURES_PREFIX)] == _FIXTURES_PREFIX
+
 
 def documents() -> list[Path]:
     """Markdown outside the records, plus the rulebooks we ship to others.
 
-    `.guild_templates/` is included deliberately: those files are copied into
-    every downstream project, so a stale instruction there propagates rather
-    than just sitting still.
+    `templates/` is included deliberately, suffix or not: those files are
+    copied into every downstream project, so a stale instruction there
+    propagates rather than just sitting still. `.cursorrules` and
+    `.aider.conf.yml` carry no `.md`, and a markdown-only glob skipped them.
     """
     found = [
         path
@@ -112,12 +254,21 @@ def documents() -> list[Path]:
         if not (SKIPPED_DIRS & set(path.relative_to(REPO_ROOT).parts))
         and path.name not in RECORDS
         and not (set(RECORD_DIRS) & set(path.relative_to(REPO_ROOT).parts))
+        and not _under_fixtures(path)
     ]
     found += [
         path
-        for path in (REPO_ROOT / ".guild_templates").glob("*")
+        for path in (REPO_ROOT / "templates").glob("*")
         if path.is_file() and path.suffix != ".md"
     ]
+    # `.claude` is skipped above because linked worktrees live under it, holding
+    # whole copies of this repository at older commits -- scanning those reports
+    # drift that is simply the past. `.claude/rules/` is the opposite: it is
+    # instructions, moved out of CLAUDE.md in DG-360 precisely so they load only
+    # where they apply, and an instruction naming something retired is the bug
+    # this check exists for. Named explicitly rather than by unskipping the
+    # parent, so the worktrees stay out.
+    found += sorted((REPO_ROOT / ".claude" / "rules").rglob("*.md"))
     return sorted(found)
 
 

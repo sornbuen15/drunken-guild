@@ -26,12 +26,17 @@ By participating in this project, you agree to abide by our [Code of Conduct](CO
 
 We follow a strict development and pull request workflow to maintain code quality, security, and stability.
 
-### 0. Local Safety Hooks (Recommended)
-To prevent accidental direct pushes to protected branches (`main`, `develop`), install the local Git hooks:
+### 0. Local Gates (Required)
+Install pre-commit in a fresh clone. Without it the local gates — ruff, ruff-format, mypy — do not
+run at all, and say nothing:
 ```bash
-python3 scripts/setup_git_hooks.py
+pre-commit install
 ```
-This installs a local `pre-push` Git hook that automatically intercepts direct push attempts to protected branches and blocks them, reminding you to open a Pull Request.
+
+You do not need a local hook to protect `main` and `develop`. GitHub rulesets on both branches
+require a pull request and passing checks, block force-push and deletion, and list no bypass
+actors, so a direct push is refused by the server. A local hook would duplicate a control that
+cannot be bypassed with one that can — by not being installed.
 
 ### 1. Branch Structure
 *   **`main`**: Represents the stable, production-ready release state. Do not commit directly here.

@@ -20,16 +20,27 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
+import string
 import subprocess  # nosec B404 - git, invoked with a fixed argument list
+import sys
 from dataclasses import asdict, dataclass, field
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from typing import Any, Final, Literal, Optional, Sequence
 
-from . import paths, secrets
+from . import ai_layer, content_scan, paths, secrets
+from .config_gen import (
+    count_pins,
+    export_requirements,
+    install_command,
+    is_drunken_managed,
+)
 from .context import ProjectContext
-from .errors import DrunkenError
+from .errors import DrunkenError, ValidationError
+from .exclude import GitTimedOutError, NotAGitRepositoryError, run_git
+from .layer_copy import ai_layer_files_under
 from .redact import redact
 from .registry import ProjectRegistry
 
@@ -200,17 +211,26 @@ def newest_tag() -> Optional[str]:
 
     Never raises and never reports a missing tag as a problem: a source tarball
     or a shallow CI checkout legitimately has none.
+
+    Routed through :func:`core.exclude.run_git` (DG-451) rather than a second,
+    unstripped ``subprocess.run(["git", ...])`` — this asks about the repository
+    this source tree was loaded from, and the same leaked ``GIT_*`` environment
+    that could redirect :func:`tracked_ai_layer_paths` onto a different
+    repository could redirect this to list another one's tags instead.
+
+    Both ways :func:`run_git` can fail to answer at all —
+    :class:`NotAGitRepositoryError` and :class:`GitTimedOutError` (DG-454
+    review) — are equally "no tag to report" *here*: this is a benign
+    version-check diagnostic with nothing to protect, unlike
+    :func:`tracked_ai_layer_paths` below, which must tell the two apart.
     """
     try:
-        result = subprocess.run(  # nosec B603 - fixed argv, no shell
-            ["git", "tag", "--sort=-v:refname"],
-            capture_output=True,
-            text=True,
+        result = run_git(
+            ["tag", "--sort=-v:refname"],
+            Path(__file__).resolve().parent,
             timeout=30,
-            check=False,
-            cwd=Path(__file__).resolve().parent,
         )
-    except (OSError, subprocess.SubprocessError):
+    except (NotAGitRepositoryError, GitTimedOutError):
         return None
     if result.returncode != 0:
         return None
@@ -274,7 +294,7 @@ def _check_paths(report: Report) -> None:
                     "paths.home.permissions",
                     "warn",
                     f"{path} is readable by other users on this machine.",
-                    remediation=f"chmod {oct(paths.HOME_MODE)[2:]} {path}",
+                    remediation=paths.secure_command(path),
                 )
             continue
 
@@ -289,7 +309,7 @@ def _check_paths(report: Report) -> None:
                 "paths.auth_db.permissions",
                 "fail",
                 f"{path} holds credentials and is readable by other users.",
-                remediation=f"chmod 600 {path}",
+                remediation=paths.secure_command(path),
             )
 
 
@@ -298,7 +318,11 @@ def _check_paths(report: Report) -> None:
 #: container or another machine puts it elsewhere, and a test must be able to
 #: point it at a fixture.
 ENV_TOOL_ROOT: Final = "DRUNKEN_TOOL_ENV"
-DEFAULT_TOOL_ROOT: Final = "~/.local/share/uv/tools/drunken-guild"
+TOOL_PACKAGE: Final = "drunken-guild"
+
+#: uv's own setting for where tool environments live. Read before asking uv,
+#: which honours it too, so an explicit answer costs no subprocess.
+ENV_UV_TOOL_DIR: Final = "UV_TOOL_DIR"
 
 #: Where the *previous* package name installed to. `uv tool` names the
 #: directory after the distribution, so DG-264's rename moved it — and a
@@ -307,26 +331,78 @@ DEFAULT_TOOL_ROOT: Final = "~/.local/share/uv/tools/drunken-guild"
 #: an installation under the old name is a real thing to know about, and the
 #: honest report is "you are running a pre-rename install", not silence and not
 #: a green line about the wrong directory.
-LEGACY_TOOL_ROOTS: Final = ("~/.local/share/uv/tools/drunken-team",)
+#: Names, not paths: they live beside the current one, in whatever directory
+#: uv uses on this machine (so, uv/tools/drunken-team on POSIX).
+LEGACY_TOOL_PACKAGES: Final = ("drunken-team",)  # uv/tools/drunken-team
 
 #: Modules whose absence from the deployment has actually mattered. Not every
 #: module — a list that tries to be exhaustive goes stale silently, and the
 #: point is to notice a *merge* that has not been deployed, which these are the
 #: evidence of.
 DEPLOYED_MODULES: Final = (
-    "core.away",
     "core.permission_rules",
     "core.usage",
-    "service.approval_hook",
+    "core.hook",
     "jira_mcp.jql",
     "jira_mcp.assign",
     "jira_mcp.backlog",
 )
 
 
-def tool_env_root() -> Path:
-    raw = os.environ.get(ENV_TOOL_ROOT) or DEFAULT_TOOL_ROOT
-    return Path(os.path.expandvars(raw)).expanduser()
+def default_uv_tool_dir(platform: Optional[str] = None) -> Path:
+    """Where uv puts tool environments when nothing says otherwise.
+
+    The POSIX path was once the only answer, on every platform — so on Windows
+    this check looked where nothing is ever installed and said SKIP (DG-373).
+    """
+    if (platform or sys.platform) == "win32":
+        appdata = os.environ.get("APPDATA")
+        base = Path(appdata) if appdata else Path.home() / "AppData" / "Roaming"
+        return base / "uv" / "tools"
+    return Path("~/.local/share/uv/tools").expanduser()
+
+
+def uv_tool_dir() -> Path:
+    """uv's tool directory, in uv's own order: the setting, uv, the default.
+
+    Asking uv beats reconstructing its answer, because uv is what decided where
+    the install went. A uv that is absent or fails is not an error here — the
+    default is still the best guess, and the check that follows says whether
+    anything is there.
+    """
+    if raw := os.environ.get(ENV_UV_TOOL_DIR):
+        return Path(os.path.expandvars(raw)).expanduser()
+    uv = shutil.which("uv")
+    if uv:
+        try:
+            result = subprocess.run(  # nosec B603 - fixed argv, uv from PATH
+                [uv, "tool", "dir"],
+                capture_output=True,
+                text=True,
+                timeout=10,
+                check=False,
+            )
+        except (OSError, subprocess.SubprocessError):
+            result = None
+        if result is not None and result.returncode == 0 and result.stdout.strip():
+            return Path(result.stdout.strip())
+    return default_uv_tool_dir()
+
+
+def tool_env_root(tool_dir: Optional[Path] = None) -> Path:
+    if raw := os.environ.get(ENV_TOOL_ROOT):
+        return Path(os.path.expandvars(raw)).expanduser()
+    return (tool_dir if tool_dir is not None else uv_tool_dir()) / TOOL_PACKAGE
+
+
+def _site_dirs(env_root: Path) -> list[Path]:
+    """Every site-packages in a venv: `lib/pythonX.Y/…` on POSIX, `Lib/…` on
+    Windows, where there is no version directory between the two."""
+    found = set(env_root.glob("lib/*/site-packages"))
+    windows = env_root / "Lib" / "site-packages"
+    if windows.is_dir():
+        found.add(windows)
+    return sorted(found)
 
 
 def compare_deployment(env_root: Path, modules: Sequence[str]) -> dict[str, list[str]]:
@@ -338,7 +414,7 @@ def compare_deployment(env_root: Path, modules: Sequence[str]) -> dict[str, list
     A package directory counts, so a module that grows into a package does not
     read as a false gap.
     """
-    site_dirs = sorted(env_root.glob("lib/*/site-packages"))
+    site_dirs = _site_dirs(env_root)
     present: list[str] = []
     missing: list[str] = []
 
@@ -366,7 +442,6 @@ PACKAGED_TREES: Final = (
     "route",
     "service",
     "jira_mcp",
-    "discord_mcp",
     "scripts",
 )
 
@@ -401,7 +476,7 @@ def compare_deployed_content(
     deployed at all. Files only in the deployment are ignored — a stale build
     artefact left behind is not evidence about what merged.
     """
-    site_dirs = sorted(env_root.glob("lib/*/site-packages"))
+    site_dirs = _site_dirs(env_root)
     stale: list[str] = []
     absent: list[str] = []
 
@@ -440,7 +515,7 @@ def deployed_version(env_root: Path, package: str) -> Optional[str]:
     ``None`` when it cannot be determined, which is deliberately different from
     a version that disagrees — see :func:`compare_pin`.
     """
-    for site in sorted(env_root.glob("lib/*/site-packages")):
+    for site in _site_dirs(env_root):
         for dist in site.glob(f"{package}-*.dist-info"):
             name = dist.name[: -len(".dist-info")]
             if "-" in name:
@@ -465,31 +540,30 @@ def compare_pin(deployed: Optional[str], locked: Optional[str]) -> tuple[Status,
     )
 
 
-#: Where the AI layer is installed to, and what shape it takes there.
-#:
-#: Only skills are compared, and only the ones this repository produces. The
-#: Antigravity *agents* are generated with a transformation — the model is
-#: rewritten to its tier equivalent and the skill-index path is repointed — so
-#: they are correctly not byte-identical to their source and comparing them
-#: would report drift on every healthy install.
-AI_LAYER_ROOTS: Final = (
-    ("claude.skills", "~/.claude/skills"),
-    ("antigravity.skills", "~/.gemini/config/skills"),
-)
+#: Where the AI layer is installed to. Only skills are compared, and only the
+#: ones this repository produces. The Antigravity tree that used to sit beside
+#: this one was retired with the rest of its plumbing (DG-349).
+AI_LAYER_ROOTS: Final = (("claude.skills", "~/.claude/skills"),)
 
 
-#: The MCP configs a host application actually reads. ``drunken-config`` writes
-#: and merges exactly one of them; the second is the host's own, and nothing
-#: here has ever looked at it.
+#: The MCP configs a host application actually reads, beyond the one
+#: onboarding manages. Reading only the managed file is what once let a
+#: retired server keep launching: the host started a ``board`` server the
+#: managed file no longer named, because the entry was in the host's own file.
 #:
-#: Reading only the managed file is what let a retired server keep launching.
-#: On Antigravity's last run it rewrote sixteen tool descriptors for a ``board``
-#: server — ``board_claim_task`` among them — while the managed file named no
-#: such server. The entry was in the other file. The board was retired in
-#: DG-265; the host was still starting it.
-HOST_MCP_CONFIGS: Final = (
-    ("antigravity.cli", "~/.gemini/antigravity-cli/mcp_config.json"),
-    ("antigravity.config", "~/.gemini/config/mcp_config.json"),
+#: Empty since DG-349 retired the Antigravity plumbing — both entries here were
+#: Antigravity's own configs under ``~/.gemini``, and emptying it left the check
+#: reading nothing at all: every test here injects its own roots, so it stayed
+#: green while unable to fire. DG-341's stale-project notice then could not reach
+#: the one file where it matters.
+#:
+#: ``~/.claude.json`` is that file. Its top-level ``mcpServers`` is **user
+#: scope** — every session on this machine, whatever project it is opened in,
+#: which is the scope that carried the leak this check now reports. Only that
+#: block is read: a project-scoped entry under ``projects.<path>`` reaches one
+#: directory and is the operator's deliberate choice for it.
+HOST_MCP_CONFIGS: Final[tuple[tuple[str, str], ...]] = (
+    ("claude.json", "~/.claude.json"),
 )
 
 #: This project's Jira server. Anything else answering the same question is a
@@ -525,6 +599,31 @@ def _unresolvable(server: dict[str, Any]) -> list[str]:
         if isinstance(arg, str) and arg.startswith("/") and not Path(arg).exists():
             missing.append(arg)
     return missing
+
+
+#: Ours, and the only entries a stale project is worth reporting on. A
+#: `--project` on somebody else's server is an ordinary flag, and a check that
+#: fired on it would be noise an operator learns to skip.
+def _stale_project_servers(servers: dict[str, Any]) -> list[str]:
+    """Our own entries that still pass a project to a server that takes none.
+
+    DG-341 moved the project into every tool call, which is what stopped one
+    user-scope entry deciding the Jira for every session on the machine. An
+    entry still carrying the flag is **not broken** — verified by handshake: it
+    is accepted and ignored. That is precisely why it is worth naming. It reads
+    like the thing that chooses a project, it no longer is, and the user-scope
+    entry carrying it is the one an operator still has to remove by hand.
+    """
+    stale = []
+    for name, config in servers.items():
+        if not isinstance(config, dict) or not is_drunken_managed(name):
+            continue
+        args = config.get("args")
+        if isinstance(args, list) and any(
+            isinstance(arg, str) and arg == "--project" for arg in args
+        ):
+            stale.append(name)
+    return sorted(stale)
 
 
 def _rival_jira_servers(servers: dict[str, Any]) -> list[str]:
@@ -574,10 +673,16 @@ def _check_host_configs(
 
         try:
             document = json.loads(path.read_text(encoding="utf-8"))
-            servers = document["mcpServers"] if isinstance(document, dict) else {}
+            # `.get`, not `[...]`. `~/.claude.json` holds far more than MCP
+            # servers, and a host declaring none is ordinary -- reading a missing
+            # key as unparseable would report the common case as a fault, which
+            # is how a check earns the habit of being ignored.
+            servers = (
+                document.get("mcpServers") or {} if isinstance(document, dict) else {}
+            )
             if not isinstance(servers, dict):
                 raise ValueError("mcpServers is not an object")
-        except (OSError, ValueError, KeyError) as exc:
+        except (OSError, ValueError) as exc:
             report.add(
                 check,
                 "warn",
@@ -595,8 +700,13 @@ def _check_host_configs(
             if isinstance(config, dict) and (paths_missing := _unresolvable(config))
         }
         rivals = _rival_jira_servers(servers)
+        stale = _stale_project_servers(servers)
 
-        if not broken and not rivals:
+        if not servers:
+            report.add(check, "skip", f"{path} declares no MCP servers.")
+            continue
+
+        if not broken and not rivals and not stale:
             report.add(check, "ok", f"all {len(servers)} server(s) in {path} resolve")
             continue
 
@@ -611,6 +721,12 @@ def _check_host_configs(
             )
         if rivals:
             parts.append(f"{', '.join(rivals)} serve(s) Jira beside {OUR_JIRA_SERVER}")
+        if stale:
+            parts.append(
+                f"{', '.join(stale)} still pass(es) --project, which this "
+                "checkout's server ignores — every tool takes the project as an "
+                "argument (DG-341)"
+            )
 
         report.add(
             check,
@@ -620,7 +736,12 @@ def _check_host_configs(
                 "Editing a host's own config is the operator's step, never this "
                 "tool's. A server that cannot start is attempted on every launch "
                 "and fails silently; a second Jira server is a surface that can "
-                "disagree with this project's."
+                "disagree with this project's. On --project: leave it in place "
+                "until the deployment above reports no drift. This checkout "
+                "ignores it, but the *installed* server is what a host launches, "
+                "and a version predating DG-341 needs it — remove it first and "
+                'every tool call answers "started without a project" instead. '
+                "Reinstall, confirm, then drop the args."
             ),
         )
 
@@ -646,17 +767,102 @@ def repo_skills(root: Path) -> dict[str, Path]:
     }
 
 
+def extras_skill_names(root: Path) -> set[str]:
+    """Skills that moved to ``plugins/drunken-extras/skills/`` (DG-352/353).
+
+    Named separately from :func:`repo_skills` because they are still
+    first-party and still shipped — just not from ``skills/`` any more, and
+    an install that still carries one is not the same finding as one carrying
+    something this project never produced at all (DG-359).
+    """
+    extras_dir = root / "plugins" / "drunken-extras" / "skills"
+    if not extras_dir.is_dir():
+        return set()
+    return {skill.parent.name for skill in extras_dir.glob("*/SKILL.md")}
+
+
+def external_skill_names(root: Path) -> set[str]:
+    """Names declared third-party in ``skills/.external``.
+
+    Same file ``install_skills.sh`` reads: a name listed there is a deliberate
+    statement that this repository did not author it, so it is not reported as
+    an unexplained extra either.
+    """
+    external_file = root / "skills" / ".external"
+    if not external_file.is_file():
+        return set()
+    try:
+        text = external_file.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        # DG-475: not valid UTF-8 is treated the same as absent -- there is
+        # nothing here this check can safely call "declared third-party".
+        return set()
+    names = set()
+    for line in text.splitlines():
+        stripped = line.strip()
+        if stripped and not stripped.startswith("#"):
+            names.add(stripped)
+    return names
+
+
+#: Relative to the repository root. The single list both installers and this
+#: module read, so "retired" means one thing everywhere (DG-359 review
+#: finding #1).
+RETIRED_SKILLS_FILE: Final = "scripts/install/retired_skills.txt"
+
+
+def retired_skill_names(root: Path) -> set[str]:
+    """Names on ``scripts/install/retired_skills.txt`` — the *only* names an
+    install script's ``--prune-apply`` may ever remove.
+
+    Comments (``#``) and blank lines are skipped; ``\\r`` is stripped so a
+    CRLF checkout parses identically to an LF one. **Never** returns a name
+    that :func:`repo_skills` also returns — a retired name must not be able
+    to delete something the guild still ships; that invariant is asserted in
+    ``tests/test_install_prune.py``, not enforced here, because this function
+    answers "what does the list say", not "is the list sane".
+    """
+    list_file = root / RETIRED_SKILLS_FILE
+    if not list_file.is_file():
+        return set()
+    try:
+        text = list_file.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        # DG-475: not valid UTF-8 is treated the same as absent -- a prune
+        # step must never read this as a real, if empty, retired list.
+        return set()
+    names = set()
+    for raw_line in text.splitlines():
+        stripped = raw_line.strip("\r").strip()
+        if stripped and not stripped.startswith("#"):
+            names.add(stripped)
+    return names
+
+
 def compare_ai_layer(root: Path, install_root: Path) -> dict[str, list[str]]:
-    """Which of the repository's skills are absent or different at *install_root*.
+    """Which of the repository's skills are absent, different, or extra at
+    *install_root*.
 
     Compared by reading ``SKILL.md`` rather than by mtime or by counting
     directories. A count matched while `git-workflow` was installed at 120 lines
     against 196 in the source, and both surfaces reported themselves healthy.
+
+    ``extra`` names a directory installed with a ``SKILL.md`` that this
+    repository's ``skills/`` does not produce. It is **not** drift — content
+    that is present and correct is not "different" — and it is not ownership:
+    a third-party pack such as Gemini CLI's own ``~/.gemini/.../skills`` is
+    never passed as *install_root* here, but if it ever were, a name this
+    repository has no stake in is still worth a caller naming rather than
+    silently absorbing into "fine" (DG-359). Classifying an extra as retired
+    versus merely moved elsewhere is the caller's job — see
+    :func:`extras_skill_names` and :func:`external_skill_names` — because that
+    answer depends on the repository, not on the comparison itself.
     """
     missing: list[str] = []
     drifted: list[str] = []
 
-    for name, source in repo_skills(root).items():
+    ours = repo_skills(root)
+    for name, source in ours.items():
         installed = install_root / name / "SKILL.md"
         if not installed.is_file():
             missing.append(name)
@@ -667,7 +873,17 @@ def compare_ai_layer(root: Path, install_root: Path) -> dict[str, list[str]]:
         except OSError:
             drifted.append(name)
 
-    return {"missing": missing, "drifted": drifted}
+    extra: list[str] = []
+    if install_root.is_dir():
+        for entry in sorted(install_root.iterdir()):
+            if (
+                entry.is_dir()
+                and entry.name not in ours
+                and (entry / "SKILL.md").is_file()
+            ):
+                extra.append(entry.name)
+
+    return {"missing": missing, "drifted": drifted, "extra": extra}
 
 
 def _check_ai_layer(report: Report, root: Optional[Path] = None) -> None:
@@ -685,6 +901,16 @@ def _check_ai_layer(report: Report, root: Optional[Path] = None) -> None:
     legitimately has none, and a check that cries wolf there is one everybody
     learns to ignore. Drift is a **warn** rather than a failure because the
     remedy is an install, which is the operator's to run, not this tool's.
+
+    ``ok`` used to mean only "ours are present and correct" — the question this
+    answered was always "are ours all there", never "is anything else there
+    too". `install_skills.sh` was run after the 2.0.0 re-scope and left 34
+    retired skill directories installed beside the 11 this repository ships;
+    this check reported "all 11 skills match the source" in the same run,
+    because nothing it compared ever looked past the 11 it already knew about
+    (DG-359). An extra directory now ends the ``ok``, named apart from drift
+    and from a merely-moved skill — see :func:`compare_ai_layer`,
+    :func:`extras_skill_names` and :func:`external_skill_names`.
     """
     root = root if root is not None else source_tree_root()
     if root is None:
@@ -697,6 +923,13 @@ def _check_ai_layer(report: Report, root: Optional[Path] = None) -> None:
         return
 
     total = len(repo_skills(root))
+    moved = extras_skill_names(root)
+    external = external_skill_names(root)
+    # A name on the retired list that has since reappeared under `skills/` or
+    # `plugins/drunken-extras/skills/` is shipped again, by whichever surface
+    # claims it — `moved`/`ours` always wins over "retired", so this check
+    # never calls something the guild currently ships prunable.
+    retired = retired_skill_names(root) - moved - set(repo_skills(root))
     for name, raw in AI_LAYER_ROOTS:
         install_root = Path(raw).expanduser()
         if not install_root.is_dir():
@@ -705,7 +938,14 @@ def _check_ai_layer(report: Report, root: Optional[Path] = None) -> None:
 
         result = compare_ai_layer(root, install_root)
         missing, drifted = result["missing"], result["drifted"]
-        if not missing and not drifted:
+        extra = [e for e in result["extra"] if e not in external]
+        extra_moved = sorted(e for e in extra if e in moved)
+        extra_retired = sorted(e for e in extra if e not in moved and e in retired)
+        extra_unrecognised = sorted(
+            e for e in extra if e not in moved and e not in retired
+        )
+
+        if not missing and not drifted and not extra:
             report.add(
                 f"ai_layer.{name}",
                 "ok",
@@ -726,12 +966,389 @@ def _check_ai_layer(report: Report, root: Optional[Path] = None) -> None:
                 + (", …" if len(missing) > 4 else "")
                 + ")"
             )
+        if extra_moved:
+            parts.append(
+                f"{len(extra_moved)} moved to plugins/drunken-extras "
+                f"({', '.join(extra_moved[:4])}"
+                + (", …" if len(extra_moved) > 4 else "")
+                + ")"
+            )
+        if extra_retired:
+            parts.append(
+                f"{len(extra_retired)} retired, will be pruned "
+                f"({', '.join(extra_retired[:4])}"
+                + (", …" if len(extra_retired) > 4 else "")
+                + ")"
+            )
+        if extra_unrecognised:
+            parts.append(
+                f"{len(extra_unrecognised)} unrecognised, never pruned "
+                f"({', '.join(extra_unrecognised[:4])}"
+                + (", …" if len(extra_unrecognised) > 4 else "")
+                + ")"
+            )
         report.add(
             f"ai_layer.{name}",
             "warn",
             "; ".join(parts)
             + ". Run scripts/install/install_skills.sh — an install is the "
-            "operator's to run.",
+            "operator's to run, and pruning is opt-in and list-only by "
+            "default (--prune to list, --prune --prune-apply to remove only "
+            "the retired ones). An unrecognised name is never pruned "
+            "automatically — add it to skills/.external if it is yours, or "
+            "to scripts/install/retired_skills.txt if it is retired.",
+        )
+
+
+#: A code span (`/build`, `jira_*`, `skills/INDEX.md`) or a bold role name
+#: (**worker**) inside the guild block's pointer table.
+_ROUTE_CODE_SPAN: Final = re.compile(r"`([^`]+)`")
+_ROUTE_BOLD_ROLE: Final = re.compile(r"\*\*(manager|worker|reviewer)\*\*")
+
+#: `@mcp.tool()`, any number of other decorators, then the `def` it names.
+#: Read as source rather than imported -- importing the server module runs its
+#: own setup, and the only question here is what name follows the decorator.
+_MCP_TOOL_DEF: Final = re.compile(
+    r"@mcp\.tool\(\)[^\n]*\n(?:@[^\n]*\n)*(?:async\s+)?def\s+(\w+)"
+)
+
+#: The three roles a route can name. Each resolves to `agents/<role>.md`.
+ROUTE_ROLES: Final = ("manager", "worker", "reviewer")
+
+
+def guild_block(agents_md_text: str) -> str:
+    """The pointer table between the guild-block markers, or ``""``.
+
+    An absent marker is not an error here — :func:`_check_routes` is the one
+    that decides whether a missing block is worth reporting, and reports it as
+    a skip rather than inventing a table that is not there.
+    """
+    if "<!-- guild-block:start -->" not in agents_md_text:
+        return ""
+    try:
+        return agents_md_text.split("<!-- guild-block:start -->", 1)[1].split(
+            "<!-- guild-block:end -->", 1
+        )[0]
+    except IndexError:
+        return ""
+
+
+def route_targets(block: str) -> list[str]:
+    """Every pointer named in the guild block: code spans and bold role names.
+
+    A wildcard such as ``jira_*`` is kept exactly as written — resolving it
+    against the registered tool names is :func:`unresolved_routes`'s job, not
+    this one's.
+    """
+    return _ROUTE_CODE_SPAN.findall(block) + _ROUTE_BOLD_ROLE.findall(block)
+
+
+def _skill_dirs(skills_root: Path) -> dict[str, Path]:
+    """Every skill under *skills_root*, by its folder name."""
+    if not skills_root.is_dir():
+        return {}
+    return {
+        skill.parent.name: skill.parent
+        for skill in sorted(skills_root.glob("*/*/SKILL.md"))
+    }
+
+
+def _route_target_resolves(
+    target: str,
+    skills: dict[str, Path],
+    agents_root: Path,
+    tools: set[str],
+) -> bool:
+    """Whether one route target names something that actually exists.
+
+    A path ending ``.md`` is handled by the caller before this is reached —
+    it is checked against the repository root, which this function is not
+    given.
+    """
+    if target.endswith("*"):
+        prefix = target[:-1]
+        return any(tool.startswith(prefix) for tool in tools)
+    if target.startswith("/"):
+        return target[1:] in skills
+    if target in ROUTE_ROLES:
+        return (agents_root / f"{target}.md").is_file()
+    return target in tools
+
+
+def _resolves_under_repo(repo_root: Path, target: str) -> bool:
+    """Whether a ``.md`` route target is both an existing file and still
+    inside the repository, once ``..`` is resolved away.
+
+    A target like ``../../etc/passwd`` reads as a file on disk the same way
+    a real one does; this check's job is to say the route named something
+    real, not to resolve a path that walks outside the tree it names.
+    """
+    try:
+        resolved_root = repo_root.resolve()
+        candidate = (repo_root / target).resolve()
+        candidate.relative_to(resolved_root)
+    except (OSError, ValueError):
+        return False
+    return candidate.is_file()
+
+
+def unresolved_routes(
+    targets: Sequence[str],
+    skills_root: Path,
+    agents_root: Path,
+    mcp_tools: Sequence[str],
+) -> list[str]:
+    """Which of *targets* name a skill, role or MCP tool that does not exist.
+
+    A slash command (``/build``) resolves to a skill folder of that name,
+    wherever under ``skills/`` it sits. A bare role name resolves to
+    ``agents/<role>.md``. A path ending ``.md`` is checked directly, relative
+    to the repository root ``skills_root``'s parent holds, and must resolve
+    to a file inside that root — a ``..`` that walks outside it is reported
+    as missing rather than followed. ``jira_*`` is a wildcard over the
+    registered tool names, matched by prefix — the wildcard itself is never
+    "missing", only unmatched by anything registered.
+    """
+    skills = _skill_dirs(skills_root)
+    tools = set(mcp_tools)
+    repo_root = skills_root.parent
+
+    missing: list[str] = []
+    for target in targets:
+        if target.endswith(".md"):
+            if not _resolves_under_repo(repo_root, target):
+                missing.append(target)
+            continue
+        if not _route_target_resolves(target, skills, agents_root, tools):
+            missing.append(target)
+    return missing
+
+
+def registered_mcp_tools(server_path: Path) -> list[str]:
+    """The tool names ``src/jira_mcp/server.py`` registers, read as text."""
+    try:
+        text = server_path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        # DG-475: not valid UTF-8 is treated the same as an absent file --
+        # there are no tool names this reading can honestly report.
+        return []
+    return _MCP_TOOL_DEF.findall(text)
+
+
+def skill_description(skill_md: Path) -> str:
+    """The frontmatter ``description:`` field of a ``SKILL.md``, or ``""``.
+
+    Handles both a plain value on the same line and a YAML block scalar
+    (``>`` or ``|``) indented on the lines that follow, which is how every
+    skill in this repository writes it.
+    """
+    try:
+        text = skill_md.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        # DG-475: not valid UTF-8 is treated the same as an absent file --
+        # there is no description this reading can honestly report.
+        return ""
+    if not text.startswith("---"):
+        return ""
+    parts = text.split("---", 2)
+    if len(parts) < 3:
+        return ""
+
+    collecting = False
+    collected: list[str] = []
+    for line in parts[1].splitlines():
+        if collecting:
+            if line.strip() and (line.startswith(" ") or line.startswith("\t")):
+                collected.append(line.strip())
+                continue
+            break
+        if line.strip().startswith("description:"):
+            value = line.split(":", 1)[1].strip()
+            if value in (">", "|", ""):
+                collecting = True
+                continue
+            return value
+    return " ".join(collected)
+
+
+#: A name, optionally slash-prefixed, as a whole word — not a substring of a
+#: longer hyphenated one. ``\b`` alone is not enough: ``\bbuild\b`` still
+#: matches inside ``build-step`` (a word/non-word boundary sits at the
+#: hyphen), so the boundary here treats a hyphen as part of the word too,
+#: the same way a skill's own folder name uses it.
+def _mentions(text: str, name: str) -> bool:
+    pattern = re.compile(rf"(?<![\w-])/?{re.escape(name)}(?![\w-])")
+    return bool(pattern.search(text))
+
+
+class UndecodableFileError(ValidationError):
+    """A file this check needs to read is not valid UTF-8 (DG-475).
+
+    Carries only *path* — never the bytes that failed to decode — so a
+    caller can name the file in a failing check without risking the
+    content reaching the report at all.
+    """
+
+    code = "undecodable_file"
+
+    def __init__(self, path: Path) -> None:
+        super().__init__(f"{path} is not valid UTF-8 text.")
+        self.path = path
+
+
+def _read_text_or_raise(path: Path) -> str:
+    """*path*'s content, or :class:`UndecodableFileError` naming only the
+    path — never the bytes that failed to decode."""
+    try:
+        return path.read_text(encoding="utf-8")
+    except UnicodeDecodeError as exc:
+        raise UndecodableFileError(path) from exc
+
+
+def unreachable_skills(
+    skills_root: Path, agents_root: Path, guild_block_text: str
+) -> list[str]:
+    """Skills named by nothing: not the guild block, not an agent file, and
+    not another skill's own text (a "next step" line included).
+
+    A skill's own description is deliberately not asked here (REQ-013, as
+    the Boss approved it): being a good match for an agent picking by
+    description is a separate fact from being *routed* to, and the literal
+    requirement is that every skill is reached one of those ways — not that
+    it merely has a description that reads well. Matched whole-word, slash
+    form included, so a skill named ``build`` is not satisfied by another
+    skill's prose saying ``rebuild``. A skill's own file is excluded from the
+    texts checked against it, so a skill cannot make itself reachable by
+    naming itself.
+
+    Raises :class:`UndecodableFileError` (DG-475), naming only the offending
+    path, when a ``SKILL.md`` or an agent's own ``.md`` is not valid UTF-8 —
+    neither is a file this repository receives from outside, but both are
+    read here with no earlier guard at all, and a decode failure must never
+    raise a raw traceback out of :func:`_check_routes`.
+    """
+    skills = _skill_dirs(skills_root)
+    texts = {
+        name: _read_text_or_raise(path / "SKILL.md") for name, path in skills.items()
+    }
+    agent_texts = (
+        [_read_text_or_raise(p) for p in sorted(agents_root.glob("*.md"))]
+        if agents_root.is_dir()
+        else []
+    )
+
+    unreachable: list[str] = []
+    for name in sorted(skills):
+        others = (
+            guild_block_text
+            + "\n"
+            + "\n".join(agent_texts)
+            + "\n"
+            + "\n".join(text for other, text in texts.items() if other != name)
+        )
+        if _mentions(others, name):
+            continue
+        unreachable.append(name)
+    return unreachable
+
+
+def _check_routes(report: Report, repo_root: Optional[Path] = None) -> None:
+    """REQ-013: fail when a route's target is missing, or a skill is reached
+    by nothing at all.
+
+    The routes are the guild block's pointer table in ``AGENTS.md`` (REQ-011)
+    and each flow skill's own "next step" hand-off (REQ-012) — not a second,
+    separate check of whether every pointer anywhere in the repository's
+    prose resolves to a file. That is DG-393's job, scoped deliberately
+    narrower, and run later. A skill's own description (REQ-010) is not
+    asked here: it is how an agent *picks* a skill, a different fact from
+    whether anything *routes* to it, and the literal requirement is reached
+    by one of the guild block, an agent file, or another skill's text.
+
+    An absent source tree, or an ``AGENTS.md`` with no guild block, is a
+    **skip**: an installed package has neither, and a check that cries wolf
+    there is one nobody reads.
+    """
+    repo_root = repo_root if repo_root is not None else source_tree_root()
+    if repo_root is None:
+        report.add(
+            "routes.guild_block",
+            "skip",
+            "Running from an installed package, so there is no AGENTS.md or "
+            "skills/ tree to check routes against.",
+        )
+        return
+
+    agents_md = repo_root / "AGENTS.md"
+    if not agents_md.is_file():
+        report.add("routes.guild_block", "skip", f"No AGENTS.md at {agents_md}.")
+        return
+
+    try:
+        text = agents_md.read_text(encoding="utf-8")
+    except UnicodeDecodeError:
+        # DG-475: named and redacted -- the file's own bytes never reach
+        # this report, only its path.
+        report.add(
+            "routes.guild_block", "fail", f"{agents_md} is not valid UTF-8 text."
+        )
+        return
+    block = guild_block(text)
+    if not block:
+        report.add(
+            "routes.guild_block",
+            "skip",
+            f"{agents_md} carries no guild block.",
+        )
+        return
+
+    skills_root = repo_root / "skills"
+    agents_root = repo_root / "agents"
+    server_path = repo_root / "src" / "jira_mcp" / "server.py"
+
+    targets = route_targets(block)
+    tools = registered_mcp_tools(server_path)
+    missing = sorted(set(unresolved_routes(targets, skills_root, agents_root, tools)))
+    if missing:
+        report.add(
+            "routes.targets",
+            "fail",
+            f"{len(missing)} route target(s) in {agents_md.name} name a skill, "
+            "role or tool that does not exist: " + ", ".join(missing),
+            remediation="Fix the route, or add the skill, role or tool it names.",
+        )
+    else:
+        report.add(
+            "routes.targets",
+            "ok",
+            f"all {len(set(targets))} route target(s) in {agents_md.name} resolve",
+        )
+
+    try:
+        unreachable = unreachable_skills(skills_root, agents_root, block)
+    except UndecodableFileError as exc:
+        # DG-475: named and redacted, same as the AGENTS.md case above --
+        # routes.targets was already reported, and run_doctor's later
+        # checks still run; only this one check is reported as failed.
+        report.add_error("routes.reachable", exc)
+        return
+    if unreachable:
+        report.add(
+            "routes.reachable",
+            "fail",
+            f"{len(unreachable)} skill(s) are named by no route in "
+            f"{agents_md.name}, no agent file and no other skill: "
+            + ", ".join(unreachable),
+            remediation=(
+                "Name the skill in a guild-block route, in an agent file, or "
+                "in another skill's own text."
+            ),
+        )
+    else:
+        report.add(
+            "routes.reachable",
+            "ok",
+            "every skill is reached by a route, an agent file or another skill",
         )
 
 
@@ -766,12 +1383,16 @@ def _check_deployment(
     yellow one, and the remedy is an install — the operator's to run, never
     this tool's.
     """
-    env_root = env_root if env_root is not None else tool_env_root()
+    # `legacy_roots` is injectable for the same reason as `env_root`: otherwise
+    # this check reads the developer's own machine, and a test asserting "no
+    # install is a skip" passes or fails depending on whose laptop runs it.
+    if env_root is None or legacy_roots is None:
+        # Asked once: it can be a subprocess, and both roots live in its answer.
+        tool_dir = uv_tool_dir()
+        env_root = env_root if env_root is not None else tool_env_root(tool_dir)
+        if legacy_roots is None:
+            legacy_roots = tuple(str(tool_dir / name) for name in LEGACY_TOOL_PACKAGES)
     modules = modules if modules is not None else DEPLOYED_MODULES
-    # Injectable for the same reason as `env_root`: otherwise this check reads
-    # the developer's own machine, and a test asserting "no install is a skip"
-    # passes or fails depending on whose laptop runs it.
-    legacy_roots = legacy_roots if legacy_roots is not None else LEGACY_TOOL_ROOTS
 
     if not env_root.is_dir():
         stale = [
@@ -852,7 +1473,10 @@ def _locked_version(package: str = "mcp") -> Optional[str]:
     lock = Path.cwd() / "uv.lock"
     try:
         lines = lock.read_text(encoding="utf-8").splitlines()
-    except OSError:
+    except (OSError, UnicodeDecodeError):
+        # DG-475: not valid UTF-8 reads as "unknown", same as unreadable --
+        # this helper's own rule above ("a doctor check must never be the
+        # thing that raises") applies to a decode failure too.
         return None
 
     for index, line in enumerate(lines):
@@ -985,8 +1609,7 @@ def _check_jira_live(report: Report, project_id: str, context: ProjectContext) -
 def _check_project_paths(
     report: Report, project_id: str, context: ProjectContext
 ) -> None:
-    declared = context.config.path
-    if declared is None:
+    if context.config.path is None:
         report.add(
             f"project.{project_id}.path",
             "skip",
@@ -994,7 +1617,12 @@ def _check_project_paths(
         )
         return
 
-    root = Path(declared)
+    # DG-445: expanduser lives in one place, ProjectConfig.resolved_path —
+    # wrapping the raw registry string in Path() here used to leave a
+    # registered "~/checkout" as a literal directory named "~" that never
+    # exists, so this reported "does not exist" for a project that was
+    # actually there under the real home.
+    root = context.root_path()
     if not root.is_dir():
         report.add(
             f"project.{project_id}.path",
@@ -1050,42 +1678,1255 @@ def _check_project(
     else:
         _check_jira_live(report, project_id, context)
 
-    if context.discord is None:
+    _check_notifications(report, project_id, context)
+
+
+def _check_notifications(
+    report: Report, project_id: str, context: ProjectContext
+) -> None:
+    """Whether one-way Discord notifications are configured, and reachable.
+
+    Three states rather than two. A project with no webhook is *not*
+    misconfigured — notifications are optional — but a registry still carrying
+    the retired ``channel_id`` is a third thing: it looks configured to whoever
+    wrote it, and nothing will ever be sent. Saying so is the only way that
+    ever gets noticed, because nobody is blocked when a notification is missing.
+    """
+    identity = context.discord
+    if identity is not None and identity.webhook:
         report.add(
-            f"project.{project_id}.discord", "skip", "No Discord channel configured."
-        )
-    else:
-        report.add(
-            f"project.{project_id}.discord",
+            f"project.{project_id}.notify",
             "ok",
-            f"channel {context.discord.channel_id}",
+            f"webhook from {identity.webhook}",
         )
+        return
 
-
-def _check_daemon(report: Report) -> None:
-    socket = paths.daemon_socket_path()
-    path = socket.path
-    if not path.exists():
+    if identity is not None and identity.legacy_channel_id:
         report.add(
-            "daemon.socket",
+            f"project.{project_id}.notify",
             "warn",
-            f"No socket at {path} (from {socket.source}) — the approval daemon is not running.",
+            f"discord.channel_id {identity.legacy_channel_id} is set, but a "
+            "channel is no longer how anything is sent, so nothing will be.",
             remediation=(
-                "Start it with 'drunken-listen'. Discord approval falls back to "
-                "asking in-conversation, so this is not fatal."
+                f"Replace it with a 'discord.webhook' reference for {project_id} "
+                "(for example 'env://DISCORD_WEBHOOK_URL'), or drop the block."
             ),
         )
         return
 
-    report.add("daemon.socket", "ok", f"{path}  (from {socket.source})")
-    if paths.is_group_or_world_accessible(path):
+    report.add(
+        f"project.{project_id}.notify",
+        "skip",
+        "No Discord webhook configured. Notifications are optional.",
+    )
+
+
+def _same_checkout(a: Path, b: Path) -> bool:
+    """Whether *a* and *b* name the same directory on disk.
+
+    ``resolve()`` rather than string equality: a registered path may carry a
+    trailing slash, a different case on a case-insensitive filesystem, or a
+    symlink hop, and none of those make it a different checkout.
+    """
+    try:
+        return a.resolve() == b.resolve()
+    except OSError:
+        return False
+
+
+def tracked_ai_layer_paths(git_root: Path) -> Optional[list[str]]:
+    """Every path git tracks under *git_root* that :mod:`core.ai_layer` names.
+
+    Read-only — ``git ls-files`` lists the index; nothing here ever writes to
+    the checkout it is pointed at. ``None`` means git could not be run at all
+    (no binary, no repository, a timeout), which a caller must tell apart from
+    "ran, and tracks nothing": the first is a question that was not answered,
+    the second is a clean project.
+
+    Run with ``-z``, and read as bytes rather than ``text=True``. Without it,
+    ``git`` applies ``core.quotepath`` and C-quotes any path holding a
+    non-ASCII byte or a special character — a tracked
+    ``packages/\xe9/CLAUDE.md`` comes back as the *literal* quoted text, which
+    never equals the real path and so never matches
+    :func:`core.ai_layer.is_ai_layer_path`: a silent false negative on exactly
+    the files this check exists to catch. ``-z`` NUL-separates instead of
+    quoting, so splitting on ``b"\0"`` and decoding (``surrogateescape``, so a
+    byte sequence that is not valid UTF-8 becomes an odd ``str`` instead of
+    raising) recovers the real path whole.
+
+    Routed through :func:`core.exclude.run_git` (DG-451) rather than a second,
+    unstripped ``subprocess.run(["git", ...])``: this was found running with
+    the caller's full inherited environment, so a process with ``GIT_DIR`` /
+    ``GIT_WORK_TREE`` / ``GIT_INDEX_FILE`` set — a git hook, among others —
+    could make it answer about a different repository's (or a different
+    index's) tracked files than *git_root*'s own. It is read-only, so this
+    misreports rather than damages, but this is exactly the check a person
+    trusts (REQ-019). ``text=False`` keeps the bytes/``-z`` handling above
+    unchanged — ``run_git``'s default ``text=True`` would hand back a ``str``
+    already decoded (and newline-translated) by the subprocess layer itself,
+    which is the same class of silent corruption ``-z`` exists to avoid.
+    """
+    try:
+        result = run_git(["ls-files", "-z"], git_root, text=False, timeout=30)
+    except (NotAGitRepositoryError, GitTimedOutError):
+        # Both ways run_git can fail to answer at all (DG-454 review) land
+        # here as the same None: the docstring above already promises a
+        # timeout is one of the reasons, and the caller
+        # (_check_project_layering) already reads None as "skip", never
+        # as "ran, and tracks nothing" — the two must stay tellable apart.
+        return None
+    if result.returncode != 0:
+        return None
+    tracked = (
+        raw.decode("utf-8", errors="surrogateescape")
+        for raw in result.stdout.split(b"\0")
+        if raw
+    )
+    return sorted(path for path in tracked if ai_layer.is_ai_layer_path(path))
+
+
+def _registered_as_this_repository(project_id: str, git_root: Path) -> bool:
+    """Whether the operator registered *git_root* as this repository: the registry id is
+    ``drunken-guild`` AND the checkout's own pyproject declares that package (DG-503).
+
+    The pyproject alone is a string the checkout controls: a fork or vendored copy under another
+    registry id could silence the two leak checks by declaring it (review of #189, reproduced). The
+    registry id is the operator's own statement, so both must agree. A fork registered under
+    another id therefore still fails — the safe direction.
+    """
+    return project_id == ai_layer.THIS_REPOSITORY_PACKAGE_NAME and (
+        ai_layer.target_is_this_repository(git_root)
+    )
+
+
+def _check_project_layering(
+    report: Report,
+    project_id: str,
+    registry: ProjectRegistry,
+    repo_root: Optional[Path],
+) -> None:
+    """Whether *project_id*'s own git tracks any path its AI layer owns.
+
+    REQ-019: a project's AI layer stays out of its own repository. This never
+    writes to the project — it only lists what git already tracks and reads
+    the result, the same way :func:`_check_project_paths` only looks.
+
+    A missing checkout or one with no ``.git`` is a **skip**, never a pass:
+    the question "does it track AI-layer paths" was not answered, which is a
+    different fact from "it answered no". This repository's own checkout is
+    a skip too, exempt by rule — it is where the AI layer is *authored*, the
+    opposite situation from a project it must stay out of.
+    """
+    name = f"layering.tracked.{project_id}"
+    try:
+        config = registry.get_project_config(project_id)
+    except DrunkenError as exc:
+        report.add_error(name, exc)
+        return
+
+    if not config.path:
         report.add(
-            "daemon.socket.permissions",
-            "fail",
-            f"{path} is reachable by other users on this machine, who could "
-            "approve actions as the Boss.",
-            remediation=f"chmod 600 {path} and restart the daemon.",
+            name,
+            "skip",
+            "No path declared, so there is no checkout to inspect.",
         )
+        return
+
+    # DG-445: same expanduser as _check_project_paths and
+    # ProjectContext.root_path() — all three go through
+    # ProjectConfig.resolved_path() now, so a registered "~/checkout" is
+    # inspected rather than silently skipped as a checkout that "does not
+    # exist" under its literal "~" name.
+    root = config.resolved_path("this operation")
+    git_root = root / config.git_root if config.git_root else root
+
+    if (
+        repo_root is not None and _same_checkout(git_root, repo_root)
+    ) or _registered_as_this_repository(project_id, git_root):
+        report.add(
+            name,
+            "skip",
+            f"{git_root} is this repository's own checkout, exempt by rule.",
+        )
+        return
+
+    if not git_root.is_dir() or not (git_root / ".git").exists():
+        report.add(name, "skip", describe_missing_git_root(git_root))
+        return
+
+    tracked = tracked_ai_layer_paths(git_root)
+    if tracked is None:
+        report.add(name, "skip", f"`git ls-files` could not run in {git_root}.")
+        return
+
+    if tracked:
+        report.add(
+            name,
+            "fail",
+            f"{len(tracked)} AI-layer path(s) tracked in git: " + ", ".join(tracked),
+            remediation=(
+                "Move them out with `drunken-init --project <id> "
+                "--migrate-ai-layer` (plan first, `--apply` to do it) — a "
+                "project's AI layer stays out of its own repository "
+                "(REQ-019). A tracked .mcp.json is not replaced in the "
+                "project: declare drunken-jira-mcp once per machine "
+                "(`claude mcp add --scope user`, GETTING_STARTED.md)."
+            ),
+        )
+        return
+
+    report.add(name, "ok", "no AI-layer paths tracked")
+
+
+def _check_project_content_scan(
+    report: Report,
+    project_id: str,
+    registry: ProjectRegistry,
+    repo_root: Optional[Path],
+) -> None:
+    """DG-443: whether any of *project_id*'s already-copied, on-disk
+    AI-layer files hold a credential-, identity- or path-shaped value.
+
+    Read-only, and a second, independent line of defence behind
+    ``drunken-init``'s own pre-write refusal (:mod:`core.layer_copy`,
+    :mod:`core.content_scan`) — this catches a file hand-edited after the
+    copy, or one copied in by a build that predates this check entirely.
+    Walks the checkout with :func:`core.layer_copy.ai_layer_files_under`,
+    the same symlink-refusing walk ``drunken-init`` itself uses, so a
+    symlinked ``.claude`` pointed outside the project is never read here
+    either — one definition of "walk a project's AI layer", not two.
+
+    A missing checkout, same as :func:`_check_project_layering`, is a
+    **skip**, never a pass — the question was not asked, which is not the
+    same fact as "asked, found clean". This repository's own checkout is
+    exempt for the same reason that check exempts it: here the AI layer is
+    authored, not received from a config repo under this rule.
+    """
+    name = f"content_scan.{project_id}"
+    try:
+        config = registry.get_project_config(project_id)
+    except DrunkenError as exc:
+        report.add_error(name, exc)
+        return
+
+    if not config.path:
+        report.add(
+            name,
+            "skip",
+            "No path declared, so there is no checkout to inspect.",
+        )
+        return
+
+    root = config.resolved_path("this operation")
+    git_root = root / config.git_root if config.git_root else root
+
+    if (
+        repo_root is not None and _same_checkout(git_root, repo_root)
+    ) or _registered_as_this_repository(project_id, git_root):
+        report.add(
+            name,
+            "skip",
+            f"{git_root} is this repository's own checkout, exempt by rule.",
+        )
+        return
+
+    if not git_root.is_dir():
+        report.add(name, "skip", describe_missing_git_root(git_root))
+        return
+
+    findings = []
+    for relative in ai_layer_files_under(git_root):
+        findings.extend(
+            content_scan.scan_file(git_root / relative, relative.as_posix())
+        )
+
+    if findings:
+        detail = "; ".join(finding.describe() for finding in findings)
+        report.add(
+            name,
+            "fail",
+            f"{len(findings)} finding(s) in the project's own AI-layer "
+            f"content: {detail}",
+            remediation=(
+                "Replace the value with a reference (env://, file://, "
+                "op://, keyring://), or remove it from the project and the "
+                "config repo it was copied from."
+            ),
+        )
+        return
+
+    report.add(name, "ok", "no credential-, identity- or path-shaped content found")
+
+
+def _check_content_scan(
+    report: Report,
+    project_ids: Sequence[str],
+    registry: ProjectRegistry,
+    repo_root: Optional[Path],
+) -> None:
+    """For each registered project, DG-443's read-only content scan."""
+    for project_id in project_ids:
+        _check_project_content_scan(report, project_id, registry, repo_root)
+
+
+def _check_layering(
+    report: Report,
+    project_ids: Sequence[str],
+    registry: ProjectRegistry,
+    repo_root: Optional[Path],
+) -> None:
+    """For each registered project, whether its own git tracks its AI layer.
+
+    A different concept from :data:`AI_LAYER_ROOTS` / :func:`compare_ai_layer`
+    above, which compare *this repository's* skill install on the host
+    against ``~/.claude`` — drift in an install, not a project's own
+    repository tracking files it should not. Keep the two apart; see
+    :mod:`core.ai_layer`'s own docstring on the same point.
+
+    Absent git entirely is one **skip** for the whole check, not one per
+    project: the question could not be asked of any of them.
+    """
+    if shutil.which("git") is None:
+        report.add(
+            "layering.tracked",
+            "skip",
+            "git is not on PATH, so tracked AI-layer paths cannot be listed.",
+        )
+        return
+
+    for project_id in project_ids:
+        _check_project_layering(report, project_id, registry, repo_root)
+
+
+#: The substring proving a `.pre-commit-config.yaml` actually runs DG-317's
+#: operator-inventory guard, rather than merely declaring hook types a
+#: *different* set of hooks would use. Matched as a raw substring over the
+#: whole file rather than parsed hook-by-hook: the hook's `entry` line
+#: (``entry: python scripts/check_operator_inventory.py``) and its `id`
+#: (``check-operator-inventory``) spell the same guard two different ways,
+#: and a substring catches either without this file growing a second,
+#: hook-shape YAML parser it does not otherwise need.
+_OPERATOR_INVENTORY_GUARD_MARKER: Final = "check_operator_inventory"
+
+#: What `pre-commit install` wires when a config declares no
+#: `default_install_hook_types` of its own — pre-commit's own documented
+#: default, not this project's invention.
+_DEFAULT_HOOK_TYPES_WHEN_UNDECLARED: Final = ("pre-commit",)
+
+#: `default_install_hook_types: [pre-commit, commit-msg]` — flow-style YAML,
+#: the shape this repository's own config currently uses. Matched only
+#: against a line already stripped of any inline comment, so a trailing
+#: ``# why`` never reaches here as part of the list text. Only the opening
+#: `[` is matched here — the closing bracket and the list's own content
+#: are found by :func:`_scan_flow_list_body`'s quote-and-bracket-aware
+#: scan, not by a second `.*` that cannot tell a nested flow collection
+#: from one more plain character (DG-483 follow-up review).
+_HOOK_TYPES_FLOW_OPEN: Final = re.compile(r"^default_install_hook_types:\s*\[")
+
+#: `default_install_hook_types:` with nothing after the colon — block style,
+#: where each type follows on its own `- type` line.
+_HOOK_TYPES_BLOCK_KEY: Final = re.compile(r"^default_install_hook_types:\s*$")
+
+#: The key itself, for recognising a present-but-unrecognised value (an
+#: anchor, an unterminated flow list) apart from the key being absent
+#: entirely — the two must never collapse into the same "use the default"
+#: outcome. See :func:`declared_hook_types`.
+_HOOK_TYPES_KEY_PREFIX: Final = "default_install_hook_types:"
+
+#: The key as YAML itself would recognise it, quoted or not, with any
+#: amount of space before the colon — `"default_install_hook_types": [...]`
+#: and `default_install_hook_types : [...]` are both valid YAML read by
+#: pre-commit exactly the same as the bare, unspaced form. Matching only
+#: the unquoted, unspaced literal would silently read either one as the
+#: key being absent (DG-469 review). The backreference requires the same
+#: quote character (or none) on both sides, so `'key"` is correctly not a
+#: match.
+_HOOK_TYPES_KEY_RE: Final = re.compile(
+    r"^(?P<quote>['\"]?)default_install_hook_types(?P=quote)\s*:"
+)
+
+
+class UnparseableHookTypesError(ValidationError):
+    """``default_install_hook_types`` is present but not in a shape this
+    hand-rolled reader recognises (a YAML anchor, an unterminated
+    multi-line flow list, or any other scalar).
+
+    Deliberately **not** read the same as the key being absent: a config
+    that runs the operator-inventory guard and declares hook types in a
+    shape this reader cannot follow must fail loud and name that it could
+    not read the declaration, not quietly narrow scope to pre-commit's
+    bare default and risk reporting a declared ``commit-msg`` or
+    ``pre-push`` hook as never checked at all.
+    """
+
+    code = "unparseable_hook_types"
+
+
+def runs_operator_inventory_guard(config_text: str) -> bool:
+    """Whether *config_text* (a `.pre-commit-config.yaml`'s contents) runs
+    DG-317's operator-inventory guard at all.
+
+    A repository whose config does not run this guard is not this check's
+    business — see :func:`_check_git_hooks_for_root`, which reads this as
+    "nothing to verify here" rather than a defect.
+    """
+    return _OPERATOR_INVENTORY_GUARD_MARKER in config_text
+
+
+def _advance_past_single_quote(line: str, index: int) -> tuple[int, Optional[str]]:
+    """One step of the scan while inside a single-quoted scalar: `''` is a
+    literal single quote and does not close it, any other `'` does.
+    Returns the next index to scan and the quote state after this step.
+    """
+    if line[index] == "'":
+        if index + 1 < len(line) and line[index + 1] == "'":
+            return index + 2, "'"
+        return index + 1, None
+    return index + 1, "'"
+
+
+def _advance_past_double_quote(line: str, index: int) -> tuple[int, Optional[str]]:
+    """One step of the scan while inside a double-quoted scalar: `\\"` is a
+    literal double quote (and consumes the character after it) and does
+    not close it, any other `"` does. Returns the next index to scan and
+    the quote state after this step.
+    """
+    if line[index] == "\\":
+        return index + 2, '"'
+    if line[index] == '"':
+        return index + 1, None
+    return index + 1, '"'
+
+
+def _scan_line(
+    line: str, start_quote: Optional[str]
+) -> tuple[Optional[str], Optional[int]]:
+    """The one escape-aware quote scan both :func:`_quote_state_after` and
+    :func:`_strip_inline_comment` read off of (DG-478 review): the quote
+    character still open at the end of *line*, and the index of a trailing
+    comment's ``#``, or ``None`` for either when there is none.
+
+    Before this, :func:`_strip_inline_comment` toggled quote state on every
+    bare ``'``/``"`` with no escape awareness at all, while this scan
+    already was — so an escaped double quote inside a flow item
+    (``["a\\"b", "pre-commit"]``) desynchronised the two: the comment
+    stripper thought the quote had already closed where this scan knew it
+    had not, either cutting a line in the wrong place or leaving a real
+    trailing comment baked into the value. One scan, read twice, cannot
+    drift apart from itself.
+
+    A ``#`` also starts a comment with **no** preceding whitespace at all
+    when it directly follows a token that just closed — a quoted scalar's
+    closing quote, or a flow collection's closing ``]``/``}`` — the same as
+    PyYAML itself reads it (DG-483 review: confirmed against
+    ``yaml.safe_load``, not assumed, since YAML elsewhere requires a
+    preceding space for ``#`` to start a comment). ``['pre-commit']#why``
+    is read as the list ``['pre-commit']`` with a comment, not a shape
+    this reader cannot follow.
+    """
+    quote = start_quote
+    index = 0
+    length = len(line)
+    comment_may_start_bare = False
+    while index < length:
+        if quote == "'":
+            index, quote = _advance_past_single_quote(line, index)
+            comment_may_start_bare = quote is None
+            continue
+        if quote == '"':
+            index, quote = _advance_past_double_quote(line, index)
+            comment_may_start_bare = quote is None
+            continue
+        char = line[index]
+        if char == "'":
+            quote = "'"
+            comment_may_start_bare = False
+        elif char == '"':
+            quote = '"'
+            comment_may_start_bare = False
+        elif char == "#" and (
+            index == 0 or line[index - 1].isspace() or comment_may_start_bare
+        ):
+            return quote, index
+        else:
+            comment_may_start_bare = char in "]}"
+        index += 1
+    return quote, None
+
+
+def _quote_state_after(line: str, start_quote: Optional[str]) -> Optional[str]:
+    """The quote character still open at the end of *line*, given it
+    started inside *start_quote* (``None`` if *line* started outside any
+    quoted scalar). See :func:`_scan_line`."""
+    quote, _ = _scan_line(line, start_quote)
+    return quote
+
+
+def _strip_inline_comment(line: str) -> str:
+    """Remove a trailing YAML comment from *line*.
+
+    A ``#`` starts a comment only when it sits outside any quoted string
+    and is either at the very start of the line or preceded by whitespace —
+    the same rule a YAML parser applies, enough of it for the one kind of
+    line this module ever reads (a scalar key, a flow list, or a ``- item``
+    line). Without this, ``default_install_hook_types: [pre-commit,
+    commit-msg]  # wires commit-msg too`` read its own trailing comment as
+    part of the list text, failed to match the flow pattern, and silently
+    fell back to pre-commit's bare default — dropping the declared
+    ``commit-msg`` hook out of the check entirely while still reporting ok.
+
+    Shares :func:`_scan_line` with :func:`_quote_state_after` (DG-478
+    review) rather than its own, escape-blind toggle, so the two can never
+    disagree about where a quote is still open on this one line (always
+    scanned fresh, never carrying state from a previous line — the same
+    assumption every call site already made).
+    """
+    _, comment_index = _scan_line(line, None)
+    return line if comment_index is None else line[:comment_index]
+
+
+#: The double-quoted YAML escapes this hand-rolled reader decodes itself,
+#: each a single character after the backslash mapping to its one decoded
+#: character — confirmed against ``yaml.safe_load`` (DG-483 review), not
+#: assumed. ``\\"`` and ``\\\\`` were already handled before this ticket;
+#: the rest (``\n``, ``\t``, ``\b``, ``\0``, ``\/``) are the ones the
+#: DG-475/478 reviewer found left as two literal characters instead of
+#: being decoded.
+_DOUBLE_QUOTE_SIMPLE_ESCAPES: Final = {
+    "\\": "\\",
+    '"': '"',
+    "n": "\n",
+    "t": "\t",
+    "b": "\b",
+    "0": "\0",
+    "/": "/",
+}
+
+
+def _decode_double_quoted_body(body: str) -> str:
+    """*body*, the text between a double-quoted item's own quotes,
+    YAML-decoded the same way PyYAML itself would (DG-483 review).
+
+    Only the escapes in :data:`_DOUBLE_QUOTE_SIMPLE_ESCAPES` and the
+    ``\\xNN``/``\\uNNNN`` hex forms are decoded — real YAML escapes this
+    reader does not implement (``\\a``, ``\\v``, ``\\f``, ``\\r``, ``\\e``,
+    ``\\U........``, the named Unicode escapes) and anything malformed (a
+    truncated ``\\x``/``\\u``, an unrecognised escape letter, a trailing
+    lone backslash) raise :class:`UnparseableHookTypesError` rather than
+    being decoded wrong or left as literal backslash-letter text — this
+    reader must never return a value that could differ from
+    ``yaml.safe_load``'s, and refusing the shape is always safe where
+    decoding it is not implemented.
+    """
+    decoded: list[str] = []
+    index = 0
+    length = len(body)
+    while index < length:
+        char = body[index]
+        if char != "\\":
+            decoded.append(char)
+            index += 1
+            continue
+        escape = body[index + 1] if index + 1 < length else ""
+        if escape in _DOUBLE_QUOTE_SIMPLE_ESCAPES:
+            decoded.append(_DOUBLE_QUOTE_SIMPLE_ESCAPES[escape])
+            index += 2
+            continue
+        if escape in ("x", "u"):
+            digit_count = 2 if escape == "x" else 4
+            hex_digits = body[index + 2 : index + 2 + digit_count]
+            if len(hex_digits) != digit_count or not all(
+                digit in string.hexdigits for digit in hex_digits
+            ):
+                raise UnparseableHookTypesError(
+                    f"default_install_hook_types contains a malformed "
+                    f"\\{escape} escape: {body!r}.",
+                    remediation=(
+                        "Write the hook type's double-quoted value with a "
+                        "complete \\x (two hex digits) or \\u (four hex "
+                        "digits) escape, or avoid the escape entirely."
+                    ),
+                )
+            decoded.append(chr(int(hex_digits, 16)))
+            index += 2 + digit_count
+            continue
+        raise UnparseableHookTypesError(
+            f"default_install_hook_types contains a double-quoted escape "
+            f"this reader does not decode: {body!r}.",
+            remediation=(
+                "Rewrite the hook type's double-quoted value without "
+                "this escape, or use single quotes, or a plain unquoted "
+                "hook type name."
+            ),
+        )
+    return "".join(decoded)
+
+
+def _unquote_hook_type(item: str) -> str:
+    """*item*, a single flow or block list entry, YAML-unquoted the same
+    way PyYAML itself would for this one scalar shape (DG-478, DG-483
+    review): a matching pair of quotes is stripped, and a single-quoted
+    item's own ``''`` is un-escaped to a literal ``'`` — ``'can''t'`` reads
+    as ``can't``, not the literal text ``can''t`` a bare
+    ``strip("'\\"")`` left behind. A double-quoted item is decoded through
+    :func:`_decode_double_quoted_body`, which raises
+    :class:`UnparseableHookTypesError` for any escape it cannot decode
+    exactly as YAML would, rather than leaving it literal. An item not
+    opening and closing with the same quote character is returned with
+    only its outermost quote characters trimmed, unchanged from this
+    module's behaviour before this ticket — a hook type name has no real
+    use for one here.
+    """
+    if len(item) >= 2 and item[0] == item[-1] == "'":
+        return item[1:-1].replace("''", "'")
+    if len(item) >= 2 and item[0] == item[-1] == '"':
+        return _decode_double_quoted_body(item[1:-1])
+    return item.strip("'\"")
+
+
+def _scan_flow_list_body(stripped: str) -> Optional[str]:
+    """The exact text between a flow list's own ``[`` and its matching
+    ``]`` on *stripped* (``default_install_hook_types: [...]``, already
+    comment-stripped) — or ``None`` if *stripped* does not open a flow
+    list at all, so the caller can try block style next and fail loud
+    for anything else.
+
+    A quote-and-bracket-aware scan, not the "capture everything between
+    the first ``[`` and the last ``]``" pattern this reader used before
+    (DG-483 follow-up review): that pattern cannot tell a nested flow
+    collection from one more plain character, so
+    ``[[a],b]#comment`` — read correctly as a comment once DG-483 taught
+    this scanner that a bare ``#`` right after a closing bracket starts
+    one — went on to match the old pattern and silently returned
+    ``['[a]', 'b']``, a different, narrower list than ``yaml.safe_load``'s
+    own ``[['a'], 'b']``. Any ``[``, ``{``, ``}`` outside a quoted scalar
+    is refused outright: this reader follows one flat list, one level
+    deep, never a nested collection, and must say so rather than guess at
+    flattening or mis-splitting one. A quoted scalar's own brackets
+    (``["[a]"]``) are left alone, read later by
+    :func:`_unquote_hook_type` the same as any other quoted content.
+    """
+    prefix_match = _HOOK_TYPES_FLOW_OPEN.match(stripped)
+    if not prefix_match:
+        return None
+    index = prefix_match.end()
+    length = len(stripped)
+    body_start = index
+    quote: Optional[str] = None
+    while index < length:
+        if quote == "'":
+            index, quote = _advance_past_single_quote(stripped, index)
+            continue
+        if quote == '"':
+            index, quote = _advance_past_double_quote(stripped, index)
+            continue
+        char = stripped[index]
+        if char == "'":
+            quote = "'"
+        elif char == '"':
+            quote = '"'
+        elif char == "]":
+            body = stripped[body_start:index]
+            remainder = stripped[index + 1 :]
+            return None if remainder.strip() else body
+        elif char in "[{}":
+            raise UnparseableHookTypesError(
+                "default_install_hook_types contains a nested flow "
+                f"collection, which this reader does not follow: {stripped!r}.",
+                remediation=(
+                    "Write default_install_hook_types as a flat flow "
+                    "list of plain or quoted hook type names, with no "
+                    "nested [...] or {...}."
+                ),
+            )
+        index += 1
+    raise UnparseableHookTypesError(
+        "default_install_hook_types' flow list is not closed on the "
+        f"same line: {stripped!r}.",
+        remediation=(
+            "Close default_install_hook_types' flow list ([...]) on the "
+            "same line it opens on."
+        ),
+    )
+
+
+def _split_flow_list_body(body: str) -> list[str]:
+    """*body* (a flow list's own content, already proven free of any
+    unquoted nested bracket by :func:`_scan_flow_list_body`), split on
+    its top-level commas — a comma inside a quoted item is never a split
+    point (``['a,b']`` is the one item ``a,b``, not two), the same
+    quote-awareness :func:`_scan_line` already applies to ``#``.
+    """
+    items: list[str] = []
+    start = 0
+    index = 0
+    quote: Optional[str] = None
+    length = len(body)
+    while index < length:
+        if quote == "'":
+            index, quote = _advance_past_single_quote(body, index)
+            continue
+        if quote == '"':
+            index, quote = _advance_past_double_quote(body, index)
+            continue
+        char = body[index]
+        if char == "'":
+            quote = "'"
+        elif char == '"':
+            quote = '"'
+        elif char == ",":
+            items.append(body[start:index])
+            start = index + 1
+        index += 1
+    items.append(body[start:])
+    return items
+
+
+def _require_no_empty_hook_type(item: str) -> None:
+    """Raise :class:`UnparseableHookTypesError` if *item* (already
+    YAML-unquoted) is empty or whitespace-only (DG-487 review).
+
+    `declared_hook_types` used to filter these out of a flow list
+    (`['']` silently returned `[]` where `yaml.safe_load` returns
+    `['']`), so a declared list that was empty after parsing read as
+    "nothing declared" to `guard.git_hooks` — and
+    `missing_hook_types([], ...)` returns `[]` for an empty list, so the
+    check reported ok having checked nothing at all, the exact failure
+    mode DG-466 exists to rule out. Failing loud here, for an empty item
+    and for a declared list with no items at all, means `guard.git_hooks`
+    never reports ok on an empty checklist while the key is present —
+    only the key being genuinely *absent* still reads as pre-commit's own
+    bare default.
+    """
+    if not item.strip():
+        raise UnparseableHookTypesError(
+            "default_install_hook_types declares an empty hook type, "
+            "which pre-commit itself rejects — reporting ok without a "
+            "real hook type to check would be an empty checklist "
+            "silently read as nothing wrong.",
+            remediation=(
+                "Remove the empty item from default_install_hook_types, "
+                "or give it a real hook type name."
+            ),
+        )
+
+
+def _normalized_hook_types_declaration(line: str) -> Optional[str]:
+    """*line*, comment-stripped and collapsed to the canonical
+    ``default_install_hook_types:`` this module's own flow/block patterns
+    match — or ``None`` if *line* is not this key at all.
+
+    Collapses two shapes YAML itself reads identically to the bare,
+    unspaced key: quoted (`"default_install_hook_types": [...]`) and
+    spaced before the colon (`default_install_hook_types : [...]`).
+    Matching only the literal, unquoted, unspaced text would silently read
+    either one as the key being absent (DG-469 review).
+    """
+    stripped = _strip_inline_comment(line).strip()
+    match = _HOOK_TYPES_KEY_RE.match(stripped)
+    if not match:
+        return None
+    return _HOOK_TYPES_KEY_PREFIX + stripped[match.end() :]
+
+
+def _find_top_level_hook_types_line(lines: list[str]) -> Optional[tuple[int, str]]:
+    """The last line declaring `default_install_hook_types` at column 0 of
+    the top-level mapping, as ``(index, normalized_line)`` — or ``None`` if
+    it is absent there.
+
+    **Last** top-level occurrence, matching PyYAML's own mapping semantics
+    (the `Loader=SafeLoader` pre-commit itself loads the config with): a
+    duplicate top-level key is not an error to PyYAML, the later one wins,
+    and this reader must agree rather than read the first one pre-commit
+    itself would have already discarded (DG-469 review).
+
+    Raises :class:`UnparseableHookTypesError` when the key appears only
+    nested — under a `repos:` hook entry or any other unrelated key — since
+    that is never the declaration pre-commit itself reads, and treating it
+    as silently absent risks the same "could not read this" versus
+    "nothing was declared" collapse :func:`declared_hook_types` already
+    guards against for an unrecognised value. Also raised when the key
+    text opens a line that is actually the continuation of a different
+    key's multi-line quoted scalar: a double-quoted scalar's continuation
+    line needs no indentation at all, so it can fold text that reads
+    exactly like a clean top-level declaration onto column 0 even though
+    the parsed document has no such key there (DG-469 review). This reader
+    is deliberately conservative about that one shape — a line scanner,
+    not a parser, so it fails loud the moment it cannot prove a match is a
+    real mapping key, rather than guess.
+    """
+    top_level: Optional[tuple[int, str]] = None
+    nested_only = False
+    open_quote: Optional[str] = None
+    for index, raw_line in enumerate(lines):
+        starts_inside_quote = open_quote is not None
+        if starts_inside_quote:
+            candidate = _HOOK_TYPES_KEY_RE.match(raw_line.strip())
+            if candidate:
+                raise UnparseableHookTypesError(
+                    "default_install_hook_types appears to start a line "
+                    "that is actually the continuation of a different "
+                    "key's multi-line quoted value, not a real mapping "
+                    "key — refusing to guess which one is meant.",
+                    remediation=(
+                        "Rewrite the other key's multi-line quoted scalar "
+                        "so no continuation line starts with "
+                        "default_install_hook_types, or move the real "
+                        "declaration onto its own clean line."
+                    ),
+                )
+        else:
+            normalized = _normalized_hook_types_declaration(raw_line)
+            if normalized is not None:
+                comment_stripped = _strip_inline_comment(raw_line)
+                if comment_stripped.lstrip(" \t") != comment_stripped:
+                    # Indented under something else — never the
+                    # top-level declaration pre-commit itself reads.
+                    nested_only = True
+                else:
+                    top_level = (index, normalized)
+        open_quote = _quote_state_after(raw_line, open_quote)
+
+    if top_level is not None:
+        return top_level
+
+    if nested_only:
+        raise UnparseableHookTypesError(
+            "default_install_hook_types is present but only nested under "
+            "another key, not at the top level of .pre-commit-config.yaml, "
+            "where pre-commit itself reads it.",
+            remediation=(
+                "Move default_install_hook_types to column 0 of "
+                ".pre-commit-config.yaml's top-level mapping, or remove "
+                "the nested occurrence if it was not meant as this "
+                "declaration."
+            ),
+        )
+    return None
+
+
+def declared_hook_types(config_text: str) -> list[str]:
+    """`default_install_hook_types` exactly as *config_text* declares it.
+
+    Reads flow style (``[pre-commit, commit-msg]``) or block style (one
+    ``- type`` per line), with an inline comment on either shape stripped
+    first rather than baked into the result. Falls back to pre-commit's own
+    default of ``("pre-commit",)`` **only** when the key is genuinely
+    absent from the file — never a list this module hardcodes itself, so a
+    config later adding a third or fourth hook type (DG-464, in parallel,
+    is expected to add ``pre-push`` to this very key) is read correctly
+    with no code change here.
+
+    Deliberately hand-rolled rather than a full YAML parser: this reads one
+    scalar list, the same shape :func:`declared_version` reads one scalar
+    out of ``pyproject.toml`` above, and PyYAML is not a dependency this
+    package's own runtime carries — only `pre-commit`'s own dev extra pulls
+    it in, and introducing it here for one list would be the second-surface
+    mistake this project keeps writing up.
+
+    A value present but not in a shape this reader recognises — a YAML
+    anchor (``&types``), an unterminated multi-line flow list, or any other
+    scalar — raises :class:`UnparseableHookTypesError` rather than silently
+    reusing the undeclared-key default: the two are different facts, and
+    collapsing "could not read this" into "nothing was declared" is exactly
+    how a real ``commit-msg``/``pre-push`` declaration could drop out of
+    the check while it kept reporting ok.
+
+    Read only at column 0 of the top-level mapping — pre-commit itself only
+    ever honours the key there. The key matched as plain text with no
+    regard for indentation would read a `default_install_hook_types:` line
+    nested inside a `repos:` hook entry, or under any other unrelated key,
+    as the top-level declaration, which is never what pre-commit itself
+    does with it. A declaration that appears only nested is not silently
+    treated as absent either — it fails loud via
+    :class:`UnparseableHookTypesError`, the same as any other shape this
+    reader cannot follow, since a config carrying the string only
+    indented could just as easily be a real declaration broken by a stray
+    indent as an unrelated use of the same words, and the two must not
+    collapse into "use the default" either.
+
+    A leading BOM (U+FEFF) is stripped before scanning: `str.strip()`
+    does not remove it, and it otherwise hides a genuine column-0
+    declaration on the first line behind what looks like leading
+    whitespace that is not " " or "\\t" either.
+
+    The key is also recognised quoted (`"default_install_hook_types":
+    [...]`) and with space before the colon
+    (`default_install_hook_types : [...]`) — both valid YAML pre-commit
+    reads the same as the bare, unspaced form — and, when it appears more
+    than once at the top level, the **last** occurrence wins, the same as
+    PyYAML's own duplicate-key behaviour under the `SafeLoader` pre-commit
+    itself loads the config with.
+    """
+    lines = config_text.lstrip(chr(0xFEFF)).splitlines()
+    found = _find_top_level_hook_types_line(lines)
+    if found is None:
+        return list(_DEFAULT_HOOK_TYPES_WHEN_UNDECLARED)
+    top_level_index, stripped = found
+
+    flow_body = _scan_flow_list_body(stripped)
+    if flow_body is not None:
+        items = [
+            _unquote_hook_type(piece.strip())
+            for piece in _split_flow_list_body(flow_body)
+        ]
+        for item in items:
+            _require_no_empty_hook_type(item)
+        return items
+
+    if _HOOK_TYPES_BLOCK_KEY.match(stripped):
+        types: list[str] = []
+        for following in lines[top_level_index + 1 :]:
+            item = _strip_inline_comment(following).strip()
+            if not item:
+                continue
+            if not item.startswith("-"):
+                break
+            types.append(_unquote_hook_type(item[1:].strip()))
+        if not types:
+            # The key is present but declares no `- type` lines at all —
+            # the block-style equivalent of `[]` (DG-487 review): never
+            # read as "nothing declared" and silently fall back to
+            # pre-commit's own default.
+            raise UnparseableHookTypesError(
+                "default_install_hook_types is present but declares no "
+                "hook types at all.",
+                remediation=(
+                    "Add at least one `- type` line under "
+                    "default_install_hook_types, or remove the key "
+                    "entirely to use pre-commit's own default."
+                ),
+            )
+        for item in types:
+            _require_no_empty_hook_type(item)
+        return types
+
+    # The key is present but matches neither recognised shape: an
+    # anchor (`&types [...]` / `&types pre-commit`), an unterminated
+    # flow list (`[` with no matching `]` on this line), or any other
+    # scalar. Fail loud rather than silently falling back.
+    raise UnparseableHookTypesError(
+        f"default_install_hook_types is present but not in a "
+        f"recognised shape: {stripped!r}. Expected a flow list "
+        "(`[a, b]`, closed on the same line) or a block list of "
+        "`- type` lines.",
+        remediation=(
+            "Rewrite default_install_hook_types in "
+            ".pre-commit-config.yaml as a single-line flow list or a "
+            "block list of `- type` lines, with no YAML anchor and no "
+            "multi-line flow list — neither is read by this check."
+        ),
+    )
+
+
+def hooks_dir(git_root: Path) -> Optional[Path]:
+    """Where git itself says *git_root*'s hooks live, or ``None`` if git
+    could not answer at all.
+
+    Resolved with ``git rev-parse --git-path hooks`` rather than assumed as
+    ``<git_root>/.git/hooks`` — the same reasoning as
+    :func:`core.exclude.resolve_info_exclude_path`, and verified directly:
+    this honours ``core.hooksPath`` when a repository sets one, and in a
+    `git worktree` it resolves to the *main* checkout's shared
+    ``.git/hooks`` even though the worktree's own ``.git`` is a file, not a
+    directory — exactly the "a linked worktree is judged by the shared
+    hooks" requirement, satisfied by git's own resolution rather than a
+    second, hand-rolled worktree-detection path here.
+
+    Routed through :func:`core.exclude.run_git` (DG-451) rather than a raw
+    ``subprocess.run(["git", ...])`` — this module's own git calls
+    (:func:`newest_tag`, :func:`tracked_ai_layer_paths`) already learned
+    that lesson: a process with ``GIT_DIR``/``GIT_WORK_TREE`` leaked into
+    its environment (a git hook, among others) can redirect an unstripped
+    call onto a completely different repository, silently. ``None`` covers
+    both ways :func:`run_git` can fail to answer at all —
+    :class:`NotAGitRepositoryError` and :class:`GitTimedOutError` — the
+    same "could not ask" outcome :func:`newest_tag` already gives those two
+    for this read-only diagnostic.
+    """
+    try:
+        result = run_git(["rev-parse", "--git-path", "hooks"], git_root, timeout=30)
+    except (NotAGitRepositoryError, GitTimedOutError):
+        return None
+    if result.returncode != 0:
+        return None
+    raw: str = str(result.stdout).strip()
+    if not raw:
+        return None
+    return (git_root / raw).resolve()
+
+
+def missing_hook_types(hooks_dir_path: Path, hook_types: Sequence[str]) -> list[str]:
+    """Which of *hook_types* have no usable hook file in *hooks_dir_path*.
+
+    "Usable" means present *and*, on a platform where the bit means
+    anything, executable: ``git`` invokes a hook file directly rather than
+    through an interpreter it chooses, so a `pre-commit install`-written
+    hook that lost its execute bit — a careless ``chmod``, an archive that
+    does not preserve permissions — is silently never run, which is the
+    same failure as the file not existing at all. Skipped on Windows,
+    where ``os.access(..., os.X_OK)`` reports every file executable
+    regardless of any real permission bit, so checking it there would only
+    ever read "fine" and prove nothing.
+    """
+    missing: list[str] = []
+    for hook_type in hook_types:
+        hook_file = hooks_dir_path / hook_type
+        if not hook_file.is_file():
+            missing.append(hook_type)
+            continue
+        if sys.platform != "win32" and not os.access(hook_file, os.X_OK):
+            missing.append(hook_type)
+    return missing
+
+
+def _native_pre_push_status(hooks_dir_path: Path) -> tuple[bool, str]:
+    """Whether DG-479's native ``pre-push`` hook is correctly installed in
+    *hooks_dir_path*, and a one-line reason either way.
+
+    Checked independently of :func:`declared_hook_types`/:func:`missing_
+    hook_types`, which read ``default_install_hook_types`` — and the
+    DG-479 decision takes ``pre-push`` out of that list entirely, so the
+    native hook is the sole owner of the stage and pre-commit's own
+    pre-push stage is never installed alongside it. A declared-types check
+    alone would therefore now report nothing wrong even with no push-time
+    scan installed at all — exactly the silent regression this exists to
+    catch, every time this check runs.
+
+    A local import of :mod:`core.git_hooks` — that module imports
+    :func:`hooks_dir` from here at its own top level, so importing it back
+    at this module's top level would be a cycle; by the time this function
+    actually runs, this module has long finished executing and the import
+    resolves normally.
+    """
+    from . import git_hooks
+
+    legacy = hooks_dir_path / f"{git_hooks.HOOK_FILENAME}{git_hooks.LEGACY_SUFFIX}"
+    if legacy.is_file():
+        return False, (
+            f"{legacy} exists — `pre-commit install --hook-type pre-push` "
+            "demoted the native privacy-scan hook to .legacy, which does "
+            "not run on this platform (DG-479_DECISION.md: the pre-commit "
+            "shim hands _run_legacy an MSYS-style path on Windows, so "
+            "os.access reports it not executable and it is silently "
+            "skipped). The push-time privacy scan is not actually running."
+        )
+
+    target = hooks_dir_path / git_hooks.HOOK_FILENAME
+    if not target.is_file():
+        return False, (
+            f"No native pre-push hook at {target} — the push-time privacy "
+            "scan (DG-479) is not installed."
+        )
+
+    if not git_hooks.is_ours(target):
+        return False, (
+            f"{target} exists but was not written by drunken-init — it "
+            "does not carry the drunken-guild marker, so the push-time "
+            "privacy scan is not confirmed to be running."
+        )
+
+    # Reviewer round 2, gap B: git invokes a hook file directly rather than
+    # through an interpreter it chooses, exactly like `missing_hook_types`
+    # already reasons for pre-commit/commit-msg -- a present-but-not-
+    # executable file never runs at all, the same failure as it not
+    # existing. Skipped on Windows, where `os.access(..., X_OK)` reports
+    # every file executable regardless of any real permission bit.
+    if sys.platform != "win32" and not os.access(target, os.X_OK):
+        return False, (
+            f"{target} carries the drunken-guild marker but is not "
+            "executable — git invokes a hook file directly, so this "
+            "never actually runs."
+        )
+
+    # Reviewer round 2, gap A: the marker alone only proves drunken-init
+    # wrote this file *once* -- it says nothing about whether the body
+    # still matches the shipped template. A human (or anything else)
+    # appending a line after the marker, or truncating the body, leaves
+    # the marker intact while the push-time scan silently stops doing
+    # anything at all. `Path.read_text()` already applies universal-
+    # newline translation on both sides, so a CRLF-converted copy that is
+    # otherwise byte-identical is never misread as tampering.
+    try:
+        installed = target.read_text(encoding="utf-8", errors="replace")
+        template = git_hooks._read_template()  # noqa: SLF001
+    except git_hooks.GitHooksTemplateMissingError:
+        # No source tree to read the template from at all (an installed
+        # `drunken-doctor`, not a dev checkout) -- cannot verify content,
+        # but the marker and the execute bit are still real signal.
+        return True, f"the native pre-push hook is installed at {target}"
+
+    if installed != template:
+        return False, (
+            f"{target} carries the drunken-guild marker but its content "
+            "does not match the shipped template — stale or hand-edited. "
+            "`drunken-init --install-git-hooks` replaces a stale hook of "
+            "ours in place (identified by the marker); it never touches a "
+            "foreign one."
+        )
+
+    return True, f"the native pre-push hook is installed at {target}"
+
+
+def _check_git_hooks_for_root(report: Report, name: str, git_root: Path) -> None:
+    """`guard.git_hooks`: see :func:`declared_hook_types` and
+    :func:`hooks_dir` for the two questions this answers in turn — what the
+    config declares, and what git itself reports as installed — plus
+    :func:`_native_pre_push_status` for the native ``pre-push`` hook
+    DG-479 moved out of that declared-types question altogether.
+
+    A config that does not exist, or exists but never runs the
+    operator-inventory guard, is a **skip**: this check's whole premise is
+    "a repository that runs this guard also needs the hooks that run it
+    installed", and a repository with no stake in that guard is not this
+    check's business at all (SCOPE: "a repository without the guard is not
+    checked").
+    """
+    config_path = git_root / ".pre-commit-config.yaml"
+    try:
+        config_text = config_path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        report.add(
+            name,
+            "skip",
+            f"No readable .pre-commit-config.yaml at {config_path}.",
+        )
+        return
+
+    if not runs_operator_inventory_guard(config_text):
+        report.add(
+            name,
+            "skip",
+            f"{config_path} does not run check_operator_inventory, so this "
+            "checkout carries no guard for this check to verify.",
+        )
+        return
+
+    resolved_hooks_dir = hooks_dir(git_root)
+    if resolved_hooks_dir is None:
+        report.add(
+            name,
+            "skip",
+            f"`git rev-parse --git-path hooks` could not be answered for {git_root}.",
+        )
+        return
+
+    try:
+        hook_types = declared_hook_types(config_text)
+    except UnparseableHookTypesError as exc:
+        report.add_error(name, exc)
+        return
+
+    missing = missing_hook_types(resolved_hooks_dir, hook_types)
+    native_ok, native_detail = _native_pre_push_status(resolved_hooks_dir)
+
+    if missing and not native_ok:
+        report.add(
+            name,
+            "fail",
+            f"{', '.join(missing)} hook(s) declared in default_install_hook_types "
+            f"({', '.join(hook_types)}) are missing from {resolved_hooks_dir} — "
+            "a checkout that runs check_operator_inventory but never installed "
+            f"the hooks that run it is not actually guarded. Also: {native_detail}",
+            remediation=(
+                "pre-commit install; and drunken-init --install-git-hooks "
+                "for the native pre-push scan"
+            ),
+        )
+        return
+
+    if missing:
+        report.add(
+            name,
+            "fail",
+            f"{', '.join(missing)} hook(s) declared in default_install_hook_types "
+            f"({', '.join(hook_types)}) are missing from {resolved_hooks_dir} — "
+            "a checkout that runs check_operator_inventory but never installed "
+            "the hooks that run it is not actually guarded.",
+            remediation="pre-commit install",
+        )
+        return
+
+    if not native_ok:
+        report.add(
+            name,
+            "fail",
+            native_detail,
+            remediation="drunken-init --install-git-hooks",
+        )
+        return
+
+    report.add(
+        name,
+        "ok",
+        f"all {len(hook_types)} declared hook type(s) ({', '.join(hook_types)}) "
+        f"present in {resolved_hooks_dir}; {native_detail}",
+    )
+
+
+def _check_git_hooks(
+    report: Report,
+    project_ids: Sequence[str],
+    registry: ProjectRegistry,
+    repo_root: Optional[Path],
+) -> None:
+    """DG-466: for the source tree and every registered project whose
+    ``.pre-commit-config.yaml`` runs DG-317's operator-inventory guard,
+    confirm the hooks that guard depends on are actually installed.
+
+    Checking registered roots matters on its own, independent of the
+    source-tree check above: an *installed* ``drunken-doctor`` has no
+    source tree at all (:func:`source_tree_root` returns ``None``), so a
+    check that only ever looked at the source tree would always skip for
+    exactly the deployment this check most needs to answer about.
+    """
+    if repo_root is not None:
+        _check_git_hooks_for_root(report, "guard.git_hooks", repo_root)
+    else:
+        report.add(
+            "guard.git_hooks",
+            "skip",
+            "Running from an installed package, so there is no source tree "
+            "to check hooks against.",
+        )
+
+    for project_id in project_ids:
+        name = f"guard.git_hooks.{project_id}"
+        try:
+            config = registry.get_project_config(project_id)
+        except DrunkenError as exc:
+            report.add_error(name, exc)
+            continue
+
+        if not config.path:
+            report.add(
+                name,
+                "skip",
+                "No path declared, so there is no checkout to inspect.",
+            )
+            continue
+
+        # Same expanduser-through-resolved_path() as every other per-project
+        # check in this module (DG-445) — a registered "~/checkout" must be
+        # inspected, not silently skipped as a checkout that "does not
+        # exist" under its literal "~" name.
+        root = config.resolved_path("this operation")
+        git_root = root / config.git_root if config.git_root else root
+
+        if repo_root is not None and _same_checkout(git_root, repo_root):
+            report.add(
+                name,
+                "skip",
+                f"{git_root} is this repository's own checkout, already "
+                "checked as guard.git_hooks.",
+            )
+            continue
+
+        if not git_root.is_dir() or not (git_root / ".git").exists():
+            report.add(name, "skip", describe_missing_git_root(git_root))
+            continue
+
+        _check_git_hooks_for_root(report, name, git_root)
 
 
 def run_doctor(
@@ -1107,9 +2948,13 @@ def run_doctor(
     for project_id in project_ids:
         _check_project(report, project_id, registry, offline)
 
-    _check_daemon(report)
+    _check_layering(report, project_ids, registry, source_tree_root())
+    _check_content_scan(report, project_ids, registry, source_tree_root())
+    _check_git_hooks(report, project_ids, registry, source_tree_root())
+
     _check_deployment(report, source_root=source_tree_root())
     _check_ai_layer(report)
+    _check_routes(report)
     _check_host_configs(report)
 
     if secrets.cached_refs():
@@ -1143,6 +2988,43 @@ def render(report: Report) -> str:
     return "\n".join(lines)
 
 
+def emit_requirements(out: Optional[str] = None) -> int:
+    """Write the pinned requirements and print the install command. Never runs it.
+
+    Moved here from the retired ``drunken-config --kind install`` (DG-356). It
+    belongs with the check that finds the problem: ``uv tool install`` ignores
+    ``uv.lock`` and resolves afresh inside the declared ranges, so a deployment
+    drifts silently — ``deployment.mcp_pin`` above is what notices, and the
+    remedy used to live in a second command that warning had to name.
+
+    **Printed, never run.** Installing replaces the deployment a host config is
+    already pointing at, and doing that as a side effect of asking a diagnostic
+    question is the kind of surprise this project keeps writing post-mortems
+    about. Installing is the operator's step.
+    """
+    root = Path.cwd()
+    exported = export_requirements(root)
+    if exported is None:
+        print(
+            "warning: could not export uv.lock (is `uv` on PATH, and is this a "
+            "project root?). Falling back to an unpinned install.",
+            file=sys.stderr,
+        )
+        print(install_command(None))
+        return 0
+
+    target = Path(out).expanduser() if out else root / "requirements.lock.txt"
+    target.write_text(exported, encoding="utf-8")
+    # Say what was and was not done, in that order. The first version of this
+    # printed the filename and the command with no verb between them, which
+    # reads as a report of work completed -- and was taken as one, leaving a
+    # deployment three tickets behind while every surface looked fine.
+    print(f"Wrote {target} ({count_pins(exported)} pinned packages).")
+    print("NOT INSTALLED. To deploy, run:\n")
+    print(f"    {install_command(target)}\n")
+    return 0
+
+
 def main() -> int:
     """Entry point for ``drunken-doctor``."""
     import argparse  # noqa: PLC0415 - CLI only
@@ -1163,7 +3045,20 @@ def main() -> int:
     parser.add_argument(
         "--json", action="store_true", help="Emit JSON instead of text."
     )
+    parser.add_argument(
+        "--requirements",
+        nargs="?",
+        const="",
+        metavar="FILE",
+        help=(
+            "Write uv.lock as pinned requirements and print the install command "
+            "that honours it. Prints; never installs."
+        ),
+    )
     args = parser.parse_args()
+
+    if args.requirements is not None:
+        return emit_requirements(args.requirements or None)
 
     report = run_doctor(
         project=args.project,

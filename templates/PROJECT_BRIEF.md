@@ -1,8 +1,11 @@
 # Project Brief
 
-> Copy this file into your project root as `PROJECT_BRIEF.md`.
-> Fill it out before running any agent session.
-> The principal-engineer reads this to make platform decisions and assemble the squad.
+> **Optional.** `/prd` writes the project's `PRD.md` — the brief and the numbered requirements in
+> one file — and on a greenfield project it gets there by interviewing you. This template is for
+> when you would rather write something down first; `/prd` then reads it and offers to consolidate
+> it, naming the source beside each section it carries over.
+> Copy it into your project's `.ai/` directory as `PROJECT_BRIEF.md`. Somewhere else works too —
+> record the path in the project's root `AGENTS.md` and every skill follows it.
 
 ---
 
@@ -39,7 +42,7 @@
 ---
 
 ## Platform Targets
-<!-- Mark all that apply. This drives the principal-engineer's platform strategy. -->
+<!-- Mark all that apply. This drives the manager's platform decisions. -->
 
 - [ ] Web (browser)
 - [ ] Native iOS
@@ -53,8 +56,8 @@
 ## Domain
 <!-- Is this project in a regulated or domain-heavy space? Mark if applicable. -->
 
-- [ ] Fintech (payments, banking, lending, wallets) → run `fintech-specialist` first
-- [ ] Insurance (policy, claims, underwriting) → run `insurance-specialist` first
+- [ ] Fintech (payments, banking, lending, wallets) → `fintech-specialist` in the `drunken-extras` plugin
+- [ ] Insurance (policy, claims, underwriting) → `insurance-specialist` in the `drunken-extras` plugin
 - [ ] Health / Medical
 - [ ] Legal / Compliance
 - [ ] General / No specific domain
@@ -62,7 +65,7 @@
 ---
 
 ## Tech Stack (if already decided)
-<!-- Leave blank if the principal-engineer should recommend. -->
+<!-- Leave blank if the manager should recommend. -->
 
 | Layer | Technology | Notes |
 |---|---|---|
@@ -75,7 +78,7 @@
 ---
 
 ## Team
-<!-- Who is on the squad? This helps the principal-engineer scope the work. -->
+<!-- Who is on the team? This helps the manager scope the work. -->
 
 | Role | Available |
 |---|---|

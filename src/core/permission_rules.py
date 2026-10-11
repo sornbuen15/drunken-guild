@@ -36,6 +36,33 @@ from typing import Any, Final, Optional, Sequence
 #: first; the search tools use the second; notebooks the third.
 PATH_KEYS: Final = ("file_path", "path", "notebook_path")
 
+#: Every built-in tool that can change a file, and the single name they are
+#: all matched under.
+#:
+#: Not a convenience. Claude Code consults `Edit(path)` and `Read(path)` rules
+#: only -- a `Write(path)` rule is accepted, never consulted, and warned about
+#: at startup -- so a settings file has no way to spell a rule per writing
+#: tool even if it wanted to. Comparing tool names exactly here meant the one
+#: spelling the settings file is obliged to use was the one spelling this
+#: matcher could not act on: `Read(**/.env)` denied reading the secret while
+#: `Edit(**/.env)` let the `Write` tool overwrite it (DG-334).
+EDIT_TOOL_FAMILY: Final = frozenset({"Write", "Edit", "MultiEdit", "NotebookEdit"})
+
+#: The name the family answers to. Claude Code's own, so a rule written for
+#: this matcher is a rule the harness reads the same way.
+EDIT_TOOL_CANONICAL: Final = "Edit"
+
+
+def canonical_tool(tool_name: str) -> str:
+    """The rule name *tool_name* is matched under.
+
+    ``Read`` deliberately stays ``Read``. Grouping the writers must not hand
+    every write allowance a matching read allowance nobody wrote -- the
+    harness keeps the two apart for the same reason.
+    """
+    return EDIT_TOOL_CANONICAL if tool_name in EDIT_TOOL_FAMILY else tool_name
+
+
 #: The specifier suffix that turns an exact match into a prefix match.
 PREFIX_SUFFIX: Final = ":*"
 
@@ -45,6 +72,39 @@ _GLOB_CHARS: Final = ("*", "?", "[")
 #: `&&` is not read as two backgrounding `&`.
 _TWO_CHAR_OPERATORS: Final = ("&&", "||", "$(")
 _ONE_CHAR_OPERATORS: Final = (";", "|", "&", "\n", "`", "(", ")")
+
+#: Every other Unicode space-separator character (category Zs), plus NEL
+#: (U+0085, historically treated as a line break by some tools). DG-481
+#: round 2 (adversarial, Jira comment): the first version of this fix
+#: reasoned from Git Bash alone -- a *real* POSIX shell's IFS does not
+#: include U+00A0 (NBSP), so `rm\xa0-rf` was left uncollapsed as "not the
+#: denied command". The reviewer confirmed PowerShell's own tokenizer
+#: disagrees: `powershell -Command "git<NBSP>push --force"` resolves to the
+#: argv `[git, push, --force]`, NBSP included as an ordinary separator. A
+#: deny floor that has to be right for whichever shell is actually running
+#: has only one safe direction when two real shells disagree about a
+#: character's meaning: treat it as a separator, and over-deny rather than
+#: trust the shell that happens to agree with the matcher.
+_UNICODE_SPACE_SEPARATORS: Final = tuple(
+    chr(code)
+    for code in (0x0085, 0x00A0, 0x1680, *range(0x2000, 0x200B), 0x202F, 0x205F, 0x3000)
+)
+
+#: A real shell's own word separators -- space, tab, form feed, vertical tab,
+#: and (see :data:`_UNICODE_SPACE_SEPARATORS` above) the other Unicode space
+#: characters -- outside quotes. DG-481: a prefix-matching deny rule compares
+#: its own text, single-spaced, against the segment text verbatim, so
+#: `git<TAB>push` or `git  push` (doubled space) read as a different string
+#: even though a shell runs either one identically to `git push`. Collapsing
+#: a run of these to one space before matching makes the comparison see the
+#: command the way the shell actually will.
+#:
+#: A lone `\r` (no following `\n`, so not
+#: :func:`line_continuation_length`'s concern either) is still *not* in this
+#: set, deliberately: it is not a word separator in either shell this module
+#: has evidence for, so collapsing it would manufacture a word boundary
+#: neither one draws.
+_INTERWORD_WHITESPACE: Final = (" ", "\t", "\f", "\v", *_UNICODE_SPACE_SEPARATORS)
 
 
 class UnparseableRule(ValueError):
@@ -56,37 +116,160 @@ class UnparseableRule(ValueError):
     """
 
 
-def split_command(command: str) -> list[str]:
-    """Split a shell command into the commands it will actually run.
+def line_continuation_length(text: str, i: int) -> int:
+    """0 unless ``text[i]`` starts a backslash line continuation, in which
+    case how many characters it spans: 2 for ``\\`` + ``\n``, 3 for ``\\`` +
+    ``\r\n``.
+
+    DG-467 (DG-465 round 4 found the same thing for `hook.py`'s own copy of
+    this check -- this is the shared home the two matchers were missing). A
+    line continuation is not an escaped newline: both characters vanish
+    entirely, joining the two physical lines with nothing in between, not
+    even a space. An operator on Windows types CRLF, so that spelling needs
+    the same treatment as a bare ``\n``; a lone ``\r`` with no following
+    ``\n`` is not a continuation and falls through to ordinary escape
+    handling.
+    """
+    n = len(text)
+    if i >= n or text[i] != "\\":
+        return 0
+    if i + 1 < n and text[i + 1] == "\n":
+        return 2
+    if i + 2 < n and text[i + 1] == "\r" and text[i + 2] == "\n":
+        return 3
+    return 0
+
+
+def _consume_quoted_char(
+    command: str, i: int, quote: str, current: list[str]
+) -> tuple[int, Optional[str]]:
+    """Advance past one unit of *command* while inside *quote*, starting at
+    *i*, appending to *current* in place. Returns ``(new_i, still_the_same_
+    quote_or_None)``.
+
+    Split out of :func:`split_command` to keep that function's own
+    branching under the project's complexity limit.
+    """
+    char = command[i]
+    # Inside single quotes a backslash is literal, so only honour the
+    # escape -- or a continuation -- in double quotes, otherwise 'a\' ends
+    # the quote early.
+    if quote == '"':
+        span = line_continuation_length(command, i)
+        if span:
+            return i + span, quote
+        if char == "\\" and i + 1 < len(command):
+            current.append(char)
+            current.append(command[i + 1])
+            return i + 2, quote
+    current.append(char)
+    return i + 1, (None if char == quote else quote)
+
+
+def _skip_interword_whitespace(command: str, i: int) -> int:
+    """The index just past the run of :data:`_INTERWORD_WHITESPACE`
+    starting at *i* -- the caller has already appended the single
+    collapsed space for the whole run and only needs to know where it
+    ends. Split out of :func:`segments_with_leading_operator` to keep that
+    function's own branching under the project's complexity limit."""
+    n = len(command)
+    while i < n and command[i] in _INTERWORD_WHITESPACE:
+        i += 1
+    return i
+
+
+def _is_noclobber_pipe_char(char: str, current: list[str]) -> bool:
+    """Whether *char* (a `|`) is the second half of bash's `>|` noclobber-
+    override redirect rather than an ordinary pipe. DG-481 round 2
+    (adversarial): this `|` used to be read as a pipe regardless, ending
+    the segment and starting a new, piped one, so
+    `echo bad >| pre-commit` silently became two pipeline stages that were
+    never the command actually typed. The character immediately before
+    this `|` is the one and only signal available at this point in the
+    scan -- *current* is the text already collected for the segment in
+    progress, so its last character being `>` means this `|` belongs to
+    `>|`, not to a pipe."""
+    return char == "|" and bool(current) and current[-1] == ">"
+
+
+def _push_or_merge_operator(
+    pairs: list[tuple[str, str]],
+    operator: str,
+    current: list[str],
+    next_operator: str,
+) -> str:
+    """Close out the segment accumulated in *current* under *operator* and
+    return the operator the *next* segment should carry.
+
+    DG-476 round 3 (adversarial): a subshell that closes right next to
+    another operator -- `); `, `) ; `, `))` -- has *nothing* between the two
+    operator tokens, so the segment they would otherwise each lead is empty
+    and gets dropped by this function's own final filter
+    (``if seg.strip()``). The operator that led into that dropped segment
+    used to be lost outright, overwritten by whichever operator came next --
+    so a caller like :func:`~core.hook._bypasses_hook_floor_bash`, which
+    needs to know "a subshell just closed here" to stop treating `cwd` as
+    the hooks dir, had nothing to read that from. Concatenating onto
+    *operator* instead of overwriting it, but only when *current* is truly
+    empty (not even whitespace -- an ordinary pipe after a subshell, `) |
+    xargs ...`, must still read as plain `|`), means the segment that
+    eventually follows carries every operator since the last real content,
+    in order.
+    """
+    text = "".join(current)
+    if text:
+        pairs.append((operator, text))
+        return next_operator
+    return operator + next_operator
+
+
+def segments_with_leading_operator(command: str) -> list[tuple[str, str]]:
+    """Split *command* into ``(operator, segment)`` pairs -- the operator is
+    ``""`` for the first segment, otherwise the token that preceded it.
 
     Quote-aware, because ``grep 'a && b' file`` is one command and splitting
     it would invent a second that was never run. Command substitutions are
     split out rather than skipped -- ``echo $(rm -rf /)`` runs the ``rm``, and
     a scan that only sees ``echo`` is not a scan.
 
+    A backslash line continuation (:func:`line_continuation_length`)
+    vanishes entirely -- both outside quotes and inside double quotes -- so a
+    deny rule that matches by prefix still sees the command the way the
+    shell will actually run it, not fragmented across two physical lines
+    (DG-467). Single quotes are unaffected: a backslash has no special
+    meaning there at all, so both the backslash and the newline stay in the
+    segment literally, inert.
+
+    :func:`split_command` is this same scan with the operators thrown away
+    -- this is the one implementation (DG-474). It used to exist twice:
+    once here without the operator, and again in ``hook.py`` under the name
+    ``_segments_with_leading_operator``, because the hook floor's third rule
+    (DG-465) needs to know which operator joined each pair -- ``|`` is the
+    one that actually pipes one segment's output into the next, and a bypass
+    check scoped to "after a pipe" has nowhere else to read that from. Two
+    copies of the same quote and operator scan are two things that can
+    quietly disagree about the same command; this is the shared home both
+    callers read from instead.
+
     This is a scanner, not a shell parser. It does not understand here-docs,
     process substitution or nested quoting inside substitutions. That is the
     soft-control caveat in the module docstring, made concrete.
     """
-    segments: list[str] = []
+    pairs: list[tuple[str, str]] = []
     current: list[str] = []
+    operator = ""
     quote: Optional[str] = None
     i = 0
     while i < len(command):
         char = command[i]
 
         if quote is not None:
-            # Inside single quotes a backslash is literal, so only honour the
-            # escape in double quotes -- otherwise 'a\' ends the quote early.
-            if char == "\\" and quote == '"' and i + 1 < len(command):
-                current.append(char)
-                current.append(command[i + 1])
-                i += 2
-                continue
-            current.append(char)
-            if char == quote:
-                quote = None
-            i += 1
+            i, quote = _consume_quoted_char(command, i, quote, current)
+            continue
+
+        span = line_continuation_length(command, i)
+        if span:
+            i += span
             continue
 
         if char == "\\" and i + 1 < len(command):
@@ -101,15 +284,25 @@ def split_command(command: str) -> list[str]:
             i += 1
             continue
 
+        if char in _INTERWORD_WHITESPACE:
+            current.append(" ")
+            i = _skip_interword_whitespace(command, i + 1)
+            continue
+
         pair = command[i : i + 2]
         if pair in _TWO_CHAR_OPERATORS:
-            segments.append("".join(current))
+            operator = _push_or_merge_operator(pairs, operator, current, pair)
             current = []
             i += 2
             continue
 
+        if _is_noclobber_pipe_char(char, current):
+            current.append(char)
+            i += 1
+            continue
+
         if char in _ONE_CHAR_OPERATORS:
-            segments.append("".join(current))
+            operator = _push_or_merge_operator(pairs, operator, current, char)
             current = []
             i += 1
             continue
@@ -117,8 +310,18 @@ def split_command(command: str) -> list[str]:
         current.append(char)
         i += 1
 
-    segments.append("".join(current))
-    return [segment.strip() for segment in segments if segment.strip()]
+    pairs.append((operator, "".join(current)))
+    return [(op, seg.strip()) for op, seg in pairs if seg.strip()]
+
+
+def split_command(command: str) -> list[str]:
+    """Split a shell command into the commands it will actually run.
+
+    See :func:`segments_with_leading_operator` -- this is that same scan
+    with the leading operator of each segment thrown away, for the callers
+    that only need the text.
+    """
+    return [segment for _, segment in segments_with_leading_operator(command)]
 
 
 @dataclass(frozen=True)
@@ -160,7 +363,7 @@ class Rule:
         `rm -rfv`. Callers do not pass this -- :func:`is_allowed` and
         :func:`is_denied` each pick the side they need.
         """
-        if tool_name != self.tool:
+        if canonical_tool(tool_name) != canonical_tool(self.tool):
             return False
         if self.specifier is None:
             return True

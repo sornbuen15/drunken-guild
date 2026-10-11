@@ -45,7 +45,7 @@ class TestTheGeneratedConfigCarriesNoPaths:
         assert "--directory" not in serialised
         assert "PYTHONPATH" not in serialised
 
-    def test_every_server_is_declared_and_scoped_to_the_project(self) -> None:
+    def test_every_server_is_declared_and_carries_no_project(self) -> None:
         config = config_gen.mcp_config("alpha")["mcpServers"]
 
         assert set(config) == set(config_gen.MCP_SERVERS)
@@ -54,15 +54,15 @@ class TestTheGeneratedConfigCarriesNoPaths:
                 "The command is the entry point name, which is what makes it "
                 "resolvable without a path once installed."
             )
-            assert entry["args"] == ["--project", "alpha"], (
-                f"{name} is not scoped to a project, so it would act on "
-                "whichever one it defaulted to."
+            assert "--project" not in json.dumps(entry), (
+                f"{name} carries a project, which is what a user-scope entry "
+                "was able to pin (DG-341). It belongs in the tool call."
             )
 
     def test_the_retired_board_server_is_not_wired_in(self) -> None:
         """DG-250 retired the local board and DG-251 wrote down why: a second
         coordination surface can disagree with Jira, which is the failure that
-        cost DG-248 and DG-249 whole sessions. CLAUDE.md says do not
+        cost DG-248 and DG-249 whole sessions. AGENTS.md says do not
         reintroduce it -- and onboarding was declaring it into every project.
 
         The test above cannot catch this. It asserts the config matches
@@ -198,3 +198,32 @@ class TestSecretsAreWrittenLockedDown:
 class _Resolved:
     def __init__(self, path: Path) -> None:
         self.path = path
+
+
+class TestNoProjectMcpJsonIsWritten:
+    """DG-457: a project carries no .mcp.json; the server is declared once per machine."""
+
+    def test_write_mcp_config_refuses_and_points_at_the_install_step(
+        self, onboard, tmp_path, monkeypatch, capsys
+    ) -> None:
+        monkeypatch.setenv("DRUNKEN_HOME", str(tmp_path / "home"))
+        monkeypatch.setattr(
+            onboard.sys,
+            "argv",
+            [
+                "onboard_project.py",
+                "alpha",
+                "--jira-project-key",
+                "ALPHA",
+                "--path",
+                str(tmp_path),
+                "--write-mcp-config",
+            ],
+        )
+
+        code = onboard.main()
+
+        assert code == 1
+        assert not (tmp_path / ".mcp.json").exists()
+        err = capsys.readouterr().err
+        assert "claude mcp add --scope user" in err and "GETTING_STARTED" in err

@@ -6,13 +6,14 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Final, List, Optional
 
 from core.context import ProjectContext
 from core.errors import DrunkenError
 from core.http import open_url
 
 from . import assign, backlog
+from . import comments as comment_limits
 
 
 class JiraHTTPError(RuntimeError):
@@ -435,6 +436,36 @@ def minify_issues(
     return minified
 
 
+#: DG-428. ``PROJECT-123``, case-sensitive: Jira keys are always upper-case,
+#: and lower-casing either side here would make ``dg-1`` match ``DG`` by
+#: accident rather than by the caller actually naming it that way.
+_ISSUE_KEY: Final = re.compile(r"^([A-Za-z][A-Za-z0-9_]*)-\d+$")
+
+
+def filter_foreign_issues(
+    issues: List[Dict[str, Any]], project_key: str
+) -> tuple[List[Dict[str, Any]], List[str]]:
+    """Split *issues* into (ours, everyone else's), by key rather than trust.
+
+    Defence in depth for :mod:`jira_mcp.jql`: if a scoped query ever did reach
+    another project anyway — the wrap broken, or Jira itself misbehaving — the
+    foreign rows are dropped here rather than handed to the agent as if the
+    scope had held. Checked against the issue's own ``key`` field, not against
+    anything about how the query was built, so this still catches a leak the
+    wrap did not cause.
+    """
+    kept: List[Dict[str, Any]] = []
+    dropped: List[str] = []
+    for issue in issues:
+        key = issue.get("key")
+        match = _ISSUE_KEY.match(key) if isinstance(key, str) else None
+        if match and match.group(1) == project_key:
+            kept.append(issue)
+        else:
+            dropped.append(key if isinstance(key, str) and key else "<no key>")
+    return kept, dropped
+
+
 class JiraClient:
     def __init__(self, ctx: ProjectContext) -> None:
         jira = ctx.require_jira()
@@ -488,6 +519,10 @@ class JiraClient:
                 return False
             return None
         except Exception:
+            # A timeout, a refused connection, a body that is not JSON: the
+            # probe failed, which says nothing about the board. None, not
+            # False — "could not ask" must not be reported as "no backlog",
+            # or callers refuse work that would have succeeded (docstring).
             return None
         return True
 
@@ -843,6 +878,26 @@ class JiraClient:
         )
         return {"ok": True, "issue": issue_key, "account_id": account_id}
 
+    async def edit_labels(
+        self, issue_key: str, payload: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Apply a ``labels.update_payload`` body. Jira answers 204, no body."""
+        url = f"{self.base_url}/rest/api/3/issue/{issue_key}"
+        await make_request(
+            url, method="PUT", payload=payload, email=self.email, token=self.token
+        )
+        return {"ok": True, "issue": issue_key}
+
+    async def edit_issue(
+        self, issue_key: str, payload: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Apply an ``edits.fields_payload`` body. Jira answers 204, no body."""
+        url = f"{self.base_url}/rest/api/3/issue/{issue_key}"
+        await make_request(
+            url, method="PUT", payload=payload, email=self.email, token=self.token
+        )
+        return {"ok": True, "issue": issue_key}
+
     async def add_comment(self, issue_key: str, comment: str) -> Dict[str, Any]:
         payload = {"body": to_adf(comment)}
         url = f"{self.base_url}/rest/api/3/issue/{issue_key}/comment"
@@ -850,3 +905,37 @@ class JiraClient:
             url, method="POST", payload=payload, email=self.email, token=self.token
         )
         return {"ok": True, "id": res.get("id")}
+
+    async def get_comments(
+        self, issue_key: str, limit: int = 5
+    ) -> List[Dict[str, Any]]:
+        """The newest *limit* comments on the issue, oldest first.
+
+        `orderBy=-created` with `maxResults=limit` asks Jira for the newest
+        page; the flip to oldest-first happens here, so a reader sees the
+        conversation in the order it happened rather than the order Jira
+        paginates it. *limit* is bounded by :func:`comments.validate_limit`
+        before it reaches the URL -- see that module for why the cap is this
+        tool's own rather than Jira's.
+
+        A comment's body is untrusted text: any Jira user, not only this
+        project's agents, can write one. Nothing here or in a caller may treat
+        a body as anything but evidence to read, never an instruction to run.
+        """
+        bounded_limit = comment_limits.validate_limit(limit)
+        url = (
+            f"{self.base_url}/rest/api/3/issue/{issue_key}/comment"
+            f"?maxResults={bounded_limit}&orderBy=-created"
+        )
+        res = await make_request(url, email=self.email, token=self.token)
+        raw_comments = res.get("comments", []) if isinstance(res, dict) else []
+        out = [
+            {
+                "author": (c.get("author") or {}).get("displayName") or "Unknown",
+                "created": c.get("created"),
+                "body": from_adf(c.get("body")),
+            }
+            for c in raw_comments
+        ]
+        out.reverse()
+        return out

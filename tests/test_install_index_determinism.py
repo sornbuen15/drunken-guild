@@ -21,6 +21,8 @@ construction.
 
 from __future__ import annotations
 
+import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -28,6 +30,11 @@ from pathlib import Path
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
+
+#: DG-378 is a Windows defect, and CI runs on Linux only. The behavioural test
+#: below therefore skips in CI and runs on the workstation the bug was found
+#: on, which is the point of DG-371.
+POWERSHELL = shutil.which("pwsh") or shutil.which("powershell")
 TRUNCATE = REPO_ROOT / "scripts" / "install" / "_truncate.py"
 INSTALLERS = (
     REPO_ROOT / "scripts" / "install" / "install_skills.sh",
@@ -41,13 +48,66 @@ SAMPLE = (
 )
 
 
+def _run_ps_installer_with_canary(
+    script: Path, home: Path, extra_args: str = ""
+) -> subprocess.CompletedProcess[str]:
+    """Run a PowerShell installer in a child process with `$HOME` redirected
+    to `home`, guarded by a canary.
+
+    DG-423 (reviewer finding on the first version of this ticket's fix): every
+    test in this file that claims to run "sandboxed" relies on
+    `Set-Variable -Name HOME ...` actually taking effect inside the child
+    `powershell.exe` process. If that redirection ever silently stopped
+    working -- a PowerShell version difference, a typo, a future edit to this
+    helper -- every one of these tests would quietly start installing into
+    the operator's real `~/.claude` instead of failing loudly.
+
+    The canary prints `$HOME` from inside the *same* child process,
+    immediately after the same `Set-Variable` call the installer itself
+    reads, and exits before the installer is invoked at all if it does not
+    match. `;` sequencing in a `-Command` string stops at `exit`, so the `&
+    script` segment never runs when the canary trips.
+    """
+    assert POWERSHELL is not None
+    command = (
+        f"Set-Variable -Name HOME -Value '{home}' -Force -Scope Global; "
+        f"$canary = $HOME; "
+        f'Write-Host "CANARY:$canary"; '
+        f"if ($canary -ne '{home}') {{ "
+        f"Write-Host 'CANARY MISMATCH -- aborting, running nothing'; exit 97 "
+        f"}}; "
+        f"& '{script}' {extra_args}"
+    ).strip()
+    result = subprocess.run(
+        [POWERSHELL, "-NoProfile", "-NonInteractive", "-Command", command],
+        capture_output=True,
+        text=True,
+    )
+    assert f"CANARY:{home}" in result.stdout, (
+        "the canary never confirmed $HOME inside the child process -- this "
+        "test cannot trust that HOME redirection took effect, so it refuses "
+        f"to trust anything the run did\n{result.stdout}\n{result.stderr}"
+    )
+    assert result.returncode != 97, (
+        "HOME redirection did not take effect inside the child process; "
+        "aborted before the installer ran, to avoid touching the real "
+        f"~/.claude\n{result.stdout}\n{result.stderr}"
+    )
+    return result
+
+
 def _truncate(text: str, width: int, locale: str) -> bytes:
+    #: DG-477: derived from `os.environ` (which carries `DRUNKEN_HOME` from
+    #: the autouse `hermetic_drunken_home` fixture) rather than built from
+    #: scratch, so this child process never has a path back to the
+    #: operator's real registry even though it has no reason to look.
+    env = {**os.environ, "LC_ALL": locale, "LANG": locale, "PATH": "/usr/bin:/bin"}
     return subprocess.run(
         [sys.executable, str(TRUNCATE), str(width)],
         input=text.encode("utf-8"),
         capture_output=True,
         check=True,
-        env={"LC_ALL": locale, "LANG": locale, "PATH": "/usr/bin:/bin"},
+        env=env,
     ).stdout
 
 
@@ -153,3 +213,312 @@ class TestTheGeneratorEmitsWhatACommitAccepts:
         """`printf \"%s \"` joins folded YAML lines, so a description ends in a
         space and a mid-sentence cut lands on one."""
         assert _truncate("word ", 5, "C").decode("utf-8") == "word"
+
+
+class TestThePowerShellInstallerReadsTheShapeSkillsActuallyUse:
+    """DG-378. `install_skills.ps1` read the trigger from a `Trigger/Keywords:**`
+    line and the description from a `**Description:**` body line. Neither shape
+    survived the move to YAML frontmatter: the first appears in *none* of the
+    eleven `SKILL.md` files, so every row the Windows installer wrote lost its
+    slash command, and `jira-tickets` — the one skill carrying no legacy body
+    line either — lost its description as well.
+
+    `install_skills.sh` was fixed for both and the `.ps1` was not, so the two
+    installers published different indexes from the same tree. That is the same
+    disease as the locale bug above: a generated *and* committed file whose
+    content depends on which machine regenerated it.
+    """
+
+    def test_the_shape_it_used_to_look_for_is_really_gone(self) -> None:
+        """The premise, asserted rather than assumed. If a skill ever
+        reintroduces the line, the fallback stops being the only live path and
+        this test is where that shows up."""
+        carriers = [
+            path.relative_to(REPO_ROOT).as_posix()
+            for path in sorted((REPO_ROOT / "skills").rglob("SKILL.md"))
+            if "Trigger/Keywords:" in path.read_text(encoding="utf-8")
+        ]
+        assert not carriers, (
+            f"{carriers} carry a `Trigger/Keywords:` line again — the "
+            "installers' primary extractor is live, not dead code"
+        )
+
+    def test_it_reads_the_frontmatter_description(self) -> None:
+        powershell = (
+            REPO_ROOT / "scripts" / "install" / "install_skills.ps1"
+        ).read_text(encoding="utf-8")
+        assert "^description:" in powershell, (
+            "install_skills.ps1 does not read the YAML frontmatter "
+            "`description:`, which is the only place ten of the eleven skills "
+            "state one"
+        )
+
+    def test_it_falls_back_to_the_trigger_on_phrase(self) -> None:
+        powershell = (
+            REPO_ROOT / "scripts" / "install" / "install_skills.ps1"
+        ).read_text(encoding="utf-8")
+        assert "Trigger on" in powershell, (
+            "install_skills.ps1 has no `Trigger on` fallback, so no row it "
+            "writes can name a slash command"
+        )
+
+    @pytest.mark.skipif(POWERSHELL is None, reason="no PowerShell host on this machine")
+    def test_the_powershell_installer_reproduces_the_committed_index(
+        self, tmp_path: Path
+    ) -> None:
+        """The acceptance line of DG-378, and the only one that reads the
+        script by running it rather than by grepping it.
+
+        Both of the installer's write targets are redirected into the sandbox.
+        It installs into `$HOME/.claude/skills` and then mirrors the index back
+        over `skills/INDEX.md`, so a test that ran it in place would write to
+        the operator's profile and leave a tracked file rewritten whether it
+        passed or failed.
+        """
+        sandbox = tmp_path / "repo"
+        (sandbox / "scripts").mkdir(parents=True)
+        shutil.copytree(REPO_ROOT / "skills", sandbox / "skills")
+        shutil.copytree(
+            REPO_ROOT / "scripts" / "install", sandbox / "scripts" / "install"
+        )
+        home = tmp_path / "home"
+        home.mkdir()
+
+        script = sandbox / "scripts" / "install" / "install_skills.ps1"
+        result = _run_ps_installer_with_canary(script, home)
+        assert result.returncode == 0, (
+            f"the installer exited {result.returncode}\n"
+            f"{result.stdout}\n{result.stderr}"
+        )
+
+        produced = (home / ".claude" / "skills" / "INDEX.md").read_bytes()
+
+        assert not produced.startswith(b"\xef\xbb\xbf"), (
+            "the index starts with a UTF-8 BOM, which is what "
+            "`Set-Content -Encoding UTF8` adds on Windows PowerShell 5.1 and "
+            "the bash installer never writes"
+        )
+        assert b"\r\n" not in produced, (
+            "the index has CRLF line endings; the bash installer writes LF, "
+            "and this file is committed"
+        )
+
+        # Against the blob rather than the checked-out file: core.autocrlf is on
+        # for this clone, so skills/INDEX.md is CRLF on disk here and LF in git.
+        # What has to match is what git stores -- that is the copy the macOS
+        # installer wrote.
+        committed = subprocess.run(
+            ["git", "show", "HEAD:skills/INDEX.md"],
+            capture_output=True,
+            check=True,
+            cwd=REPO_ROOT,
+        ).stdout
+        assert produced == committed, (
+            "the PowerShell installer and the bash one disagree about the "
+            "bytes of a file that is in git. The Windows copy is at\n"
+            f"  {home / '.claude' / 'skills' / 'INDEX.md'}"
+        )
+
+
+class TestTheAgentInstallerWritesTheSameBytes:
+    """DG-380 — DG-378's cure, applied to the other committed index.
+
+    A Windows run and a macOS run of the same tree wrote different
+    `agents/INDEX.md`: a BOM and CRLF, a trailing blank line the commit hook
+    strips, `-` where the shell writes an em-dash, and its own filename in the
+    "Generated by" header. Each install reverted the other's.
+    """
+
+    def test_the_header_names_one_generator(self) -> None:
+        """Whichever script ran, the header must read the same."""
+        sh = (REPO_ROOT / "scripts" / "install" / "install_agents.sh").read_text(
+            encoding="utf-8"
+        )
+        ps = (REPO_ROOT / "scripts" / "install" / "install_agents.ps1").read_text(
+            encoding="utf-8"
+        )
+        assert "Generated by `scripts/install/install_agents.sh`" not in sh
+        assert "install_agents.ps1``. Do not edit" not in ps
+
+    @pytest.mark.skipif(POWERSHELL is None, reason="no PowerShell host on this machine")
+    def test_the_powershell_installer_reproduces_the_committed_index(
+        self, tmp_path: Path
+    ) -> None:
+        """Run in a sandbox: it installs into $HOME/.claude/agents and mirrors
+        the index back over agents/INDEX.md, so running it in place would write
+        to the operator's profile and rewrite a tracked file."""
+        sandbox = tmp_path / "repo"
+        (sandbox / "scripts").mkdir(parents=True)
+        shutil.copytree(REPO_ROOT / "agents", sandbox / "agents")
+        # DG-402. install_agents.ps1 now regenerates agents/<role>.md from
+        # skills/roles/<role>/SKILL.md, and refuses to install a role
+        # adapter whose skill is not under $HOME/.claude/skills -- both of
+        # which this sandbox has to satisfy for an unrelated byte-identity
+        # assertion to mean anything.
+        shutil.copytree(REPO_ROOT / "skills", sandbox / "skills")
+        shutil.copytree(
+            REPO_ROOT / "scripts" / "install", sandbox / "scripts" / "install"
+        )
+        home = tmp_path / "home"
+        home.mkdir()
+        for role in ("manager", "worker", "reviewer"):
+            role_skill_dir = home / ".claude" / "skills" / role
+            role_skill_dir.mkdir(parents=True)
+            (role_skill_dir / "SKILL.md").write_text(
+                f"---\nname: {role}\ndescription: seeded for a sandboxed test.\n---\n",
+                encoding="utf-8",
+            )
+
+        script = sandbox / "scripts" / "install" / "install_agents.ps1"
+        result = _run_ps_installer_with_canary(script, home)
+        assert result.returncode == 0, (
+            f"the installer exited {result.returncode}\n"
+            f"{result.stdout}\n{result.stderr}"
+        )
+
+        produced = (home / ".claude" / "agents" / "INDEX.md").read_bytes()
+        assert not produced.startswith(b"\xef\xbb\xbf"), "the index starts with a BOM"
+        assert b"\r\n" not in produced, "the index has CRLF line endings"
+
+        committed = subprocess.run(
+            ["git", "show", "HEAD:agents/INDEX.md"],
+            capture_output=True,
+            check=True,
+            cwd=REPO_ROOT,
+        ).stdout
+        assert produced == committed, (
+            "install_agents.ps1 and install_agents.sh disagree about the bytes "
+            f"of agents/INDEX.md. The Windows copy is at\n  {home / '.claude' / 'agents' / 'INDEX.md'}"
+        )
+
+
+class TestTheIndexOnlySwitchTouchesNothingOutsideTheRepo:
+    """DG-423. install_skills.sh and install_agents.sh have had --index-only
+    all along: rebuild the repository's own INDEX.md and write nothing else.
+    The PowerShell scripts had no equivalent, so an agent on Windows that
+    needed to check whether INDEX.md was stale had no way to do it without a
+    real install -- and a real install overwrote the Boss's
+    ~/.claude/skills with unmerged branch content.
+
+    -IndexOnly must never create, read-to-decide-new, or write under the
+    target directory at all -- not even the directory itself -- and the
+    INDEX.md it rebuilds must be the same bytes install_skills.sh /
+    install_agents.sh produce.
+    """
+
+    @pytest.mark.skipif(POWERSHELL is None, reason="no PowerShell host on this machine")
+    @pytest.mark.parametrize(
+        "subdir,script_name,index_rel",
+        [
+            ("skills", "install_skills.ps1", "skills/INDEX.md"),
+            ("agents", "install_agents.ps1", "agents/INDEX.md"),
+        ],
+        ids=["install_skills.ps1", "install_agents.ps1"],
+    )
+    def test_index_only_leaves_the_target_directory_untouched(
+        self, tmp_path: Path, subdir: str, script_name: str, index_rel: str
+    ) -> None:
+        sandbox = tmp_path / "repo"
+        (sandbox / "scripts").mkdir(parents=True)
+        shutil.copytree(REPO_ROOT / subdir, sandbox / subdir)
+        # DG-402. install_agents.ps1 regenerates agents/<role>.md from
+        # skills/roles/ even under -IndexOnly (it writes only inside the
+        # repo's own agents/, same as -IndexOnly's own INDEX.md write), so
+        # its sandbox needs skills/ present too -- install_skills.ps1's run
+        # here is unaffected.
+        if subdir == "agents":
+            shutil.copytree(REPO_ROOT / "skills", sandbox / "skills")
+        shutil.copytree(
+            REPO_ROOT / "scripts" / "install", sandbox / "scripts" / "install"
+        )
+        home = tmp_path / "home"
+        home.mkdir()
+
+        script = sandbox / "scripts" / "install" / script_name
+        result = _run_ps_installer_with_canary(script, home, "-IndexOnly")
+        assert result.returncode == 0, (
+            f"the installer exited {result.returncode}\n"
+            f"{result.stdout}\n{result.stderr}"
+        )
+
+        target = home / ".claude" / subdir
+        assert not target.exists(), (
+            f"-IndexOnly created or wrote under {target}, the install "
+            "target; it must only rebuild the repository's own INDEX.md"
+        )
+
+        produced = (sandbox / index_rel).read_bytes()
+        committed = subprocess.run(
+            ["git", "show", f"HEAD:{index_rel}"],
+            capture_output=True,
+            check=True,
+            cwd=REPO_ROOT,
+        ).stdout
+        assert produced == committed, (
+            f"-IndexOnly rebuilt {index_rel}, but it does not match the "
+            "bytes install_skills.sh / install_agents.sh produce"
+        )
+
+
+class TestAnUnboundArgumentRefusesRatherThanInstalls:
+    """DG-423 reviewer finding. `param([switch]$IndexOnly)` with no
+    `[CmdletBinding()]` is a "simple" PowerShell parameter set, and a simple
+    parameter set does not reject what it cannot bind: a misspelled switch
+    (`-IndexOnlyy`) and a stray positional argument were both silently
+    dropped, `$IndexOnly` stayed `$false`, and the script ran a full install
+    -- exit 0, nothing refused. Reproduced against both scripts before
+    `[CmdletBinding()]` was added: every skill and every agent copied into a
+    sandboxed `$HOME` from a plain typo.
+
+    This is the exact incident DG-423 exists to prevent, one layer deeper:
+    `-IndexOnly` being correct does not matter if the parser silently
+    ignores an argument that was supposed to select it.
+    """
+
+    @pytest.mark.skipif(POWERSHELL is None, reason="no PowerShell host on this machine")
+    @pytest.mark.parametrize(
+        "subdir,script_name",
+        [
+            ("skills", "install_skills.ps1"),
+            ("agents", "install_agents.ps1"),
+        ],
+        ids=["install_skills.ps1", "install_agents.ps1"],
+    )
+    @pytest.mark.parametrize(
+        "bad_args,label",
+        [
+            ("-IndexOnlyy", "typo'd switch"),
+            ("stray-positional-argument", "stray positional argument"),
+        ],
+        ids=["typo", "stray-positional"],
+    )
+    def test_an_unbound_argument_exits_nonzero_and_installs_nothing(
+        self,
+        tmp_path: Path,
+        subdir: str,
+        script_name: str,
+        bad_args: str,
+        label: str,
+    ) -> None:
+        sandbox = tmp_path / "repo"
+        (sandbox / "scripts").mkdir(parents=True)
+        shutil.copytree(REPO_ROOT / subdir, sandbox / subdir)
+        shutil.copytree(
+            REPO_ROOT / "scripts" / "install", sandbox / "scripts" / "install"
+        )
+        home = tmp_path / "home"
+        home.mkdir()
+
+        script = sandbox / "scripts" / "install" / script_name
+        result = _run_ps_installer_with_canary(script, home, bad_args)
+
+        assert result.returncode != 0, (
+            f"a {label} ({bad_args!r}) exited 0 -- it was silently accepted "
+            f"and the script ran a real install\n{result.stdout}\n{result.stderr}"
+        )
+
+        target = home / ".claude" / subdir
+        assert not target.exists(), (
+            f"a {label} ({bad_args!r}) still installed into {target} before "
+            f"failing\n{result.stdout}\n{result.stderr}"
+        )

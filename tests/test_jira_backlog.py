@@ -273,7 +273,7 @@ class TestTheMoveTools:
             known=True,
         )
         with patch("jira_mcp.server.get_client", return_value=client):
-            result = await jira_move_to_backlog("DG-251")
+            result = await jira_move_to_backlog("dg", "DG-251")
 
         assert '"ok": false' in result.lower()
         assert "backlog" in result.lower()
@@ -287,7 +287,7 @@ class TestTheMoveTools:
         client.project_key = "DG"
         client.board_profile.return_value = BoardProfile(known=True)
         with patch("jira_mcp.server.get_client", return_value=client):
-            result = await jira_move_to_backlog("DG-251")
+            result = await jira_move_to_backlog("dg", "DG-251")
 
         assert '"ok": false' in result.lower()
         client.move_to_backlog.assert_not_called()
@@ -310,7 +310,7 @@ class TestTheMoveTools:
             known=True,
         )
         with patch("jira_mcp.server.get_client", return_value=client):
-            result = await jira_move_to_backlog("BETA-5")
+            result = await jira_move_to_backlog("dg", "BETA-5")
 
         assert "BETA-5" in result
         client.move_to_backlog.assert_not_called()
@@ -336,7 +336,7 @@ class TestTheMoveTools:
         )
         client.move_to_backlog.return_value = {"ok": True, "moved": ["DG-251"]}
         with patch("jira_mcp.server.get_client", return_value=client):
-            result = await jira_move_to_backlog("DG-251")
+            result = await jira_move_to_backlog("dg", "DG-251")
 
         assert "DG-251" in result
         assert "status" in result.lower()
@@ -361,8 +361,8 @@ class TestTheMoveTools:
         )
         client.move_to_board.return_value = {"ok": True, "moved": ["DG-251"]}
         with patch("jira_mcp.server.get_client", return_value=client):
-            assert "BETA-5" in await jira_move_to_board("BETA-5")
-            result = await jira_move_to_board("DG-251")
+            assert "BETA-5" in await jira_move_to_board("dg", "BETA-5")
+            result = await jira_move_to_board("dg", "DG-251")
 
         client.move_to_board.assert_awaited_once_with(72, ["DG-251"])
         assert "DG-251" in result
@@ -386,7 +386,7 @@ class TestTheMoveTools:
         )
         client.move_to_backlog.return_value = {"ok": True, "moved": ["DG-251"]}
         with patch("jira_mcp.server.get_client", return_value=client):
-            await jira_move_to_backlog("DG-251")
+            await jira_move_to_backlog("dg", "DG-251")
 
         client.move_to_backlog.assert_awaited_once_with(72, ["DG-251"])
 

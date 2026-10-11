@@ -3,7 +3,8 @@
 Why this repository is shaped the way it is.
 
 **The rules themselves live elsewhere. This file holds the reasons.**
-[`CLAUDE.md`](./CLAUDE.md) states how to work here, the skills state how to run a ticket and a
+[`AGENTS.md`](./AGENTS.md) states how to work here (`CLAUDE.md` is only the one-line adapter that
+imports it), the skills state how to run a ticket and a
 branch, `pyproject.toml` states what is pinned. Section 5 is the map. If you find a rule *stated in
 full* in this file, that is a defect in this file — a second copy of a rule is the failure this
 repository exists to cure, and a design document is not exempt.
@@ -20,9 +21,8 @@ Two repositories held the same AI layer and drifted — 26 skills duplicated by 
 at 73 lines against 196, while a merged PR told one copy to defer to the other. Nobody was wrong at
 any single step, and two agents still ended up reading two different halves of one rulebook.
 
-**One surface is the answer.** Where a second surface is unavoidable — Antigravity's tree, the
-installed tool environment, `INDEX.md` — it is *generated from* the first, never maintained beside
-it. Most of what follows is that sentence applied to a specific place.
+**One surface is the answer.** Where a second surface is unavoidable — the installed tool
+environment, `INDEX.md` — it is *generated from* the first, never maintained beside it. Most of what follows is that sentence applied to a specific place.
 
 ---
 
@@ -38,7 +38,7 @@ case-by-case judgement is not good enough:
 |---|---|---|
 | config loading | which credential was used | DG-254 |
 | both Jira bridges | same, on the daemon's own path | DG-275 |
-| `sync_customizations.py` | **where an install was written** | DG-276 |
+| `sync_customizations.py` (retired, DG-349) | **where an install was written** | DG-276 | <!-- drift-ok: records the lesson, not an instruction -->
 
 The third was written off in the checkpoint as harmless — "it resolves a directory, not a secret".
 The directory was a *write target*. Where skills and agents landed was decided by whichever
@@ -51,7 +51,7 @@ have to name the pattern in prose to explain the ban, and a substring search can
 explanation from a call. The first draft of the DG-276 guard failed on its own docstring.
 
 > Precedence — env var, then registry, then the project's own `.agents/*.json` — and why a `.env`
-> arrived disguised as rule one: `CLAUDE.md`, *Things that will bite you*.
+> arrived disguised as rule one: `AGENTS.md`, *Things that will bite you anywhere*.
 
 ### 2.2 A check whose failure is indistinguishable from its success is not a check
 
@@ -107,10 +107,10 @@ These are stated in full where they are enforced. Here is only why they exist.
 
 | invariant | why | stated in |
 |---|---|---|
-| Import-time failure is never a failure mode | a caller reads a message instead of watching an MCP server vanish; every error carries a remediation because "unknown project 'alpha'" only tells an agent to give up | `CLAUDE.md`, `src/core/errors.py` |
-| An agent opens PRs, never merges; does not install; does not delete | the irreversible half of the work stays with a human. *Marking a thing unused beats removing it* — `requirements.txt` had drifted 113 lines with no reader and was retired with a note rather than deleted (DG-281) | `CLAUDE.md`, `skills/workflow/git-workflow/SKILL.md` |
+| Import-time failure is never a failure mode | a caller reads a message instead of watching an MCP server vanish; every error carries a remediation because "unknown project 'alpha'" only tells an agent to give up | `AGENTS.md`, `src/core/errors.py` |
+| An agent opens PRs, never merges; does not install; does not delete | the irreversible half of the work stays with a human. *Marking a thing unused beats removing it* — `requirements.txt` had drifted 113 lines with no reader and was retired with a note rather than deleted (DG-281) | `AGENTS.md`, `skills/workflow/git-workflow/SKILL.md` |
 | Retired code is kept, but **not published** | not deleting exists so work is not lost; it is not a rule to publish, and the two were conflated. `_not_used/` was tracked only because nothing excluded it. Publishing it shipped a 73-line `git-workflow` beside the live 196-line one — §1's founding disaster, on sale — and drew Dependabot alerts and a merged pull request against withdrawn code. Git history is the archive; a second one in the tree is §1 again (DG-291) | `RETIRED.md`, `.gitignore` |
-| A bug's test is seen failing first | a test written after the fix proves only that it compiles | `CLAUDE.md` |
+| A bug's test is seen failing first | a test written after the fix proves only that it compiles | `AGENTS.md` |
 | The formatter is pinned exactly; `mypy` and `pytest` keep floors | a formatter has no right answer independent of its version, so a range gives one tree two answers (DG-265, DG-270); a new `mypy` finding something new is a result worth having | `pyproject.toml`, at the pin |
 
 ---
@@ -139,7 +139,7 @@ expires, so a ticket left assigned to an agent that died stays that way until a 
 a ten-second fix, weighed against a class of silent disagreement between two boards that costs
 weeks.
 
-> The lifecycle, and why the backlog is not a status: `skills/kanban/jira-tickets/SKILL.md`.
+> The lifecycle, and why the backlog is not a status: `skills/workflow/jira-tickets/SKILL.md`.
 
 ### 3.3 A ticket is scanned, not read — and leaves nothing to decide twice
 
@@ -177,8 +177,8 @@ Three places make the same trade, and it is the house style rather than three co
 The shared shape: when a tool cannot know something, it says so. An under-reported cost and a
 silently widened permission are both worse than a refusal.
 
-> The full hook resolution order, and the two-layer split the model cannot see: `CLAUDE.md`,
-> *Away mode*.
+> The full hook resolution order, and the two-layer split the model cannot see: `AGENTS.md`,
+> *The deny floor*.
 
 ---
 
@@ -186,9 +186,11 @@ silently widened permission are both worse than a refusal.
 
 - **A second Jira surface.** Everything reaching Jira goes through `drunken-jira-mcp`.
 - **A local board.** §3.2.
-- **A second config emitter.** `install_mcp.sh` is a thin wrapper over `drunken-config`, which reads
-  the registry, knows a repository's config from a host application's, and merges rather than
-  overwrites. A second emitter would be two things answering one question.
+- **A second config emitter.** There is one MCP configuration and it is a constant, because the
+  project is an argument to every tool rather than a flag in a file (DG-341). `install_mcp.sh`
+  prints it; `onboard_project.py --merge-mcp-config` is what merges into a host's own file, reading
+  what is there and pruning only what this project owns. Two things emitting one document would be
+  two things that can disagree.
 - **Story points and priority.** A team-managed Jira project cannot set `priority` at all — every
   issue reads `Medium` because that is the only available value — and no story points exist. Urgency
   is expressed with labels. A constraint of the instance, not a gap to fill.
@@ -200,11 +202,11 @@ silently widened permission are both worse than a refusal.
 
 | question | file |
 |---|---|
-| how to work in this repository | [`CLAUDE.md`](./CLAUDE.md) |
+| how to work in this repository | [`AGENTS.md`](./AGENTS.md) |
 | where things stand right now | [`SESSION_CHECKPOINT.md`](./SESSION_CHECKPOINT.md) |
-| how to write and run a ticket | `skills/kanban/jira-tickets/SKILL.md` |
+| how to write and run a ticket | `skills/workflow/jira-tickets/SKILL.md` |
 | branch, commit, PR and merge rules | `skills/workflow/git-workflow/SKILL.md` |
 | what each component does | [`Drunken-Guild-Guide.md`](./Drunken-Guild-Guide.md) |
 | wiring the MCP servers into a project | [`Integration-Guide.md`](./Integration-Guide.md) |
-| agent-facing rules for this repository | [`.agents/AGENTS.md`](./.agents/AGENTS.md) |
+| agent-facing rules for this repository | [`AGENTS.md`](./AGENTS.md) |
 | what is pinned, and why | `pyproject.toml`, at each pin |

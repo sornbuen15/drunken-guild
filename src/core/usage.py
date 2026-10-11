@@ -36,7 +36,7 @@ answer would look authoritative. So the default output is *tokens*, which are a
 fact, and money appears only when someone supplies the rates.
 
 What it cannot see: Antigravity's usage, which lives under a directory
-``CLAUDE.md`` puts out of bounds. Two agents work this repo and this counts one
+``AGENTS.md`` puts out of bounds. Two agents work this repo and this counts one
 of them, so every report says so rather than presenting a total that will be
 read as the whole bill.
 """
@@ -65,7 +65,7 @@ SOURCE: Final = "Claude Code transcripts"
 #: Said out loud in every report. See the module docstring.
 COVERS: Final = (
     "Claude Code sessions on this machine only. Antigravity's usage is not "
-    "included: it lives under ~/.gemini/antigravity-cli/brain/, which CLAUDE.md "
+    "included: it lives under ~/.gemini/antigravity-cli/brain/, which AGENTS.md "
     "puts out of bounds. Two agents work this repo and this counts one."
 )
 

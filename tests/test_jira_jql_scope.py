@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import pytest
 
+from core.errors import ValidationError
 from jira_mcp.jql import scope_to_project
 
 
@@ -93,3 +94,107 @@ class TestTheKeyIsQuoted:
         that has one means the registry is wrong and should say so."""
         with pytest.raises(ValueError):
             scope_to_project("status = Done", 'DG" OR project = "BETA')
+
+
+# --- DG-428: an unbalanced parenthesis closes the wrapper early ------------
+#
+# scope_to_project wraps as `project = "KEY" AND (<clause>)`. A clause whose
+# parentheses are unbalanced closes that `(` early (or leaves one open), and
+# whatever follows escapes the AND it was meant to be trapped inside. Found by
+# the reviewer of PR #124, present on develop and in every released version
+# since DG-225.
+
+
+class TestTheWrapperCannotBeEscaped:
+    def test_the_reported_reproduction_is_refused(self) -> None:
+        """The finding, verbatim. Unpatched, this returns
+        `project = "DG" AND (status is not EMPTY) OR project = "OTHER" OR
+        (status is not EMPTY)`, which Jira parses as
+        `(project = "DG" AND ...) OR project = "OTHER" OR (...)` — every
+        project the credential can reach, not just DG."""
+        with pytest.raises(ValidationError) as caught:
+            scope_to_project(
+                'status is not EMPTY) OR project = "OTHER" OR (status is not EMPTY',
+                "DG",
+            )
+        assert caught.value.remediation, "a refusal with no next step is a dead end"
+
+    def test_a_lone_closing_paren_is_refused(self) -> None:
+        with pytest.raises(ValidationError):
+            scope_to_project(")", "DG")
+
+    def test_a_lone_opening_paren_is_refused(self) -> None:
+        with pytest.raises(ValidationError):
+            scope_to_project("(", "DG")
+
+    def test_a_close_before_any_open_is_refused_even_when_the_total_balances(
+        self,
+    ) -> None:
+        """Two parens, equal counts, still invalid: ')(' closes before it ever
+        opens. A check that only compares counts (weakened balance checking)
+        would wrongly accept this."""
+        with pytest.raises(ValidationError):
+            scope_to_project(")(", "DG")
+
+    def test_an_empty_clause_is_accepted(self) -> None:
+        assert scope_to_project("", "DG") == 'project = "DG"'
+
+    def test_a_closing_paren_inside_a_quoted_value_does_not_count(self) -> None:
+        """The quote is real JQL syntax; what is inside it is a value, not
+        structure. `project = "DG" AND (summary ~ "a)") ` is valid JQL and
+        must not be refused."""
+        scoped = scope_to_project('summary ~ "a)"', "DG")
+        assert scoped == 'project = "DG" AND (summary ~ "a)")'
+
+    def test_an_escaped_quote_inside_a_string_does_not_end_it_early(self) -> None:
+        """`\\"` inside the string is an escaped quote, not the end of the
+        literal, so the `)` right after it is still inside the string and
+        must not be counted. A scanner that is not escape-aware ends the
+        string one character too soon, sees the `)` as real, and wrongly
+        refuses this legitimate, balanced clause."""
+        clause = 'summary ~ "a\\"b)c" AND status = Done'
+        scoped = scope_to_project(clause, "DG")
+        assert scoped == f'project = "DG" AND ({clause})'
+
+    def test_a_paren_inside_a_pseudo_comment_inside_a_string_does_not_count(
+        self,
+    ) -> None:
+        """JQL has no comment syntax, so `--` is just two characters of a
+        value. The `(` right after it sits inside a real string literal and
+        must not be treated as an open paren."""
+        clause = 'summary ~ "-- (unterminated comment" AND status = Done'
+        scoped = scope_to_project(clause, "DG")
+        assert scoped == f'project = "DG" AND ({clause})'
+
+    def test_a_backslash_outside_a_string_does_not_hide_a_paren(self) -> None:
+        """JQL defines no escaping outside a string literal, so a backslash
+        there is an ordinary character and the `(` right after it is a real,
+        structural open paren — one this clause never closes."""
+        with pytest.raises(ValidationError):
+            scope_to_project("status = Done \\( OR project = OTHER", "DG")
+
+    def test_an_unterminated_string_literal_is_refused(self) -> None:
+        with pytest.raises(ValidationError):
+            scope_to_project('summary ~ "never closed', "DG")
+
+    def test_a_single_quoted_string_is_honoured_too(self) -> None:
+        """JQL allows either quote character; a scanner that only recognises
+        `"` would miscount a `)` sitting inside a `'...'` value."""
+        clause = "summary ~ 'a)b'"
+        scoped = scope_to_project(clause, "DG")
+        assert scoped == f'project = "DG" AND ({clause})'
+
+    def test_an_unbalanced_order_by_clause_is_refused_too(self) -> None:
+        """Validated separately from the condition, per the ticket's scope —
+        a stray paren there does not escape the wrapper (it is appended after
+        it closes) but it is still not valid JQL and still worth a refusal
+        that names the fix rather than an opaque Jira syntax error."""
+        with pytest.raises(ValidationError):
+            scope_to_project("status = Done ORDER BY (created", "DG")
+
+    def test_a_huge_clause_is_refused_rather_than_scanned(self) -> None:
+        """Bounded work: a pathological input is refused outright, not walked
+        character by character regardless of length."""
+        huge = "status = Done AND (" * 5000
+        with pytest.raises(ValidationError):
+            scope_to_project(huge, "DG")

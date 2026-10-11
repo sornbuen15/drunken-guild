@@ -142,7 +142,7 @@ def test_no_retired_file_still_looks_like_a_manifest() -> None:
 
 
 def test_the_retired_copy_says_why_it_was_retired() -> None:
-    """`CLAUDE.md`: retired things move to `_not_used/` *with a note saying why
+    """`AGENTS.md`: retired things move to `_not_used/` *with a note saying why
     and what replaced them*. A thing parked without one is indistinguishable
     from one somebody forgot.
 

@@ -64,15 +64,94 @@ fi
 
 VENV="$WORK/venv"
 uv venv "$VENV" >/dev/null 2>&1
-VIRTUAL_ENV="$VENV" uv pip install -q "$REPO" >/dev/null 2>&1
+
+# Install from an export of HEAD, not from the working tree.
+#
+# DG-355 is why. `pyproject.toml` still listed `src/service` as a package after
+# the directory was retired, and this script reported a clean install anyway --
+# because the directory was still there on the developer's disk, empty apart
+# from a `__pycache__` that `git rm` does not remove. setuptools found a package
+# directory, the build succeeded, and the check that exists to catch exactly
+# this said 20 passed. CI, checking out fresh, failed on the first install.
+#
+# A clean room cannot be the room you have been working in. The untracked
+# leftovers are the whole point: what everyone else gets is HEAD.
+SOURCE="$REPO"
+SOURCE_NOTE="the working tree"
+if HEAD_SHA="$(git -C "$REPO" rev-parse --short HEAD 2>/dev/null)"; then
+  SOURCE="$WORK/export"
+  mkdir -p "$SOURCE"
+  if git -C "$REPO" archive HEAD | tar -x -C "$SOURCE" 2>/dev/null; then
+    SOURCE_NOTE="HEAD ($HEAD_SHA), untracked files excluded"
+  else
+    SOURCE="$REPO"
+    SOURCE_NOTE="the working tree (export failed)"
+  fi
+fi
+
+install_log="$(VIRTUAL_ENV="$VENV" uv pip install -q "$SOURCE" 2>&1)"
 BIN="$VENV/bin"
 
-if [ -x "$BIN/drunken-doctor" ]; then ok "installed from a clean checkout"; else
-  bad "install failed"; exit 1
+if [ -x "$BIN/drunken-doctor" ]; then ok "installed from $SOURCE_NOTE"; else
+  bad "install failed"
+  printf '%s\n' "$install_log" | tail -n 12
+  exit 1
 fi
 
 python_version="$("$BIN/python" -c 'import sys;print(".".join(map(str,sys.version_info[:2])))')"
 echo "        python $python_version"
+
+# ---------------------------------------------------------------------------
+say "0b. The wheel ships only what it declares"
+# ---------------------------------------------------------------------------
+# DG-363. A stale, gitignored build/lib/ left over from before a module was
+# retired gets copied wholesale into a wheel built with `--wheel`: that flag
+# skips the sdist step and builds in place from the source tree, so
+# setuptools' install_lib copies whatever is sitting in build/lib/ regardless
+# of what is declared today.
+#
+# Plain `uv build` (sdist, then wheel built from a *fresh copy* of it) does
+# NOT see this -- the sdist never contains the stale, gitignored build/lib/
+# in the first place, so it reports a false "clean" on exactly the tree this
+# step exists to catch. A review of this script's first version caught it
+# doing exactly that; `--wheel` is required, not a preference.
+#
+# Built from a COPY under $WORK, never from $REPO directly -- `--wheel`
+# writes build/lib/ and *.egg-info into whatever directory it runs in, and
+# this step must leave the operator's real checkout untouched. The copy
+# starts from $SOURCE (already a git-archive export of HEAD, built above)
+# plus $REPO's own build/ directory if one exists, so a locally-stale
+# build/lib/ is exactly what gets exercised.
+if [ "$SOURCE" = "$REPO" ]; then
+  # The git-archive export above failed, same as the install step's own
+  # fallback. Building `--wheel` directly in $REPO would write build/lib/
+  # and *.egg-info into the operator's real checkout, so this step is
+  # skipped rather than risking that -- same choice section 0 already made.
+  bad "skipped: no HEAD export to build the wheel from"
+else
+  wheel_source="$SOURCE"
+  if [ -d "$REPO/build" ]; then
+    cp -r "$REPO/build" "$wheel_source/build" 2>/dev/null
+  fi
+
+  wheel_dir="$WORK/wheel"
+  mkdir -p "$wheel_dir"
+  build_log="$(cd "$wheel_source" && uv build --wheel --out-dir "$wheel_dir" 2>&1)"
+  wheel_file="$(ls "$wheel_dir"/*.whl 2>/dev/null | head -n1)"
+
+  if [ -z "$wheel_file" ]; then
+    bad "wheel build failed"
+    printf '%s\n' "$build_log" | tail -n 12
+  else
+    contents_out="$("$BIN/python" "$REPO/scripts/check_wheel_contents.py" "$wheel_file" 2>&1)"
+    if [ $? -eq 0 ]; then
+      ok "wheel ships only its declared top-level modules"
+    else
+      bad "wheel ships an undeclared module"
+      printf '%s\n' "$contents_out"
+    fi
+  fi
+fi
 
 # ---------------------------------------------------------------------------
 say "1. Nothing configured — does it explain itself?"
@@ -156,7 +235,7 @@ say "5. The MCP servers start for a host that knows nothing about us"
 # §1.1: they used to crash during import, so the host saw no tools at all and
 # no error anywhere. Starting with zero config is the whole point — the agent
 # needs to be able to call a tool and be *told* what is missing.
-for server in drunken-jira-mcp drunken-discord-mcp; do
+for server in drunken-jira-mcp; do
   # The server logs to its own stderr, which the client inherits, so only the
   # last line is ours.
   count="$(clean_run "$BIN/python" - "$BIN/$server" <<'PY' | tail -n1

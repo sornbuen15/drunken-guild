@@ -89,24 +89,97 @@ def test_worktrees_and_vendored_copies_are_not_scanned(drift) -> None:
     suite can itself run from inside a linked worktree under
     `.claude/worktrees/<name>`, which puts `.claude` in every path's
     *absolute* parts regardless of whether documents() filtered correctly.
+
+    DG-360 narrowed this from "nothing under `.claude`" to the worktrees
+    themselves. The whole directory was skipped only because everything in it
+    was history; `.claude/rules/` is instructions, and the test below says so.
     """
     assert not [
         p
         for p in drift.documents()
-        if ".claude" in p.relative_to(drift.REPO_ROOT).parts
+        if "worktrees" in p.relative_to(drift.REPO_ROOT).parts
     ]
 
 
-def test_the_templates_we_hand_out_are_scanned(drift) -> None:
-    """`.guild_templates/` is copied into every downstream project, so a stale
-    instruction there propagates instead of just sitting still."""
-    scanned = {path.name for path in drift.documents()}
+def test_the_project_rules_are_scanned(drift) -> None:
+    """`.claude/rules/*.md` are instructions that load when Claude reads a
+    matching file. An instruction naming something retired is exactly the bug
+    this check exists for, and its parent directory being skipped for the
+    worktrees would have hidden it."""
+    scanned = {p.relative_to(drift.REPO_ROOT).as_posix() for p in drift.documents()}
+    rules = {
+        p.relative_to(drift.REPO_ROOT).as_posix()
+        for p in (drift.REPO_ROOT / ".claude" / "rules").rglob("*.md")
+    }
+    assert rules, "no rules to scan means this guard proves nothing"
+    assert rules <= scanned, f"unscanned instruction files: {sorted(rules - scanned)}"
 
-    assert ".cursorrules" in scanned
-    assert "CONVENTIONS.md" in scanned
+
+def test_the_templates_we_hand_out_are_scanned(drift) -> None:
+    """`templates/` is copied into every downstream project, so a stale
+    instruction there propagates instead of just sitting still. The rulebooks
+    for Cursor and Aider carry no `.md` suffix, so a markdown-only glob would
+    skip exactly the two files most likely to be copied and forgotten."""
+    scanned = {
+        (path.parent.name, path.name)
+        for path in drift.documents()
+        if path.parent.name == "templates"
+    }
+
+    assert ("templates", ".cursorrules") in scanned
+    assert ("templates", ".aider.conf.yml") in scanned
+    assert ("templates", "CONVENTIONS.md") in scanned
+
+
+def test_the_retired_template_set_cannot_come_back(drift, tmp_path, monkeypatch):
+    """DG-337. Two template sets existed side by side for months, and the old one
+    -- still telling agents to shell out to a bridge script and park work on a
+    retired board -- was the one Integration-Guide pointed new projects at. A
+    doc that sends a reader there again must fail, and must say where to go
+    instead."""
+    stale = tmp_path / "guide.md"
+    stale.write_text("cp /path/to/drunken-guild/.guild_templates/CLAUDE.md .\n")
+    monkeypatch.setattr(drift, "documents", lambda: [stale])
+    monkeypatch.setattr(drift, "REPO_ROOT", tmp_path)
+
+    problems = drift.scan()
+
+    # Not `len(problems) == 1`: the fixture line also happens to contain the
+    # substring DG-427's own retired-name check looks for (".guild_templates"
+    # ends in "templates/CLAUDE.md"), so a second, equally correct problem is
+    # expected to show up here too -- this test is about the DG-337 one.
+    guild_templates_problems = [p for p in problems if ".guild_templates" in p]
+    assert len(guild_templates_problems) == 1
+    assert "templates/" in guild_templates_problems[0].split("Use", 1)[1]
 
 
 def test_every_retired_entry_says_what_to_use_instead(drift) -> None:
     for retired in drift.RETIRED:
         assert retired.use_instead, f"{retired.name} has no replacement recorded."
         assert retired.removed_in, f"{retired.name} does not say when it went."
+
+
+def test_fixtures_under_tests_are_not_scanned(drift, tmp_path, monkeypatch) -> None:
+    """DG-430 gap 3: `documents()` did a blanket `rglob("*.md")`, so a
+    realistic-looking markdown fixture built under `tests/fixtures/` to prove
+    something about a *different* checker was silently counted here as a
+    repository document too. Built for real under a fake repository root
+    (never the tracked tree) alongside an ordinary document at the fake
+    root, which must still be found -- proving the exclusion is narrow, not
+    a blanket skip of everything under `tests/`."""
+    fake_root = tmp_path / "fake-repo"
+    fixtures = fake_root / "tests" / "fixtures"
+    fixtures.mkdir(parents=True)
+    (fixtures / "stray.md").write_text("Set it up by running `drunken-register`.\n")
+    (fake_root / "README.md").write_text("# Fake project\n")
+    monkeypatch.setattr(drift, "REPO_ROOT", fake_root)
+
+    found = {p.relative_to(fake_root).as_posix() for p in drift.documents()}
+
+    assert "tests/fixtures/stray.md" not in found, (
+        "a markdown fixture under tests/fixtures/ was counted as a document"
+    )
+    assert "README.md" in found, (
+        "the exclusion swallowed a real document too -- it must be narrower "
+        "than skipping all of tests/"
+    )

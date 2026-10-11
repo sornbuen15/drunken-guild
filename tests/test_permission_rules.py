@@ -13,9 +13,11 @@ strength of its first two words.
 """
 
 import json
+from typing import Final
 
 import pytest
 
+from core import hook
 from core import permission_rules as pr
 
 
@@ -220,3 +222,392 @@ class TestLayeredRules:
         rules = pr.load_layered_rules(tmp_path)
         assert pr.is_denied("Bash", {"command": "rm -rf /"}, rules.deny)
         assert not pr.is_denied("Bash", {"command": "git log"}, rules.deny)
+
+
+class TestDG334FileWritingToolsAreOneFamily:
+    """Every tool that can change a file answers to one rule name.
+
+    Claude Code consults `Edit(path)` and `Read(path)` rules only: a
+    `Write(path)` rule is accepted, never consulted, and warned about at
+    startup. So `.claude/settings.json` has to spell a file rule `Edit(...)`.
+    This matcher compared tool names exactly, so the deny rule the settings
+    file is obliged to write was the one rule that could not stop Claude's
+    `Write` tool -- `Read(**/.env)` denied reading the secret while
+    `Edit(**/.env)` let a write straight past. Matching the harness's own
+    grouping is what closes it.
+    """
+
+    @pytest.mark.parametrize("tool", ["Write", "Edit", "MultiEdit", "NotebookEdit"])
+    def test_an_edit_deny_rule_stops_every_tool_that_can_change_a_file(
+        self, tool
+    ) -> None:
+        rule = pr.Rule.parse("Edit(**/.env)")
+        assert rule.matches(tool, {"file_path": "/repo/.env"})
+
+    @pytest.mark.parametrize("tool", ["Write", "Edit", "MultiEdit", "NotebookEdit"])
+    def test_an_edit_allow_rule_covers_every_tool_that_can_change_a_file(
+        self, tool
+    ) -> None:
+        rule = pr.Rule.parse("Edit(/repo/**)", base_dir="/repo")
+        assert pr.is_allowed(tool, {"file_path": "/repo/src/thing.py"}, [rule])
+
+    def test_read_is_not_swept_into_the_family(self) -> None:
+        """Grouping the writers must not grant a reader. `Edit(src/**)` says
+        what may be changed, and answering for Read as well would hand every
+        write allowance a matching read allowance nobody wrote."""
+        rule = pr.Rule.parse("Edit(/repo/**)", base_dir="/repo")
+        assert not rule.matches("Read", {"file_path": "/repo/src/thing.py"})
+
+    def test_a_legacy_write_rule_still_stops_the_edit_tool(self) -> None:
+        """Settings files in the wild still carry `Write(...)`. The grouping
+        works from either spelling, so an older file keeps the protection it
+        was written for even though Claude Code no longer consults it."""
+        rule = pr.Rule.parse("Write(**/.env)")
+        assert rule.matches("Edit", {"file_path": "/repo/.env"})
+
+
+def _splice_continuation(command: str, gap: int, newline: str) -> str:
+    """*command* with a backslash + *newline* ("\\n" or "\\r\\n") spliced at
+    character gap *gap* (0 is before the first character, len(command) is
+    after the last). A real shell joins the two halves with nothing else in
+    between, so this is exactly what DG-465's reviewer found defeats a
+    prefix-matching deny rule."""
+    return command[:gap] + "\\" + newline + command[gap:]
+
+
+#: The five settings.json deny rules DG-467 names, each with a command that
+#: would be caught by it today -- unspliced -- and the specifier text
+#: `_matches_command` strips to a prefix.
+_DENY_RULE_COMMANDS: Final = [
+    ("Bash(git push --force:*)", "git push --force origin main"),
+    ("Bash(git push -f:*)", "git push -f origin main"),
+    ("Bash(git reset --hard:*)", "git reset --hard HEAD~1"),
+    ("Bash(git clean -fd:*)", "git clean -fd"),
+    ("Bash(rm -rf:*)", "rm -rf /tmp/x"),
+]
+
+
+class TestLineContinuationCannotDefeatADenyRule:
+    """DG-467. A backslash + newline (or backslash + CRLF) spliced into a
+    denied command is a real, ordinary shell line continuation -- it is not
+    an evasion technique, and the deny rules must see the command the way
+    the shell will actually run it, not the way it is spelled across two
+    physical lines."""
+
+    @pytest.mark.parametrize("rule_text,command", _DENY_RULE_COMMANDS)
+    @pytest.mark.parametrize("newline", ["\n", "\r\n"])
+    def test_denied_with_a_continuation_at_every_gap(
+        self, rule_text: str, command: str, newline: str
+    ) -> None:
+        rule = pr.Rule.parse(rule_text)
+        for gap in range(len(command) + 1):
+            spliced = _splice_continuation(command, gap, newline)
+            assert pr.is_denied("Bash", {"command": spliced}, [rule]), (
+                f"gap={gap} newline={newline!r} spliced={spliced!r}"
+            )
+
+    def test_continuation_inside_single_quotes_stays_literal(self) -> None:
+        """Single quotes give a backslash no special meaning in a real
+        shell, so a continuation spliced inside one is not a continuation at
+        all -- it is two literal characters that belong to the quoted text,
+        and the command's verdict must not change because of them."""
+        rules = [pr.Rule.parse("Bash(grep:*)")]
+        plain = "grep 'a && b' file"
+        spliced = "grep 'a \\\n&& b' file"
+        assert pr.is_allowed("Bash", {"command": plain}, rules)
+        assert pr.is_allowed("Bash", {"command": spliced}, rules)
+        # The literal backslash+newline must still be inside the one segment
+        # split_command returns -- not treated as a real newline separator.
+        assert pr.split_command(spliced) == [spliced.strip()]
+
+    def test_dot_env_rules_are_unaffected(self, tmp_path) -> None:
+        """Path rules never go through split_command at all, so this change
+        must not touch them."""
+        rule = pr.Rule.parse("Read(**/.env)")
+        assert rule.matches("Read", {"file_path": "/repo/.env"})
+
+    def test_force_with_lease_keeps_todays_verdict(self) -> None:
+        """Deny matching has no word boundary (`TestDenyIsDeliberatelyGreedier`),
+        so `Bash(git push --force:*)` already matches `--force-with-lease` by
+        plain prefix today, splice or no splice. The fix must not change that
+        verdict in either direction -- a continuation is not a new reason for
+        the matcher to look harder or more leniently at the text around it."""
+        rule = pr.Rule.parse("Bash(git push --force:*)")
+        plain = "git push --force-with-lease origin main"
+        baseline = pr.is_denied("Bash", {"command": plain}, [rule])
+        for gap in range(len(plain) + 1):
+            spliced = _splice_continuation(plain, gap, "\n")
+            assert pr.is_denied("Bash", {"command": spliced}, [rule]) == baseline, (
+                f"gap={gap} spliced={spliced!r}"
+            )
+
+    def test_trailing_backslash_with_no_following_character_is_literal(
+        self,
+    ) -> None:
+        """A backslash at the very end of the input starts nothing -- there
+        is no newline after it to vanish with it, so it must be kept as an
+        ordinary trailing character, not dropped."""
+        assert pr.split_command("echo hi\\") == ["echo hi\\"]
+
+    def test_escaped_backslash_then_a_real_newline_still_splits(self) -> None:
+        """`\\\\` is an escaped backslash -- one literal backslash -- and the
+        newline that follows it is an ordinary separator, not part of a
+        continuation. Must not be confused with `\\` + newline."""
+        command = "echo hi\\\\\nrm -rf /tmp/x"
+        rules = [pr.Rule.parse("Bash(rm -rf:*)")]
+        assert pr.is_denied("Bash", {"command": command}, rules)
+        # The escape pair keeps both the backslash and the character it
+        # escaped (itself a backslash here) -- this module scans text and
+        # never drops a backslash the way a real shell's argv would.
+        assert pr.split_command(command) == ["echo hi\\\\", "rm -rf /tmp/x"]
+
+    def test_continuation_inside_command_substitution_is_removed(self) -> None:
+        rules = [pr.Rule.parse("Bash(rm -rf:*)")]
+        assert pr.is_denied("Bash", {"command": "echo $(rm -r\\\nf /tmp/x)"}, rules)
+        assert pr.is_denied("Bash", {"command": "echo `rm -r\\\nf /tmp/x`"}, rules)
+
+    def test_continuation_mid_verb(self) -> None:
+        rules = [pr.Rule.parse("Bash(git push -f:*)")]
+        assert pr.is_denied("Bash", {"command": "gi\\\nt push -f origin main"}, rules)
+
+    def test_continuation_mid_flag(self) -> None:
+        rules = [pr.Rule.parse("Bash(git push --force:*)")]
+        assert pr.is_denied(
+            "Bash", {"command": "git push --for\\\nce origin main"}, rules
+        )
+
+
+class TestHookAndPermissionRulesAgreeOnSegments:
+    """DG-467's other half: there must be exactly one implementation of this
+    scan, not two that can quietly disagree. `hook.decide` does not keep its
+    own splitter -- it calls straight into `permission_rules.is_denied` --
+    so this pins that down rather than assuming it from reading the source.
+    """
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "git push --force origin main",
+            "git push --for\\\nce origin main",
+            "git push --for\\\r\nce origin main",
+            "rm -rf /tmp/x",
+            "echo hi && rm -r\\\nf /tmp/x",
+            "grep 'a \\\n&& b' file",
+            "git status",
+        ],
+    )
+    def test_hook_decide_agrees_with_is_denied(self, command: str) -> None:
+        rule_text = "Bash(rm -rf:*), Bash(git push --force:*)"
+        rules = pr.Rules(
+            deny=[
+                pr.Rule.parse("Bash(rm -rf:*)"),
+                pr.Rule.parse("Bash(git push --force:*)"),
+            ]
+        )
+        direct = pr.is_denied("Bash", {"command": command}, rules.deny)
+        payload = {"tool_name": "Bash", "tool_input": {"command": command}}
+        via_hook = hook.decide(payload, rules).permission == "deny"
+        assert direct == via_hook, rule_text
+
+
+def _spread_whitespace(command: str, fill: str) -> str:
+    """*command* with every plain space between words replaced by *fill*.
+    Mirrors a shell that was fed a tab, a form feed, a vertical tab, or two
+    spaces instead of one -- the same command, spelled with different
+    inter-word whitespace."""
+    return command.replace(" ", fill)
+
+
+class TestInterWordWhitespaceCannotDefeatADenyRule:
+    """DG-481. `split_command` kept every literal space, tab, form feed and
+    vertical tab exactly as typed, so a settings.json deny rule matched by
+    plain prefix (`"git push --force".startswith`) no longer matched once a
+    tab or a doubled space separated the words -- the same command a shell
+    runs identically either way. Normalise unquoted runs of that whitespace
+    to one space before prefix matching."""
+
+    @pytest.mark.parametrize("rule_text,command", _DENY_RULE_COMMANDS)
+    def test_denied_with_a_tab_between_every_word(
+        self, rule_text: str, command: str
+    ) -> None:
+        rule = pr.Rule.parse(rule_text)
+        tabbed = _spread_whitespace(command, "\t")
+        assert pr.is_denied("Bash", {"command": tabbed}, [rule]), tabbed
+
+    @pytest.mark.parametrize("rule_text,command", _DENY_RULE_COMMANDS)
+    def test_denied_with_double_spaces_between_every_word(
+        self, rule_text: str, command: str
+    ) -> None:
+        rule = pr.Rule.parse(rule_text)
+        doubled = _spread_whitespace(command, "  ")
+        assert pr.is_denied("Bash", {"command": doubled}, [rule]), doubled
+
+    @pytest.mark.parametrize("rule_text,command", _DENY_RULE_COMMANDS)
+    @pytest.mark.parametrize("fill", ["\t", "\f", "\v", "  "])
+    def test_denied_with_a_tab_and_a_continuation_combined(
+        self, rule_text: str, command: str, fill: str
+    ) -> None:
+        """A continuation (DG-467) and inter-word whitespace (DG-481) are two
+        different defects fixed in two tickets -- combined, neither gets to
+        reintroduce the hole the other one closed."""
+        rule = pr.Rule.parse(rule_text)
+        spread = _spread_whitespace(command, fill)
+        spliced = _splice_continuation(spread, len(spread) // 2, "\n")
+        assert pr.is_denied("Bash", {"command": spliced}, [rule]), spliced
+
+    def test_whitespace_inside_single_quotes_is_untouched(self) -> None:
+        command = "grep 'a\tb  c' file"
+        assert pr.split_command(command) == [command]
+
+    def test_whitespace_inside_double_quotes_is_untouched(self) -> None:
+        command = 'git commit -m "a  b\tc"'
+        assert pr.split_command(command) == [command]
+
+    def test_commit_message_with_double_spaces_is_unchanged(self) -> None:
+        """A harmless, already-allowed command must not be rewritten just
+        because normalisation now exists."""
+        rule = pr.Rule.parse('Bash(git commit -m "a  b":*)')
+        command = 'git commit -m "a  b"'
+        assert pr.split_command(command) == [command]
+        assert pr.is_allowed("Bash", {"command": command}, [rule])
+
+    def test_a_non_breaking_space_is_the_denied_command_after_all(self) -> None:
+        """Verdict, revised (adversarial round 2, Jira comment on DG-481): a
+        *real* Git Bash does not treat U+00A0 as an IFS separator, but
+        PowerShell's own tokenizer does -- `powershell -Command "git<NBSP>push
+        --force"` resolves to the argv `[git, push, --force]`, confirmed by
+        the reviewer. For a deny floor the safe direction is to over-deny
+        rather than trust the one shell that happens to agree with us, so
+        NBSP (and the other Unicode space separators -- see
+        :data:`pr._INTERWORD_WHITESPACE`) collapse the same as a tab does."""
+        rule = pr.Rule.parse("Bash(rm -rf:*)")
+        command = "rm\xa0-rf /tmp/x"
+        assert pr.split_command(command) == ["rm -rf /tmp/x"]
+        assert pr.is_denied("Bash", {"command": command}, [rule])
+
+    @pytest.mark.parametrize("rule_text,command", _DENY_RULE_COMMANDS)
+    def test_denied_with_a_non_breaking_space_between_every_word(
+        self, rule_text: str, command: str
+    ) -> None:
+        rule = pr.Rule.parse(rule_text)
+        spread = _spread_whitespace(command, "\xa0")
+        assert pr.is_denied("Bash", {"command": spread}, [rule]), spread
+
+    @pytest.mark.parametrize("rule_text,command", _DENY_RULE_COMMANDS)
+    @pytest.mark.parametrize(
+        "fill",
+        [
+            " ",  # en quad
+            " ",  # em space
+            " ",  # hair space
+            " ",  # narrow no-break space
+            " ",  # medium mathematical space
+            "　",  # ideographic space
+            "\u0085",  # NEL
+            " ",  # Ogham space mark
+        ],
+    )
+    def test_denied_with_other_unicode_space_separators_between_every_word(
+        self, rule_text: str, command: str, fill: str
+    ) -> None:
+        rule = pr.Rule.parse(rule_text)
+        spread = _spread_whitespace(command, fill)
+        assert pr.is_denied("Bash", {"command": spread}, [rule]), spread
+
+    def test_a_non_breaking_space_inside_quotes_is_still_untouched(self) -> None:
+        command = 'git commit -m "a\xa0b"'
+        assert pr.split_command(command) == [command]
+
+    def test_a_lone_cr_is_not_the_denied_command(self) -> None:
+        """Verdict, recorded: a lone `\\r` (no following `\\n`) is not a line
+        continuation (DG-467) and not an IFS separator either -- the same
+        reasoning as the NBSP case above, so it is left exactly where it was
+        found rather than collapsed."""
+        rule = pr.Rule.parse("Bash(git push --force:*)")
+        command = "git push\r--force origin main"
+        assert pr.split_command(command) == [command]
+        assert not pr.is_denied("Bash", {"command": command}, [rule])
+
+    def test_tab_combined_with_quoted_whitespace_only_normalises_outside(
+        self,
+    ) -> None:
+        command = 'git\tcommit\t-m\t"a  b\tc"\tHEAD'
+        normalised = pr.split_command(command)[0]
+        assert normalised == 'git commit -m "a  b\tc" HEAD'
+
+
+class TestNoclobberRedirectIsNotAPipe:
+    """Adversarial round 2 (Jira comment on DG-481): `>|` is bash's
+    noclobber-override redirect, one single operator -- not `>` followed by
+    a `|` pipe. The scanner only ever checked individual characters against
+    the one-char operator table, so the `|` half of `>|` always ended the
+    segment and started a new, piped one, silently rewriting
+    `echo bad >| pre-commit` into two pipeline stages that were never run as
+    written."""
+
+    def test_noclobber_redirect_stays_one_segment(self) -> None:
+        command = "echo bad >| pre-commit"
+        assert pr.split_command(command) == [command]
+
+    def test_noclobber_redirect_inside_a_compound_command_stays_one_segment(
+        self,
+    ) -> None:
+        command = "cd .git/hooks && echo bad >| pre-commit"
+        assert pr.split_command(command) == [
+            "cd .git/hooks",
+            "echo bad >| pre-commit",
+        ]
+
+    def test_an_ordinary_pipe_still_splits(self) -> None:
+        """The fix must be specific to `>|` -- an ordinary pipe immediately
+        after something that is not `>` must still split normally."""
+        command = "cat file | grep x"
+        assert pr.split_command(command) == ["cat file", "grep x"]
+
+    def test_an_or_operator_after_a_redirect_is_unaffected(self) -> None:
+        """`>` followed by a real `||` (two characters) is not `>|` -- the
+        two-char operator check for `||` must still win there, same as
+        before this fix."""
+        command = "echo x > file || true"
+        assert pr.split_command(command) == ["echo x > file", "true"]
+
+
+class TestAbuttingOperatorsAreNotLostToAnEmptySegment:
+    """DG-476 round 3 (adversarial): a subshell that closes right next to
+    another operator -- `); `, `) ; `, `))` -- produced an *empty* segment
+    carrying the real operator (`)`), which the final filter
+    (``if seg.strip()``) then silently dropped. The next real segment's
+    recorded leading operator was whatever overwrote it afterwards, so
+    `hook.py`'s bypass scan had no way to tell "a subshell just closed here"
+    from "nothing happened here" -- `cwd_is_hooks_dir` leaked straight
+    through a `)` it should have been reset by.
+
+    The fix concatenates operators that abut with nothing (not even
+    whitespace) between them, rather than letting the later one overwrite
+    the earlier one -- so the segment that follows carries all of them.
+    """
+
+    def test_closing_paren_then_semicolon_is_preserved_on_the_next_segment(
+        self,
+    ) -> None:
+        pairs = pr.segments_with_leading_operator("(cd .git/hooks && ls); echo y > b")
+        assert pairs == [
+            ("(", "cd .git/hooks"),
+            ("&&", "ls"),
+            (");", "echo y > b"),
+        ]
+
+    def test_nested_closing_parens_are_both_preserved(self) -> None:
+        pairs = pr.segments_with_leading_operator("(cd .git/hooks && (ls)); echo y > b")
+        assert pairs[-1] == ("));", "echo y > b")
+
+    def test_an_operator_with_real_content_between_is_unaffected(self) -> None:
+        """The merge must be specific to *nothing* between two operators --
+        whitespace is still real content for this purpose, so an ordinary
+        pipe after a subshell (`) | xargs ...`) keeps reading as `|`, the
+        one value :func:`~core.hook._bypasses_hook_floor_bash` actually
+        checks for."""
+        pairs = pr.segments_with_leading_operator(
+            "(cat .git/hooks/pre-commit) | xargs echo"
+        )
+        assert pairs[-1] == ("|", "xargs echo")

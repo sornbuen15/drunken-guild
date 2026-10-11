@@ -15,32 +15,12 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 LOCAL_AGENTS_DIR="$PROJECT_ROOT/agents"
 GLOBAL_AGENTS_DIR="$HOME/.claude/agents"
-
-# Antigravity reads the same roster from its own tree, in its own shape: one
-# directory per agent holding a SKILL.md, rather than a flat <name>.md.
-#
-# Those files used to be committed as .agents/skills/<name>/SKILL.md and kept in
-# step by hand. Twelve of the fifteen differed from their source only in the two
-# lines rewritten below; three had silently drifted, and principal-engineer's
-# copy had fallen to 78 lines against 311 while still describing an orchestrator
-# retired two tickets earlier. Generating them removes the copy that can drift.
-#
-# Both are overridable: a machine that keeps Antigravity elsewhere, or that has
-# moved to a different Gemini model, sets the variable rather than editing this.
-ANTIGRAVITY_AGENTS_DIR="${ANTIGRAVITY_AGENTS_DIR:-$HOME/.gemini/config/skills}"
-
-# The model is a *tier* mapping, not one constant. The hand-maintained twins
-# encoded it consistently across all fifteen and nobody had written it down:
-# the four agents that reason rather than execute ran on the larger model on
-# both sides, and the ten executors on the faster one. Flattening that to a
-# single value would have quietly demoted principal-engineer and the three
-# specialists, which is the kind of change that shows up as worse output weeks
-# later and is never traced back to an install script.
-ANTIGRAVITY_MODEL_LARGE="${ANTIGRAVITY_MODEL_LARGE:-gemini-2.5-pro}"
-ANTIGRAVITY_MODEL_FAST="${ANTIGRAVITY_MODEL_FAST:-gemini-2.5-flash}"
+LOCAL_SKILLS_DIR="$PROJECT_ROOT/skills"
+GLOBAL_SKILLS_DIR="$HOME/.claude/skills"
+SOURCES_JSON="$LOCAL_AGENTS_DIR/_sources.json"
 
 # --index-only rebuilds the repository's INDEX.md and writes nothing else --
-# not to ~/.claude, not to Antigravity, not to any target. It exists because
+# not to ~/.claude, not to any target. It exists because
 # the index is generated but also committed, so it goes stale on any change to
 # a skill's name or description, and the only way to refresh it used to be to
 # perform an install. An agent that must not install had no way to keep a
@@ -59,21 +39,6 @@ case "${1:-}" in
     ;;
 esac
 
-# An unrecognised tier is reported, never silently mapped. A new Claude model
-# id landing here should make somebody read this function, not inherit whatever
-# the fallback happens to be.
-_antigravity_model() {
-  case "$1" in
-    *opus*)   printf '%s' "$ANTIGRAVITY_MODEL_LARGE" ;;
-    *sonnet*) printf '%s' "$ANTIGRAVITY_MODEL_FAST" ;;
-    *)
-      echo -e "${YELLOW}  [!] $2: unmapped model '$1' — using $ANTIGRAVITY_MODEL_FAST.${NC}" >&2
-      echo -e "${YELLOW}      Add its tier to _antigravity_model in this script.${NC}" >&2
-      printf '%s' "$ANTIGRAVITY_MODEL_FAST"
-      ;;
-  esac
-}
-
 echo -e "${BLUE}=================================================${NC}"
 echo -e "${BLUE}   Claude Agents Installer                      ${NC}"
 echo -e "${BLUE}=================================================${NC}"
@@ -81,19 +46,8 @@ echo -e "  Project:  $PROJECT_ROOT"
 echo -e "  Source:   $LOCAL_AGENTS_DIR"
 echo -e "  Target:   $GLOBAL_AGENTS_DIR"
 
-# Written to only if it already exists. Creating it would mean conjuring an
-# Antigravity install on a machine that has none, and the directory is not ours
-# -- on the machine this was written for it holds 30 Apache-2.0 skills shipped
-# by Google plus Antigravity's own template. We add files beside them and never
-# remove or replace the directory.
-INSTALL_ANTIGRAVITY=false
 if [ "$INDEX_ONLY" = true ]; then
   echo -e "${YELLOW}  --index-only: rebuilding agents/INDEX.md, installing nothing${NC}"
-elif [ -d "$ANTIGRAVITY_AGENTS_DIR" ]; then
-  INSTALL_ANTIGRAVITY=true
-  echo -e "  Also:     $ANTIGRAVITY_AGENTS_DIR ($ANTIGRAVITY_MODEL_LARGE / $ANTIGRAVITY_MODEL_FAST)"
-else
-  echo -e "${YELLOW}  Antigravity not found at $ANTIGRAVITY_AGENTS_DIR — skipping that variant${NC}"
 fi
 echo ""
 
@@ -101,6 +55,40 @@ if [ ! -d "$LOCAL_AGENTS_DIR" ]; then
   echo -e "${RED}Error: agents/ directory not found at $LOCAL_AGENTS_DIR${NC}"
   echo -e "${RED}Make sure you are running this from inside the drunken-guild repo.${NC}"
   exit 1
+fi
+
+# DG-402, reviewer finding (PR #150, CRITICAL). A broken `python3` on PATH
+# can exit 0 and print nothing at all for *any* script -- reproduced with a
+# stub standing in for a misbehaving shim. Both the generator below and the
+# role-skill gate further down depend on python3 actually running, so this
+# probes it up front, once, with an answer that cannot be mistaken for any
+# real script's output: anything other than exactly `ok` refuses outright,
+# before either depends on it silently.
+if [ -f "$SOURCES_JSON" ]; then
+  _PY3_PROBE="$(python3 -c 'print("ok")' 2>/dev/null </dev/null || true)"
+  if [ "$_PY3_PROBE" != "ok" ]; then
+    echo -e "${RED}Error: python3 did not answer as expected (got: '${_PY3_PROBE}').${NC}" >&2
+    echo -e "${RED}This script needs a working python3 on PATH to generate agents/*.md${NC}" >&2
+    echo -e "${RED}and to verify each role's skill dependency. Check PATH for a broken${NC}" >&2
+    echo -e "${RED}shim (a pyenv-win shim caused exactly this once) and re-run.${NC}" >&2
+    exit 1
+  fi
+fi
+
+# DG-402. agents/<role>.md is generated from skills/roles/<role>/SKILL.md +
+# agents/_sources.json (model, tools -- Claude-only concepts no portable skill
+# frontmatter should carry). One Python script, not re-implemented per
+# platform, is what keeps this byte-identical to install_agents.ps1's output
+# (DG-280/DG-378/DG-380's lesson applied to a new generated-and-committed
+# artefact). This writes only inside the repository's own agents/ -- never
+# under $GLOBAL_AGENTS_DIR -- so it runs in both --index-only and a real
+# install.
+if [ -f "$SOURCES_JSON" ]; then
+  if ! python3 "$SCRIPT_DIR/_generate_agents.py" \
+      "$LOCAL_AGENTS_DIR" "$LOCAL_SKILLS_DIR" "$SOURCES_JSON"; then
+    echo -e "${RED}Error: regenerating agents/*.md from skills/roles/ failed.${NC}" >&2
+    exit 1
+  fi
 fi
 
 if [ "$INDEX_ONLY" = false ]; then
@@ -117,15 +105,48 @@ fi
 
 NEW_COUNT=0
 UPDATED_COUNT=0
-# Counted separately, because the two targets are genuinely different places and
-# a single pair of counters can only describe one of them. The run that first
-# generated all fifteen Antigravity agents reported "0 new | 15 updated" -- true
-# of ~/.claude, and completely wrong about the fifteen directories it had just
-# created. A green line over work that did not happen is the failure this
-# repository exists to prevent, and reporting *more* work than happened is the
-# same defect wearing the other sign.
-AG_NEW_COUNT=0
-AG_UPDATED_COUNT=0
+MISSING_ROLE_SKILL=false
+
+# DG-402, HIGH review finding. Claude Code skips a subagent's `skills:`
+# preload silently when the named skill is not installed -- "If a listed
+# skill is missing or disabled ... Claude Code skips it and logs a warning
+# to the debug log" (https://code.claude.com/docs/en/subagents) -- so a
+# worker/reviewer/manager installed before its role skill would run with
+# effectively no role prompt and no visible error at all. Refuse per role
+# adapter instead, naming the missing skill and the command to run first.
+#
+# A real script file (`_role_skill.py`), not an inline multi-line `python3
+# -c '...'`: the inline form broke under a `pyenv-win` shim on at least one
+# machine, in a way that silently disabled this whole safety check (see that
+# script's own docstring).
+#
+# `</dev/null` is load-bearing, not tidiness: this function is called from
+# inside `while read -r agent_file; do ... ; done < "$_agent_list"`, so fd 0
+# is the loop's own input file. Without the redirect, python3 inherits that
+# same fd, and on at least one observed run it consumed the remaining lines
+# of `$_agent_list` out from under the `read` -- the loop silently processed
+# only the first agent file and exited clean, which is a worse failure than
+# a loud one: fewer than three role adapters installed, zero complaint.
+#
+# CRITICAL review finding (PR #150, round 1): the previous version of this
+# function ended in `|| true` and the caller refused only on a *non-empty*
+# result, so a helper that failed outright, or printed nothing at all, read
+# as "no dependency" and installed anyway -- fail *open*. There is
+# deliberately no `|| true` here any more: this function's own exit status
+# is the caller's signal.
+#
+# HIGH review finding (PR #150, round 2): the fix above still had a
+# sentinel for "no dependency" (the literal `-`), and that sentinel was
+# itself a second fail-open path -- a manifest edit that dropped or
+# typo'd a role's `skill` key produced `-`, exit 0, and the caller
+# installed the adapter anyway, gate bypassed. Every role adapter this
+# repository ships needs its own skill, so there is no "no dependency"
+# case left: `_role_skill.py` now exits non-zero for a role missing from
+# the manifest or whose `skill` is missing, empty or not a string, same
+# as any other failure. This function has nothing left to special-case.
+_role_skill() {
+  python3 "$SCRIPT_DIR/_role_skill.py" "$SOURCES_JSON" "$1" </dev/null
+}
 
 # INDEX.md is generated below, not an agent. It lives in agents/ so the repo
 # carries the same index the install does, which means the discovery glob has
@@ -134,7 +155,7 @@ _agent_list=$(mktemp)
 find "$LOCAL_AGENTS_DIR" -maxdepth 1 -type f -name "*.md" '!' -name "INDEX.md" \
   | sort > "$_agent_list"
 
-# Build INDEX.md in a temp file and replace atomically at the end. CLAUDE.md
+# Build INDEX.md in a temp file and replace atomically at the end. AGENTS.md
 # routes all agent discovery through this file, so a run that installs agents
 # without refreshing it leaves a live dangling reference.
 TEMP_INDEX=$(mktemp)
@@ -144,14 +165,50 @@ cat > "$TEMP_INDEX" << 'HEADER'
 Map a task to the agent that owns it. Read this before delegating — do NOT guess agent
 names or paths from memory.
 
-Generated by `scripts/install/install_agents.sh`. Do not edit by hand; edit the agent
-frontmatter instead.
+Generated by `scripts/install/install_agents` (.sh and .ps1 write identical bytes). Do not
+edit by hand; edit the agent frontmatter instead.
 
 HEADER
 
 while IFS= read -r agent_file; do
   agent_name="$(basename "$agent_file" .md)"
   TARGET_FILE="$GLOBAL_AGENTS_DIR/$agent_name.md"
+
+  # The manifest's own existence is the coarse gate: no agents/_sources.json
+  # at all means the roles-as-skills mechanism is not in play here (e.g. a
+  # project without it), and there is nothing to check. Once it exists,
+  # every agent file is held to it strictly -- no per-role "not managed by
+  # the manifest" escape hatch, which is exactly what the `-` sentinel this
+  # replaced turned out to be.
+  if [ "$INDEX_ONLY" = false ] && [ -f "$SOURCES_JSON" ]; then
+    # `if ROLE_SKILL=$(...); then ... else ...; fi` is the form that keeps
+    # `set -e` from killing the whole script on a non-zero exit here, and
+    # is also what makes `$?` inside the `else` branch reliably reflect
+    # `_role_skill`'s own exit status (not some other command's) --
+    # written out instead of `|| true`'d away, which is the exact pattern
+    # that failed open before.
+    if ROLE_SKILL="$(_role_skill "$agent_name")"; then
+      :
+    else
+      _rc=$?
+      echo -e "${RED}  [x] Refusing: could not verify ${agent_name}'s role-skill dependency -- python3 $SCRIPT_DIR/_role_skill.py exited ${_rc}.${NC}" >&2
+      echo -e "${RED}      Check python3 on PATH and ${agent_name}'s entry in $SOURCES_JSON, then re-run install_agents.sh.${NC}" >&2
+      MISSING_ROLE_SKILL=true
+      continue
+    fi
+    if [ -z "$ROLE_SKILL" ]; then
+      echo -e "${RED}  [x] Refusing: the check for ${agent_name}'s role-skill dependency printed nothing.${NC}" >&2
+      echo -e "${RED}      Treating silence as unverifiable -- check python3 on PATH and re-run.${NC}" >&2
+      MISSING_ROLE_SKILL=true
+      continue
+    fi
+    if [ ! -f "$GLOBAL_SKILLS_DIR/$ROLE_SKILL/SKILL.md" ]; then
+      echo -e "${RED}  [x] Refusing: ${agent_name} needs the '${ROLE_SKILL}' skill, not installed at $GLOBAL_SKILLS_DIR/$ROLE_SKILL/SKILL.md${NC}" >&2
+      echo -e "${RED}      Run install_skills.sh first, then re-run install_agents.sh.${NC}" >&2
+      MISSING_ROLE_SKILL=true
+      continue
+    fi
+  fi
 
   IS_NEW=false
   [ ! -f "$TARGET_FILE" ] && IS_NEW=true
@@ -170,27 +227,6 @@ while IFS= read -r agent_file; do
     UPDATED_COUNT=$((UPDATED_COUNT + 1))
   fi
 
-  # The Antigravity variant, generated from the same file rather than stored.
-  # Exactly two per-agent differences are legitimate, and both are mechanical:
-  # the model it runs on, and where its skill index lives. sed rather than a
-  # template so that any other edit to the agent reaches both variants without
-  # what the edit was.
-  if [ "$INSTALL_ANTIGRAVITY" = true ]; then
-    _ag_dir="$ANTIGRAVITY_AGENTS_DIR/$agent_name"
-    if [ -f "$_ag_dir/SKILL.md" ]; then
-      AG_UPDATED_COUNT=$((AG_UPDATED_COUNT + 1))
-    else
-      AG_NEW_COUNT=$((AG_NEW_COUNT + 1))
-    fi
-    mkdir -p "$_ag_dir"
-    # `|| true` for the same reason as every other grep in this file.
-    _claude_model=$(grep -m1 "^model: " "$agent_file" | sed 's/^model: //' || true)
-    _ag_model=$(_antigravity_model "$_claude_model" "$agent_name")
-    sed -e "s|^model: .*|model: $_ag_model|" \
-        -e "s|~/\.claude/skills/INDEX\.md|~/.gemini/config/skills/INDEX.md|g" \
-        "$agent_file" > "$_ag_dir/SKILL.md"
-  fi
-
   # Every extraction here is a grep that can legitimately find nothing, and
   # under `set -euo pipefail` an unmatched grep would kill the whole run --
   # exactly the failure that left 29 of 30 skills stale for two months. Hence
@@ -205,6 +241,12 @@ while IFS= read -r agent_file; do
 
 done < "$_agent_list"
 rm -f "$_agent_list"
+
+if [ "$MISSING_ROLE_SKILL" = true ]; then
+  echo "" >&2
+  echo -e "${RED}Install refused for one or more role adapters -- see above.${NC}" >&2
+  exit 1
+fi
 
 
 # The index is generated *and* committed, so what this writes has to be exactly
@@ -229,10 +271,6 @@ echo ""
 echo -e "${GREEN}Done.${NC} $NEW_COUNT new  |  $UPDATED_COUNT updated"
 echo -e "  Agents:   $GLOBAL_AGENTS_DIR"
 echo -e "  INDEX.md: $INDEX_FILE"
-if [ "$INSTALL_ANTIGRAVITY" = true ]; then
-  echo -e "  Antigravity: $AG_NEW_COUNT new  |  $AG_UPDATED_COUNT updated"
-  echo -e "               $ANTIGRAVITY_AGENTS_DIR/<agent>/SKILL.md"
-fi
 
 # Anything installed that this repo does not produce. Reported, never deleted:
 # removing is the operator's call, and a stale agent still being offered to

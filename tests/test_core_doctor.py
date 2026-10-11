@@ -3,6 +3,8 @@
 print a credential."""
 
 import json
+import shlex
+import subprocess
 import urllib.error
 from unittest import mock
 
@@ -36,7 +38,6 @@ def clean_state(monkeypatch, tmp_path):
     forget_secrets()
     monkeypatch.setenv(paths.ENV_HOME, str(tmp_path / "home"))
     monkeypatch.delenv(paths.ENV_REGISTRY, raising=False)
-    monkeypatch.delenv(paths.ENV_SOCKET, raising=False)
     monkeypatch.setenv("JIRA_TOKEN_ALPHA", "a-valid-looking-token-value")
     yield
     secrets.clear_cache()
@@ -77,14 +78,32 @@ def find(report: doctor.Report, name: str) -> doctor.Check:
     )
 
 
-#: Checks that describe the machine, not what a test set up. They read the
-#: checkout's pyproject, its git tags and the installed tool env, so a test
-#: about a registry or a socket must not be red because this machine's
-#: deployment drifted. Checkpoint lesson 6: an assertion over a whole doctor
+#: Checks that describe the machine or the checkout, not what a test set up.
+#: They read the checkout's pyproject, its git tags, the installed tool env,
+#: and (DG-401) this same checkout's AGENTS.md and skills/ — so a test about
+#: a registry or a socket must not be red because this machine's deployment
+#: drifted, or because the checkout itself carries a routing gap these tests
+#: never asked about. Checkpoint lesson 6: an assertion over a whole doctor
 #: report is clean only where the machine happens to agree, and `develop` has
 #: gone red that way before.
 ENVIRONMENT_CHECKS = frozenset(
-    {"version.declared", "deployment.tool_env", "deployment.mcp_pin"}
+    {
+        "version.declared",
+        "deployment.tool_env",
+        "deployment.mcp_pin",
+        "routes.targets",
+        "routes.reachable",
+        # DG-466's guard.git_hooks reads this checkout's own
+        # .pre-commit-config.yaml and whatever `git rev-parse --git-path
+        # hooks` reports for it — real state of the machine running the
+        # test, not anything a test here sets up. A clean CI checkout never
+        # ran `pre-commit install`, so this fails there on every run while
+        # passing on a contributor's own already-hooked machine; see
+        # TestTheCheckoutsOwnHookStateNeverFailsAnUnrelatedTest below for the
+        # reproduction and core.doctor.test_core_doctor_git_hooks for the
+        # check's own direct, hermetic coverage of the fail path.
+        "guard.git_hooks",
+    }
 )
 
 
@@ -144,6 +163,144 @@ class TestReportsWhichRuleChoseEachPath:
             doctor.run_doctor(registry=registry, offline=True), "registry.file"
         ).detail
         assert "schema v2" in detail
+
+
+class TestThePermissionsRemedyMatchesThePlatform:
+    """DG-372: the warning was correct and the fix under it was unrunnable."""
+
+    def _loose_home(self, tmp_path):
+        home = tmp_path / "home"
+        home.mkdir(parents=True, exist_ok=True)
+        home.chmod(0o777)
+        return home
+
+    def test_on_windows_the_home_remedy_does_not_say_chmod(
+        self, monkeypatch, registry, tmp_path
+    ) -> None:
+        self._loose_home(tmp_path)
+        monkeypatch.setattr(paths, "is_windows", lambda: True)
+
+        report = doctor.run_doctor(registry=registry, offline=True)
+
+        remediation = find(report, "paths.home.permissions").remediation
+        assert "chmod" not in remediation, (
+            "there is no chmod on Windows, so this line cannot be followed"
+        )
+        assert remediation.startswith("icacls "), remediation
+
+    def test_on_windows_the_auth_db_remedy_does_not_say_chmod(
+        self, monkeypatch, registry, tmp_path
+    ) -> None:
+        """The same line one check further down, reported the same way."""
+        home = self._loose_home(tmp_path)
+        auth_db = home / "auth.json"
+        auth_db.write_text("{}", encoding="utf-8")
+        auth_db.chmod(0o666)
+        monkeypatch.setenv(paths.ENV_AUTH_DB, str(auth_db))
+        monkeypatch.setattr(paths, "is_windows", lambda: True)
+
+        report = doctor.run_doctor(registry=registry, offline=True)
+
+        remediation = find(report, "paths.auth_db.permissions").remediation
+        assert "chmod" not in remediation, remediation
+        assert remediation.startswith("icacls "), remediation
+
+    def test_a_machine_with_no_username_still_gets_a_whole_report(
+        self, monkeypatch, registry, tmp_path
+    ) -> None:
+        """The remedy is one line of a diagnostic. Failing to name the user is
+        not a reason for the other twenty checks to go unanswered."""
+        self._loose_home(tmp_path)
+        for name in ("LOGNAME", "USER", "LNAME", "USERNAME"):
+            monkeypatch.delenv(name, raising=False)
+        monkeypatch.setattr(paths, "is_windows", lambda: True)
+
+        report = doctor.run_doctor(registry=registry, offline=True)
+
+        assert len(report.checks) > 1
+        assert find(report, "paths.home.permissions").remediation.startswith("icacls ")
+
+    def test_on_posix_the_home_remedy_is_unchanged(
+        self, monkeypatch, registry, tmp_path
+    ) -> None:
+        home = self._loose_home(tmp_path)
+        monkeypatch.setattr(paths, "is_windows", lambda: False)
+
+        report = doctor.run_doctor(registry=registry, offline=True)
+
+        remediation = find(report, "paths.home.permissions").remediation
+        assert shlex.split(remediation) == ["chmod", "700", str(home)], remediation
+
+
+class TestARegisteredTildePathIsChecked:
+    """DG-445: ``_check_project_paths`` built the checkout path with
+    ``Path(config.path)`` and no ``expanduser()``, so a project registered
+    with a literal ``"~/checkout"`` was treated as pointing at a directory
+    named ``~`` that never exists, rather than the real checkout."""
+
+    def _registry_with_tilde(self, tmp_path) -> ProjectRegistry:
+        target = tmp_path / "projects.json"
+        target.write_text(
+            json.dumps({"version": 2, "projects": {"tilde": {"path": "~/checkout"}}}),
+            encoding="utf-8",
+        )
+        return ProjectRegistry(str(target))
+
+    def test_a_registered_tilde_path_resolves_under_the_real_home(
+        self, tmp_path, monkeypatch
+    ) -> None:
+        monkeypatch.setenv("HOME", str(tmp_path))
+        monkeypatch.setenv("USERPROFILE", str(tmp_path))
+        monkeypatch.delenv("HOMEDRIVE", raising=False)
+        monkeypatch.delenv("HOMEPATH", raising=False)
+        checkout = tmp_path / "checkout"
+        checkout.mkdir()
+
+        report = doctor.run_doctor(
+            registry=self._registry_with_tilde(tmp_path), offline=True
+        )
+
+        check = find(report, "project.tilde.path")
+        assert check.status == "ok", (
+            "a registered '~/checkout' that exists under the real home must "
+            f"be found, not reported missing. Got {check.status}: {check.detail}"
+        )
+        assert str(checkout) in check.detail, check.detail
+
+    def test_mutation_reintroducing_the_unexpanded_path_fails_the_assertion(
+        self, tmp_path, monkeypatch
+    ) -> None:
+        """Mutation: patch ``ProjectConfig.resolved_path`` back to the
+        pre-fix shape — ``Path(self.path)`` with no ``expanduser()`` — and
+        confirm the check regresses to reporting the real checkout as
+        missing. Seen failing first against the real (unpatched) fix before
+        this mutation was added, which is what proves the mutation, not the
+        assertion, is doing the work here."""
+        monkeypatch.setenv("HOME", str(tmp_path))
+        monkeypatch.setenv("USERPROFILE", str(tmp_path))
+        monkeypatch.delenv("HOMEDRIVE", raising=False)
+        monkeypatch.delenv("HOMEPATH", raising=False)
+        checkout = tmp_path / "checkout"
+        checkout.mkdir()
+
+        from core.registry import ProjectConfig
+
+        def _unexpanded(self, reason: str):
+            from pathlib import Path
+
+            return Path(self.require_path(reason))
+
+        monkeypatch.setattr(ProjectConfig, "resolved_path", _unexpanded)
+
+        report = doctor.run_doctor(
+            registry=self._registry_with_tilde(tmp_path), offline=True
+        )
+
+        check = find(report, "project.tilde.path")
+        assert check.status == "fail", (
+            "this is the mutation's own (wrong) outcome — the real fix must "
+            f"disagree with it. Got {check.status}: {check.detail}"
+        )
 
 
 class TestJiraVerification:
@@ -228,30 +385,79 @@ class TestRegistryProblems:
         )
 
 
-class TestDaemonSocket:
-    def test_a_missing_socket_warns_rather_than_fails(self, registry) -> None:
-        """Approval falls back to asking in-conversation, so this is not fatal."""
-        report = doctor.run_doctor(registry=registry, offline=True)
+_GIT_IDENTITY = ["-c", "user.name=test", "-c", "user.email=test@example.invalid"]
 
-        assert find(report, "daemon.socket").status == "warn"
-        assert failures_under_test(report) == [], (
-            "Approval falls back to asking in-conversation, so a missing "
-            "socket must not fail the report."
-        )
+#: Runs the guard, declares both hook types, installs neither — exactly the
+#: shape a clean CI checkout has (DG-466 reads `.pre-commit-config.yaml` and
+#: the real `.git/hooks` of whatever `source_tree_root()` reports, so a
+#: checkout that never ran `pre-commit install` fails `guard.git_hooks` on
+#: its own merits, independent of whether this developer's machine happens
+#: to have the hooks installed).
+_GUARDED_CONFIG = (
+    "default_install_hook_types: [pre-commit, commit-msg]\n"
+    "repos:\n"
+    "  - repo: local\n"
+    "    hooks:\n"
+    "      - id: check-operator-inventory\n"
+    "        entry: python scripts/check_operator_inventory.py\n"
+    "        language: system\n"
+)
 
-    def test_a_world_accessible_socket_is_a_failure(
-        self, registry, monkeypatch, tmp_path
+
+def _unhooked_guarded_repo(root) -> None:
+    """A real git repo at *root* whose config runs the guard but which never
+    had `pre-commit install` run against it — reproduces a clean CI checkout
+    regardless of this test runner's own machine state."""
+    root.mkdir(parents=True, exist_ok=True)
+    subprocess.run(
+        ["git", "init", "--initial-branch=main", "-q"],
+        cwd=root,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    (root / ".pre-commit-config.yaml").write_text(_GUARDED_CONFIG, encoding="utf-8")
+    subprocess.run(
+        ["git", *_GIT_IDENTITY, "add", "-A"],
+        cwd=root,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    subprocess.run(
+        ["git", *_GIT_IDENTITY, "commit", "-m", "init", "-q"],
+        cwd=root,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+
+
+class TestTheCheckoutsOwnHookStateNeverFailsAnUnrelatedTest:
+    """DG-466 wired `guard.git_hooks` into every `run_doctor()` call,
+    including the source tree's own real `.git/hooks` — so any existing test
+    asserting a whole report is clean now depends on whether *this* checkout
+    happens to have run `pre-commit install`. A clean CI checkout never has,
+    so this went red on `develop` for every test using `failures_under_test`
+    while passing on a contributor's own already-hooked machine."""
+
+    def test_an_unhooked_checkout_does_not_fail_a_test_about_something_else(
+        self, monkeypatch, registry, tmp_path
     ) -> None:
-        socket = tmp_path / "daemon.sock"
-        socket.write_text("")
-        socket.chmod(0o666)
-        monkeypatch.setenv(paths.ENV_SOCKET, str(socket))
+        fake_source_tree = tmp_path / "fake-source-tree"
+        _unhooked_guarded_repo(fake_source_tree)
+        monkeypatch.setattr(doctor, "source_tree_root", lambda: fake_source_tree)
 
         report = doctor.run_doctor(registry=registry, offline=True)
 
-        check = find(report, "daemon.socket.permissions")
-        assert check.status == "fail"
-        assert "as the Boss" in check.detail
+        assert find(report, "guard.git_hooks").status == "fail", (
+            "the fixture repo never ran pre-commit install, so the check "
+            "itself must still genuinely fail — this proves the production "
+            "check was not weakened to make the assertion below pass"
+        )
+        assert failures_under_test(report) == [], (
+            "a checkout's own missing hooks are not this test's business"
+        )
 
 
 class TestEnvironment:

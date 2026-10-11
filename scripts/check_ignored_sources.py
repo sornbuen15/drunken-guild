@@ -53,7 +53,7 @@ ROOT_SOURCE_NAMES = frozenset({"Dockerfile", "Makefile"})
 #:
 #: SESSION_CHECKPOINT.md is here because it is a session scratchpad, not a
 #: deliverable -- the Boss confirmed it belongs to whoever's session wrote it,
-#: not to git (DG-293). Its tracked template, .guild_templates/SESSION_CHECKPOINT.md,
+#: not to git (DG-293). Its tracked template, templates/SESSION_CHECKPOINT.md,
 #: is nested and never reaches this root-only check.
 #: ``.mcp.json`` is operating config, not source (DG-313): machine paths and
 #: which project each MCP server serves. DG-250 puts it at the wrapper level,

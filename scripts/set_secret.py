@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """Put a secret into ``$DRUNKEN_HOME/secrets.json``, without it being seen.
 
-The gap this fills: `migrate_env_to_registry.py` lifts a credential out of an
-existing `.env`, and `onboard_project.py` requires one to already be there.
-Neither can *rotate* one, so the only route was hand-editing JSON that holds
-the only copy of a live credential — which is a poor place to make a typo.
+The gap this fills: `onboard_project.py` requires a credential to already be
+in `secrets.json` and cannot put one there or rotate one, so the only route was
+hand-editing JSON that holds the only copy of a live credential — which is a
+poor place to make a typo. It is also the one way in now that the one-off
+`.env` migration script is retired (DG-351).
 
 Three properties, each deliberate:
 
