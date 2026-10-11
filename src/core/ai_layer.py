@@ -141,6 +141,66 @@ def is_copied_in_from_config_repo(path: PathLike) -> bool:
     return is_ai_layer_path(path) and _normalise(path) not in NEVER_COPIED_IN_FILES
 
 
+def is_content_scan_path(path: PathLike) -> bool:
+    """True when *path* should be read for leaked-credential-, identity- or path-shaped content
+    (DG-508) — a wider question than :func:`is_ai_layer_path`, which stays exactly as it was and
+    keeps deciding ``layering.tracked`` and what the config-repo copy-in provides.
+
+    Every name on :data:`AI_LAYER_ROOT_DIRS` (``.claude``, ``.gemini``) and ``.mcp.json`` match
+    here at *any* depth and *any* case — unlike :func:`is_ai_layer_path`, which keeps both
+    root-only and case-sensitive. `drunken-doctor`'s content_scan (:mod:`core.doctor`,
+    ``_check_project_content_scan``) is the only caller; it is a read-only, second line of
+    defence against a leaked secret, not a claim about what an agent loads, so widening it here
+    never changes what ``drunken-init``'s copy-in writes into a project or what
+    ``layering.tracked`` flags as committed.
+
+    Per-name evidence (DG-508's SCOPE: decide with evidence; where unsure, scan anyway):
+
+    * **A nested `.claude`/`.gemini` directory** (``packages/x/.claude/settings.json``):
+      Claude Code's own settings docs
+      (https://code.claude.com/docs/en/settings, "Where Claude Code keeps the local file in a
+      git repository") say "Claude Code reads the shared `.claude/settings.json` from the
+      session's primary working directory" — a session started inside ``packages/x/`` reads
+      ``packages/x/.claude/settings.json``, not only a root one. A monorepo subpackage is
+      exactly that case, so this is read at any depth for the same reason
+      :data:`AI_LAYER_BASENAMES` already treats ``CLAUDE.md``/``AGENTS.md``/``GEMINI.md`` that
+      way — :func:`is_ai_layer_path` itself stays root-only, since REQ-019's own citation never
+      claimed a nested directory is read the way the root one is; this wider, content-scan-only
+      question does not need that same certainty to say "read it anyway."
+    * **A differently-cased root directory** (``.Claude/settings.json``): not an agent-behaviour
+      citation but a filesystem fact DG-453's tracked-file check already relies on — NTFS and
+      APFS (default) are case-insensitive, so ``.Claude/`` and ``.claude/`` are the very same
+      on-disk directory there, and a case-sensitive basename comparison alone misses it.
+    * **A nested `.mcp.json`**: **no citation found.** Claude Code's own MCP docs
+      (https://code.claude.com/docs/en/mcp) say only "a `.mcp.json` file at your project's root
+      directory" / "at your project root", and never discuss a nested copy, a monorepo, or
+      several `.mcp.json` files. Scanned anyway, on the "where unsure, scan it" side of DG-508's
+      SCOPE — a credential sitting there is still a credential whether or not Claude Code reads
+      it from that spot. :data:`NEVER_COPIED_IN_FILES` and the copy-in are unaffected: a project
+      still never receives a ``.mcp.json`` from the config repo, root or nested (DG-457).
+
+    A real dependency install (``.venv``, ``node_modules``, ``vendor`` — DG-505) is never
+    affected by this being wider: that guard runs at the *directory* level, in
+    :func:`core.layer_copy.ai_layer_files_under`, before this predicate is ever asked about a
+    file inside it, and it keeps asking the narrower :func:`is_copied_in_from_config_repo` for
+    "does this directory hold the project's own AI layer" — this function only decides which
+    *already-walked* file gets its content read.
+    """
+    normalised = _normalise(path)
+    if not normalised:
+        return False
+    if is_ai_layer_path(normalised):
+        return True
+
+    segments = normalised.split("/")
+    basename = segments[-1]
+    if basename.casefold() == ".mcp.json":
+        return True
+
+    root_dirs_casefold = {name.casefold() for name in AI_LAYER_ROOT_DIRS}
+    return any(segment.casefold() in root_dirs_casefold for segment in segments[:-1])
+
+
 #: The declared package name of this repository's own ``pyproject.toml`` —
 #: see :func:`target_is_this_repository`.
 THIS_REPOSITORY_PACKAGE_NAME = "drunken-guild"

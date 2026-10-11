@@ -1943,6 +1943,12 @@ def _check_project_content_scan(
         git_root,
         skip_dependency_dirs=can_skip,
         tracked_ai_layer=frozenset(tracked or ()),
+        # DG-508: this check reads for leaked content, not for what the copy-in provides or
+        # what layering.tracked flags — the wider ai_layer.is_content_scan_path, not the
+        # default ai_layer.is_copied_in_from_config_repo. See its docstring for the per-name
+        # evidence (a nested .claude/.gemini, a differently-cased root .Claude, a nested
+        # .mcp.json).
+        file_predicate=ai_layer.is_content_scan_path,
     ):
         findings.extend(
             content_scan.scan_file(git_root / relative, relative.as_posix())
