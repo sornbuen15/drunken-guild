@@ -10,7 +10,9 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
+import threading
 from pathlib import Path
+from typing import Any, Callable
 
 import pytest
 
@@ -520,3 +522,68 @@ class TestEachWriteTimeCheckStandsOnItsOwn:
 
         with pytest.raises(install.InstallRefusedError):
             install._assert_inside(root, root / "alias" / "SKILL.md")
+
+
+def _call_with_deadline(func: Callable[[], Any], seconds: float) -> Any:
+    """Run *func* on a daemon thread; fail the test rather than hang if it outlives *seconds*.
+
+    A daemon thread that is still running when the test ends is abandoned, not joined again —
+    this is only ever used to put a hard ceiling on a call under test, never on real work.
+    """
+    box: dict[str, Any] = {}
+
+    def target() -> None:
+        try:
+            box["value"] = func()
+        except BaseException as exc:  # noqa: BLE001 - re-raised on the calling thread below
+            box["error"] = exc
+
+    thread = threading.Thread(target=target, daemon=True)
+    thread.start()
+    thread.join(seconds)
+    if thread.is_alive():
+        pytest.fail(
+            f"did not finish within {seconds}s — a self-referencing junction was followed "
+            "instead of refused (DG-510)"
+        )
+    if "error" in box:
+        raise box["error"]
+    return box.get("value")
+
+
+class TestASelfReferencingJunctionIsRefused:
+    """DG-510. ``Path.rglob`` does not recognise a Windows junction as a link (``_is_link`` does;
+    ``Path.is_symlink()`` does not), so it walks through one wherever it leads. A junction nested
+    inside a skill folder and pointing back into that same folder makes the walk revisit the
+    folder's own contents at every level; two such junctions make it double in size each level —
+    measured, 20000 entries in 6s and still climbing, well before any per-file link check in
+    ``_files_in``/``_skill_folders`` ever got to run and refuse it. The walk must never step
+    through a link in the first place."""
+
+    def test_a_skill_folder_with_two_junctions_pointing_back_into_itself_is_refused_quickly(
+        self, tmp_path
+    ):
+        src = make_source(tmp_path, {"alpha": {"SKILL.md": "a\n"}})
+        folder = src / "group" / "alpha"
+        junction_or_skip(folder / "loop-a", folder)
+        junction_or_skip(folder / "loop-b", folder)
+        target = tmp_path / "t"
+
+        with pytest.raises(install.InstallRefusedError):
+            _call_with_deadline(
+                lambda: install.install_skills(target, source=src), seconds=10
+            )
+
+        assert not target.exists(), "nothing may be written once a skill is refused"
+
+    def test__files_in_refuses_a_self_referencing_junction_without_exploring_it(
+        self, tmp_path
+    ):
+        folder = tmp_path / "alpha"
+        folder.mkdir()
+        (folder / "SKILL.md").write_text("a\n", encoding="utf-8")
+        junction_or_skip(folder / "loop-a", folder)
+        junction_or_skip(folder / "loop-b", folder)
+
+        with pytest.raises(install.InstallRefusedError):
+            _call_with_deadline(lambda: install._files_in(folder), seconds=10)
