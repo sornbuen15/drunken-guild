@@ -133,7 +133,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Sequence
 
-from .ai_layer import is_copied_in_from_config_repo
+from .ai_layer import AI_LAYER_ROOT_DIRS, is_copied_in_from_config_repo
 from .content_scan import (
     ALLOWLIST_FILENAME,
     apply_allowlist,
@@ -266,7 +266,12 @@ def _resolve_project_folder(config_repo: Path, project_id: str) -> Path:
     return project_folder
 
 
-def ai_layer_files_under(root: Path) -> list[Path]:
+def ai_layer_files_under(
+    root: Path,
+    *,
+    skip_dependency_dirs: bool = False,
+    tracked_ai_layer: frozenset[str] = frozenset(),
+) -> list[Path]:
     """Every regular file under *root* that is on the AI-layer list,
     relative to *root*.
 
@@ -317,6 +322,23 @@ def ai_layer_files_under(root: Path) -> list[Path]:
     every real ``.git`` directory has), a file only counts if its first
     line starts with ``gitdir:`` (an ordinary git worktree pointer) —
     before this walk trusts it as a boundary.
+
+    **Installed dependencies are not the project's AI layer (DG-505).** With
+    *skip_dependency_dirs* the walk also steps over a directory that is a real
+    dependency install — judged by the same rule as the ``.git`` marker above,
+    a marker the installer itself writes, never a name alone (see
+    :func:`_is_dependency_install`). doctor's check passes it for a registered
+    project's checkout; the config-repo walk does not, its folder is
+    author-controlled.
+
+    **A marker is never allowed to hide the project's own AI layer (review of #192, reproduced).** A
+    directory is stepped over only when none of these hold, whatever marker it carries: it is
+    ``.claude`` or ``.gemini`` at the root; it directly holds a file on the AI-layer list; or a path
+    git tracks under it (*tracked_ai_layer*, repo-relative, posix) lies below it. A real dependency
+    install is none of those — nothing commits into a ``.venv`` — so the realistic case is still
+    skipped, and a one-line marker file dropped beside a leaked secret hides nothing. Left open and
+    named: an UNTRACKED instruction file nested deeper than its own marker directory, which only a
+    project author who deliberately builds a fake virtualenv around a leak could arrange.
     """
     files: list[Path] = []
     stack = [root]
@@ -335,6 +357,12 @@ def ai_layer_files_under(root: Path) -> list[Path]:
                     # way), so this never mistakes root's own `.git` for a
                     # nested one.
                     continue
+                if (
+                    skip_dependency_dirs
+                    and _is_dependency_install(entry)
+                    and not _holds_the_projects_ai_layer(entry, root, tracked_ai_layer)
+                ):
+                    continue
                 stack.append(entry)
                 continue
             if entry.is_file():
@@ -342,6 +370,47 @@ def ai_layer_files_under(root: Path) -> list[Path]:
                 if is_copied_in_from_config_repo(relative.as_posix()):
                     files.append(relative)
     return sorted(files)
+
+
+def _holds_the_projects_ai_layer(
+    directory: Path, root: Path, tracked_ai_layer: frozenset[str]
+) -> bool:
+    """Whether *directory* is, or holds, part of the project's own AI layer, so no marker may skip it."""
+    if directory.parent == root and directory.name in AI_LAYER_ROOT_DIRS:
+        return True
+    try:
+        if any(
+            child.is_file() and is_copied_in_from_config_repo(child.name)
+            for child in directory.iterdir()
+        ):
+            return True
+    except OSError:
+        return True  # unreadable: do not claim it is a dependency install
+    prefix = directory.relative_to(root).as_posix() + "/"
+    return any(path.startswith(prefix) for path in tracked_ai_layer)
+
+
+def _is_dependency_install(directory: Path) -> bool:
+    """Whether *directory* is an installed-dependency tree, by a marker its installer writes.
+
+    A name alone never counts: a folder called ``.venv``, ``node_modules`` or ``vendor`` with no
+    marker could be hiding a leak, which is exactly what this walk exists to catch.
+
+    * a Python virtual environment: ``pyvenv.cfg`` (any name: ``.venv``, ``env``, a custom one);
+    * npm / yarn / pnpm: a ``node_modules`` holding ``.package-lock.json``, ``.yarn-integrity`` or
+      ``.modules.yaml``;
+    * Composer: a ``vendor`` holding ``composer/installed.json``.
+    """
+    if (directory / "pyvenv.cfg").is_file():
+        return True
+    if directory.name == "node_modules":
+        return any(
+            (directory / marker).is_file()
+            for marker in (".package-lock.json", ".yarn-integrity", ".modules.yaml")
+        )
+    if directory.name == "vendor":
+        return (directory / "composer" / "installed.json").is_file()
+    return False
 
 
 def _is_real_git_marker(candidate: Path) -> bool:

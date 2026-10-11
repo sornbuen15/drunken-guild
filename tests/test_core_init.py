@@ -2307,3 +2307,190 @@ class TestMigrateAiLayerCommand:
     def test_it_needs_a_project(self, capsys) -> None:
         assert run("--migrate-ai-layer") == 1
         assert "needs --project" in capsys.readouterr().out
+
+
+class TestRemoveProject:
+    """DG-506: the registry had no way to delete; two test-fixture entries had to be removed by
+    hand-editing JSON. ``--remove-project`` backs the file up first and touches nothing else."""
+
+    def _registry(self, tmp_path):
+        state = tmp_path / "state"
+        state.mkdir(parents=True, exist_ok=True)
+        target = state / "projects.json"
+        target.write_text(
+            json.dumps(
+                {
+                    "version": 2,
+                    "projects": {
+                        "alpha": {"path": str(tmp_path / "a")},
+                        "beta": {"path": str(tmp_path / "b")},
+                        "zeta": {"path": str(tmp_path / "z")},
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+        return target
+
+    def test_removes_the_entry_and_keeps_the_others(self, tmp_path, capsys):
+        target = self._registry(tmp_path)
+
+        code = run("--remove-project", "beta")
+
+        assert code == 0, capsys.readouterr().out
+        remaining = json.loads(target.read_text(encoding="utf-8"))["projects"]
+        assert sorted(remaining) == ["alpha", "zeta"]
+        assert remaining["alpha"] == {"path": str(tmp_path / "a")}
+
+    def test_a_backup_of_the_whole_file_is_written_first(self, tmp_path):
+        target = self._registry(tmp_path)
+        before = target.read_bytes()
+
+        run("--remove-project", "beta")
+
+        backups = list(target.parent.glob("projects.json.bak-*"))
+        assert len(backups) == 1
+        assert backups[0].read_bytes() == before
+
+    def test_a_second_run_never_overwrites_an_earlier_backup(self, tmp_path):
+        target = self._registry(tmp_path)
+
+        run("--remove-project", "beta")
+        run("--remove-project", "zeta")
+
+        backups = sorted(target.parent.glob("projects.json.bak-*"))
+        assert len(backups) == 2
+        sizes = sorted(
+            len(json.loads(b.read_text(encoding="utf-8"))["projects"]) for b in backups
+        )
+        assert sizes == [2, 3], (
+            "each backup holds the registry as it was before that removal"
+        )
+
+    def test_an_unknown_id_changes_nothing_and_names_the_registered_ones(
+        self, tmp_path, capsys
+    ):
+        target = self._registry(tmp_path)
+        before = target.read_bytes()
+
+        code = run("--remove-project", "gamma")
+
+        out = capsys.readouterr().out
+        assert code == 1
+        assert target.read_bytes() == before
+        assert not list(target.parent.glob("projects.json.bak-*"))
+        assert "alpha" in out and "beta" in out and "zeta" in out
+
+    def test_it_refuses_to_be_combined_with_registering_a_project(
+        self, tmp_path, capsys
+    ):
+        target = self._registry(tmp_path)
+        before = target.read_bytes()
+
+        code = run(
+            "--remove-project", "beta", "--project", "beta", "--path", str(tmp_path)
+        )
+
+        assert code == 1
+        assert target.read_bytes() == before
+
+    def test_it_does_not_touch_the_project_folder(self, tmp_path):
+        self._registry(tmp_path)
+        folder = tmp_path / "b"
+        folder.mkdir()
+        (folder / "keep.txt").write_bytes(b"keep")
+
+        run("--remove-project", "beta")
+
+        assert (folder / "keep.txt").read_bytes() == b"keep"
+
+    def test_two_removals_in_the_same_instant_still_keep_both_backups(
+        self, tmp_path, monkeypatch
+    ):
+        # Exclusive create + a counter: a clock that returns one value must not make the second
+        # backup replace the first (mutation guard for "never overwrites").
+        import datetime as real_datetime
+
+        class Frozen(real_datetime.datetime):
+            @classmethod
+            def now(cls, tz=None):
+                return cls(2026, 10, 11, 12, 0, 0, 0, tzinfo=tz)
+
+        monkeypatch.setattr(init, "datetime", Frozen)
+        target = self._registry(tmp_path)
+
+        run("--remove-project", "beta")
+        run("--remove-project", "zeta")
+
+        backups = sorted(target.parent.glob("projects.json.bak-*"))
+        assert len(backups) == 2, [b.name for b in backups]
+        sizes = sorted(
+            len(json.loads(b.read_text(encoding="utf-8"))["projects"]) for b in backups
+        )
+        assert sizes == [2, 3]
+
+    def test_an_empty_id_is_refused_not_ignored(self, tmp_path, capsys):
+        # Review of #193: "" is falsy, so the flag fell through to the default register flow.
+        target = self._registry(tmp_path)
+        before = target.read_bytes()
+
+        code = run("--remove-project", "")
+
+        assert code == 1, capsys.readouterr().out
+        assert target.read_bytes() == before
+        assert not list(target.parent.glob("projects.json.bak-*"))
+
+    def test_a_failed_write_leaves_the_registry_intact_and_names_the_backup(
+        self, tmp_path, monkeypatch, capsys
+    ):
+        # Review of #193: a crash after the backup left the registry at 0 bytes with no pointer to
+        # the backup. The write is now a temp file + os.replace, and the error says where the copy is.
+        target = self._registry(tmp_path)
+        before = target.read_bytes()
+
+        def boom(*_a, **_k):
+            raise OSError("disk went away")
+
+        monkeypatch.setattr(init.os, "replace", boom)
+
+        code = run("--remove-project", "beta")
+
+        out = capsys.readouterr().out
+        assert code == 1
+        assert target.read_bytes() == before, (
+            "the registry must be untouched when the swap fails"
+        )
+        backups = list(target.parent.glob("projects.json.bak-*"))
+        assert len(backups) == 1 and str(backups[0]) in out
+        assert not list(target.parent.glob("*.tmp*")), "no temp file may be left behind"
+
+    def test_a_symlinked_registry_stays_a_link_and_the_real_file_is_updated(
+        self, tmp_path
+    ):
+        # Review of #193: os.replace swapped the LINK for a plain file and left the real target stale.
+        state = tmp_path / "state"
+        state.mkdir()
+        real = tmp_path / "elsewhere" / "projects.json"
+        real.parent.mkdir()
+        real.write_text(
+            json.dumps(
+                {
+                    "version": 2,
+                    "projects": {"alpha": {"path": "a"}, "beta": {"path": "b"}},
+                }
+            ),
+            encoding="utf-8",
+        )
+        link = state / "projects.json"
+        try:
+            os.symlink(real, link)
+        except OSError as exc:
+            pytest.skip(f"cannot create a symlink here: {exc}")
+
+        code = run("--remove-project", "beta")
+
+        assert code == 0
+        assert link.is_symlink(), "the registry path must still be the link"
+        assert sorted(json.loads(real.read_text(encoding="utf-8"))["projects"]) == [
+            "alpha"
+        ]

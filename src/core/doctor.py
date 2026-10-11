@@ -1935,7 +1935,15 @@ def _check_project_content_scan(
         return
 
     findings = []
-    for relative in ai_layer_files_under(git_root):
+    tracked = tracked_ai_layer_paths(git_root)
+    # Without an answer from git (it exists but would not say) nothing may be skipped: a skip needs
+    # to know what is tracked. No .git at all means nothing is tracked.
+    can_skip = tracked is not None or not (git_root / ".git").exists()
+    for relative in ai_layer_files_under(
+        git_root,
+        skip_dependency_dirs=can_skip,
+        tracked_ai_layer=frozenset(tracked or ()),
+    ):
         findings.extend(
             content_scan.scan_file(git_root / relative, relative.as_posix())
         )
