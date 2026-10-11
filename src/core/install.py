@@ -34,7 +34,7 @@ import tempfile
 from dataclasses import dataclass, field
 from importlib import util as importlib_util
 from pathlib import Path
-from typing import Optional, Sequence
+from typing import Iterator, Optional, Sequence
 
 from .errors import DrunkenError, ValidationError
 
@@ -144,10 +144,36 @@ def _external_names(source: Path) -> frozenset[str]:
     )
 
 
+def _walk_no_links(root: Path) -> Iterator[Path]:
+    """Every path under *root*, depth-first, never descending into a link.
+
+    ``Path.rglob`` does not know a Windows junction from an ordinary folder: a junction is a
+    reparse point, but ``Path.is_symlink()`` (and ``os.path.islink``) is False for one — see
+    ``_is_link`` below, confirmed on this build. ``rglob`` therefore follows a junction wherever
+    it leads, and a folder planted back into its own tree — one junction suffices to go deep,
+    two cross-referencing ones make the walk double in size every level — turns the walk
+    exponential: measured, two such junctions produced 20000 entries in 6s and kept climbing
+    (DG-510). The caller's own ``_is_link`` check still refuses the junction itself; this only
+    stops the walk from ever stepping through it.
+    """
+    stack = [root]
+    while stack:
+        current = stack.pop()
+        try:
+            entries = list(current.iterdir())
+        except OSError:
+            continue
+        for entry in entries:
+            yield entry
+            if entry.is_dir() and not _is_link(entry):
+                stack.append(entry)
+
+
 def _skill_folders(source: Path) -> dict[str, Path]:
     """{install name: source folder} for every folder that holds a SKILL.md; duplicates refuse."""
     found: dict[str, Path] = {}
-    for skill_md in sorted(source.rglob("SKILL.md")):
+    skill_mds = (p for p in _walk_no_links(source) if p.name == "SKILL.md")
+    for skill_md in sorted(skill_mds):
         folder = skill_md.parent
         if folder == source:
             continue
@@ -163,7 +189,7 @@ def _skill_folders(source: Path) -> dict[str, Path]:
 
 def _files_in(folder: Path) -> list[Path]:
     out: list[Path] = []
-    for path in sorted(folder.rglob("*")):
+    for path in sorted(_walk_no_links(folder)):
         if _is_link(path):
             raise InstallRefusedError(
                 f"the source skill file {path} is a symlink.",
