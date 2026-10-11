@@ -273,6 +273,25 @@ class TestContextSizeBudget:
         assert len(text) <= install.CONTEXT_CHAR_LIMIT
         assert install.ROUTING_RULE in text
 
+    def test_stays_under_the_cap_with_the_real_core_skills_and_real_extras(
+        self, tmp_path: Path
+    ) -> None:
+        """The same budget claim, against the actual packaged skills/agents
+        (DG-499) plus the real ``plugins/drunken-extras`` fixture (DG-512),
+        not a synthetic stand-in — the reviewer's own words were "the fixture
+        of 15 core + 31 real extras names from plugins/drunken-extras"."""
+        from core import install_extras
+
+        skills = tmp_path / "skills"
+        agents = tmp_path / "agents"
+        install.install_skills(skills, apply=True)
+        install.install_agents(agents, skills, apply=True)
+        install_extras.install_extras(skills, agents, apply=True)
+
+        text = install.render_context(skills, agents)
+        assert len(text) <= install.CONTEXT_CHAR_LIMIT
+        assert install.ROUTING_RULE in text
+
     def test_the_routing_rule_is_never_cut_even_with_hundreds_of_names(
         self, tmp_path: Path
     ) -> None:
