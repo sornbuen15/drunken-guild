@@ -128,7 +128,8 @@ You want `project.drunken-guild.jira` to come back naming *you*.
 
 To take a project out of the registry (the file has no other way to delete one): `drunken-init --remove-project <id>`.
 It copies the whole registry to `projects.json.bak-<UTC time>` beside it first, never replaces an earlier backup,
-touches no project folder and no secret, and refuses an unknown id.
+touches no project folder and no secret, and refuses an unknown id. There is no lock: do not run two
+registry-changing commands at once.
 
 > `drunken-doctor` checks that the credential works — **not that the Jira project exists.** It has
 > printed `OK … (project ALPHA)` while Jira answered *"No project could be found"*. Verify the key

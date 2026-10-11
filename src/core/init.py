@@ -29,6 +29,7 @@ import argparse
 import json
 import os
 import sys
+import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
@@ -857,6 +858,27 @@ def _backup_registry(registry_file: str) -> str:
     )
 
 
+def _swap_registry(registry_file: str, document: dict[str, Any]) -> None:
+    """Write *document* to a temp file beside the registry, then replace it in one step.
+
+    A crash mid-write can no longer leave the registry empty (review of #193): the old file stays
+    until the new one is complete. The temp file is removed if anything fails.
+    """
+    directory = os.path.dirname(registry_file) or "."
+    fd, temp_name = tempfile.mkstemp(dir=directory, prefix=".projects-", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            json.dump(document, handle, indent=4)
+            handle.write("\n")
+        os.replace(temp_name, registry_file)
+    except BaseException:
+        try:
+            os.unlink(temp_name)
+        except OSError:
+            pass
+        raise
+
+
 def _run_remove_project(args: argparse.Namespace) -> int:
     """``--remove-project``: back the registry up, then delete one entry (DG-506)."""
     used = [name for name in _OTHER_ACTIONS if getattr(args, name, None)]
@@ -882,7 +904,16 @@ def _run_remove_project(args: argparse.Namespace) -> int:
         )
     backup = _backup_registry(registry_file)
     del document["projects"][project_id]
-    _write(registry_file, document)
+    try:
+        _swap_registry(registry_file, document)
+    except OSError as exc:
+        raise ValidationError(
+            f"could not write {registry_file}: {exc}",
+            remediation=(
+                f"The registry was not changed, and a full copy is at {backup}. If the registry "
+                f"looks wrong, copy {backup} over it."
+            ),
+        ) from exc
     print(f"removed         : {project_id}")
     print(f"backup          : {backup}")
     print(
@@ -907,7 +938,7 @@ def _remove_project_main(args: argparse.Namespace) -> int:
 
 def _standalone_action(args: argparse.Namespace) -> Optional[int]:
     """The exit code of an action that runs alone (``--migrate-ai-layer``, ``--remove-project``)."""
-    if args.remove_project:
+    if args.remove_project is not None:
         return _remove_project_main(args)
     if args.migrate_ai_layer:
         return _migrate_main(args)

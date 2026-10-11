@@ -2428,3 +2428,38 @@ class TestRemoveProject:
             len(json.loads(b.read_text(encoding="utf-8"))["projects"]) for b in backups
         )
         assert sizes == [2, 3]
+
+    def test_an_empty_id_is_refused_not_ignored(self, tmp_path, capsys):
+        # Review of #193: "" is falsy, so the flag fell through to the default register flow.
+        target = self._registry(tmp_path)
+        before = target.read_bytes()
+
+        code = run("--remove-project", "")
+
+        assert code == 1, capsys.readouterr().out
+        assert target.read_bytes() == before
+        assert not list(target.parent.glob("projects.json.bak-*"))
+
+    def test_a_failed_write_leaves_the_registry_intact_and_names_the_backup(
+        self, tmp_path, monkeypatch, capsys
+    ):
+        # Review of #193: a crash after the backup left the registry at 0 bytes with no pointer to
+        # the backup. The write is now a temp file + os.replace, and the error says where the copy is.
+        target = self._registry(tmp_path)
+        before = target.read_bytes()
+
+        def boom(*_a, **_k):
+            raise OSError("disk went away")
+
+        monkeypatch.setattr(init.os, "replace", boom)
+
+        code = run("--remove-project", "beta")
+
+        out = capsys.readouterr().out
+        assert code == 1
+        assert target.read_bytes() == before, (
+            "the registry must be untouched when the swap fails"
+        )
+        backups = list(target.parent.glob("projects.json.bak-*"))
+        assert len(backups) == 1 and str(backups[0]) in out
+        assert not list(target.parent.glob("*.tmp*")), "no temp file may be left behind"
