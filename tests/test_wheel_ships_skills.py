@@ -29,7 +29,7 @@ def wheel(tmp_path_factory) -> zipfile.ZipFile:
     for name in NEEDED:
         if (REPO / name).is_file():
             shutil.copy2(REPO / name, work / name)
-    for folder in ("src", "scripts", "skills", "agents"):
+    for folder in ("src", "scripts", "skills", "agents", "plugins"):
         shutil.copytree(
             REPO / folder,
             work / folder,
@@ -73,6 +73,44 @@ def test_the_wheel_installs_the_command(wheel) -> None:
     entry = next(n for n in wheel.namelist() if n.endswith("entry_points.txt"))
 
     assert "drunken-install = core.install:main" in wheel.read(entry).decode("utf-8")
+
+
+def test_every_drunken_extras_skill_is_inside_the_wheel(wheel) -> None:
+    """DG-515: plugins/drunken-extras/skills/ stays the single source of truth — the wheel carries
+    it under drunken_extras, nothing is duplicated into drunken_skills."""
+    names = set(wheel.namelist())
+    extras_skills = REPO / "plugins" / "drunken-extras" / "skills"
+    wanted = {
+        "drunken_extras/skills/" + p.relative_to(extras_skills).as_posix()
+        for p in extras_skills.rglob("*")
+        if p.is_file() and "__pycache__" not in p.parts
+    }
+
+    assert wanted, "plugins/drunken-extras/skills has no files to ship?"
+    missing = sorted(wanted - names)
+    assert not missing, f"the wheel is missing {missing[:5]}"
+
+
+def test_every_drunken_extras_agent_is_inside_the_wheel(wheel) -> None:
+    names = set(wheel.namelist())
+    extras_agents = REPO / "plugins" / "drunken-extras" / "agents"
+    wanted = {
+        "drunken_extras/agents/" + p.name
+        for p in extras_agents.iterdir()
+        if p.is_file() and p.suffix == ".md"
+    }
+
+    assert wanted, "plugins/drunken-extras/agents has no files to ship?"
+    missing = sorted(wanted - names)
+    assert not missing, f"the wheel is missing {missing[:5]}"
+
+
+def test_a_shipped_extras_skill_is_byte_identical_to_the_source(wheel) -> None:
+    source = (
+        REPO / "plugins" / "drunken-extras" / "skills" / "acronym-namer" / "SKILL.md"
+    ).read_bytes()
+
+    assert wheel.read("drunken_extras/skills/acronym-namer/SKILL.md") == source
 
 
 def test_every_agent_adapter_and_the_manifest_are_inside_the_wheel(wheel) -> None:
@@ -148,6 +186,63 @@ def test_the_installed_command_finds_its_own_skills_and_agents(
     ).read_bytes()
     assert (skills / "INDEX.md").exists()
     assert (skills.parent / "agents" / "worker.md").exists()
+
+
+def test_the_installed_wheel_finds_drunken_extras_as_a_real_directory(
+    installed_command, tmp_path
+) -> None:
+    """The same bug ``test_the_installed_command_finds_its_own_skills_and_agents`` was written to
+    catch, re-run for the new namespace package: ``importlib.resources.files`` on a folder with no
+    ``__init__.py`` hands back a non-directory multiplexed path once *installed* into a venv — it
+    never shows up running from the source tree, which is why this needs the installed wheel, not
+    just an import. ``core.install_extras.packaged_extras_dir`` uses
+    ``importlib.util.find_spec`` instead, exactly to avoid that; this proves it against the real
+    installed artefact, not just the source checkout."""
+    python = installed_command.parent / (
+        "python.exe" if sys.platform == "win32" else "python"
+    )
+    probe = (
+        "from core.install_extras import packaged_extras_dir; "
+        "p = packaged_extras_dir(); "
+        "import sys; "
+        "sys.exit(0 if p.is_dir() and (p / 'skills' / 'acronym-namer' / 'SKILL.md').is_file() else 1)"
+    )
+    done = subprocess.run(
+        [str(python), "-c", probe],
+        capture_output=True,
+        text=True,
+        check=False,
+        cwd=tmp_path,
+    )
+    assert done.returncode == 0, (
+        "packaged_extras_dir() did not resolve to a real directory in the installed wheel "
+        f"(the namespace-package bug)\n{done.stdout}\n{done.stderr}"
+    )
+
+
+def test_the_installed_command_plans_the_extras(installed_command, tmp_path) -> None:
+    skills = tmp_path / "claude" / "skills"
+
+    done = subprocess.run(
+        [
+            str(installed_command),
+            "extras",
+            "--target",
+            str(skills),
+            "--agents-target",
+            str(skills.parent / "agents"),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+        cwd=tmp_path,
+    )
+
+    assert done.returncode == 0, done.stdout[-600:] + done.stderr[-600:]
+    assert "acronym-namer" in done.stdout
+    assert "laravel-developer" in done.stdout
+    assert "dry run" in done.stdout
+    assert not (skills / "acronym-namer").exists(), "plan alone must write nothing"
 
 
 def test_the_installed_prune_list_comes_from_the_wheel(

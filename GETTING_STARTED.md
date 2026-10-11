@@ -92,6 +92,72 @@ stop the flow at `DOMAIN.md`.
 `skills/.external` lists skills that are installed but deliberately not authored in this repo. An
 empty file is a claim that there are none — not a default. Do not overwrite anything listed there.
 
+### Older skills and agents
+
+Sixteen general engineering skills and fifteen domain-specialist agents from before the 2.0.0
+re-scope live in `plugins/drunken-extras/` but were never wired into any installer (DG-515) — they
+reach no machine until you ask for them:
+
+```bash
+drunken-install extras            # plan — what would install, by name
+drunken-install extras --apply    # write them into ~/.claude/skills and ~/.claude/agents
+drunken-install extras --only acronym-namer,laravel-developer --apply   # just these
+```
+
+It never removes anything, and a file you already have that differs from the packaged one is
+reported, not overwritten. `drunken-install status` lists them too, separately from the core
+skills and agents, since they stay optional.
+
+**The 16 skills:**
+
+| skill | one line |
+|---|---|
+| `acronym-namer` | Generates thematic backronyms for naming a project, bot or module. |
+| `business-telemetry` | Structured event tracking and full-funnel analytics standard. |
+| `clean-architecture` | Clean Architecture / DDD — layer separation, dependency rules, domain models. |
+| `cloud-native` | Cloud-native infra standard — Docker, Kubernetes, CI/CD, IaC. |
+| `electron-ipc-protocol` | The IPC contract for Electron apps — context isolation, preload bridge, channel naming. |
+| `incident-response` | Crisis leadership for outage mitigation, comms, and blameless RCA. |
+| `product-midset` | Product thinking, FinOps, and data-driven feature decisions. |
+| `release-notes-writer` | Standardized, markdown-table release notes and tag descriptions. |
+| `secure-by-design` | Zero Trust security, network to application layer. |
+| `servant-leadership` | Empathetic communication, code review feedback, blameless culture. |
+| `standard-playbook-generator` | Generates anonymized engineering playbooks from the skill files themselves. |
+| `system-design-rules` | System design standard — trade-offs, API contracts, diagrams before code. |
+| `test-architecture` | Architectural test strategy — BDD, ATDD, contract, mutation, property-based. |
+| `test-strategy` | Reference for choosing the right test type across four test levels. |
+| `universal-ui` | Visual standard against "developer UI" anti-patterns. |
+| `universal-ux` | Frontend architecture — state/view separation, resilience, full UX lifecycle. |
+
+**The 15 agents:**
+
+| agent | one line |
+|---|---|
+| `agentic-systems-specialist` | Agentic AI design, tool-calling architecture, autonomous action boundaries. |
+| `ai-memory-specialist` | Long-term memory architecture, RAG pipelines, vector DB selection. |
+| `cross-platform-mobile` | Flutter/React Native/Kotlin Multiplatform, shared vs. platform-specific code. |
+| `desktop-frontend-dev` | Electron desktop apps — main/renderer split, secure IPC, native menus. |
+| `devops-engineer` | Infra, CI/CD, containers, Terraform/Helm/GitHub Actions, observability. |
+| `fintech-specialist` | Payments, banking, KYC/AML, PCI-DSS/PSD2/ISO 20022 domain accuracy. |
+| `fullstack-engineer` | General frontend/backend implementation, APIs, database design. |
+| `insurance-specialist` | Policy, claims, underwriting; NAIC/HIPAA/ACORD domain accuracy. |
+| `laravel-developer` | PHP 8.2+/Laravel 11 — repositories, type safety, FilamentPHP v3. |
+| `native-android` | Kotlin, Jetpack Compose, Gradle, Play Store delivery. |
+| `native-ios` | Swift, SwiftUI, UIKit, Xcode, App Store delivery. |
+| `principal-engineer` | Direction, not execution — roadmap, trade-offs, priority, risk. |
+| `qa-engineer` | Test strategy, unit/integration/E2E tests, pre-merge quality gates. |
+| `security-engineer` | Security review, threat modeling, auth/authz design, dependency risk. |
+| `voice-ai-specialist` | Voice pipelines, TTS/STT selection, real-time audio, latency budgets. |
+
+**What is *not* restored, and why** (full detail in `RETIRED.md`): the local-board kanban skills
+(`agentic-kanban`, `kanban-io`, `next-task`, `squad-workflow`) are not — a board beside Jira is a
+second surface that can disagree with the first (DG-265), and that reason applies regardless of
+which installer ships the file. The four vendored, unlicensed skills (`debug-mantra`,
+`post-mortem`, `scrutinize`, `management-talk`) are not — they carry no licence and no reachable
+upstream, so this repository cannot redistribute them under its own MIT licence (DG-263). Recover
+either set from git with the commit named in `RETIRED.md`'s table, e.g.
+`git show abe5df1:skills/<name>/SKILL.md` or `git show d41d99d:skills/workflow/<name>/SKILL.md`.
+
 ---
 
 ## Add the runtime (optional)
