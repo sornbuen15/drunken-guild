@@ -1239,7 +1239,8 @@ def _running_drunken_install() -> Optional[str]:
     for candidate in candidates:
         basename = os.path.basename(candidate).casefold()
         if basename in _DRUNKEN_INSTALL_NAMES and os.path.isfile(candidate):
-            return candidate
+            # Absolute: the hook runs later from another cwd (DG-514 review).
+            return os.path.abspath(candidate)
     return None
 
 
@@ -1274,7 +1275,7 @@ def resolve_hook_command() -> tuple[str, bool]:
     if not found:
         # os.path, not pathlib.Path -- see _running_drunken_install's docstring for why.
         name = "drunken-install.exe" if os.name == "nt" else "drunken-install"
-        candidate = os.path.join(os.path.dirname(sys.executable), name)
+        candidate = os.path.abspath(os.path.join(os.path.dirname(sys.executable), name))
         if os.path.isfile(candidate):
             found = candidate
     if not found:

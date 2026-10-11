@@ -639,6 +639,25 @@ class TestResolveHookCommand:
         assert r"C:\bin\drunken-install.exe" not in command
         assert str(other_sibling_dir) not in command
 
+    def test_a_relative_argv0_is_recorded_as_an_absolute_path(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        """An unactivated venv run as ``./venv/bin/drunken-install`` has a relative argv[0]; the
+        hook runs later from another cwd, so a relative path would silently break it."""
+        exe = tmp_path / "venv" / "drunken-install"
+        exe.parent.mkdir(parents=True)
+        exe.write_bytes(b"")
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setattr(
+            install.sys, "argv", [install.os.path.join("venv", "drunken-install")]
+        )
+        monkeypatch.setattr(install.shutil, "which", lambda name: None)
+
+        command, resolved = install.resolve_hook_command()
+        assert resolved is True
+        recorded = command[: -len(" context")].strip('"')
+        assert install.os.path.isabs(recorded), command
+
     @pytest.mark.skipif(
         install.os.name != "nt", reason="Windows-only launcher behaviour"
     )
