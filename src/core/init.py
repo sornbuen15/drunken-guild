@@ -29,6 +29,7 @@ import argparse
 import json
 import os
 import sys
+import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
@@ -327,6 +328,16 @@ def build_parser() -> argparse.ArgumentParser:
             ".claude/, ...) out of its git (DG-446): back it up outside the repo, "
             "untrack it (staged, never committed for you), exclude it. Shows the "
             "plan only unless --apply is also given. Needs --project."
+        ),
+    )
+    parser.add_argument(
+        "--remove-project",
+        metavar="ID",
+        help=(
+            "Remove one project from the registry (DG-506). The whole registry file is first "
+            "copied to projects.json.bak-<UTC time> beside it, never overwriting an earlier "
+            "backup. Touches no project folder and no secret; cannot be combined with any "
+            "other action."
         ),
     )
     parser.add_argument(
@@ -807,14 +818,145 @@ def _migrate_main(args: argparse.Namespace) -> int:
         return 1
 
 
+#: Every option that means "do something else"; --remove-project refuses to share a run with them.
+_OTHER_ACTIONS = (
+    "project",
+    "path",
+    "git_root",
+    "description",
+    "jira_url",
+    "jira_email",
+    "jira_project_key",
+    "jira_credential",
+    "discord_webhook",
+    "board_dir",
+    "guild_block",
+    "config_repo",
+    "overwrite_ai_layer",
+    "migrate_ai_layer",
+    "apply",
+    "backup_dir",
+    "install_git_hooks",
+)
+
+
+def _backup_registry(registry_file: str) -> str:
+    """Copy the registry beside itself as ``.bak-<UTC stamp>``; an existing backup is never replaced."""
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+    for attempt in range(100):
+        suffix = "" if attempt == 0 else f"-{attempt}"
+        target = f"{registry_file}.bak-{stamp}{suffix}"
+        try:
+            with open(registry_file, "rb") as source, open(target, "xb") as backup:
+                backup.write(source.read())
+        except FileExistsError:
+            continue
+        return target
+    raise ValidationError(
+        f"could not choose a backup name next to {registry_file}.",
+        remediation="Nothing was removed; clear old projects.json.bak-* files and run it again.",
+    )
+
+
+def _swap_registry(registry_file: str, document: dict[str, Any]) -> None:
+    """Write *document* to a temp file beside the registry, then replace it in one step.
+
+    A crash mid-write can no longer leave the registry empty (review of #193): the old file stays
+    until the new one is complete. The temp file is removed if anything fails.
+    """
+    # A registry that is a symlink or junction is written THROUGH, as before: swap onto the real
+    # file, never replace the link itself (review of #193, reproduced).
+    target = os.path.realpath(registry_file)
+    directory = os.path.dirname(target) or "."
+    fd, temp_name = tempfile.mkstemp(dir=directory, prefix=".projects-", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            json.dump(document, handle, indent=4)
+            handle.write("\n")
+        os.replace(temp_name, target)
+    except BaseException:
+        try:
+            os.unlink(temp_name)
+        except OSError:
+            pass
+        raise
+
+
+def _run_remove_project(args: argparse.Namespace) -> int:
+    """``--remove-project``: back the registry up, then delete one entry (DG-506)."""
+    used = [name for name in _OTHER_ACTIONS if getattr(args, name, None)]
+    if used:
+        raise ValidationError(
+            "--remove-project cannot be combined with another action "
+            f"({', '.join('--' + n.replace('_', '-') for n in used)}).",
+            remediation="Run it on its own; nothing was changed.",
+        )
+    project_id = validate_project_id(args.remove_project)
+    registry_file = args.registry or str(paths.registry_path())
+    if not os.path.exists(registry_file):
+        raise ValidationError(
+            f"there is no registry at {registry_file}.",
+            remediation="Nothing to remove.",
+        )
+    document = _ensure_registry_document(registry_file)
+    registered = sorted(document["projects"])
+    if project_id not in document["projects"]:
+        raise ValidationError(
+            f"{project_id!r} is not registered; registered: {', '.join(registered) or '(none)'}.",
+            remediation="Nothing was changed.",
+        )
+    backup = _backup_registry(registry_file)
+    del document["projects"][project_id]
+    try:
+        _swap_registry(registry_file, document)
+    except OSError as exc:
+        raise ValidationError(
+            f"could not write {registry_file}: {exc}",
+            remediation=(
+                f"The registry was not changed, and a full copy is at {backup}. If the registry "
+                f"looks wrong, copy {backup} over it."
+            ),
+        ) from exc
+    print(f"removed         : {project_id}")
+    print(f"backup          : {backup}")
+    print(
+        f"projects        : {', '.join(sorted(document['projects'])) or '(none left)'}"
+    )
+    return 0
+
+
+def _remove_project_main(args: argparse.Namespace) -> int:
+    """``_run_remove_project`` with the error reporting every other run gets."""
+    try:
+        return _run_remove_project(args)
+    except DrunkenError as exc:
+        print(f"error: {exc}")
+        if exc.remediation:
+            print(f"  -> {exc.remediation}")
+        return 1
+    except OSError as exc:
+        print(f"error: {exc}")
+        return 1
+
+
+def _standalone_action(args: argparse.Namespace) -> Optional[int]:
+    """The exit code of an action that runs alone (``--migrate-ai-layer``, ``--remove-project``)."""
+    if args.remove_project is not None:
+        return _remove_project_main(args)
+    if args.migrate_ai_layer:
+        return _migrate_main(args)
+    return None
+
+
 def main() -> int:
     """Entry point for ``drunken-init``."""
     args = build_parser().parse_args()
 
     config_repo_drifted = False
 
-    if args.migrate_ai_layer:
-        return _migrate_main(args)
+    standalone = _standalone_action(args)
+    if standalone is not None:
+        return standalone
 
     try:
         registry_file = args.registry or str(paths.registry_path())
