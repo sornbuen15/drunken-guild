@@ -96,8 +96,8 @@ drunken-jira-mcp = "jira_mcp.server:main"
 
 
 [tool.setuptools]
-packages = ["scripts", "core", "route", "jira_mcp", "drunken_skills", "drunken_agents"]
-package-dir = {"core" = "src/core", "route" = "src/route", "jira_mcp" = "src/jira_mcp", "drunken_skills" = "skills", "drunken_agents" = "agents"}
+packages = ["scripts", "core", "route", "jira_mcp", "drunken_skills", "drunken_agents", "drunken_extras"]
+package-dir = {"core" = "src/core", "route" = "src/route", "jira_mcp" = "src/jira_mcp", "drunken_skills" = "skills", "drunken_agents" = "agents", "drunken_extras" = "plugins/drunken-extras"}
 
 # DG-392: drunken-init reads the AGENTS.md template from the installed package.
 [tool.setuptools.package-data]
@@ -108,6 +108,9 @@ core = ["templates/*.md"]
 drunken_skills = ["**/*", ".external"]
 drunken_agents = ["*.md", "_sources.json"]
 scripts = ["install/retired_skills.txt"]
+# DG-512: the drunken-extras plugin's skills and agents travel inside the wheel too, so
+# `drunken-install extras` needs no clone, the same reason DG-498 gave the core skills/agents.
+drunken_extras = ["**/*"]
 
 # DG-501: the changelog travels beside the package so `drunken-install status` can quote it.
 [tool.setuptools.data-files]

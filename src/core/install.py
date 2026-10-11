@@ -531,6 +531,15 @@ class StatusReport:
     retired_installed: list[str] = field(default_factory=list)
     changelog_heading: str = ""
     changelog_body: str = ""
+    # DG-512: extras is optional, so it is never folded into up_to_date — a missing extra is
+    # expected unless the operator has asked for it.
+    extras_changes: list[str] = field(default_factory=list)
+    #: How many extras exist and how many are not fully missing (installed, partial or differing).
+    #: Reviewer round 2: printing all 31 "missing: <name>" lines on a machine with none of them
+    #: installed is noise, not status — a count covers that case, and the per-name lines are kept
+    #: for when there is actually something to look at (installed, partial, or differing).
+    extras_total: int = 0
+    extras_installed: int = 0
 
     @property
     def up_to_date(self) -> bool:
@@ -606,6 +615,14 @@ def status(
     report.changelog_heading, report.changelog_body = newest_changelog_section(
         changelog_text()
     )
+    from . import install_extras
+
+    try:
+        report.extras_total, report.extras_installed, report.extras_changes = (
+            install_extras.extras_overview(skills_target, agents_target)
+        )
+    except InstallRefusedError:
+        pass
     return report
 
 
@@ -722,6 +739,22 @@ def build_parser() -> argparse.ArgumentParser:
     stat.add_argument(
         "--agents-target", help="Agents folder. Default: ~/.claude/agents."
     )
+
+    # DG-512: the drunken-extras plugin's optional skills and agents — plan by default, never prunes.
+    extras = sub.add_parser(
+        "extras",
+        help="plan or install the optional drunken-extras skills and agents (plan by default)",
+    )
+    extras.add_argument("--target", help="Skills folder. Default: ~/.claude/skills.")
+    extras.add_argument(
+        "--agents-target", help="Agents folder. Default: ~/.claude/agents."
+    )
+    extras.add_argument(
+        "--apply", action="store_true", help="Write the files; the default only plans."
+    )
+    extras.add_argument(
+        "--only", help="Comma-separated names to install; unknown names are refused."
+    )
     return parser
 
 
@@ -773,6 +806,16 @@ def _print_status(report: StatusReport) -> None:
         print(
             f"retired, still installed: {name} (drunken-install skills --prune lists them)"
         )
+    if report.extras_total:
+        if report.extras_installed == 0:
+            print(
+                f"\nextras: {report.extras_total} available, 0 installed "
+                "(drunken-install extras --apply)"
+            )
+        else:
+            print("\nextras (optional, drunken-install extras --apply):")
+            for line in report.extras_changes:
+                print(f"  {line}")
     if report.changelog_heading:
         print(f"\nchangelog — {report.changelog_heading}")
         print(report.changelog_body)
@@ -785,6 +828,26 @@ def _run(args: argparse.Namespace) -> int:
     if args.what == "status":
         _print_status(status(skills_target, agents_target))
         return 0
+    if args.what == "extras":
+        from . import install_extras
+
+        only = (
+            [n.strip() for n in args.only.split(",") if n.strip()]
+            if args.only
+            else None
+        )
+        extras_result = install_extras.install_extras(
+            skills_target, agents_target, apply=args.apply, only=only
+        )
+        install_extras.print_report(extras_result)
+        return (
+            1
+            if any(
+                a.status == "refused"
+                for a in (*extras_result.skills, *extras_result.agents)
+            )
+            else 0
+        )
     refused = False
     if args.what in ("skills", "all"):
         result = install_skills(
