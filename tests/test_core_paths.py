@@ -236,6 +236,129 @@ class TestWindowsPermissionsUseTheAcl:
 
         assert paths.is_group_or_world_accessible(target) is True
 
+    def test_a_same_named_account_on_another_machine_is_not_trusted(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        """DG-509 re-review, HIGH: matching only the last ``\\`` component
+        against USERNAME let ``OTHERMACHINE\\alpha`` pass as "the current
+        user" purely because its short name matched — a fail-open. Only the
+        current machine's own qualifier (or no qualifier at all) does."""
+        self._as_windows_user(monkeypatch)
+        monkeypatch.delenv("USERDOMAIN", raising=False)
+        monkeypatch.setenv("COMPUTERNAME", "HOST1")
+        target = tmp_path / "state"
+        target.mkdir()
+        monkeypatch.setattr(
+            paths,
+            "_windows_icacls_output",
+            lambda path: (
+                f"{path} OTHERMACHINE\\alpha:(OI)(CI)(F)\n"
+                "\n"
+                "Successfully processed 1 files; Failed processing 0 files.\n"
+            ),
+        )
+
+        assert paths.is_group_or_world_accessible(target) is True
+
+    def test_the_current_machine_qualified_owner_is_trusted(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        """The real-world shape of an owner ACE on a domain-joined or named
+        machine: ``<COMPUTERNAME>\\<USERNAME>``, not a bare name."""
+        self._as_windows_user(monkeypatch)
+        monkeypatch.delenv("USERDOMAIN", raising=False)
+        monkeypatch.setenv("COMPUTERNAME", "HOST1")
+        target = tmp_path / "state"
+        target.mkdir()
+        monkeypatch.setattr(
+            paths,
+            "_windows_icacls_output",
+            lambda path: (
+                f"{path} HOST1\\alpha:(OI)(CI)(F)\n"
+                "\n"
+                "Successfully processed 1 files; Failed processing 0 files.\n"
+            ),
+        )
+
+        assert paths.is_group_or_world_accessible(target) is False
+
+    def test_owner_and_system_only_is_not_accessible_to_others(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        self._as_windows_user(monkeypatch)
+        target = tmp_path / "state"
+        target.mkdir()
+        monkeypatch.setattr(
+            paths,
+            "_windows_icacls_output",
+            lambda path: (
+                f"{path} alpha:(OI)(CI)(F)\n"
+                "                          SYSTEM:(OI)(CI)(F)\n"
+                "\n"
+                "Successfully processed 1 files; Failed processing 0 files.\n"
+            ),
+        )
+
+        assert paths.is_group_or_world_accessible(target) is False
+
+    def test_owner_and_administrators_only_is_not_accessible_to_others(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        self._as_windows_user(monkeypatch)
+        target = tmp_path / "state"
+        target.mkdir()
+        monkeypatch.setattr(
+            paths,
+            "_windows_icacls_output",
+            lambda path: (
+                f"{path} alpha:(OI)(CI)(F)\n"
+                "                          BUILTIN\\Administrators:(OI)(CI)(F)\n"
+                "\n"
+                "Successfully processed 1 files; Failed processing 0 files.\n"
+            ),
+        )
+
+        assert paths.is_group_or_world_accessible(target) is False
+
+    def test_owner_and_creator_owner_only_is_not_accessible_to_others(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        self._as_windows_user(monkeypatch)
+        target = tmp_path / "state"
+        target.mkdir()
+        monkeypatch.setattr(
+            paths,
+            "_windows_icacls_output",
+            lambda path: (
+                f"{path} alpha:(OI)(CI)(F)\n"
+                "                          CREATOR OWNER:(OI)(CI)(F)\n"
+                "\n"
+                "Successfully processed 1 files; Failed processing 0 files.\n"
+            ),
+        )
+
+        assert paths.is_group_or_world_accessible(target) is False
+
+    def test_owner_rights_only_is_not_accessible_to_others(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        """``OWNER RIGHTS`` is the ACE itself, standing in for the owner —
+        it needs no separate owner ACE alongside it."""
+        self._as_windows_user(monkeypatch)
+        target = tmp_path / "state"
+        target.mkdir()
+        monkeypatch.setattr(
+            paths,
+            "_windows_icacls_output",
+            lambda path: (
+                f"{path} OWNER RIGHTS:(F)\n"
+                "\n"
+                "Successfully processed 1 files; Failed processing 0 files.\n"
+            ),
+        )
+
+        assert paths.is_group_or_world_accessible(target) is False
+
     def test_posix_path_never_consults_icacls(self, monkeypatch, tmp_path) -> None:
         """is_windows() is the only seam between the two branches. Proven by
         showing the ACL path is never reached when it answers False, rather

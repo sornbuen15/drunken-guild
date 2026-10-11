@@ -229,11 +229,34 @@ def _windows_icacls_principals(output: str, path: Path) -> list[str] | None:
     return principals
 
 
+def _windows_current_machine() -> str:
+    """The ``MACHINE`` half of a ``MACHINE\\<user>`` ACE that means "this
+    machine's own account", not merely an account of the same short name
+    somewhere else.
+
+    ``USERDOMAIN`` takes priority for the same reason ``USERNAME`` already
+    does in :func:`_icacls_principal`: for a domain account it is the domain
+    the account was actually issued under, where ``COMPUTERNAME`` is just
+    this machine's own name and would be the wrong qualifier to trust for a
+    domain account logged in from elsewhere. Read through its own function,
+    not inlined, so a test can pin it without depending on the real host.
+    """
+    return os.environ.get("USERDOMAIN") or os.environ.get("COMPUTERNAME") or ""
+
+
 def _windows_is_group_or_world_accessible(path: Path) -> bool:
     """DG-509: accessible to others when an ACE names anyone but the current
     user, the owner, or one of the machine's own trusted accounts — an
     ``Everyone``, ``BUILTIN\\Users`` or ``NT AUTHORITY\\Authenticated Users``
     ACE included, since none of those is any one of those three.
+
+    DG-509 re-review: "the current user" is deliberately **not** "any ACE
+    whose last ``\\``-component matches ``USERNAME``" — that accepted
+    ``OTHERMACHINE\\alpha`` as if it were this machine's own ``alpha``, a
+    fail-open on the actual security question this check exists to answer.
+    A qualified ACE (``MACHINE\\user``) only matches when *both* halves do;
+    an unqualified one matches on the bare name, since that is what
+    ``icacls`` prints for a local, unqualified grant.
 
     Unparseable or unrunnable ``icacls`` output answers ``True`` — the same,
     conservative "warn" this check always gave on Windows before DG-509 —
@@ -246,12 +269,17 @@ def _windows_is_group_or_world_accessible(path: Path) -> bool:
     if principals is None:
         return True
     current_user = _icacls_principal().upper()
+    current_machine = _windows_current_machine().upper()
     for principal in principals:
         full = principal.upper()
         short = principal.rsplit("\\", 1)[-1].strip().upper()
         if full in _WINDOWS_TRUSTED_PRINCIPALS or short in _WINDOWS_TRUSTED_PRINCIPALS:
             continue
-        if full == current_user or short == current_user:
+        if "\\" in full:
+            qualifier, _, name = full.partition("\\")
+            if qualifier.strip() == current_machine and name.strip() == current_user:
+                continue
+        elif full == current_user:
             continue
         return True
     return False
