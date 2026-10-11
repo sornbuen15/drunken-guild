@@ -30,7 +30,7 @@ from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from typing import Any, Final, Literal, Optional, Sequence
 
-from . import ai_layer, content_scan, paths, secrets
+from . import ai_layer, content_scan, install, paths, secrets
 from .config_gen import (
     count_pins,
     export_requirements,
@@ -1250,6 +1250,71 @@ def unreachable_skills(
             continue
         unreachable.append(name)
     return unreachable
+
+
+def _check_session_hook(report: Report, settings_path: Optional[Path] = None) -> None:
+    """Whether a session is routed to the guild's own skills and agents at all.
+
+    DG-session-routing: a real session did all the work itself and called no
+    skill and no agent, because nothing at session start told it to — a
+    project's own ``AGENTS.md`` can be absent (a fresh ``git worktree``), and
+    no ``SessionStart`` hook was installed anywhere. ``drunken-install hook
+    --apply`` is the fix; this is the check that notices it has not been run.
+
+    Unreadable settings is a **skip**, not a warning: a file this tool cannot
+    parse is one Claude Code may not be reading either, and the actionable
+    advice is "open it and look", not the fix command below, which would not
+    help.
+
+    DG-513 item 1: presence in the file is not the same as it working — the
+    recorded program can be missing, moved, or too old to have the
+    ``context`` subcommand at all, and every one of those fails *silently*
+    at session start. So once an entry is found, it is actually run, with a
+    short timeout, and checked for the JSON a working one prints.
+
+    DG-513 round 2: that execution is itself a surface. Before running
+    anything, the recorded program must resolve to *this installation's
+    own* ``drunken-install`` (:func:`core.install.is_trusted_hook_command`)
+    — a same-named file anywhere else on disk is reported, never run.
+    """
+    path = (
+        settings_path if settings_path is not None else install.default_settings_path()
+    )
+    plan = install.plan_hook(path, remove=False)
+    if plan.action == "refused":
+        report.add("routes.session_hook", "skip", f"{path}: {plan.reason}")
+        return
+    if plan.action != "already-present":
+        report.add(
+            "routes.session_hook",
+            "warn",
+            f"No SessionStart hook for the guild in {path}.",
+            remediation="drunken-install hook --apply",
+        )
+        return
+    if not install.is_trusted_hook_command(plan.command):
+        report.add(
+            "routes.session_hook",
+            "warn",
+            f"The SessionStart entry in {path} points at {plan.command!r}, which is "
+            "not this installation's drunken-install; not executed.",
+            remediation="drunken-install hook --apply",
+        )
+        return
+    ok, reason = install.verify_hook_command(plan.command)
+    if ok:
+        report.add(
+            "routes.session_hook",
+            "ok",
+            f"SessionStart hook present in {path} and runs correctly.",
+        )
+        return
+    report.add(
+        "routes.session_hook",
+        "warn",
+        f"SessionStart hook in {path} does not work: {reason}.",
+        remediation="drunken-install hook --apply",
+    )
 
 
 def _check_routes(report: Report, repo_root: Optional[Path] = None) -> None:
@@ -2969,6 +3034,7 @@ def run_doctor(
     _check_deployment(report, source_root=source_tree_root())
     _check_ai_layer(report)
     _check_routes(report)
+    _check_session_hook(report)
     _check_host_configs(report)
 
     if secrets.cached_refs():
