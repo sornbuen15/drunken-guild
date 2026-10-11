@@ -2199,6 +2199,61 @@ class TestRegistryWithoutAProjectsObject:
         assert str(registry_path) in capsys.readouterr().out
         assert registry_path.read_text(encoding="utf-8") == before
 
+    def test_a_non_dict_version_value_is_refused(self, tmp_path, capsys) -> None:
+        """``{"version": "2"}`` or ``{"version": null}`` carry a "version"
+        key whose value is neither the v2 schema marker (an int) nor a v1
+        project entry (a dict) -- still a malformed registry, refused the
+        same way a missing "projects" is."""
+        registry_path = tmp_path / "state" / "projects.json"
+        registry_path.parent.mkdir(parents=True)
+        before = json.dumps({"version": "2"})
+        registry_path.write_text(before, encoding="utf-8")
+
+        code = run("--project", "sample")
+
+        assert code == 1
+        assert str(registry_path) in capsys.readouterr().out
+        assert registry_path.read_text(encoding="utf-8") == before
+
+    def test_a_null_version_value_is_refused(self, tmp_path, capsys) -> None:
+        registry_path = tmp_path / "state" / "projects.json"
+        registry_path.parent.mkdir(parents=True)
+        before = json.dumps({"version": None})
+        registry_path.write_text(before, encoding="utf-8")
+
+        code = run("--project", "sample")
+
+        assert code == 1
+        assert str(registry_path) in capsys.readouterr().out
+        assert registry_path.read_text(encoding="utf-8") == before
+
+
+class TestAProjectLiterallyNamedVersion:
+    """Reviewer finding on DG-507: ``if "version" in document`` tests key
+    *presence*, not shape, so a genuine v1 registry whose only (or one)
+    project happens to be named "version" -- a valid id under
+    ``PROJECT_ID_PATTERN`` -- was wrongly refused as if it were a v2
+    document missing its "projects" object. The v2 schema marker is always
+    a scalar int (``SCHEMA_VERSION``); a v1 project entry is a dict. Only a
+    non-dict "version" value should trigger the v2-shape refusal.
+    """
+
+    def test_a_v1_registry_whose_only_project_is_named_version_still_migrates(
+        self, tmp_path
+    ) -> None:
+        state = tmp_path / "state"
+        state.mkdir(parents=True)
+        (state / "projects.json").write_text(
+            json.dumps({"version": {"path": "/x"}}), encoding="utf-8"
+        )
+
+        assert run("--project", "fresh") == 0
+
+        document = registry_contents(tmp_path)
+        assert document["version"] == 2
+        assert document["projects"]["version"]["path"] == "/x"
+        assert "fresh" in document["projects"]
+
 
 class TestNonUtf8JiraFragment:
     """DG-475: ``_read_jira_fragment`` caught only ``OSError`` and

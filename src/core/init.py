@@ -209,11 +209,16 @@ def _ensure_registry_document(registry_file: str) -> dict[str, Any]:
     if "projects" in document and isinstance(document["projects"], dict):
         return document
 
-    if "version" in document:
-        # DG-507: this document already claims a schema version, so it is
-        # not a v1 file -- the whole-document-is-the-project-map shape
-        # below only applies to a document that predates "version"
-        # entirely. Reading "projects" here used to fall through to the
+    if "version" in document and not isinstance(document["version"], dict):
+        # DG-507 (reviewer finding on PR #197): "version" in document tests
+        # key *presence*, not shape -- a genuine v1 registry whose only (or
+        # one) project happens to be named "version" (a valid id under
+        # PROJECT_ID_PATTERN) was wrongly refused here as if it were a v2
+        # document missing its "projects" object. The v2 schema marker
+        # (SCHEMA_VERSION) is always a scalar int; a v1 project entry is
+        # always a dict (its own fields: "path", "jira", ...). Only a
+        # non-dict "version" value is the v2 shape this branch exists to
+        # refuse -- reading "projects" below used to fall through to the
         # v1 branch and wrap the *whole* document (including "version"
         # itself) as if it were the project map: a misread, not a
         # refusal, for a "projects" that is missing or not an object.
