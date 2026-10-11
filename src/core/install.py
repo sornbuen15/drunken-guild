@@ -1218,10 +1218,17 @@ def _running_drunken_install() -> Optional[str]:
     built from a release-candidate wheel: a Windows console-script launcher's ``sys.argv[0]`` is
     the path the launcher was actually invoked as — not ``sys.executable`` (that is always the
     venv's own ``python.exe``, embedded in the launcher at install time) — but with the ``.exe``
-    suffix stripped relative to the file that is actually on disk. ``Path(argv[0]).is_file()`` is
+    suffix stripped relative to the file that is actually on disk. ``os.path.isfile(argv[0])`` is
     therefore False for the bare name and True only once ``.exe`` is appended back; both forms are
     tried here before giving up on this candidate. On a non-Windows launcher argv[0] already
     matches the real file, so the plain form alone succeeds there.
+
+    Deliberately ``os.path``, never ``pathlib.Path``: a test exercising this module's Windows
+    formatting monkeypatches ``os.name`` to ``"nt"`` while actually running on POSIX (there is no
+    other way to exercise that branch on a POSIX CI runner) — ``pathlib.Path()`` reads ``os.name``
+    at *construction* time and raises ``NotImplementedError`` building a ``WindowsPath`` on a real
+    POSIX system, while ``os.path`` stays bound to the real platform's implementation, decided
+    once when ``os`` itself was imported.
     """
     if not sys.argv or not sys.argv[0]:
         return None
@@ -1230,9 +1237,9 @@ def _running_drunken_install() -> Optional[str]:
     if os.name == "nt" and not raw.casefold().endswith(".exe"):
         candidates.append(raw + ".exe")
     for candidate in candidates:
-        path = Path(candidate)
-        if path.name.casefold() in _DRUNKEN_INSTALL_NAMES and path.is_file():
-            return str(path)
+        basename = os.path.basename(candidate).casefold()
+        if basename in _DRUNKEN_INSTALL_NAMES and os.path.isfile(candidate):
+            return candidate
     return None
 
 
@@ -1265,10 +1272,11 @@ def resolve_hook_command() -> tuple[str, bool]:
     """
     found = _running_drunken_install()
     if not found:
+        # os.path, not pathlib.Path -- see _running_drunken_install's docstring for why.
         name = "drunken-install.exe" if os.name == "nt" else "drunken-install"
-        candidate = Path(sys.executable).parent / name
-        if candidate.is_file():
-            found = str(candidate)
+        candidate = os.path.join(os.path.dirname(sys.executable), name)
+        if os.path.isfile(candidate):
+            found = candidate
     if not found:
         found = shutil.which("drunken-install")
     if found:
