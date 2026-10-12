@@ -21,25 +21,49 @@ def _proc(pid, ppid, start_time="t1", command=""):
     return ProcessInfo(pid=pid, ppid=ppid, start_time=start_time, command=command)
 
 
+def _mutable_world(processes):
+    """A fake process table that actually shrinks when ``terminate_fn`` is
+    called, so post-termination verification sees a terminated pid as gone.
+    Returns ``(list_processes_fn, terminate_fn, terminated_pids)``."""
+    state = {p.pid: p for p in processes}
+    terminated_pids: list[int] = []
+
+    def list_processes_fn():
+        return list(state.values())
+
+    def terminate_fn(pid):
+        terminated_pids.append(pid)
+        state.pop(pid, None)
+
+    return list_processes_fn, terminate_fn, terminated_pids
+
+
 _TOOL_ROOT = "C:/Users/op/AppData/Roaming/uv/tools/drunken-guild/"
-_BIN_PREFIX = "C:/Users/op/.local/bin/drunken-"
+_BIN_SHIM = "C:/Users/op/.local/bin/drunken-jira-mcp"
 
 
 class TestIsInsideGuildTool:
     def test_a_path_under_the_tool_root_matches(self):
         command = r'"C:\Users\op\AppData\Roaming\uv\tools\drunken-guild\Scripts\python.exe" -m jira_mcp.server'
-        assert orphans.is_inside_guild_tool(command, [_TOOL_ROOT, _BIN_PREFIX])
+        assert orphans.is_inside_guild_tool(command, [_TOOL_ROOT, _BIN_SHIM])
 
-    def test_a_bin_shim_matches_by_its_drunken_prefix(self):
+    def test_a_known_bin_shim_matches_exactly(self):
         command = r"C:\Users\op\.local\bin\drunken-jira-mcp.exe --stdio"
-        assert orphans.is_inside_guild_tool(command, [_TOOL_ROOT, _BIN_PREFIX])
+        assert orphans.is_inside_guild_tool(command, [_TOOL_ROOT, _BIN_SHIM])
+
+    def test_an_unrelated_script_sharing_the_drunken_prefix_does_not_match(self):
+        """DG-518 review, MEDIUM finding: matching every ``drunken-*`` name in
+        the bin directory swept in any unrelated script a user happened to
+        drop there. Only the exact, known console-script names count."""
+        command = r"C:\Users\op\.local\bin\drunken-my-own-script.exe --help"
+        assert not orphans.is_inside_guild_tool(command, [_TOOL_ROOT, _BIN_SHIM])
 
     def test_matching_is_case_insensitive_on_windows_paths(self, monkeypatch):
         monkeypatch.setattr(orphans.sys, "platform", "win32")
         command = (
             r'"c:\users\op\appdata\roaming\uv\tools\drunken-guild\scripts\python.exe"'
         )
-        assert orphans.is_inside_guild_tool(command, [_TOOL_ROOT, _BIN_PREFIX])
+        assert orphans.is_inside_guild_tool(command, [_TOOL_ROOT, _BIN_SHIM])
 
     def test_a_similarly_named_directory_does_not_match_as_a_prefix(self):
         """`drunken-guild2` must never match the `drunken-guild` root -- this
@@ -47,12 +71,12 @@ class TestIsInsideGuildTool:
         command = (
             r'"C:\Users\op\AppData\Roaming\uv\tools\drunken-guild2\Scripts\python.exe"'
         )
-        assert not orphans.is_inside_guild_tool(command, [_TOOL_ROOT, _BIN_PREFIX])
+        assert not orphans.is_inside_guild_tool(command, [_TOOL_ROOT, _BIN_SHIM])
 
     def test_a_same_named_program_elsewhere_on_disk_does_not_match(self):
         """No name-only matching -- only the real installed path counts."""
         command = r'"C:\Users\someone\Desktop\drunken-jira-mcp.exe" --stdio'
-        assert not orphans.is_inside_guild_tool(command, [_TOOL_ROOT, _BIN_PREFIX])
+        assert not orphans.is_inside_guild_tool(command, [_TOOL_ROOT, _BIN_SHIM])
 
     def test_empty_tool_roots_never_matches(self):
         command = (
@@ -71,7 +95,7 @@ class TestFindLockHolders:
                 command=r'"C:\Users\op\.local\bin\drunken-jira-mcp.exe" --stdio',
             ),
         ]
-        holders = orphans.find_lock_holders(table, [_TOOL_ROOT, _BIN_PREFIX])
+        holders = orphans.find_lock_holders(table, [_TOOL_ROOT, _BIN_SHIM])
         assert holders == [
             LockHolder(
                 100,
@@ -92,14 +116,14 @@ class TestFindLockHolders:
                 command=r'"C:\Users\op\.local\bin\drunken-jira-mcp.exe" --stdio',
             ),
         ]
-        holders = orphans.find_lock_holders(table, [_TOOL_ROOT, _BIN_PREFIX])
+        holders = orphans.find_lock_holders(table, [_TOOL_ROOT, _BIN_SHIM])
         assert len(holders) == 1
         assert holders[0].parent_alive is False
         assert holders[0].label == "orphan"
 
     def test_a_process_outside_the_tool_roots_is_never_a_lock_holder(self):
         table = [_proc(1, 0, command="init"), _proc(100, 1, command="bash -c sleep")]
-        assert orphans.find_lock_holders(table, [_TOOL_ROOT, _BIN_PREFIX]) == []
+        assert orphans.find_lock_holders(table, [_TOOL_ROOT, _BIN_SHIM]) == []
 
     def test_empty_tool_roots_reports_no_lock_holders_rather_than_guessing(self):
         table = [
@@ -144,14 +168,14 @@ class TestApplyLockHolders:
             _proc(50, 1, command="claude.exe"),
             _proc(100, 50, start_time="t1", command="drunken-jira-mcp.exe"),
         ]
-        terminated = []
+        list_processes_fn, terminate_fn, terminated = _mutable_world(fresh)
 
         outcome = orphans.apply_lock_holders(
             [candidate],
             apply=True,
             include_held=True,
-            terminate_fn=terminated.append,
-            list_processes_fn=lambda: fresh,
+            terminate_fn=terminate_fn,
+            list_processes_fn=list_processes_fn,
         )
 
         assert terminated == [100]
@@ -162,14 +186,14 @@ class TestApplyLockHolders:
             100, 999, "t1", "drunken-jira-mcp.exe", parent_alive=False
         )
         fresh = [_proc(100, 999, start_time="t1", command="drunken-jira-mcp.exe")]
-        terminated = []
+        list_processes_fn, terminate_fn, terminated = _mutable_world(fresh)
 
         outcome = orphans.apply_lock_holders(
             [candidate],
             apply=True,
             include_held=False,
-            terminate_fn=terminated.append,
-            list_processes_fn=lambda: fresh,
+            terminate_fn=terminate_fn,
+            list_processes_fn=list_processes_fn,
         )
 
         assert terminated == [100]

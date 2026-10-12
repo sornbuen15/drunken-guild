@@ -9,13 +9,34 @@ from __future__ import annotations
 from core import doctor, install, orphans
 
 _TOOL_ROOT = "C:/tools/drunken-guild/"
-_BIN_PREFIX = "C:/bin/drunken-"
+_BIN_SHIM = "C:/bin/drunken-jira-mcp"
 
 
 def _proc(pid, ppid, start_time="t1", command=""):
     return orphans.ProcessInfo(
         pid=pid, ppid=ppid, start_time=start_time, command=command
     )
+
+
+def _patch_mutable_world(monkeypatch, processes):
+    """Monkeypatch ``orphans.list_processes``/``orphans.terminate_process``
+    to share one mutable table, so that calling the (fake) terminator
+    actually removes the pid -- which is what the post-termination
+    verification in ``apply_reap``/``apply_lock_holders`` now checks for.
+    Returns the list of pids the fake terminator was called with."""
+    state = {p.pid: p for p in processes}
+    terminated_pids: list[int] = []
+
+    def list_processes():
+        return list(state.values())
+
+    def terminate_process(pid):
+        terminated_pids.append(pid)
+        state.pop(pid, None)
+
+    monkeypatch.setattr(orphans, "list_processes", list_processes)
+    monkeypatch.setattr(orphans, "terminate_process", terminate_process)
+    return terminated_pids
 
 
 class TestReapPlan:
@@ -67,9 +88,7 @@ class TestReapApply:
         self, monkeypatch, capsys
     ):
         table = [_proc(100, 999, start_time="t1", command="bash -c sleep 97")]
-        monkeypatch.setattr(orphans, "list_processes", lambda: table)
-        terminated = []
-        monkeypatch.setattr(orphans, "terminate_process", terminated.append)
+        terminated = _patch_mutable_world(monkeypatch, table)
 
         exit_code = install.main(["reap", "--apply"])
         out = capsys.readouterr().out
@@ -115,9 +134,7 @@ class TestReapLockHolders:
     def test_a_held_lock_holder_is_listed_but_not_terminated_without_include_held(
         self, monkeypatch, capsys
     ):
-        monkeypatch.setattr(
-            doctor, "guild_tool_paths", lambda: [_TOOL_ROOT, _BIN_PREFIX]
-        )
+        monkeypatch.setattr(doctor, "guild_tool_paths", lambda: [_TOOL_ROOT, _BIN_SHIM])
         table = [
             _proc(50, 1, command="claude.exe"),
             _proc(100, 50, command=r'"C:\bin\drunken-jira-mcp.exe" --stdio'),
@@ -137,16 +154,12 @@ class TestReapLockHolders:
     def test_include_held_terminates_the_reverified_lock_holder(
         self, monkeypatch, capsys
     ):
-        monkeypatch.setattr(
-            doctor, "guild_tool_paths", lambda: [_TOOL_ROOT, _BIN_PREFIX]
-        )
+        monkeypatch.setattr(doctor, "guild_tool_paths", lambda: [_TOOL_ROOT, _BIN_SHIM])
         table = [
             _proc(50, 1, command="claude.exe"),
             _proc(100, 50, command=r'"C:\bin\drunken-jira-mcp.exe" --stdio'),
         ]
-        monkeypatch.setattr(orphans, "list_processes", lambda: table)
-        terminated = []
-        monkeypatch.setattr(orphans, "terminate_process", terminated.append)
+        terminated = _patch_mutable_world(monkeypatch, table)
 
         exit_code = install.main(["reap", "--apply", "--include-held"])
         out = capsys.readouterr().out
@@ -158,13 +171,9 @@ class TestReapLockHolders:
     def test_an_orphaned_lock_holder_is_terminated_without_include_held(
         self, monkeypatch, capsys
     ):
-        monkeypatch.setattr(
-            doctor, "guild_tool_paths", lambda: [_TOOL_ROOT, _BIN_PREFIX]
-        )
+        monkeypatch.setattr(doctor, "guild_tool_paths", lambda: [_TOOL_ROOT, _BIN_SHIM])
         table = [_proc(100, 999, command=r'"C:\bin\drunken-jira-mcp.exe" --stdio')]
-        monkeypatch.setattr(orphans, "list_processes", lambda: table)
-        terminated = []
-        monkeypatch.setattr(orphans, "terminate_process", terminated.append)
+        terminated = _patch_mutable_world(monkeypatch, table)
 
         exit_code = install.main(["reap", "--apply"])
         out = capsys.readouterr().out
@@ -174,13 +183,38 @@ class TestReapLockHolders:
         assert "terminated pid 100" in out
 
 
+class TestReapSelfProtection:
+    """DG-518 review, CRITICAL finding: ``reap`` never terminates itself or
+    its own ancestor chain, shown in the plan with a dedicated label."""
+
+    def test_the_running_reap_and_its_ancestors_are_shown_protected_and_untouched(
+        self, monkeypatch, capsys
+    ):
+        monkeypatch.setattr(doctor, "guild_tool_paths", lambda: [_TOOL_ROOT, _BIN_SHIM])
+        table = [
+            _proc(5, 1, command="claude.exe"),
+            _proc(50, 5, command="bash.exe"),
+            _proc(999, 50, command="drunken-install.exe reap --apply --include-held"),
+        ]
+        terminated = _patch_mutable_world(monkeypatch, table)
+        monkeypatch.setattr(orphans.os, "getpid", lambda: 999)
+
+        exit_code = install.main(["reap", "--apply", "--include-held"])
+        out = capsys.readouterr().out
+
+        assert exit_code == 0
+        assert terminated == []
+        assert orphans.PROTECTED_LABEL in out
+        # the Claude session that launched this shell is named, not silently
+        # dropped from the plan.
+        assert "claude.exe" in out
+
+
 class TestPreUpdateLockHolderWarning:
     def test_skills_apply_warns_about_existing_lock_holders(
         self, monkeypatch, tmp_path, capsys
     ):
-        monkeypatch.setattr(
-            doctor, "guild_tool_paths", lambda: [_TOOL_ROOT, _BIN_PREFIX]
-        )
+        monkeypatch.setattr(doctor, "guild_tool_paths", lambda: [_TOOL_ROOT, _BIN_SHIM])
         table = [
             _proc(50, 1, command="claude.exe"),
             _proc(100, 50, command=r'"C:\bin\drunken-jira-mcp.exe" --stdio'),
@@ -195,9 +229,7 @@ class TestPreUpdateLockHolderWarning:
         assert "drunken-install reap --include-held --apply" in out
 
     def test_dry_run_prints_no_warning(self, monkeypatch, tmp_path, capsys):
-        monkeypatch.setattr(
-            doctor, "guild_tool_paths", lambda: [_TOOL_ROOT, _BIN_PREFIX]
-        )
+        monkeypatch.setattr(doctor, "guild_tool_paths", lambda: [_TOOL_ROOT, _BIN_SHIM])
         table = [
             _proc(50, 1, command="claude.exe"),
             _proc(100, 50, command=r'"C:\bin\drunken-jira-mcp.exe" --stdio'),
@@ -223,3 +255,26 @@ class TestPreUpdateLockHolderWarning:
         exit_code = install.main(["skills", "--target", str(tmp_path / "skills")])
 
         assert exit_code == 0
+
+    def test_any_exception_anywhere_in_the_warning_never_blocks_the_update(
+        self, monkeypatch, tmp_path, capsys
+    ):
+        """DG-518 review, MEDIUM finding: the whole body is wrapped, not just
+        the process-table read -- a raising stub standing in for
+        ``guild_tool_paths`` (or anything else in there) must still never
+        fail, delay or change the outcome of an ordinary skills update."""
+
+        def _raise(*_args, **_kwargs):
+            raise RuntimeError("boom, anywhere in the warning")
+
+        monkeypatch.setattr(
+            orphans, "list_processes", lambda: [_proc(1, 0, command="init")]
+        )
+        monkeypatch.setattr(doctor, "guild_tool_paths", _raise)
+
+        exit_code = install.main(["skills", "--target", str(tmp_path / "skills")])
+        out = capsys.readouterr().out
+
+        assert exit_code == 0
+        assert "Traceback" not in out
+        assert "boom" not in out

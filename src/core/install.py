@@ -2239,17 +2239,39 @@ def _run_route(args: argparse.Namespace) -> int:
 
 def _reap_plan(
     table: Sequence["orphans_types.ProcessInfo"], tool_roots: Sequence[str]
-) -> tuple[list["orphans_types.OrphanProcess"], list["orphans_types.LockHolder"]]:
-    """Split *table* into (orphans, live-held lock holders) for ``reap``.
+) -> tuple[
+    list["orphans_types.OrphanProcess"],
+    list["orphans_types.LockHolder"],
+    list["orphans_types.ProcessInfo"],
+]:
+    """Split *table* into (orphans, live-held lock holders, protected) for
+    ``reap``.
 
     A dead-parented lock holder is folded into the orphan list -- deduped by
     pid against the plain session-leftover orphans -- since it is reaped
     exactly the same way; only a live-parented one stays a separate case.
+
+    *protected* (DG-518 review, CRITICAL self-protection finding) is this
+    very ``reap`` process and every ancestor of it (its shell, its terminal,
+    the Claude session that launched it, per
+    :func:`core.orphans.protected_pids`) -- excluded from both lists here,
+    at plan time, and named separately so the plan still shows them. They
+    are excluded *again*, independently, inside
+    :func:`core.orphans.apply_reap`/:func:`core.orphans.apply_lock_holders`
+    immediately before anything is terminated -- this filtering is a first
+    layer, never the only one.
     """
     from . import orphans  # noqa: PLC0415 - only this subcommand needs it
 
-    session_orphans = orphans.find_orphans(table)
-    lock_holders = orphans.find_lock_holders(table, tool_roots)
+    protected = orphans.protected_pids(table)
+    session_orphans = [o for o in orphans.find_orphans(table) if o.pid not in protected]
+    lock_holders = [
+        h
+        for h in orphans.find_lock_holders(table, tool_roots)
+        if h.pid not in protected
+    ]
+    protected_entries = [process for process in table if process.pid in protected]
+
     orphan_pids = {o.pid for o in session_orphans}
     dead_lock_holders = [
         h for h in lock_holders if not h.parent_alive and h.pid not in orphan_pids
@@ -2259,22 +2281,33 @@ def _reap_plan(
         orphans.OrphanProcess(h.pid, h.ppid, h.start_time, h.command)
         for h in dead_lock_holders
     ]
-    return all_orphans, held_live
+    return all_orphans, held_live, protected_entries
 
 
 def _print_reap_plan(
     all_orphans: Sequence["orphans_types.OrphanProcess"],
     held_live: Sequence["orphans_types.LockHolder"],
+    protected_entries: Sequence["orphans_types.ProcessInfo"],
 ) -> None:
+    from . import orphans  # noqa: PLC0415 - only this subcommand needs it
+
     for candidate in all_orphans:
         print(
             f"pid {candidate.pid}  ppid {candidate.ppid}  "
-            f"started {candidate.start_time}  orphan  {candidate.command}"
+            f"started {orphans.format_start_time(candidate.start_time)}  "
+            f"orphan  {candidate.command}"
         )
     for holder in held_live:
         print(
-            f"pid {holder.pid}  ppid {holder.ppid}  started {holder.start_time}  "
+            f"pid {holder.pid}  ppid {holder.ppid}  "
+            f"started {orphans.format_start_time(holder.start_time)}  "
             f"{holder.label}  {holder.command}"
+        )
+    for process in protected_entries:
+        print(
+            f"pid {process.pid}  ppid {process.ppid}  "
+            f"started {orphans.format_start_time(process.start_time)}  "
+            f"{orphans.PROTECTED_LABEL}  {process.command}"
         )
     if held_live:
         print(
@@ -2345,12 +2378,14 @@ def _run_reap(args: argparse.Namespace) -> int:
             print(f"  -> {exc.remediation}", file=sys.stderr)
         return 1
 
-    all_orphans, held_live = _reap_plan(table, doctor.guild_tool_paths())
-    if not all_orphans and not held_live:
+    all_orphans, held_live, protected_entries = _reap_plan(
+        table, doctor.guild_tool_paths()
+    )
+    if not all_orphans and not held_live and not protected_entries:
         print("No leftover session processes found.")
         return 0
 
-    _print_reap_plan(all_orphans, held_live)
+    _print_reap_plan(all_orphans, held_live, protected_entries)
 
     if not args.apply:
         print(
@@ -2370,25 +2405,30 @@ def _warn_about_lock_holders() -> None:
     proceeds, naming how many guild processes currently hold files inside the
     installed tool -- the reason ``uv tool install --force`` can fail outright
     -- and the exact command to clear them. Never acts; only ``drunken-install
-    reap`` ever terminates anything, and only when told to. Silent on a
-    process table this cannot read: a missing ``ps``/``powershell`` must never
-    block the update this warning is only a courtesy before.
-    """
-    from . import doctor, orphans  # noqa: PLC0415 - only this call site needs them
+    reap`` ever terminates anything, and only when told to.
 
+    DG-518 review, MEDIUM finding: the *entire* body is wrapped in one broad
+    ``except`` that skips quietly, not only the process-table read. This is a
+    courtesy before an unrelated operation (installing skills/agents), and
+    anything going wrong here -- an unreadable process table, a bug in the
+    lock-holder lookup itself, anything at all -- must never fail, delay or
+    otherwise affect that operation.
+    """
     try:
+        from . import doctor, orphans  # noqa: PLC0415 - only this call site needs them
+
         table = orphans.list_processes()
-    except orphans.ProcessTableUnavailableError:
+        holders = orphans.find_lock_holders(table, doctor.guild_tool_paths())
+        if not holders:
+            return
+        print(
+            f"note: {len(holders)} guild process(es) currently hold files "
+            "inside the installed tool -- `uv tool install --force` can "
+            "fail while they do. See `drunken-install reap --include-held "
+            "--apply` if an update fails."
+        )
+    except Exception:  # noqa: BLE001 - a courtesy notice must never fail the update
         return
-    holders = orphans.find_lock_holders(table, doctor.guild_tool_paths())
-    if not holders:
-        return
-    print(
-        f"note: {len(holders)} guild process(es) currently hold files inside "
-        "the installed tool -- `uv tool install --force` can fail while they "
-        "do. See `drunken-install reap --include-held --apply` if an update "
-        "fails."
-    )
 
 
 def _run_extras(

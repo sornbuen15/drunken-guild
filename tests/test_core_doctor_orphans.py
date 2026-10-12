@@ -10,7 +10,7 @@ from __future__ import annotations
 from core import doctor, orphans
 
 _TOOL_ROOT = "C:/tools/drunken-guild/"
-_BIN_PREFIX = "C:/bin/drunken-"
+_BIN_SHIM = "C:/bin/drunken-jira-mcp"
 
 
 def _named(report, name):
@@ -78,7 +78,7 @@ class TestOrphansCheck:
                 _proc(50, 1, "claude.exe"),
                 _proc(100, 50, r'"C:\bin\drunken-jira-mcp.exe" --stdio'),
             ],
-            tool_roots=[_TOOL_ROOT, _BIN_PREFIX],
+            tool_roots=[_TOOL_ROOT, _BIN_SHIM],
         )
         check = _named(report, "processes.orphans")
         assert check.status == "warn"
@@ -93,10 +93,42 @@ class TestOrphansCheck:
                 _proc(50, 1, "claude.exe"),
                 _proc(100, 50, "bash -c sleep 97"),
             ],
-            tool_roots=[_TOOL_ROOT, _BIN_PREFIX],
+            tool_roots=[_TOOL_ROOT, _BIN_SHIM],
         )
         check = _named(report, "processes.orphans")
         assert check.status == "ok"
+
+    def test_the_running_doctor_process_never_reports_itself(self, monkeypatch):
+        """DG-518 review: `drunken-doctor` itself runs from inside the
+        installed tool directory, so it would otherwise always flag its own
+        ancestor chain as a lock holder of itself -- noise on every run."""
+        monkeypatch.setattr(orphans.os, "getpid", lambda: 999)
+        report = doctor.Report()
+        doctor._check_orphans(
+            report,
+            [
+                _proc(50, 1, "claude.exe"),
+                _proc(999, 50, r'"C:\bin\drunken-jira-mcp.exe" --stdio'),
+            ],
+            tool_roots=[_TOOL_ROOT, _BIN_SHIM],
+        )
+        check = _named(report, "processes.orphans")
+        assert check.status == "ok"
+
+    def test_a_dotnet_date_start_time_is_shown_converted_not_raw(self):
+        """DG-518 review: a real machine's PowerShell printed the raw
+        ``/Date(...)/`` form -- the report must show a readable local
+        timestamp instead."""
+        dotnet_proc = orphans.ProcessInfo(
+            pid=100,
+            ppid=999,
+            start_time="/Date(1791775989721)/",
+            command="bash -c sleep 97",
+        )
+        report = doctor.Report()
+        doctor._check_orphans(report, [dotnet_proc])
+        check = _named(report, "processes.orphans")
+        assert "/Date(" not in check.detail
 
     def test_run_doctor_includes_the_check(self, tmp_path, monkeypatch):
         """End to end: ``run_doctor`` itself includes ``processes.orphans``,

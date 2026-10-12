@@ -42,6 +42,14 @@ parent or dead, and labels each one accordingly. :func:`apply_lock_holders`
 reaps a dead-parented one exactly like a plain orphan, and a live-parented
 one only with ``include_held=True`` — terminating a held MCP server stops it
 until the session restarts it, which must be the Boss's explicit choice.
+
+**Review findings (DG-518):** :func:`protected_pids` keeps the running
+``reap`` itself, and every ancestor of it (its shell, its terminal, the
+Claude session that launched it), off every terminate list, in both
+:func:`apply_reap` and :func:`apply_lock_holders` — never only at plan time.
+Every termination is itself verified (:func:`_attempt_terminate`) before
+being counted, and one candidate's failure is recorded and skipped rather
+than ever aborting the rest of a plan.
 """
 
 from __future__ import annotations
@@ -125,14 +133,18 @@ _LEFTOVER_PATTERNS: Final = (
 def is_session_leftover(command: str) -> bool:
     """Whether *command* matches a known session-leftover shape.
 
-    Necessary, never sufficient on its own — see :func:`find_orphans`.
+    Each pattern is a plain **substring match** against the full command
+    line (``re.search``, not an anchored or whole-token match) — gated,
+    always, by the dead-parent test in :func:`find_orphans`: this function
+    alone is necessary, never sufficient, to call anything an orphan.
     """
     return any(pattern.search(command) for pattern in _LEFTOVER_PATTERNS)
 
 
 def find_orphans(processes: Sequence[ProcessInfo]) -> list[OrphanProcess]:
     """Processes whose parent is gone **and** whose command line matches a
-    known session-leftover shape. Read-only; never kills anything.
+    known session-leftover shape (a substring match — see
+    :func:`is_session_leftover`). Read-only; never kills anything.
 
     A dead parent alone is not enough — a legitimate daemon can be reparented
     too — and a matching command line with a live parent is not enough either,
@@ -147,12 +159,104 @@ def find_orphans(processes: Sequence[ProcessInfo]) -> list[OrphanProcess]:
     ]
 
 
+#: Shapes of this module's own process-table query helper (DG-518 review,
+#: self-protection layer 2): ``ps`` and the PowerShell CIM query
+#: :func:`_list_processes_windows` runs. Both exit before
+#: :func:`list_processes` returns, so this ordinarily matches nothing in a
+#: table that was actually read; it exists only so a helper that has somehow
+#: not exited yet is never swept up as a descendant of a protected ancestor.
+_QUERY_HELPER_PATTERNS: Final = (
+    re.compile(r"(?:^|[\\/])ps(?:\.exe)?(?:\s|$)"),
+    re.compile(r"Get-CimInstance", re.IGNORECASE),
+)
+
+
+def _is_query_helper_command(command: str) -> bool:
+    return any(pattern.search(command) for pattern in _QUERY_HELPER_PATTERNS)
+
+
+def protected_pids(
+    processes: Sequence[ProcessInfo], self_pid: Optional[int] = None
+) -> set[int]:
+    """Never-reap pids, for *this run of* ``reap`` (DG-518 review, CRITICAL
+    self-protection finding): the running process itself (``os.getpid()`` by
+    default), every ancestor of it found in *processes* — its shell, its
+    terminal, the Claude session that launched it, walked up the ``ppid``
+    chain until one is not in the table — and, defensively, any direct child
+    of a protected ancestor that looks like this module's own process-table
+    query helper (:func:`_is_query_helper_command`).
+
+    Nothing here is reaped **by virtue of being one of these** — a lock
+    holder that happens to be some other, unrelated child of a protected
+    ancestor is still an ordinary candidate, exactly as before. Only the
+    chain itself, and that one specific kind of descendant, is ever excluded.
+    """
+    pid = self_pid if self_pid is not None else os.getpid()
+    by_pid = {process.pid: process for process in processes}
+    protected = {pid}
+    current = pid
+    while current in by_pid:
+        parent_pid = by_pid[current].ppid
+        if parent_pid in protected or parent_pid not in by_pid:
+            break
+        protected.add(parent_pid)
+        current = parent_pid
+    protected |= {
+        process.pid
+        for process in processes
+        if process.ppid in protected and _is_query_helper_command(process.command)
+    }
+    return protected
+
+
+#: The label shown in a reap plan for a process :func:`protected_pids` named
+#: -- never terminated, whatever flag is passed.
+PROTECTED_LABEL: Final = "this session (running reap) -- never stopped"
+
+
+def _attempt_terminate(
+    pid: int,
+    expected_start_time: str,
+    *,
+    terminate_fn: Callable[[int], None],
+    list_processes_fn: Callable[[], Sequence[ProcessInfo]],
+) -> tuple[bool, str]:
+    """Call *terminate_fn*, then confirm it actually worked (DG-518 review,
+    HIGH finding): re-read the process table once more and check *pid* is
+    either gone or now has a different ``start_time`` (a new process reusing
+    the same number). Returns ``(True, "")`` only once that is confirmed;
+    otherwise ``(False, <reason>)`` — ``"access denied"``,
+    ``"still running"``, or whatever the failure said — and never raises:
+    one candidate's failure must never stop the rest of a plan from running,
+    and the caller's report is always printed.
+    """
+    try:
+        terminate_fn(pid)
+    except ProcessLookupError:
+        return True, ""  # already gone -- the goal was already true
+    except PermissionError:
+        return False, "access denied"
+    except Exception as exc:  # noqa: BLE001 - one candidate must never abort the rest
+        return False, f"could not terminate: {exc}"
+
+    try:
+        after = {process.pid: process for process in list_processes_fn()}
+    except Exception as exc:  # noqa: BLE001 - see above
+        return False, f"could not confirm termination: {exc}"
+
+    still_there = after.get(pid)
+    if still_there is None or still_there.start_time != expected_start_time:
+        return True, ""
+    return False, "still running"
+
+
 def apply_reap(
     candidates: Sequence[OrphanProcess],
     *,
     apply: bool,
     terminate_fn: Callable[[int], None],
     list_processes_fn: Callable[[], Sequence[ProcessInfo]],
+    self_pid: Optional[int] = None,
 ) -> ReapOutcome:
     """Re-verify, then (only with ``apply=True``) terminate exactly *candidates*.
 
@@ -161,8 +265,16 @@ def apply_reap(
     second, later read that could itself have gone stale between candidates.
     A candidate is terminated only when, in that snapshot, the same pid still
     has the same ``start_time`` (a reused pid at a different start time is a
-    different process) and its parent is still absent. Nothing outside
-    *candidates* is ever considered, whatever the snapshot contains.
+    different process), its parent is still absent, and it is not one of
+    :func:`protected_pids` (the running ``reap`` itself, or an ancestor of
+    it — DG-518 review, layer 2: :func:`core.install._reap_plan` already
+    excludes these at plan time; this is the second check, immediately before
+    anything is touched). Nothing outside *candidates* is ever considered,
+    whatever the snapshot contains.
+
+    Each termination is itself verified (:func:`_attempt_terminate`) before
+    being counted — one candidate's failure (access denied, still running)
+    is recorded in ``skipped`` and never stops the rest of the plan.
 
     Raises :class:`ProcessTableUnavailableError` if *list_processes_fn* does
     — propagated, never swallowed into an empty, falsely-safe outcome.
@@ -174,8 +286,12 @@ def apply_reap(
     current = list_processes_fn()
     current_by_pid = {process.pid: process for process in current}
     live_pids = set(current_by_pid)
+    protected = protected_pids(current, self_pid=self_pid)
 
     for candidate in candidates:
+        if candidate.pid in protected:
+            outcome.skipped.append((candidate, PROTECTED_LABEL))
+            continue
         now = current_by_pid.get(candidate.pid)
         if now is None:
             outcome.skipped.append((candidate, "no longer present"))
@@ -188,9 +304,19 @@ def apply_reap(
         if now.ppid in live_pids:
             outcome.skipped.append((candidate, "parent is alive again"))
             continue
-        if apply:
-            terminate_fn(candidate.pid)
-        outcome.terminated.append(candidate)
+        if not apply:
+            outcome.terminated.append(candidate)
+            continue
+        ok, reason = _attempt_terminate(
+            candidate.pid,
+            candidate.start_time,
+            terminate_fn=terminate_fn,
+            list_processes_fn=list_processes_fn,
+        )
+        if ok:
+            outcome.terminated.append(candidate)
+        else:
+            outcome.skipped.append((candidate, reason))
 
     return outcome
 
@@ -216,20 +342,71 @@ def _first_token(command: str) -> str:
     return stripped.split(None, 1)[0]
 
 
+def _program_basename(command: str) -> str:
+    """Just the executable's own file name — ``claude.exe``, not the full
+    path — for a human-readable label (DG-518 review)."""
+    token = _first_token(command).replace("\\", "/")
+    return token.rsplit("/", 1)[-1] if token else ""
+
+
+def _matches_tool_root(program: str, root: str) -> bool:
+    """Whether normalized *program* counts as "inside" normalized *root*.
+
+    A root ending in ``/`` is a **directory** — the installed tool
+    environment itself — and matches by exact path prefix, so anything
+    actually inside that tree counts. Anything else is an **exact
+    console-script shim path**, matched exactly or with a bare ``.exe``
+    suffix — never as a prefix (DG-518 review: a prefix match on a bin
+    directory swept in any unrelated ``drunken-my-own-script`` a user
+    happened to drop beside the real shims).
+    """
+    if not root:
+        return False
+    if root.endswith("/"):
+        return program.startswith(root)
+    return program == root or program == root + ".exe"
+
+
 def is_inside_guild_tool(command: str, tool_roots: Sequence[str]) -> bool:
-    """Whether *command*'s own executable path starts with one of
-    *tool_roots* — an exact path prefix, never a bare name match, so a
-    same-named program living anywhere else never counts (DG-518 scope
-    addition). *tool_roots* is normally :func:`core.doctor.guild_tool_paths`:
-    the installed tool environment's own directory, and the ``drunken-*``
-    console-script shim prefix beside it.
+    """Whether *command*'s own executable path is one of *tool_roots* — the
+    installed tool environment's directory (a path prefix), or one of this
+    package's own console-script shims (an exact file, never a bare-prefix
+    "any ``drunken-*`` name") — never a bare name match, so a same-named
+    program living anywhere else never counts (DG-518 scope addition).
+    *tool_roots* is normally :func:`core.doctor.guild_tool_paths`.
     """
     program = _normalize_path_text(_first_token(command))
     if not program:
         return False
     return any(
-        program.startswith(_normalize_path_text(root)) for root in tool_roots if root
+        _matches_tool_root(program, _normalize_path_text(root)) for root in tool_roots
     )
+
+
+_DOTNET_DATE_RE: Final = re.compile(r"^/Date\((-?\d+)\)/$")
+
+
+def format_start_time(raw: str) -> str:
+    """*raw* as a human-readable local ``YYYY-MM-DD HH:MM:SS``, for display
+    only — never used for re-verification, which always compares the raw,
+    unformatted value for exact equality against a later read of the same pid.
+
+    Handles the legacy .NET ``/Date(<milliseconds-since-epoch>)/`` form a real
+    machine's PowerShell emitted for a CIM ``CreationDate`` (DG-518 review);
+    anything else — a plain ISO-ish string, POSIX ``lstart`` text — is
+    returned unchanged rather than guessed at.
+    """
+    match = _DOTNET_DATE_RE.match(raw.strip())
+    if not match:
+        return raw
+    try:
+        from datetime import datetime
+
+        return datetime.fromtimestamp(int(match.group(1)) / 1000).strftime(
+            "%Y-%m-%d %H:%M:%S"
+        )
+    except (OverflowError, OSError, ValueError):
+        return raw
 
 
 @dataclass(frozen=True)
@@ -276,7 +453,7 @@ def find_lock_holders(
         parent_name = ""
         if parent_alive:
             parent = by_pid[process.ppid]
-            parent_name = _first_token(parent.command)
+            parent_name = _program_basename(parent.command)
         holders.append(
             LockHolder(
                 pid=process.pid,
@@ -306,6 +483,7 @@ def apply_lock_holders(
     include_held: bool,
     terminate_fn: Callable[[int], None],
     list_processes_fn: Callable[[], Sequence[ProcessInfo]],
+    self_pid: Optional[int] = None,
 ) -> LockHolderOutcome:
     """The lock-holder twin of :func:`apply_reap` (DG-518 scope addition).
 
@@ -315,8 +493,12 @@ def apply_lock_holders(
     (an MCP server, most often) that a session still depends on, and that
     must be the Boss's own, explicit choice, never a default. Every
     candidate is re-verified against one fresh snapshot of the process
-    table — same pid, same start time, and the same live/dead parent state
-    it was planned with — immediately before anything is terminated.
+    table — same pid, same start time, the same live/dead parent state it
+    was planned with, and not one of :func:`protected_pids` (DG-518 review:
+    the running ``reap`` itself and its ancestors are never terminated,
+    whatever flag is passed) — immediately before anything is terminated.
+    Each termination is itself verified (:func:`_attempt_terminate`) before
+    being counted; one candidate's failure never stops the rest.
     """
     outcome = LockHolderOutcome()
     if not candidates:
@@ -325,8 +507,12 @@ def apply_lock_holders(
     current = list_processes_fn()
     current_by_pid = {process.pid: process for process in current}
     live_pids = set(current_by_pid)
+    protected = protected_pids(current, self_pid=self_pid)
 
     for candidate in candidates:
+        if candidate.pid in protected:
+            outcome.skipped.append((candidate, PROTECTED_LABEL))
+            continue
         now = current_by_pid.get(candidate.pid)
         if now is None:
             outcome.skipped.append((candidate, "no longer present"))
@@ -346,9 +532,19 @@ def apply_lock_holders(
                 )
             )
             continue
-        if apply:
-            terminate_fn(candidate.pid)
-        outcome.terminated.append(candidate)
+        if not apply:
+            outcome.terminated.append(candidate)
+            continue
+        ok, reason = _attempt_terminate(
+            candidate.pid,
+            candidate.start_time,
+            terminate_fn=terminate_fn,
+            list_processes_fn=list_processes_fn,
+        )
+        if ok:
+            outcome.terminated.append(candidate)
+        else:
+            outcome.skipped.append((candidate, reason))
 
     return outcome
 
@@ -357,14 +553,26 @@ def terminate_process(pid: int) -> None:
     """The only real terminator in this module — never called by a test, and
     never called by anything but ``drunken-install reap --apply`` run by a
     human. ``taskkill /F`` on Windows (``os.kill`` has no real ``SIGTERM`` on
-    that platform); ``SIGTERM`` on POSIX."""
+    that platform); ``SIGTERM`` on POSIX.
+
+    Raises ``OSError`` (DG-518 review, HIGH finding) when ``taskkill``'s own
+    return code says it failed — ``5`` (access denied), ``128`` (no such
+    process), or anything else nonzero — so :func:`_attempt_terminate` sees a
+    real failure instead of a silent no-op. ``os.kill`` already raises
+    ``ProcessLookupError``/``PermissionError`` on POSIX for the equivalent
+    cases; both are handled by the same caller.
+    """
     if sys.platform == "win32":
-        subprocess.run(  # nosec B603 B607 - fixed argv, no shell, pid is an int
+        result = subprocess.run(  # nosec B603 B607 - fixed argv, no shell, pid is an int
             ["taskkill", "/PID", str(pid), "/F"],
             capture_output=True,
+            text=True,
             timeout=10,
             check=False,
         )
+        if result.returncode != 0:
+            detail = (result.stderr or result.stdout or "").strip()[:200]
+            raise OSError(f"taskkill exited {result.returncode}: {detail}")
     else:
         os.kill(pid, signal.SIGTERM)
 

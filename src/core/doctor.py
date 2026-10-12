@@ -396,19 +396,60 @@ def tool_env_root(tool_dir: Optional[Path] = None) -> Path:
     return (tool_dir if tool_dir is not None else uv_tool_dir()) / TOOL_PACKAGE
 
 
+#: Read when the installed distribution's own entry points cannot be found
+#: (a source checkout with no installed package) — the names
+#: ``pyproject.toml``'s ``[project.scripts]`` currently declares. Kept here,
+#: not derived from the file at runtime: a fallback that itself depends on
+#: finding a ``pyproject.toml`` would defeat the point of having one.
+_FALLBACK_CONSOLE_SCRIPT_NAMES: Final = (
+    "drunken-doctor",
+    "drunken-init",
+    "drunken-usage",
+    "drunken-hook",
+    "drunken-install",
+    "drunken-jira-mcp",
+)
+
+
+def guild_console_script_names() -> tuple[str, ...]:
+    """The exact console-script names this package ships (DG-518 review,
+    MEDIUM finding): read from the installed distribution's own entry points
+    when one can be found, so a rename is picked up automatically, rather
+    than a bare ``drunken-`` prefix — which swept in any unrelated
+    ``drunken-my-own-script`` a user happened to drop in the same bin
+    directory. Falls back to the names declared in ``pyproject.toml`` when
+    there is no installed distribution to ask (a source checkout).
+    """
+    try:
+        from importlib.metadata import distribution  # noqa: PLC0415
+
+        names = tuple(
+            sorted(
+                {
+                    ep.name
+                    for ep in distribution("drunken-guild").entry_points
+                    if ep.group == "console_scripts"
+                }
+            )
+        )
+    except PackageNotFoundError:
+        names = ()
+    return names or _FALLBACK_CONSOLE_SCRIPT_NAMES
+
+
 def guild_tool_paths() -> list[str]:
-    """Path prefixes that count as "inside the installed guild tool" for the
+    """Path roots that count as "inside the installed guild tool" for the
     lock-holder check (DG-518 scope addition): the ``uv tool`` environment
-    this package installs into, and the ``drunken-*`` console-script shims
-    beside it. Matched by :func:`core.orphans.is_inside_guild_tool` as an
-    exact path prefix — never a bare name — so an unrelated program sharing
-    part of a name is never swept in.
+    this package installs into (a directory, matched as a path prefix), and
+    each of this package's own console-script shims in :func:`core.config_gen.tool_bin_dir`
+    (an exact file, never a bare ``drunken-*`` prefix — DG-518 review,
+    MEDIUM finding). Matched by :func:`core.orphans.is_inside_guild_tool`.
     """
     root = str(tool_env_root())
     if not root.endswith(("/", "\\")):
         root += os.sep
-    bin_shim_prefix = str(tool_bin_dir() / "drunken-")
-    return [root, bin_shim_prefix]
+    shim_paths = [str(tool_bin_dir() / name) for name in guild_console_script_names()]
+    return [root, *shim_paths]
 
 
 def _site_dirs(env_root: Path) -> list[Path]:
@@ -1414,21 +1455,28 @@ def _check_orphans(
         return
 
     roots = tool_roots if tool_roots is not None else guild_tool_paths()
-    leftover = orphans.find_orphans(table)
-    holders = orphans.find_lock_holders(table, roots)
+    # DG-518 review: never report this very `drunken-doctor` process (or an
+    # ancestor of it) as a leftover or a lock holder of itself.
+    protected = orphans.protected_pids(table)
+    leftover = [o for o in orphans.find_orphans(table) if o.pid not in protected]
+    holders = [
+        h for h in orphans.find_lock_holders(table, roots) if h.pid not in protected
+    ]
 
     # Merged by pid: a process can be named by both (an orphaned
     # drunken-jira-mcp matches the session-leftover pattern too) -- the
     # lock-holder label wins, since it carries the live/dead parent state.
     named: dict[int, str] = {
-        o.pid: f"pid {o.pid} (orphan, started {o.start_time})" for o in leftover
+        o.pid: f"pid {o.pid} (orphan, started {orphans.format_start_time(o.start_time)})"
+        for o in leftover
     }
     held_live = 0
     for holder in holders:
         if holder.parent_alive:
             held_live += 1
         named[holder.pid] = (
-            f"pid {holder.pid} ({holder.label}, started {holder.start_time})"
+            f"pid {holder.pid} ({holder.label}, started "
+            f"{orphans.format_start_time(holder.start_time)})"
         )
 
     if not named:
