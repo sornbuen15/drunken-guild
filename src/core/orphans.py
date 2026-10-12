@@ -204,35 +204,72 @@ def _is_explorer(process: Optional[ProcessInfo]) -> bool:
     return _normalize_name(_program_basename(process.command)) == "explorer.exe"
 
 
+#: Exact basenames (case-normalized) this module never selects as a session
+#: root (DG-518 review round 4) — a shell or interpreter, never a session
+#: concept of its own. A real session process spawns many of these side by
+#: side (one ``bash.exe`` chain per tool call, nested shells inside each),
+#: and matching on "shares a name with a sibling" against *these* is exactly
+#: how a shell got chosen as the root instead of the ``claude.exe`` session
+#: hosting it — see :func:`_session_root`.
+_SHELL_LIKE_NAMES: Final = frozenset(
+    {
+        "bash",
+        "sh",
+        "zsh",
+        "cmd",
+        "powershell",
+        "pwsh",
+        "node",
+        "uv",
+    }
+)
+
+
+def _is_shell_or_interpreter(basename: str) -> bool:
+    """Whether *basename* (already case-normalized) names a shell or
+    interpreter — never a session root (DG-518 review round 4)."""
+    stem = basename[:-4] if basename.endswith(".exe") else basename
+    return (
+        stem in _SHELL_LIKE_NAMES
+        or stem.startswith("python")
+        or stem.startswith("drunken-")
+    )
+
+
 def _session_root(
     processes: Sequence[ProcessInfo],
     chain: Sequence[int],
     by_pid: dict[int, ProcessInfo],
 ) -> int:
-    """Which pid in *chain* is the **session root** — DG-518 review round 3:
-    round 2 expanded descendant protection from *every* ancestor, which on a
-    real machine included the desktop app and ``Explorer.EXE`` — sweeping in
-    two other, unrelated Claude sessions and every webview2 helper on the
-    desktop. Only one ancestor should ever be the base a whole subtree is
-    protected from: the session process itself, never the shell that hosts
-    several of them side by side or the OS shell above that.
+    """Which pid in *chain* is the **session root** — DG-518 review round 3
+    (scoping descendant expansion to one ancestor, not every one) and round
+    4 (this rule, below, misfiring on a shell).
 
-    Identified without relying on a specific program name: walking the chain
-    from the running process outward, the nearest ancestor that either (a)
-    shares its own executable's file name with a **sibling** under the same
-    parent — the signature of "one app, several session processes side by
-    side", which is exactly what distinguishes a session root from the app
-    hosting it — or (b) is itself a direct child of ``Explorer.EXE`` — the
-    signature of "nothing above this is a session concept at all, it is the
-    desktop". Whichever of the two is found nearer to the running process
-    wins, so a session root is never mistaken for the app or shell above it.
+    Round 3's rule — the nearest ancestor sharing a name with a sibling
+    under the same parent, or a direct child of ``Explorer.EXE`` — still
+    matched a ``bash.exe`` on a real machine: a Claude session spawns many
+    ``bash.exe`` chains side by side, one per tool call, so "shares a name
+    with a sibling" fired on a shell nested in the running ``reap``'s own
+    chain, long before the walk ever reached the actual ``claude.exe``
+    session. A shell or interpreter (:func:`_is_shell_or_interpreter` —
+    ``bash``, ``sh``, ``zsh``, ``cmd``, ``powershell``, ``pwsh``, ``python*``,
+    ``node``, ``uv``, ``drunken-*``) is therefore never even considered here,
+    whichever condition would otherwise have matched it.
 
-    If neither ever matches anywhere in the chain — no sibling, and nothing
-    directly under Explorer either, e.g. a reap run from deep inside some
-    other launcher this heuristic does not recognise — the conservative
-    fallback is the ancestor two hops up from the running process (the
-    direct parent of its own shell, "the immediate session process"):
-    narrow, never reaching further up than that without positive evidence.
+    Among what remains, walking the chain from the running process outward,
+    the nearest ancestor that either (a) shares its own executable's full
+    **path** — not merely its file name — with a sibling under the same
+    parent (several session processes launched from the identical binary,
+    side by side — the signature of "one app, several sessions", and the
+    reason this is a path comparison: two different, same-named programs
+    must never be mistaken for the same session) or (b) is itself a direct
+    child of ``Explorer.EXE`` wins. Whichever is found nearer to the running
+    process wins between the two.
+
+    If neither ever matches anywhere in the chain, the conservative fallback
+    walks outward from two hops above the running process (never closer)
+    until it finds an ancestor that is not itself a shell or interpreter;
+    narrow, and never reaching further up than it has to.
     """
     children_by_ppid: dict[int, list[int]] = {}
     for entry in processes:
@@ -246,17 +283,29 @@ def _session_root(
         if parent is None:
             continue
         own_name = _normalize_name(_program_basename(process.command))
-        sibling_match = bool(own_name) and any(
+        if _is_shell_or_interpreter(own_name):
+            continue
+        own_path = _normalize_path_text(_first_token(process.command))
+        path_sibling_match = bool(own_path) and any(
             sibling_pid != pid
-            and _normalize_name(_program_basename(by_pid[sibling_pid].command))
-            == own_name
+            and _normalize_path_text(_first_token(by_pid[sibling_pid].command))
+            == own_path
             for sibling_pid in children_by_ppid.get(process.ppid, [])
             if sibling_pid in by_pid
         )
-        if sibling_match or _is_explorer(parent):
+        if path_sibling_match or _is_explorer(parent):
             return pid
 
-    return chain[2] if len(chain) >= 3 else chain[-1]
+    for pid in chain[2:]:
+        process = by_pid.get(pid)
+        if process is None:
+            continue
+        if not _is_shell_or_interpreter(
+            _normalize_name(_program_basename(process.command))
+        ):
+            return pid
+
+    return chain[-1]
 
 
 def protected_pids(

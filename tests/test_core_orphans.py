@@ -582,6 +582,73 @@ class TestProtectedPids:
         assert 9784 not in protected
         assert 1192 not in protected
 
+    def test_realistic_snapshot_many_sibling_bash_chains_still_picks_the_session(
+        self,
+    ):
+        """DG-518 review round 4, from a real machine: a Claude session
+        spawns many ``bash.exe`` chains side by side (one per tool call,
+        some nested, some from finished calls). Round 3's "shares a name
+        with a sibling" rule fired on one of *those* bash.exe processes --
+        nearer to the running ``reap`` than the real ``claude.exe`` session
+        -- so descendant expansion covered only the shell's own narrow
+        subtree and the session's actual MCP tree (1192/19392/17088) was
+        left an ordinary, stoppable "held by session" candidate exactly as
+        reported. A shell or interpreter must never be selected as the
+        session root at all, however many siblings it has.
+        """
+        claude_path = r"C:\Users\op\AppData\Local\Programs\claude\claude.exe"
+        table = [
+            _proc(1244, 1, command="Explorer.EXE"),
+            _proc(5616, 1244, command="Claude.exe"),
+            _proc(9784, 5616, command=claude_path),
+            # Several sibling bash.exe chains under the session, one per
+            # tool call -- some already finished, some nested.
+            _proc(9436, 9784, command="bash.exe"),
+            _proc(4768, 9436, command="bash.exe"),
+            _proc(31528, 9784, command="bash.exe"),
+            _proc(24004, 31528, command="bash.exe"),
+            _proc(40001, 9784, command="bash.exe"),
+            _proc(40002, 40001, command="bash.exe"),
+            _proc(40003, 9784, command="bash.exe"),
+            _proc(40004, 40003, command="bash.exe"),
+            _proc(40005, 9784, command="bash.exe"),
+            # The chain running reap itself, nested two bash.exe deep.
+            _proc(12920, 9784, command="bash.exe"),
+            _proc(26860, 12920, command="bash.exe"),
+            _proc(20464, 26860, command="drunken-install.exe"),
+            _proc(90001, 20464, command="python.exe"),
+            _proc(100, 90001, command="python.exe reap --include-held"),
+            # The session's own MCP tree -- a sibling of every bash chain
+            # above, not a descendant of any of them.
+            _proc(1192, 9784, command=r'"C:\bin\drunken-jira-mcp.exe" --stdio'),
+            _proc(
+                19392,
+                1192,
+                command=r'"C:\tools\drunken-guild\Scripts\python.exe" -m jira_mcp.server',
+            ),
+            _proc(
+                17088,
+                19392,
+                command=r'"C:\tools\drunken-guild\Scripts\python.exe" worker',
+            ),
+            # Two unrelated sessions, and the app's own desktop helpers.
+            _proc(23212, 5616, command=claude_path),
+            _proc(13136, 23212, command=r'"C:\bin\drunken-jira-mcp.exe" --stdio'),
+            _proc(19188, 5616, command=claude_path),
+            _proc(25548, 19188, command=r'"C:\bin\drunken-jira-mcp.exe" --stdio'),
+            _proc(6000, 5616, command="msedgewebview2.exe"),
+        ]
+
+        by_pid = {p.pid: p for p in table}
+        chain = orphans._ancestor_chain(table, self_pid=100)
+        root = orphans._session_root(table, chain, by_pid)
+        assert root == 9784
+
+        protected = orphans.protected_pids(table, self_pid=100)
+        assert {1192, 19392, 17088} <= protected
+        for unrelated in (23212, 13136, 19188, 25548, 6000):
+            assert unrelated not in protected
+
 
 class TestVerifiedTermination:
     """DG-518 review, HIGH finding: a termination is counted only once it is
