@@ -137,6 +137,34 @@ def retired_names() -> frozenset[str]:
     return frozenset()
 
 
+def _extras_skill_names() -> frozenset[str]:
+    """Skill names the packaged ``drunken-extras`` plugin ships (DG-514).
+
+    A name here must never be reported or removed as retired or unrecognised: these are shipped by
+    this very package, through ``drunken-install extras``, not abandoned. Imported lazily — module
+    level would be circular, since ``install_extras`` itself imports from this module. Any failure
+    to find the packaged extras (none built, or a stripped-down install) is read as "no extras
+    names to exclude", never as a reason to fail the caller.
+    """
+    from . import install_extras
+
+    try:
+        return frozenset(install_extras.extras_skill_names())
+    except InstallRefusedError:
+        return frozenset()
+
+
+def _extras_agent_names() -> frozenset[str]:
+    """Agent adapter names the packaged ``drunken-extras`` plugin ships (DG-514). See
+    :func:`_extras_skill_names` — same reasoning, same fallback."""
+    from . import install_extras
+
+    try:
+        return frozenset(install_extras.extras_agent_names())
+    except InstallRefusedError:
+        return frozenset()
+
+
 def _external_names(source: Path) -> frozenset[str]:
     path = source / ".external"
     if not path.is_file():
@@ -322,11 +350,24 @@ def _installed_names(target_root: Path) -> list[str]:
 
 
 def _find_orphans(
-    target_root: Path, ours: set[str], external: frozenset[str], retired: frozenset[str]
+    target_root: Path,
+    ours: set[str],
+    external: frozenset[str],
+    retired: frozenset[str],
+    extras: frozenset[str] = frozenset(),
 ) -> list[Orphan]:
+    """Everything installed under *target_root* that this install did not just write.
+
+    A name the packaged ``drunken-extras`` plugin ships (*extras*) is never reported here at all —
+    not "retired", not "unrecognised" — because ``drunken-install extras`` put it there on
+    purpose, and a name can be on ``retired_skills.txt`` *and* shipped today under
+    ``drunken-extras`` at the same time (DG-514): "currently shipped elsewhere" must win over "on
+    the retired list", the same rule ``install_skills.sh``/``.ps1`` and ``doctor.py`` already
+    apply — this was the one place in the Python installer that had never been taught it.
+    """
     orphans: list[Orphan] = []
     for name in _installed_names(target_root):
-        if name in ours or name in external:
+        if name in ours or name in external or name in extras:
             continue
         kind = "retired" if name in retired else "unrecognised"
         note = "link, not touched" if _is_link((target_root / name)) else ""
@@ -396,7 +437,11 @@ def install_skills(
                 _apply_skill(action, folders[action.name], target_root)
     result.index_updated = _sync_index(src_root, target_root, apply)
     result.orphans = _find_orphans(
-        target_root, set(folders), _external_names(src_root), retired_names()
+        target_root,
+        set(folders),
+        _external_names(src_root),
+        retired_names(),
+        _extras_skill_names(),
     )
     if prune and prune_apply and apply:
         result.pruned = _prune(target_root, result.orphans)
@@ -544,7 +589,9 @@ def install_agents(
                     target_root,
                 )
     result.index_updated = _sync_index(src_root, target_root, apply)
-    ours = set(_adapter_names(src_root))
+    # A name the packaged drunken-extras plugin ships as an agent is not "not shipped" (DG-514) —
+    # `drunken-install extras` put it here on purpose, same reasoning as `_find_orphans` above.
+    ours = set(_adapter_names(src_root)) | _extras_agent_names()
     if target_root.is_dir():
         result.orphans = sorted(
             p.stem
@@ -637,10 +684,14 @@ def status(
         if action.status != "unchanged":
             report.agents_changes.append(f"{action.status}: {name}")
     retired = retired_names()
+    # A name shipped today under plugins/drunken-extras/skills/ is not "retired, still installed"
+    # (DG-514) — `drunken-install extras` put it there on purpose, same exclusion `_find_orphans`
+    # applies for `install_skills`'s own prune plan.
+    extras_skills = _extras_skill_names()
     report.retired_installed = [
         n
         for n in _installed_names(Path(skills_target))
-        if n in retired and n not in folders
+        if n in retired and n not in folders and n not in extras_skills
     ]
     report.changelog_heading, report.changelog_body = newest_changelog_section(
         changelog_text()
@@ -1155,6 +1206,44 @@ def _quote_path_for_command(path: str) -> str:
     return shlex.quote(path)
 
 
+#: The two basenames a ``drunken-install`` program may legitimately have,
+#: compared casefolded — see :func:`_running_drunken_install`.
+_DRUNKEN_INSTALL_NAMES: Final = ("drunken-install", "drunken-install.exe")
+
+
+def _running_drunken_install() -> Optional[str]:
+    """``sys.argv[0]``, if this process IS a ``drunken-install`` run (DG-514 blocker B).
+
+    Confirmed by reproduction, both through a plain ``uv tool install`` and through a fresh venv
+    built from a release-candidate wheel: a Windows console-script launcher's ``sys.argv[0]`` is
+    the path the launcher was actually invoked as — not ``sys.executable`` (that is always the
+    venv's own ``python.exe``, embedded in the launcher at install time) — but with the ``.exe``
+    suffix stripped relative to the file that is actually on disk. ``os.path.isfile(argv[0])`` is
+    therefore False for the bare name and True only once ``.exe`` is appended back; both forms are
+    tried here before giving up on this candidate. On a non-Windows launcher argv[0] already
+    matches the real file, so the plain form alone succeeds there.
+
+    Deliberately ``os.path``, never ``pathlib.Path``: a test exercising this module's Windows
+    formatting monkeypatches ``os.name`` to ``"nt"`` while actually running on POSIX (there is no
+    other way to exercise that branch on a POSIX CI runner) — ``pathlib.Path()`` reads ``os.name``
+    at *construction* time and raises ``NotImplementedError`` building a ``WindowsPath`` on a real
+    POSIX system, while ``os.path`` stays bound to the real platform's implementation, decided
+    once when ``os`` itself was imported.
+    """
+    if not sys.argv or not sys.argv[0]:
+        return None
+    raw = sys.argv[0]
+    candidates = [raw]
+    if os.name == "nt" and not raw.casefold().endswith(".exe"):
+        candidates.append(raw + ".exe")
+    for candidate in candidates:
+        basename = os.path.basename(candidate).casefold()
+        if basename in _DRUNKEN_INSTALL_NAMES and os.path.isfile(candidate):
+            # Absolute: the hook runs later from another cwd (DG-514 review).
+            return os.path.abspath(candidate)
+    return None
+
+
 def resolve_hook_command() -> tuple[str, bool]:
     """The command the SessionStart hook should run, and whether it resolved.
 
@@ -1164,19 +1253,33 @@ def resolve_hook_command() -> tuple[str, bool]:
     this feature exists to end. An absolute path removes PATH from the
     question entirely.
 
-    Tried in order: ``drunken-install`` on PATH (covers a ``uv tool
-    install``), then the console script that should sit next to the
-    running interpreter (covers a venv whose ``Scripts``/``bin`` is not on
-    PATH — exactly how a project's own ``.venv`` is normally *not* on
-    PATH). The bare fallback is returned, with ``resolved=False``, only when
-    neither exists; the caller is responsible for surfacing that.
+    Tried in order (DG-514 blocker B changed this order — see
+    :func:`_running_drunken_install`'s docstring for the reproduction that found it):
+
+    1. **The installation actually running this call** — confirmed by reproduction to be the one
+       that matters: running ``drunken-install hook --apply`` from a venv's own executable
+       recorded a DIFFERENT, older installation that merely happened to be first on PATH, because
+       ``shutil.which`` used to be tried first. Whoever is running the hook setup is who the hook
+       should run later.
+    2. **The console script that should sit next to the running interpreter** (covers a venv
+       whose ``Scripts``/``bin`` is not on PATH — exactly how a project's own ``.venv`` is
+       normally *not* on PATH, and argv[0] does not help there since it is often just the bare
+       command name typed on a shell already on PATH).
+    3. ``drunken-install`` on PATH (covers a ``uv tool install`` reached some other way — a shim,
+       a symlink, anything argv[0]/sys.executable did not already resolve).
+
+    The bare fallback is returned, with ``resolved=False``, only when none of the three exist;
+    the caller is responsible for surfacing that.
     """
-    found = shutil.which("drunken-install")
+    found = _running_drunken_install()
     if not found:
+        # os.path, not pathlib.Path -- see _running_drunken_install's docstring for why.
         name = "drunken-install.exe" if os.name == "nt" else "drunken-install"
-        candidate = Path(sys.executable).parent / name
-        if candidate.is_file():
-            found = str(candidate)
+        candidate = os.path.abspath(os.path.join(os.path.dirname(sys.executable), name))
+        if os.path.isfile(candidate):
+            found = candidate
+    if not found:
+        found = shutil.which("drunken-install")
     if found:
         return f"{_quote_path_for_command(found)} context", True
     return GUILD_HOOK_FALLBACK, False

@@ -7,42 +7,42 @@
 # prune step that cannot tell the difference is the defect this ticket
 # exists to fix (DG-359 review finding #1).
 #
-# Measured by the Boss against the 2.0.0 re-scope: exactly these 34 skill
+# Measured by the Boss against the 2.0.0 re-scope: exactly 34 skill
 # directories stayed installed after the groups that retired them merged.
 # A name here must never also be a currently shipped skill under skills/ —
 # tests/test_install_prune.py asserts that directly, so this list can never
 # be used to delete something the guild still ships.
-acronym-namer
+#
+# DG-514: 16 of those 34 were re-shipped as OPTIONAL extras in
+# plugins/drunken-extras/skills/ (DG-512) — acronym-namer, business-telemetry,
+# clean-architecture, cloud-native, electron-ipc-protocol, incident-response,
+# product-midset, release-notes-writer, secure-by-design, servant-leadership,
+# standard-playbook-generator, system-design-rules, test-architecture,
+# test-strategy, universal-ui and universal-ux. They are removed from this
+# list rather than carried alongside a runtime exclusion: a name shipped
+# today by drunken-extras is not retired, full stop, and a name here that is
+# ALSO shipped by drunken-extras is exactly the data-loss bug DG-514 fixed —
+# `drunken-install extras --apply` followed by `skills --prune --prune-apply`
+# deleted what the operator had just installed, because every one of these
+# 16 names was still on this file. A guard test
+# (tests/test_install_extras_retired_overlap.py) fails this build if any
+# name the packaged drunken-extras plugin ships — skill or agent — ever
+# reappears here. If one of the 16 is ever dropped from drunken-extras
+# again, add it back to this list then.
 ai-output
 anti-regression
 audit-to-backlog
 backlog-refinement
-business-telemetry
-clean-architecture
-cloud-native
 confluence-sync
 core-engineering
 debug-mantra
-electron-ipc-protocol
-incident-response
 issue-intake
 local-progress-reporter
 management-talk
 post-mortem
-product-midset
 project-audit-reviewer
 project-hygiene
-release-notes-writer
 scrutinize
-secure-by-design
-servant-leadership
-spec-to-backlog
-standard-playbook-generator
-system-design-rules
 task-estimation
-test-architecture
 test-report-generator
-test-strategy
-universal-ui
-universal-ux
 zero-defect-mindset

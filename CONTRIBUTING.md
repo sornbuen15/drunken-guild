@@ -78,6 +78,17 @@ Always follow these steps when working on changes:
 ### 4. Release Workflow
 Releases are created by merging `develop` into `main` via a Pull Request, then tagging and creating a release.
 
+0.  **Run the release smoke test first, against the exact commit about to be tagged, and do not
+    proceed until every line is `PASS`:**
+    ```bash
+    uv run pytest -m integration tests/test_release_smoke.py -s
+    ```
+    This builds a real wheel, installs it into a throwaway venv with a temp `HOME`, and runs what
+    an operator would run by hand — `drunken-install all`, `extras --apply`, `status`,
+    `skills --prune`, `hook --apply` (twice), `context`, and `drunken-doctor`'s
+    `routes.session_hook` check — then confirms the real `~/.claude` and `~/.drunken` were never
+    touched. It prints a PASS/FAIL table (see `scripts/release_smoke.py`). Deselected by default
+    (`-m integration`), like the repository's other slow tests, because it takes several minutes.
 1.  Create a PR from `develop` to `main`:
     ```bash
     gh pr create --head develop --base main --title "Release vX.Y.Z: release summary" --body "Release notes details"
