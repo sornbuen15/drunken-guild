@@ -261,6 +261,41 @@ def test_contiguous_numbered_headings_are_not_flagged(
     assert drift.scan() == []
 
 
+def test_catches_a_claim_that_the_registry_may_be_committed(
+    drift, tmp_path, monkeypatch
+) -> None:
+    """DG-522 lead review. The old Guide's rewrite carried forward a claim
+    that directly contradicts REQ-023 (no registered id, Jira URL or email
+    reaches a repository): 'Nothing in it is secret ... so it can be
+    committed and shared'."""
+    doc = tmp_path / "guide.md"
+    doc.write_text("Nothing in it is secret, so it can be committed and shared.\n")
+    monkeypatch.setattr(drift, "documents", lambda: [doc])
+    monkeypatch.setattr(drift, "linked_documents", lambda: [])
+    monkeypatch.setattr(drift, "REPO_ROOT", tmp_path)
+
+    problems = drift.scan()
+
+    # Two forbidden phrases overlap in this exact sentence ("so it can be
+    # committed" is a substring of the same line as "can be committed and
+    # shared") -- both are correct findings, not a double-count bug.
+    assert len(problems) == 2
+    assert any("can be committed and shared" in p for p in problems)
+    assert all("REQ-023" in p for p in problems)
+
+
+def test_a_line_that_does_not_claim_the_registry_is_committable_is_not_flagged(
+    drift, tmp_path, monkeypatch
+) -> None:
+    doc = tmp_path / "guide.md"
+    doc.write_text("It lives under $DRUNKEN_HOME, outside every repository.\n")
+    monkeypatch.setattr(drift, "documents", lambda: [doc])
+    monkeypatch.setattr(drift, "linked_documents", lambda: [])
+    monkeypatch.setattr(drift, "REPO_ROOT", tmp_path)
+
+    assert drift.scan() == []
+
+
 def test_the_real_linked_docs_are_clean(drift) -> None:
     """Guards against the new checks quietly checking nothing: the real doc
     set must come back with at least the files this ticket touched."""

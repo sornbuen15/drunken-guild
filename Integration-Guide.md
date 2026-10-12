@@ -28,6 +28,13 @@ steps. For Claude Code:
 claude mcp add --scope user drunken-jira-mcp -- "$(command -v drunken-jira-mcp)"
 ```
 
+```powershell
+claude mcp add --scope user drunken-jira-mcp -- (Get-Command drunken-jira-mcp).Source
+```
+
+> Bash snippets on Windows need Git Bash on `PATH`, not a WSL stub of the same name — a WSL `bash`
+> accepts the command but writes into WSL's own filesystem, not the one `drunken-doctor` reads from.
+
 > **User scope is safe because the server takes no project.** It used to be unsafe: a user-scope
 > entry launched with a fixed `--project` made every other project talk to that one project's Jira
 > and Discord room. DG-341 removed the flag, so the same entry now serves every project, and the
@@ -174,11 +181,19 @@ server once for the machine, at your agent's user level — for Claude Code:
 
 ```bash
 claude mcp add --scope user drunken-jira-mcp -- "$(command -v drunken-jira-mcp)"
+```
+
+```powershell
+claude mcp add --scope user drunken-jira-mcp -- (Get-Command drunken-jira-mcp).Source
+```
+
+```
 claude mcp list        # drunken-jira-mcp ... Connected
 ```
 
 This depends on step 1 — the command has to be installed. Name the installed command, never one
-inside a project's `.venv`. GETTING_STARTED.md has the Windows form and the check.
+inside a project's `.venv`. [`Drunken-Guild-Guide.md`, section 2](./Drunken-Guild-Guide.md#2-registry-credentials-and-the-mcp-server)
+has the Windows form and the check.
 
 For Cursor: **Settings > Features > MCP > Add New Server**, type `command`, `drunken-jira-mcp` with
 no args — the server takes no project (DG-341); the id travels in each tool call instead.

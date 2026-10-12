@@ -41,7 +41,7 @@ A tag is a pin — nothing here relies on `uv tool upgrade` moving it.
 `/breakdown`, `/build` and `/audit` need the `jira_*` tools, which come from registering a
 project and declaring `drunken-jira-mcp` once per machine. The exact commands — credentials,
 `drunken-init`, proving the credential resolves — are in
-[`Drunken-Guild-Guide.md`](./Drunken-Guild-Guide.md), sections 3.3 and 3.4.
+[`Drunken-Guild-Guide.md`, section 2](./Drunken-Guild-Guide.md#2-registry-credentials-and-the-mcp-server).
 
 ## A new project
 

@@ -45,7 +45,7 @@ HEADINGS = [
     (
         "2.1 AI behavior boundaries",
         "Drunken-Guild-Guide.md",
-        "is\nonly the one-line adapter that imports it",
+        "is only its one-line adapter",
     ),
     ("3. Installation & Setup", "Drunken-Guild-Guide.md", None),  # SUPERSEDED
     (

@@ -121,7 +121,8 @@ to an agent. `skills/INDEX.md` and `agents/INDEX.md` list every one with its pat
 uv sync
 ```
 
-Put credentials in a file **outside the repository**, readable only by you:
+Put credentials in a file **outside the repository**, readable only by you (Windows/PowerShell
+form: [`Drunken-Guild-Guide.md`, section 2](../Drunken-Guild-Guide.md#2-registry-credentials-and-the-mcp-server)):
 
 ```bash
 mkdir -p ~/.drunken && chmod 700 ~/.drunken
@@ -242,7 +243,8 @@ The `--extra dev` is not optional if you intend to run the tests. Without pytest
 `uv run pytest` falls through to whatever `pytest` is on PATH — which may import a different
 checkout entirely and pass. The suite refuses to start in that state and tells you so.
 
-Put your credentials in a file **outside any repository**, readable only by you:
+Put your credentials in a file **outside any repository**, readable only by you (Windows/PowerShell
+form: [`Drunken-Guild-Guide.md`, section 2](../Drunken-Guild-Guide.md#2-registry-credentials-and-the-mcp-server)):
 
 ```bash
 mkdir -p ~/.drunken && chmod 700 ~/.drunken

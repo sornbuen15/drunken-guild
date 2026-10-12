@@ -485,6 +485,48 @@ def check_heading_gaps(paths: list[Path]) -> list[str]:
     return problems
 
 
+#: DG-522 lead review. A document claiming the registry (or its secret file)
+#: may be committed is not drift against something *removed* -- it is wrong
+#: against a standing rule (REQ-023: no registered id, Jira URL or email
+#: reaches a repository) that this exact phrase stated the opposite of in the
+#: old Guide, carried forward unexamined into its rewrite. A short forbidden-
+#: phrase list, the same shape as RETIRED, catches it going forward.
+FORBIDDEN_CLAIMS = (
+    (
+        "can be committed and shared",
+        "the registry and its secret file are not for a public repo (REQ-023)",
+    ),
+    (
+        "committed, reviewed and shared",
+        "the registry and its secret file are not for a public repo (REQ-023)",
+    ),
+    (
+        "so it can be committed",
+        "the registry and its secret file are not for a public repo (REQ-023)",
+    ),
+)
+
+
+def check_forbidden_claims(paths: list[Path]) -> list[str]:
+    """A line claiming the registry or its secret file may be committed."""
+    problems = []
+    for path in paths:
+        try:
+            text = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+        for number, line in enumerate(text.splitlines(), 1):
+            if ESCAPE in line:
+                continue
+            for phrase, reason in FORBIDDEN_CLAIMS:
+                if phrase in line:
+                    problems.append(
+                        f"{path.relative_to(REPO_ROOT)}:{number}: claims "
+                        f"'{phrase}' -- {reason}."
+                    )
+    return problems
+
+
 def scan() -> list[str]:
     problems = []
     for path in documents():
@@ -502,6 +544,8 @@ def scan() -> list[str]:
                         f"{relative}:{number}: names '{retired.name}', removed "
                         f"in {retired.removed_in}. Use {retired.use_instead}."
                     )
+
+    problems += check_forbidden_claims(documents())
 
     linked = linked_documents()
     problems += check_links(linked)
