@@ -125,6 +125,25 @@ def test_an_oversize_agent_over_the_100_line_limit_fails(
     assert "widget.md" in problems[0]
 
 
+def test_a_nested_agent_file_over_the_limit_fails(guard, tmp_path, monkeypatch) -> None:
+    """A real bypass found in review of PR 204: `agent_files()` used
+    `rglob("agents/*.md")`, which only matches a `*.md` file directly
+    inside a directory literally named `agents` -- a file one level
+    deeper, `agents/nested/huge.md`, never matched the pattern at all and
+    was silently never checked, however long it grew."""
+    nested_dir = tmp_path / "agents" / "nested"
+    nested_dir.mkdir(parents=True)
+    _write_lines(nested_dir / "huge.md", 500)
+    monkeypatch.setattr(guard, "REPO_ROOT", tmp_path)
+    monkeypatch.setattr(guard, "load_baseline", lambda: {})
+
+    problems = guard.scan()
+
+    assert len(problems) == 1
+    assert "agents/nested/huge.md" in problems[0]
+    assert "500" in problems[0]
+
+
 def test_agent_index_is_not_itself_checked(guard, tmp_path, monkeypatch) -> None:
     """agents/INDEX.md is generated and lists every agent -- it is not an
     agent file, and must not be measured against the agent limit."""

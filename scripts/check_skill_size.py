@@ -86,13 +86,22 @@ def skill_files() -> list[Path]:
 
 
 def agent_files() -> list[Path]:
-    """Every agent file: a `*.md` directly inside a directory named
-    `agents`, excluding the generated index."""
-    return sorted(
-        p
-        for p in REPO_ROOT.rglob("agents/*.md")
-        if not _skipped(p) and p.name != AGENT_INDEX_NAME
-    )
+    """Every agent file: a `*.md` anywhere under a directory named `agents`,
+    at any depth, excluding the generated index.
+
+    `rglob("agents/*.md")` only matched a file directly inside a directory
+    literally named `agents` — a file one level deeper, such as
+    `agents/nested/huge.md`, never matched the pattern at all and was
+    silently never checked, however long it grew (found in review of the
+    PR that added this check)."""
+    found = []
+    for p in REPO_ROOT.rglob("*.md"):
+        if _skipped(p) or p.name == AGENT_INDEX_NAME:
+            continue
+        parts = _relative_parts(p)
+        if "agents" in parts[:-1]:
+            found.append(p)
+    return sorted(found)
 
 
 def limit_for(path: Path) -> int:
