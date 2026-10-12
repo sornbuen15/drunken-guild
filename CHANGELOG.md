@@ -7,8 +7,6 @@ The top heading is the version this tree declares in `pyproject.toml`; `Unreleas
 while a release is being prepared, and is renamed to the version when it is tagged
 (`tests/test_install_agents.py::TestTheChangelog`).
 
-## Unreleased
-
 ## 2.0.2 — 2026-10-12
 
 Makes the guild's skills and agents reach a session, brings the older ones back, and fixes what
