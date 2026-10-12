@@ -159,6 +159,116 @@ def test_every_retired_entry_says_what_to_use_instead(drift) -> None:
         assert retired.removed_in, f"{retired.name} does not say when it went."
 
 
+def test_catches_a_broken_relative_link(drift, tmp_path, monkeypatch) -> None:
+    """DG-522. A link that names a file this repository does not have."""
+    doc = tmp_path / "guide.md"
+    doc.write_text("See [the other doc](./NOPE.md) for more.\n")
+    monkeypatch.setattr(drift, "linked_documents", lambda: [doc])
+    monkeypatch.setattr(drift, "REPO_ROOT", tmp_path)
+
+    problems = drift.scan()
+
+    assert len(problems) == 1
+    assert "NOPE.md" in problems[0]
+    assert "does not exist" in problems[0]
+
+
+def test_catches_a_broken_anchor(drift, tmp_path, monkeypatch) -> None:
+    """DG-522. The target file exists, but the heading the anchor names does
+    not -- the exact shape of Integration-Guide's old `#step-1--describe-
+    your-project` pointing at a GETTING_STARTED.md that had been renamed to
+    'A new project' under DG-517."""
+    target = tmp_path / "target.md"
+    target.write_text("# Target\n\n## A new project\n")
+    doc = tmp_path / "guide.md"
+    doc.write_text("See [setup](./target.md#step-1--describe-your-project).\n")
+    monkeypatch.setattr(drift, "linked_documents", lambda: [doc, target])
+    monkeypatch.setattr(drift, "REPO_ROOT", tmp_path)
+
+    problems = drift.scan()
+
+    assert len(problems) == 1
+    assert "step-1--describe-your-project" in problems[0]
+    assert "no matching heading" in problems[0]
+
+
+def test_a_correct_anchor_is_not_flagged(drift, tmp_path, monkeypatch) -> None:
+    target = tmp_path / "target.md"
+    target.write_text("# Target\n\n## A new project\n")
+    doc = tmp_path / "guide.md"
+    doc.write_text("See [setup](./target.md#a-new-project).\n")
+    monkeypatch.setattr(drift, "linked_documents", lambda: [doc, target])
+    monkeypatch.setattr(drift, "REPO_ROOT", tmp_path)
+
+    assert drift.scan() == []
+
+
+def test_catches_a_dead_section_reference(drift, tmp_path, monkeypatch) -> None:
+    """DG-522. `§3.4` pointing at a section number this very document never
+    declares in a heading -- the Guide referred a reader to `§3.2` for a
+    command that section did not contain."""
+    doc = tmp_path / "guide.md"
+    doc.write_text("## 1. First\n## 2. Second\n\nSee §3.4 for detail.\n")
+    monkeypatch.setattr(drift, "linked_documents", lambda: [doc])
+    monkeypatch.setattr(drift, "REPO_ROOT", tmp_path)
+
+    problems = drift.scan()
+
+    assert len(problems) == 1
+    assert "§3.4" in problems[0]
+
+
+def test_a_section_reference_that_exists_is_not_flagged(
+    drift, tmp_path, monkeypatch
+) -> None:
+    doc = tmp_path / "guide.md"
+    doc.write_text("## 1. First\n## 2. Second\n\nSee §2 for detail.\n")
+    monkeypatch.setattr(drift, "linked_documents", lambda: [doc])
+    monkeypatch.setattr(drift, "REPO_ROOT", tmp_path)
+
+    assert drift.scan() == []
+
+
+def test_catches_a_gap_in_numbered_headings(drift, tmp_path, monkeypatch) -> None:
+    """DG-522. The old Guide's own bug: `### 3.4` followed by `### 3.6`, no
+    `3.5` anywhere."""
+    doc = tmp_path / "guide.md"
+    doc.write_text(
+        "## 1. First\n"
+        "## 2. Second\n"
+        "## 3. Third\n"
+        "### 3.1 One\n"
+        "### 3.2 Two\n"
+        "### 3.4 Four\n"
+    )
+    monkeypatch.setattr(drift, "linked_documents", lambda: [doc])
+    monkeypatch.setattr(drift, "REPO_ROOT", tmp_path)
+
+    problems = drift.scan()
+
+    assert len(problems) == 1
+    assert "[1, 2, 4]" in problems[0]
+
+
+def test_contiguous_numbered_headings_are_not_flagged(
+    drift, tmp_path, monkeypatch
+) -> None:
+    doc = tmp_path / "guide.md"
+    doc.write_text("## 1. First\n## 2. Second\n## 3. Third\n### 3.1 One\n### 3.2 Two\n")
+    monkeypatch.setattr(drift, "linked_documents", lambda: [doc])
+    monkeypatch.setattr(drift, "REPO_ROOT", tmp_path)
+
+    assert drift.scan() == []
+
+
+def test_the_real_linked_docs_are_clean(drift) -> None:
+    """Guards against the new checks quietly checking nothing: the real doc
+    set must come back with at least the files this ticket touched."""
+    names = {path.name for path in drift.linked_documents()}
+    assert {"README.md", "Drunken-Guild-Guide.md", "Integration-Guide.md"} <= names
+    assert drift.scan() == []
+
+
 def test_fixtures_under_tests_are_not_scanned(drift, tmp_path, monkeypatch) -> None:
     """DG-430 gap 3: `documents()` did a blanket `rglob("*.md")`, so a
     realistic-looking markdown fixture built under `tests/fixtures/` to prove

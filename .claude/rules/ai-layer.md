@@ -104,7 +104,7 @@ measured at 45 installed directories against 11 shipped. Say so when handing ove
 **The rename blocks a reinstall until the old package is uninstalled.** `uv tool install .` fails
 with *"Executables already exist"* while `drunken-team` still owns those names, and `--force` is
 the wrong answer: it repoints the symlinks and leaves the old environment installed, still shipping
-a `drunken-board-mcp` this package no longer contains. `uv tool uninstall drunken-team` first.
+a server this package has since retired (`RETIRED.md`). `uv tool uninstall drunken-team` first.
 
 `install_mcp.sh` prints a constant, and there is no generator behind it any more (DG-356). The
 config carries no project — every tool takes it as an argument (DG-341) — so it is identical for

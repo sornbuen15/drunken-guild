@@ -175,8 +175,8 @@ uv tool install .
 
 `uv tool install .` fails with *"Executables already exist"* while the old package owns those
 names, and **`--force` is not the fix**: it repoints the symlinks but leaves the previous tool
-environment installed, and that environment still ships `drunken-board-mcp`, which is no longer
-part of this package (DG-265). Uninstalling first is what actually removes it from your PATH.
+environment installed, still shipping a server this package has since retired (`RETIRED.md`).
+Uninstalling first is what actually removes it from your PATH.
 
 ```bash
 drunken-doctor --project drunken-guild
@@ -290,7 +290,7 @@ uv tool install .
 
 If a previous version is installed under the old package name, `uv tool install .` fails with
 *"Executables already exist"*. `--force` is not the fix — it repoints the symlinks and leaves the
-old environment installed, still shipping a `drunken-board-mcp` this package no longer contains.
+old environment installed, still shipping a server this package has since retired (`RETIRED.md`).
 
 Then **declare the server once for the whole machine**. Do not put a `.mcp.json` in your project:
 the server is the same for every project (each tool takes the registry project id as its first
