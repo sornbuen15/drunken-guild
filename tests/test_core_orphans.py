@@ -521,6 +521,67 @@ class TestProtectedPids:
         assert outcome.terminated == []
         assert outcome.skipped == [(candidate, orphans.PROTECTED_LABEL)]
 
+    def test_protection_is_scoped_to_the_session_root_not_the_app_or_shell(self):
+        """DG-518 review round 3, scenario (a) from a real machine: Explorer
+        -> the Claude desktop app -> three sibling ``claude.exe`` session
+        processes, one of which (9784) runs the bash chain running ``reap``
+        and also owns an MCP tree (1192 -> 19392 -> 17088). The other two
+        sessions (23212, 19188) and the desktop app's webview2 helper are
+        siblings or cousins of the session root, never descendants of it,
+        and must stay ordinary, terminable candidates."""
+        table = [
+            _proc(1244, 1, command="Explorer.EXE"),
+            _proc(5616, 1244, command="Claude.exe"),
+            _proc(9784, 5616, command="claude.exe"),
+            _proc(50, 9784, command="bash.exe"),
+            _proc(100, 50, command="drunken-install.exe reap --include-held --apply"),
+            _proc(1192, 9784, command=r'"C:\bin\drunken-jira-mcp.exe" --stdio'),
+            _proc(19392, 1192, command="python.exe -m jira_mcp.server"),
+            _proc(17088, 19392, command="python.exe worker"),
+            _proc(23212, 5616, command="claude.exe"),
+            _proc(13136, 23212, command=r'"C:\bin\drunken-jira-mcp.exe" --stdio'),
+            _proc(19188, 5616, command="claude.exe"),
+            _proc(25548, 19188, command=r'"C:\bin\drunken-jira-mcp.exe" --stdio'),
+            _proc(6000, 5616, command="msedgewebview2.exe"),
+        ]
+
+        protected = orphans.protected_pids(table, self_pid=100)
+
+        assert protected == {1244, 5616, 9784, 50, 100, 1192, 19392, 17088}
+        for unrelated in (23212, 13136, 19188, 25548, 6000):
+            assert unrelated not in protected
+
+        ancestors = orphans.protected_ancestors(table, self_pid=100)
+        assert ancestors == {1244, 5616, 9784, 50, 100}
+        assert orphans._protected_label(1192, ancestors) == (
+            orphans.PROTECTED_DESCENDANT_LABEL
+        )
+        # the app and Explorer are protected ancestors (never themselves
+        # reaped) but are not the base any subtree is expanded from.
+        assert orphans._protected_label(5616, ancestors) == orphans.PROTECTED_LABEL
+
+    def test_a_plain_terminal_outside_any_session_protects_only_its_own_chain(self):
+        """DG-518 review round 3, scenario (b): a reap run from a plain
+        terminal, not under any Claude session at all -- only its own
+        ancestor chain is protected; every Claude session elsewhere on the
+        machine stays an ordinary, terminable candidate."""
+        table = [
+            _proc(1244, 1, command="Explorer.EXE"),
+            _proc(700, 1244, command="WindowsTerminal.exe"),
+            _proc(50, 700, command="bash.exe"),
+            _proc(100, 50, command="drunken-install.exe reap --include-held --apply"),
+            _proc(5616, 1244, command="Claude.exe"),
+            _proc(9784, 5616, command="claude.exe"),
+            _proc(1192, 9784, command=r'"C:\bin\drunken-jira-mcp.exe" --stdio'),
+        ]
+
+        protected = orphans.protected_pids(table, self_pid=100)
+
+        assert protected == {1244, 700, 50, 100}
+        assert 5616 not in protected
+        assert 9784 not in protected
+        assert 1192 not in protected
+
 
 class TestVerifiedTermination:
     """DG-518 review, HIGH finding: a termination is counted only once it is

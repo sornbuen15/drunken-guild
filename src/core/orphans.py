@@ -159,52 +159,133 @@ def find_orphans(processes: Sequence[ProcessInfo]) -> list[OrphanProcess]:
     ]
 
 
-def protected_ancestors(
+def _ancestor_chain(
     processes: Sequence[ProcessInfo], self_pid: Optional[int] = None
-) -> set[int]:
-    """The running process itself (``os.getpid()`` by default) and every
-    ancestor of it found in *processes* — its shell, its terminal, the
-    Claude session that launched it — walked up the ``ppid`` chain until one
-    is not in the table (DG-518 review, CRITICAL self-protection finding).
-    """
+) -> list[int]:
+    """The running process itself (``os.getpid()`` by default), then every
+    ancestor of it found in *processes*, nearest first, walking the ``ppid``
+    chain until one is not in the table."""
     pid = self_pid if self_pid is not None else os.getpid()
     by_pid = {process.pid: process for process in processes}
-    ancestors = {pid}
+    chain = [pid]
+    seen = {pid}
     current = pid
     while current in by_pid:
         parent_pid = by_pid[current].ppid
-        if parent_pid in ancestors or parent_pid not in by_pid:
+        if parent_pid in seen or parent_pid not in by_pid:
             break
-        ancestors.add(parent_pid)
+        chain.append(parent_pid)
+        seen.add(parent_pid)
         current = parent_pid
-    return ancestors
+    return chain
+
+
+def protected_ancestors(
+    processes: Sequence[ProcessInfo], self_pid: Optional[int] = None
+) -> set[int]:
+    """The running process itself and every ancestor of it found in
+    *processes* — its shell, its terminal, the Claude session that launched
+    it, the desktop app, the OS shell — as a set (DG-518 review, CRITICAL
+    self-protection finding). See :func:`protected_pids` for what else is
+    protected alongside this chain.
+    """
+    return set(_ancestor_chain(processes, self_pid=self_pid))
+
+
+def _normalize_name(name: str) -> str:
+    """*name*, case-folded only on Windows — same rule as every other path
+    comparison in this module."""
+    return name.casefold() if sys.platform == "win32" else name
+
+
+def _is_explorer(process: Optional[ProcessInfo]) -> bool:
+    if process is None:
+        return False
+    return _normalize_name(_program_basename(process.command)) == "explorer.exe"
+
+
+def _session_root(
+    processes: Sequence[ProcessInfo],
+    chain: Sequence[int],
+    by_pid: dict[int, ProcessInfo],
+) -> int:
+    """Which pid in *chain* is the **session root** — DG-518 review round 3:
+    round 2 expanded descendant protection from *every* ancestor, which on a
+    real machine included the desktop app and ``Explorer.EXE`` — sweeping in
+    two other, unrelated Claude sessions and every webview2 helper on the
+    desktop. Only one ancestor should ever be the base a whole subtree is
+    protected from: the session process itself, never the shell that hosts
+    several of them side by side or the OS shell above that.
+
+    Identified without relying on a specific program name: walking the chain
+    from the running process outward, the nearest ancestor that either (a)
+    shares its own executable's file name with a **sibling** under the same
+    parent — the signature of "one app, several session processes side by
+    side", which is exactly what distinguishes a session root from the app
+    hosting it — or (b) is itself a direct child of ``Explorer.EXE`` — the
+    signature of "nothing above this is a session concept at all, it is the
+    desktop". Whichever of the two is found nearer to the running process
+    wins, so a session root is never mistaken for the app or shell above it.
+
+    If neither ever matches anywhere in the chain — no sibling, and nothing
+    directly under Explorer either, e.g. a reap run from deep inside some
+    other launcher this heuristic does not recognise — the conservative
+    fallback is the ancestor two hops up from the running process (the
+    direct parent of its own shell, "the immediate session process"):
+    narrow, never reaching further up than that without positive evidence.
+    """
+    children_by_ppid: dict[int, list[int]] = {}
+    for entry in processes:
+        children_by_ppid.setdefault(entry.ppid, []).append(entry.pid)
+
+    for pid in chain[1:]:
+        process = by_pid.get(pid)
+        if process is None:
+            continue
+        parent = by_pid.get(process.ppid)
+        if parent is None:
+            continue
+        own_name = _normalize_name(_program_basename(process.command))
+        sibling_match = bool(own_name) and any(
+            sibling_pid != pid
+            and _normalize_name(_program_basename(by_pid[sibling_pid].command))
+            == own_name
+            for sibling_pid in children_by_ppid.get(process.ppid, [])
+            if sibling_pid in by_pid
+        )
+        if sibling_match or _is_explorer(parent):
+            return pid
+
+    return chain[2] if len(chain) >= 3 else chain[-1]
 
 
 def protected_pids(
     processes: Sequence[ProcessInfo], self_pid: Optional[int] = None
 ) -> set[int]:
     """Never-reap pids, for *this run of* ``reap``: :func:`protected_ancestors`
-    plus **every descendant of any of them** (DG-518 review round 2) — a real
-    run found ``drunken-jira-mcp.exe`` and two ``python.exe`` children listed
-    as an ordinary, terminable lock holder because the check only walked
-    *up* from the running process, never back *down* the same session's own
-    tree. The Claude session on the ancestor chain is ``this session`` for
-    every one of its tools, not only for the one shell that happens to be
-    running ``reap`` right now — so the whole subtree rooted at any
-    protected ancestor is protected too, labeled distinctly
-    (:data:`PROTECTED_LABEL` for the chain itself,
-    :data:`PROTECTED_DESCENDANT_LABEL` for everything under it) by whichever
-    caller reports it. An unrelated session (a *different* Claude process,
-    a different root) is not on this chain at all, so its own identical
-    tree of tools is untouched by this function.
+    plus every descendant of the **session root** alone — see
+    :func:`_session_root` for how that one ancestor is chosen and why round
+    2's "every ancestor" swept in two unrelated Claude sessions and every
+    webview2 helper on the desktop, found on a real machine.
+
+    Labeled distinctly by whichever caller reports it:
+    :data:`PROTECTED_LABEL` for the chain itself, :data:`PROTECTED_DESCENDANT_LABEL`
+    for everything under the session root. An unrelated session (a sibling
+    of the session root, or anywhere outside its subtree) is untouched by
+    this function, and stays an ordinary, terminable candidate.
     """
-    ancestors = protected_ancestors(processes, self_pid=self_pid)
+    by_pid = {process.pid: process for process in processes}
+    chain = _ancestor_chain(processes, self_pid=self_pid)
+    ancestors = set(chain)
+    root = _session_root(processes, chain, by_pid)
+
     children_by_ppid: dict[int, list[int]] = {}
     for process in processes:
         children_by_ppid.setdefault(process.ppid, []).append(process.pid)
 
     protected = set(ancestors)
-    frontier = list(ancestors)
+    protected.add(root)
+    frontier = [root]
     while frontier:
         parent_pid = frontier.pop()
         for child_pid in children_by_ppid.get(parent_pid, []):
