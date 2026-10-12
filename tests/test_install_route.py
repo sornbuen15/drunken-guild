@@ -154,8 +154,8 @@ def extras_skills(tmp_path: Path) -> tuple[Path, Path]:
 # DG-515 follow-up: realistic prompts the lead actually ran against a built exe, Thai, English
 # and mixed -- the exact shape the narrow first-pass table missed.
 REALISTIC_POSITIVE_CASES = [
-    ("ui_ux", "th", "ทำหน้า login ให้หน่อย", ["universal-ui", "universal-ux"]),
-    ("ui_ux", "th", "เพิ่มฟอร์มสมัครสมาชิก", ["universal-ui", "universal-ux"]),
+    ("ui_ux", "th", "ทำหน้า login ให้หน่อย", ["universal-ui"]),
+    ("ui_ux", "th", "เพิ่มฟอร์มสมัครสมาชิก", ["universal-ui"]),
     (
         "bugfix",
         "th",
@@ -172,7 +172,25 @@ REALISTIC_POSITIVE_CASES = [
         "tests",
         "mixed",
         "เพิ่มฟังก์ชันคำนวณส่วนลดพร้อมเทส",
-        ["build", "test-strategy", "test-architecture"],
+        ["build"],
+    ),
+    (
+        "test_planning",
+        "en",
+        "Create a test strategy and test plan for the service.",
+        ["test-strategy", "test-architecture"],
+    ),
+    (
+        "ux_research",
+        "en",
+        "Map the user journey and improve onboarding usability.",
+        ["universal-ux"],
+    ),
+    (
+        "ui_ux",
+        "mixed",
+        "ทำเป็น HTML เพื่อแสดงตัวอย่าง component input",
+        ["universal-ui", "build"],
     ),
     ("review", "mixed", "review PR นี้ให้หน่อย", ["reviewer"]),
     ("deploy", "mixed", "deploy ขึ้น staging", ["ask-boss"]),
@@ -210,6 +228,10 @@ NEGATIVE_PROMPTS = [
     # a question *about* the word, not a request to do anything with it.
     "What does this error message mean: KeyError?",
     "What does API stand for?",
+    # Real trial prompts: mentioning existing pages/components and asking whether the workflow
+    # is understood is not yet a request to invoke UI or test-planning skills.
+    "จาก CODE ส่วน landing page, club portal, admin ฉันมีงานที่ไม่ต้องขึ้น jira และ ยังไม่ต้องบันทึก แต่เป็นงานที่จะ ลองหยิบมาให้ แล้วทำจาก สามเพจดังกล่าว ตาม drunken-guild เราต้องทำอะไรบ้างหากมอบหมายงานให้",
+    "เราจะ ทำ branch แค่ลองเทสดูว่า drunken-guild ที่ปรับปรุงล่าสุดมา สามารถใช้งานได้จริง โดยไม่ commit และ สุดท้ายจะ discard ทิ้ง งานคือ จาก ทั้ง 3 page ให้ทำ typology ของทั้งสาม page ที่บอกว่าใช้ component อะไรบ้างในเพจ สี ตัวอักษร input ต่างๆ เข้าใจไหม",
 ]
 
 
@@ -284,6 +306,16 @@ class TestKeywordMatchingRules:
         skills, agents = extras_skills
         text = install.route_text("เจอบั๊กแล้ว", skills, agents)
         assert "build" in text
+
+    def test_existing_page_inventory_does_not_trigger_ui_skills(self, extras_skills) -> None:
+        skills, agents = extras_skills
+        prompt = "The page already exists; inventory its components and inputs."
+        assert install.route_text(prompt, skills, agents) == ""
+
+    def test_mentioning_a_test_does_not_trigger_test_planning(self, extras_skills) -> None:
+        skills, agents = extras_skills
+        prompt = "I am testing whether the workflow works; do not write tests yet."
+        assert "test-strategy" not in install.route_text(prompt, skills, agents)
 
 
 class TestRouteTextSdlcCoverage:
@@ -826,6 +858,11 @@ class TestRouterPrecisionDG521:
         skills, agents = extras_skills
         prompt = "check the security of this login form and the endpoint token"
         table = install._load_route_table()
+        # The live routing rows now keep UI and UX separate and name fewer tools per category.
+        # Add two synthetic candidates locally so this test still exercises the generic five-name
+        # cap rather than relying on unnecessary real recommendations.
+        ui_row = next(row for row in table if row.get("category") == "ui_ux")
+        ui_row["names"].extend(["synthetic-a", "synthetic-b"])
         matches = install._category_matches(prompt, table)
         uncapped = {n for _h, _p, _c, names in matches[:2] for n in names}
         assert len(uncapped) > 5, "fixture must actually tempt more than 5 names"
