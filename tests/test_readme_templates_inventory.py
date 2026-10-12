@@ -3,11 +3,14 @@
 anything under `templates/` is retired, list every reference to each file and
 what reads it, then retire only files nothing reads; a file something still
 reads is either moved into `src/core/templates/` or left at the root with a
-stated reason. README's "`templates/` root — per-file inventory" table is
-that list. This module checks it mechanically against the real tree, the
-same way `test_readme_file_map.py` checks the broader Repository map: a file
-added to `templates/` without a row, or a row naming a file that is not
-there, is exactly the drift this ticket exists to stop from happening again.
+stated reason. The "`templates/` root — per-file inventory" table is that
+list. This module checks it mechanically against the real tree, the same way
+`test_readme_file_map.py` checks the broader Repository map: a file added to
+`templates/` without a row, or a row naming a file that is not there, is
+exactly the drift this ticket exists to stop from happening again.
+
+DG-517 moved this table, with the Repository map, out of README.md into its
+own `REPOSITORY_MAP.md` -- this module's target constant moved with it.
 """
 
 from __future__ import annotations
@@ -16,7 +19,7 @@ import re
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-README = REPO_ROOT / "README.md"
+README = REPO_ROOT / "REPOSITORY_MAP.md"
 
 _HEADING = "## Templates root — per-file inventory (DG-427)"
 _PATH_SPAN = re.compile(r"`([^`]+)`")
