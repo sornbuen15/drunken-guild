@@ -1388,14 +1388,54 @@ def _strip_noise(text: str) -> str:
     return "\n".join(kept)
 
 
+def _group_matches(group: Any, normalized_prompt: str) -> bool:
+    """Does any one value of *group* appear in *normalized_prompt*? ``{"type": "regex", ...}``
+    runs each value as a regex search; anything else (including a missing or unrecognised
+    ``type``) falls back to the same substring/word-boundary semantics as a plain keyword
+    (:func:`_keyword_hits`) -- DG-521 lead follow-up's ``combos`` need a group that is a regex
+    (a Jira-style ticket key) alongside one that is a plain keyword list.
+    """
+    if not isinstance(group, dict):
+        return False
+    values = group.get("values")
+    if not isinstance(values, list):
+        return False
+    if group.get("type") == "regex":
+        for pattern in values:
+            if not isinstance(pattern, str):
+                continue
+            try:
+                if re.search(pattern, normalized_prompt):
+                    return True
+            except re.error:
+                continue
+        return False
+    return any(
+        isinstance(v, str) and _keyword_hits(v, normalized_prompt) for v in values
+    )
+
+
+def _combo_satisfied(combo: Any, normalized_prompt: str) -> bool:
+    """A combo matches only when *every* one of its groups matches -- DG-521 lead follow-up
+    SCOPE item 1: a ticket-key-shaped token alone, or a bare "ticket" word alone, must never be
+    enough on its own (that is exactly the "what is a ticket" / "I bought a ... ticket" negative
+    cases); only the key or the word *together with* an action word nominates anything."""
+    if not isinstance(combo, dict):
+        return False
+    groups = combo.get("all")
+    if not isinstance(groups, list) or not groups:
+        return False
+    return all(_group_matches(group, normalized_prompt) for group in groups)
+
+
 def _category_matches(
     prompt: str, table: list[dict[str, Any]]
 ) -> list[tuple[int, int, str, list[str]]]:
     """``(hit_count, priority, category, names)`` for every category with at least one keyword
-    hit in *prompt*, sorted by the highest keyword-hit count first, ties broken by the table's
-    own ``priority`` field (lower wins) -- DG-521 SCOPE item 1. A row with no ``priority`` of its
-    own falls back to its position in the table, so an older, hand-edited copy of the data file
-    still sorts deterministically rather than raising or being skipped.
+    hit or satisfied ``combos`` entry in *prompt*, sorted by the highest hit count first, ties
+    broken by the table's own ``priority`` field (lower wins) -- DG-521 SCOPE item 1. A row with
+    no ``priority`` of its own falls back to its position in the table, so an older, hand-edited
+    copy of the data file still sorts deterministically rather than raising or being skipped.
     """
     normalized_prompt = _normalize_for_match(prompt)
     out: list[tuple[int, int, str, list[str]]] = []
@@ -1409,6 +1449,11 @@ def _category_matches(
             for k in keywords
             if isinstance(k, str) and _keyword_hits(k, normalized_prompt)
         )
+        combos = row.get("combos")
+        if isinstance(combos, list):
+            hit_count += sum(
+                1 for combo in combos if _combo_satisfied(combo, normalized_prompt)
+            )
         if hit_count == 0:
             continue
         category_raw = row.get("category")

@@ -871,3 +871,99 @@ class TestRouterPrecisionDG521:
         if "manager" in text:
             assert "Agent tool" in text
             assert "subagent_type" in text
+
+
+# DG-521 lead follow-up: the most important Thai phrasing for the role flow -- "do this ticket",
+# "finish this ticket" -- routed to nothing at all, or to build/test skills without the worker
+# agent, because neither a Jira-style ticket key nor a bare "ticket" word was ever in the table.
+TICKET_FLOW_POSITIVE_CASES = [
+    ("th-key", "ทำ ticket ALPHA-12 ให้หน่อย"),
+    ("th-bare", "ลงมือทำ ticket นี้จนเสร็จ"),
+    (
+        "th-long",
+        "มี ticket ALPHA-12 ให้ทำ: เพิ่มส่วนลด 10% เมื่อซื้อตั้งแต่ 10 ชิ้นขึ้นไปใน "
+        "pricing.py มีเทสด้วย ช่วยลงมือทำจนเสร็จ",
+    ),
+    ("en-key", "implement ticket ALPHA-12"),
+    ("th-key-fix", "ช่วยลงมือแก้ ticket BETA-7 ให้หน่อย"),
+    ("th-bare-task", "งานนี้ทำให้เสร็จหน่อย"),
+    ("en-key-fix", "please fix ticket ZETA-3 today"),
+]
+
+TICKET_FLOW_NEGATIVE_CASES = [
+    ("what-is-a-ticket", "what is a ticket"),
+    ("chitchat-ticket", "I bought a concert ticket for this weekend"),
+    (
+        "quoted-ticket",
+        "> please work on ticket ALPHA-12 and finish it\n> it is urgent",
+    ),
+    (
+        "pasted-log-ticket",
+        "OK    jira.ticket_alpha        ticket ALPHA-12 ทำ เสร็จแล้ว, nothing to do",
+    ),
+]
+
+
+class TestTicketFlowRoutesToTheWorkerAgentDG521FollowUp:
+    """DG-521 lead follow-up: a Jira-style ticket key (or a bare Thai ticket word) combined
+    with an action word must route to the build/worker role, same as the English "implement" /
+    "fix the bug" phrasing already did -- without this, the worker agent was never named for
+    exactly the phrasing a real ticket hand-off uses."""
+
+    @pytest.mark.parametrize(
+        "case_id, prompt",
+        TICKET_FLOW_POSITIVE_CASES,
+        ids=[c for c, _p in TICKET_FLOW_POSITIVE_CASES],
+    )
+    def test_ticket_plus_action_routes_to_build_and_worker(
+        self, role_and_skill_fixture, case_id, prompt
+    ) -> None:
+        skills, agents = role_and_skill_fixture
+        text = install.route_text(prompt, skills, agents)
+        assert "worker" in text, f"{case_id}: expected worker in {text!r}"
+        assert "build" in text, f"{case_id}: expected build in {text!r}"
+        assert "Agent tool" in text
+        assert "subagent_type" in text
+        assert len(text) <= 600
+
+    @pytest.mark.parametrize(
+        "case_id, prompt",
+        TICKET_FLOW_NEGATIVE_CASES,
+        ids=[c for c, _p in TICKET_FLOW_NEGATIVE_CASES],
+    )
+    def test_ticket_without_an_action_or_inside_noise_prints_nothing(
+        self, role_and_skill_fixture, case_id, prompt
+    ) -> None:
+        skills, agents = role_and_skill_fixture
+        text = install.route_text(prompt, skills, agents)
+        assert text == "", f"{case_id}: expected nothing, got {text!r}"
+
+    def test_review_category_keywords_are_unchanged(
+        self, role_and_skill_fixture
+    ) -> None:
+        """SCOPE item 2: the review category (ช่วยรีวิว / ตรวจ PR / pull request / code
+        review) stays exactly as it was -- this ticket-flow fix must not touch it."""
+        skills, agents = role_and_skill_fixture
+        for prompt in (
+            "ช่วยรีวิวโค้ดให้หน่อย",
+            "ตรวจ PR นี้ให้หน่อย",
+            "please review this pull request",
+            "a quick code review please",
+        ):
+            text = install.route_text(prompt, skills, agents)
+            assert "reviewer" in text, f"{prompt!r} -> {text!r}"
+
+    def test_caps_still_hold_for_the_long_ticket_prompt(
+        self, role_and_skill_fixture
+    ) -> None:
+        skills, agents = role_and_skill_fixture
+        prompt = (
+            "มี ticket ALPHA-12 ให้ทำ: เพิ่มส่วนลด 10% เมื่อซื้อตั้งแต่ 10 ชิ้นขึ้นไปใน "
+            "pricing.py มีเทสด้วย ช่วยลงมือทำจนเสร็จ"
+        )
+        table = install._load_route_table()
+        names = install._matched_names(prompt, table)
+        assert len(names) <= 5
+        text = install.route_text(prompt, skills, agents)
+        assert len(text) <= 600
+        assert "worker" in text

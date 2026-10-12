@@ -50,6 +50,32 @@
       "เขียนโค้ด",
       "พัฒนาฟีเจอร์"
     ],
+    "combos": [
+      {
+        "all": [
+          {"type": "regex", "values": ["\\b[a-z][a-z0-9]+-[0-9]+\\b"]},
+          {
+            "type": "keyword",
+            "values": [
+              "ทำ",
+              "ลงมือ",
+              "build",
+              "implement",
+              "fix",
+              "แก้",
+              "พัฒนา",
+              "เสร็จ"
+            ]
+          }
+        ]
+      },
+      {
+        "all": [
+          {"type": "keyword", "values": ["ticket", "การ์ด", "งานนี้", "task"]},
+          {"type": "keyword", "values": ["ทำ", "ลงมือ", "จนเสร็จ"]}
+        ]
+      }
+    ],
     "names": ["build", "worker"],
     "priority": 3
   },
