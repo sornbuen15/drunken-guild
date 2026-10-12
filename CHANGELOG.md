@@ -7,9 +7,36 @@ The top heading is the version this tree declares in `pyproject.toml`; `Unreleas
 while a release is being prepared, and is renamed to the version when it is tagged
 (`tests/test_install_agents.py::TestTheChangelog`).
 
-## Unreleased
+## 2.0.2 — 2026-10-12
+
+Makes the guild's skills and agents reach a session, brings the older ones back, and fixes what
+the installed 2.0.1 showed on real projects. Delivery is proven; whether the model then follows
+the routing is measured below (scratch runs, three per cell, so a direction, not a proof).
 
 ### Added
+- `drunken-install context` prints the routing rule and the skills and agents actually installed
+  (names only, at most 2,500 characters, never raises), and `drunken-install hook` (plan by
+  default, `--apply`, `--remove`) puts it into the user Claude settings as a SessionStart hook, so
+  every session gets it with or without a project `AGENTS.md`. The hook records the absolute path
+  of the executable, backs up `settings.json` first, refuses invalid JSON, never touches other
+  keys, and `drunken-doctor` (`routes.session_hook`) runs the recorded command to prove it works
+  (DG-513). `scripts/measure_routing.py` measures which Skill and Agent tools a session really calls.
+- `drunken-install extras` installs the 16 older skills (including `universal-ui`,
+  `universal-ux`) and 15 specialist agents (including `laravel-developer`, `qa-engineer`,
+  `security-engineer`) that lived in `plugins/drunken-extras` and were installed nowhere. Plan by
+  default, `--apply` writes, `--only` picks names, nothing is removed or overwritten. Retired items
+  (local-board kanban skills, unlicensed packs) are not restored (DG-512).
+
+- `drunken-install route` is a `UserPromptSubmit` hook: it matches the prompt against a Thai and
+  English keyword table (one data file, `src/core/data/route_keywords.json`) and names the installed
+  skills or agents to call, at most 600 characters, nothing for a prompt that matches nothing, never
+  echoing the prompt. `hook --apply` and `--remove` now manage both hooks; `drunken-doctor` checks
+  `routes.prompt_hook` (DG-515).
+- `scripts/release_smoke.py` builds the wheel, installs it into a throwaway venv under a temp home and
+  checks install, extras, prune, both hooks, the doctor and that the real settings are untouched; it
+  is step 0 of the release checklist in CONTRIBUTING.md (DG-514).
+- `scripts/check_skill_size.py` keeps skills (120 lines) and agents (100 lines) light: a new file over
+  the limit fails and a file already over may only shrink (DG-516).
 - `drunken-doctor`'s `processes.orphans` check lists leftover session processes with a dead
   parent and a known-leftover command line (a shell snapshot, a stdin interpreter, `uv run`,
   `drunken-jira-mcp`), and **lock holders** — a process whose executable sits inside the installed
@@ -21,17 +48,35 @@ while a release is being prepared, and is renamed to the version when it is tagg
   process table refuses rather than reporting a clean, unchecked list. `drunken-install
   skills`/`agents`/`all` print a one-line warning, before writing anything, naming how many lock
   holders exist and the exact command to clear them (DG-518).
+- README.md is now 54 lines with the seven-command flow diagram and a five-command install, GETTING_STARTED.md is 100 lines, and everything they used to carry moved word for word into `docs/REFERENCE.md` and `REPOSITORY_MAP.md`; the new `concise-docs` skill covers guides, test cases, status reports, release notes, tickets and chat summaries (DG-517).
 
 ### Fixed
-- `drunken-doctor`'s `paths.home.permissions` warning (and `paths.auth_db.permissions`) could
-  never clear on Windows: the check read `path.stat().st_mode`, which `pathlib` synthesizes there
-  from a single read-only attribute bit rather than the real ACL, so a directory always reported
-  as world-accessible — the warning stayed even right after running the `icacls` command the
-  report itself printed. On Windows the check now runs `icacls` and reads the ACL it reports,
-  treating `Everyone`, `BUILTIN\Users`, `NT AUTHORITY\Authenticated Users` and similar as other
-  principals; the current user, `SYSTEM`, `Administrators` and the owner are not. If `icacls`
-  cannot be run or its output cannot be parsed, the check still warns rather than silently passing.
-  POSIX is unchanged (DG-509).
+- After `extras --apply`, `status` called all 16 extras "retired" and `skills --prune --prune-apply`
+  would have deleted them; the retired list no longer names them. The hook recorded the first
+  `drunken-install` on PATH instead of the one running; it now records the running executable, as an
+  absolute path (DG-514).
+- `drunken-doctor` no longer warns forever about `~/.drunken` permissions on Windows: it reads the
+  ACL from `icacls` instead of a synthesized mode, and an ACL that still grants another account
+  warns (DG-509).
+- An empty, BOM-prefixed or truncated `projects.json` gives a typed error naming the file instead of a
+  traceback, and a registry with a `version` but no `projects` object is refused (DG-507).
+- `content_scan` reads `.claude`/`.gemini` at any depth, a differently cased `.Claude`, and a
+  nested `.mcp.json`; a real `.venv`, `node_modules` or `vendor` install is still stepped over
+  (DG-508).
+- The install documents pinned `v2.0.0`, left out `extras` and `hook`, did not say to close every Claude window before `uv tool install --force` on Windows, and taught moving a project's AI layer out of git without saying that a new git worktree then has no `AGENTS.md` (DG-511); README and GETTING_STARTED now say all four.
+- The installer no longer explodes on two Windows junctions that point at each other: it walks
+  without entering a link and still refuses it (DG-510).
+
+### Known and open
+- Routing, measured with `claude -p` in scratch projects: on an existing project the session-start
+  text alone made 0 of 24 UI and test runs call a skill; with the prompt hook, UI, test and security
+  prompts called the matching skill in 12 of 12 runs, and a bug-fix prompt in 1 of 3. A new-project
+  prompt called `/prd` in about 10 of 12 runs with or without a hook. Agents (`worker`, `reviewer`)
+  were not measured. The keyword table is the weak spot: a prompt it does not match gets no help.
+- A project's AI layer is absent in a new git worktree when it is untracked (DG-511).
+- The hang first reported for one installer test on Windows did not reproduce and is not explained
+  (DG-510); locale-dependent `icacls` parsing and a real domain-joined machine are unverified (DG-509).
+- The server-side registry reader still silently drops a version-2-looking file without `projects`.
 
 ## 2.0.1 — 2026-10-11
 
