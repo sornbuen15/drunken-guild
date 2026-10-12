@@ -8,51 +8,33 @@ Pointers only — read the skill, role or tool named; do not reason from this ta
 | situation | pick up |
 |---|---|
 | **new project** | `/prd` → `/clarify` → `/ddd` → `/breakdown` in that order, then `/replan` once a requirement changes after the backlog already exists. |
-| **a ticket ready to build** | `/build`, run by the **worker** role, its pull request read by the **reviewer** role before a human merges it. |
-| **planning or breaking work into tickets** | the **manager** role. |
+| **an approved task ready to build** | `/build` via the **worker** role. |
+| **a plan, tests, or proposed change to review** | the **reviewer** role. |
+| **planning or breaking work into tasks** | the **manager** role. |
 | **git — branch, commit, PR, merge strategy** | `/git-workflow` (`skills/workflow/git-workflow/SKILL.md`). |
-| **a Jira ticket — write it, read it, move it** | `/jira-tickets` (`skills/workflow/jira-tickets/SKILL.md`) plus the `jira_*` MCP tools. |
+| **a Jira issue — write, read, or move it** | Optional: `/jira-tickets` plus registered `jira_*` MCP tools. |
 | **end of day / closing a session** | `/audit`. |
 | **something destructive, irreversible or merge-worthy needs the Boss's approval** | `/ask-boss` (`skills/workflow/ask-boss/SKILL.md`). |
 | **unsure which skill, role or tool fits** | `skills/INDEX.md` — read it rather than guessing a name from memory. |
 <!-- guild-block:end -->
 
-Loaded by every agent working in this repository — Claude Code, Antigravity, Aider, Gemini CLI,
-whichever is in the seat. No agent-specific plumbing lives here (DG-349): the same file, the same
-rules, whoever is typing — with that agent's own name in the commit author and the `agent:` label.
+Shared instruction entry point. Agent discovery differs; see `docs/AGENT-COMPATIBILITY.md` for
+per-agent evidence.
 **Amended** (REQ-006, Q3-A): a generated one-line adapter that only points at this standard is
 allowed — a project's own `CLAUDE.md` is exactly that when it carries nothing beyond `@AGENTS.md`.
 
-`SESSION_CHECKPOINT.md` is the other half: **read it at the start of a session.** This file says
-how to work; that file says where things stand.
-
-**The repository is being re-scoped to 2.0.0** (Epic DG-348). The target and every decision so far
-are in `.ai/PRD.md`, and its vocabulary in `.ai/DOMAIN.md` — judge any change against them, and do
-not start work the inventory has not approved.
+`SESSION_CHECKPOINT.md` is the other half: read it at session start for project state. `.ai/PRD.md`
+and `.ai/DOMAIN.md` hold accepted requirements and vocabulary.
 
 ---
 
 ## What this repo is
 
-**One repository, two deliverables**, and almost every rule follows from that: **the runtime** —
-a Python package, the `drunken-jira-mcp` server, the CLI (`drunken-doctor`, `drunken-init`,
-`drunken-usage`) and the `drunken-hook` permission floor, in `src/`, `tests/`, `scripts/` — and
-**the AI layer** — the skills and agents installed into each agent's own location, in `skills/`,
-`agents/`, `templates/`, `examples/`.
+**One repository, two deliverables**: the Python runtime and optional integrations are in `src/`,
+`tests/`, `scripts/`; portable skills and roles are in `skills/`, `agents/`, `templates/`, `examples/`.
 
-It exists because these two were separate repositories that drifted — skills authored in four
-places with 26 duplicated by name, `git-workflow` silently diverged to 73 lines against 196. **One
-surface is the answer.** Do not recreate a second one — including by restating a rule in two files.
-
-**The flow is seven commands** — `/prd` → `/clarify` → `/ddd` → `/breakdown` → `/build` → `/audit`,
-plus `/replan` when a requirement moves after the backlog exists — one skill each in `skills/flow/`
-(README maps them). **Read the skill rather than reasoning from this line.** Anything that does not
-serve a step of that flow does not belong in `skills/` (DG-353, amended by DG-386).
-
-**The AI layer stays in git, deliberately** (DG-250): here it *is* the product, so do not "fix"
-this repo by moving `skills/` or `agents/` out of version control. *Drunken Programmer* is the pen
-name; `drunken-guild` is the product — the tension between the name and FATAL directives is the
-brand.
+The flow is `/prd` → `/clarify` → `/ddd` → `/breakdown` → `/build` → `/audit`, with `/replan` when
+requirements change. Start at the step that fits the task and read its skill.
 
 ---
 
@@ -68,65 +50,43 @@ uvx bandit -ll -q -r src/           # with pip-audit --strict, also gates CI
 ./scripts/verify_clean_install.sh   # clean-room checks, touches nothing of yours
 ```
 
-`pytest -m e2e` talks to **live Jira and files real tickets**. Run it deliberately or not at all —
-it is deselected because for months it was not, and it filed 52 junk tickets before anyone noticed.
+`drunken-usage` estimates usage from supported local transcripts — nothing is instrumented and nothing is sent anywhere;
+rates are operator-provided, and an unpriced model reports no cost rather than a smaller one. See its documentation for limits.
 
-`drunken-usage --project drunken-guild --by ticket` says what a run cost, read from the host's own
-transcripts — nothing is instrumented and nothing is sent anywhere. It knows no prices; rates are
-an operator input, and an unpriced model reports no cost rather than a smaller one. The `DG-` key
-in a branch name is its only source, so a branch without one reports as untracked cost, silently.
+A pull request page is a surface too, and it lags the actual Git revision; verify the revision itself.
 
-**A test for a bug or a security finding is seen failing first.** A test written after the fix
-proves only that it compiles — say so in the PR, and quote the failure's test id and assertion.
+**Checks follow acceptance criteria.** For a regression test, run it before the fix when practical;
+otherwise say that it was not observed failing. Report actual check output, not claims.
 
 ---
 
-## Jira is the source of truth
+Work tracking is optional. Use user requests or project files as task context; use Jira only when
+registered and selected. Its absence must not block the SDLC flow. When selected, consult
+`skills/workflow/jira-tickets/SKILL.md` for its tool contract.
 
-`TODO` → `IN PROGRESS` → `IN REVIEW` → `DONE`. **Never skip IN REVIEW**, including for your own
-work.
-
-**How to write and run a ticket is `skills/workflow/jira-tickets/SKILL.md`** — the
-FINDING/SCOPE/ACCEPTANCE shape, the fields this Jira can actually set, and what must be verified
-before anything is Done. Read it before opening or closing a ticket; it is the same file every
-agent is pointed at. Use the `drunken-jira-mcp` tools, each taking the project id as its first
-argument — there is no shell fallback (DG-355).
-
-**A ticket marked IN REVIEW is not merged code.** DG-225 sat in review for weeks while its branch
-was never merged and the trunk stayed vulnerable; every surface said it was done. Verify against
-`origin/develop` — by looking, with `git merge-base --is-ancestor` — before believing any claim
-that something is fixed. A pull request page is a surface too, and it lags (DG-358).
-
-**An action only a person can take at the end goes on the release-gate ticket**, as a comment, in
-the session that finds it — a note in a PR body is not read at tag time.
-
-**There is no local board** (DG-265): do not create or author a skill that reads or writes
-`.claude/board/` or `.agents/board/` — a board beside Jira is a second surface that can disagree
-with the first. **The backlog is not a second status**: `jira_move_to_backlog` and
-`jira_move_to_board` change membership of the current working set, nothing else.
-
-**Assignee is the accountable human; the agent doing the typing is a label.** A ticket an agent is
-actively working carries `agent:<name>` in `labels` — set it; do not repurpose Assignee for it
-(DG-293).
+**Instruction files are not disposable.** A project's `AGENTS.md`, `CLAUDE.md`, and other agent
+configuration may be essential even when the project does not use Drunken Guild. Never delete,
+untrack, overwrite, or add ignore rules for them just because they are AI-layer files or mention a
+different workflow. Change them only when the project owner explicitly asks. Guild migration means
+removing files from Git tracking while preserving them on disk, with backup and review; it is an
+explicit migration, never an automatic cleanup.
 
 ---
 
 ## Git
 
-**The full rules are one file: `skills/workflow/git-workflow/SKILL.md`.** Branch naming, merge
-strategy per target, and the release flow all live there. **Load it rather than reasoning from
-memory, and do not restate it here.**
+**The full rules are one file: `skills/workflow/git-workflow/SKILL.md`.** Load it before Git actions.
 
 Six things are unrecoverable if you get them wrong, so they are named here as pointers:
 
-- Never push to `main`, and never `git merge` locally against `main` or `develop` and push the
-  result. Merge strategy is chosen by target, not preference.
-- **An agent opens pull requests; a human merges them.** No exception for your own PR, a one-line
-  change, or a green CI.
-- **An agent commit passes `--author`**, so `git log` tells an agent's commit from the operator's:
+- **This repository's protected delivery target is `develop`; `main` is out of scope.** Never
+  push, open a pull request targeting, or merge into `main`. A human reviews and decides whether
+  to merge approved work into `develop`; agents do not merge.
+- Do not commit, push, or open a pull request unless the user or repository workflow authorizes it.
+- **When commits are authorized, an agent commit passes `--author`**, so `git log` tells an agent's commit from the operator's:
   `Claude Code <claude@drunken.local>`, or `<Agent> <agent@drunken.local>` for any other (DG-293) —
   local-only addresses that resolve nowhere, to be visibly not a real account.
-- **Two agents never share a checked-out working tree.** Each works from its own `git worktree`,
+- **Concurrent agents do not share a mutable working tree.** Each works from its own `git worktree`,
   on its own branch (DG-288). One task, one owner, one branch, one worktree, one PR.
 
 Pre-commit runs ruff, ruff-format, mypy and the repository's own guards; do not bypass it, and

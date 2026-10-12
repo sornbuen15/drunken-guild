@@ -11,18 +11,18 @@
     {"request": "The PRD is agreed. Work out the bounded contexts and the words we should all use.", "expect": {"kind": "skill", "name": "ddd"}},
     {"request": "We keep calling the same thing 'booking' and 'appointment'. Settle the vocabulary.", "expect": {"kind": "skill", "name": "ddd"}},
 
-    {"request": "Turn the PRD and the domain model into Jira tickets.", "expect": {"kind": "skill", "name": "breakdown"}},
-    {"request": "Cut the backlog for the payments context, a day per task.", "expect": {"kind": "skill", "name": "breakdown"}},
+    {"request": "Turn the PRD and domain model into a set of project tasks.", "expect": {"kind": "skill", "name": "breakdown"}},
+    {"request": "Break the payments context into reviewable implementation tasks.", "expect": {"kind": "skill", "name": "breakdown"}},
 
-    {"request": "Pick up DG-412 and implement it.", "expect": {"kind": "skill", "name": "build"}},
-    {"request": "Fix the bug in ticket ALPHA-157 and open a PR.", "expect": {"kind": "skill", "name": "build"}},
-    {"request": "ทำการ์ดถัดไปใน backlog ต่อเลย", "expect": {"kind": "skill", "name": "build"}},
+    {"request": "Implement the approved change to the booking validation.", "expect": {"kind": "skill", "name": "build"}},
+    {"request": "Fix this bug and prepare the project's required review handoff.", "expect": {"kind": "skill", "name": "build"}},
+    {"request": "แก้ bug นี้ตาม acceptance criteria แล้วสรุปผลตรวจให้หน่อย", "expect": {"kind": "skill", "name": "build"}},
 
     {"request": "We're dropping REQ-009 — update the plan and the tickets that hang off it.", "expect": {"kind": "skill", "name": "replan"}},
     {"request": "The customer changed their mind: cancellations now need 48 hours, not 24. Carry that through.", "expect": {"kind": "skill", "name": "replan"}},
 
-    {"request": "What actually shipped today, requirement by requirement?", "expect": {"kind": "skill", "name": "audit"}},
-    {"request": "Check whether every Must requirement has a passing test on develop.", "expect": {"kind": "skill", "name": "audit"}},
+    {"request": "What is implemented and verified, requirement by requirement?", "expect": {"kind": "skill", "name": "audit"}},
+    {"request": "Check whether every Must requirement has observed verification evidence.", "expect": {"kind": "skill", "name": "audit"}},
 
     {"request": "Where does this project keep its PRD?", "expect": {"kind": "skill", "name": "project-docs"}},
     {"request": "There's a PRD.md in the root and another in .ai — which one do we use?", "expect": {"kind": "skill", "name": "project-docs"}},
