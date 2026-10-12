@@ -742,3 +742,363 @@ class TestDoctorPromptHookCheck:
         check = next(c for c in report.checks if c.name == "routes.prompt_hook")
         assert check.status == "warn"
         assert "not this installation" in check.detail
+
+
+FIXTURES_DIR = Path(__file__).resolve().parent / "fixtures"
+
+
+@pytest.fixture
+def role_and_skill_fixture(tmp_path: Path) -> tuple[Path, Path]:
+    """``worker``, ``reviewer`` and ``manager`` installed as both a skill and an agent -- real
+    roles, per ``agents/_sources.json`` -- and ``build`` installed as a skill only. The exact
+    shape DG-521's kind lookup must tell apart."""
+    skills = tmp_path / "skills"
+    agents = tmp_path / "agents"
+    for name in (
+        "build",
+        "worker",
+        "reviewer",
+        "manager",
+        "git-workflow",
+        "ask-boss",
+        "prd",
+        "clarify",
+    ):
+        make_skill(skills, name)
+    for name in ("worker", "reviewer", "manager"):
+        make_agent(agents, name)
+    return skills, agents
+
+
+class TestRouterPrecisionDG521:
+    """DG-521 FINDING: a pasted doctor log made the hook nominate 10 skills, and the worker /
+    reviewer AGENTS were called 0 times in 18 runs because the nudge never told them apart from
+    the skills sharing their name. This covers ignoring pasted/quoted/log-looking text, capping
+    categories and names, and phrasing a role as the Agent tool."""
+
+    def test_pasted_doctor_log_nominates_nothing(self, extras_skills) -> None:
+        skills, agents = extras_skills
+        log_text = (FIXTURES_DIR / "pasted_doctor_log.txt").read_text(encoding="utf-8")
+        text = install.route_text(log_text, skills, agents)
+        assert text == "", f"a pasted doctor log must nominate nothing, got {text!r}"
+
+    def test_quoted_block_nominates_nothing(self, extras_skills) -> None:
+        skills, agents = extras_skills
+        prompt = (
+            "> please review this pull request and check the security of this endpoint\n"
+            "> also add a unit test for it"
+        )
+        text = install.route_text(prompt, skills, agents)
+        assert text == "", f"a fully-quoted prompt must nominate nothing, got {text!r}"
+
+    def test_fenced_code_block_is_ignored(self, extras_skills) -> None:
+        skills, agents = extras_skills
+        prompt = (
+            "```\ndef test_login():\n    assert check_password(token) is True\n```\n"
+        )
+        text = install.route_text(prompt, skills, agents)
+        assert text == "", f"fenced code must not be matched, got {text!r}"
+
+    def test_pasted_content_block_is_ignored(self, extras_skills) -> None:
+        skills, agents = extras_skills
+        prompt = (
+            "<pasted_content>\n"
+            "security token endpoint test review deploy documentation\n"
+            "</pasted_content>"
+        )
+        text = install.route_text(prompt, skills, agents)
+        assert text == "", f"a pasted_content block must not be matched, got {text!r}"
+
+    def test_at_most_two_categories_are_ever_selected(self) -> None:
+        prompt = (
+            "please implement this new feature, fix the bug, review this pull request, "
+            "write the documentation, and deploy to production"
+        )
+        table = install._load_route_table()
+        matches = install._category_matches(prompt, table)
+        assert len(matches) >= 3, "fixture prompt must tempt more than 2 categories"
+        names = install._matched_names(prompt, table)
+        assert len(names) <= 5
+
+    def test_five_name_cap_actually_trims_when_two_categories_combine_past_it(
+        self, extras_skills
+    ) -> None:
+        skills, agents = extras_skills
+        prompt = "check the security of this login form and the endpoint token"
+        table = install._load_route_table()
+        matches = install._category_matches(prompt, table)
+        uncapped = {n for _h, _p, _c, names in matches[:2] for n in names}
+        assert len(uncapped) > 5, "fixture must actually tempt more than 5 names"
+        names = install._matched_names(prompt, table)
+        assert len(names) <= 5
+        text = install.route_text(prompt, skills, agents)
+        assert len(text) <= 600
+
+    def test_long_prose_paragraph_mentioning_tests_and_security_stays_bounded(
+        self, extras_skills
+    ) -> None:
+        skills, agents = extras_skills
+        prompt = (
+            "In today's retro we talked a lot about how our overall test coverage and the "
+            "team's general approach to security have been on everyone's mind lately. We "
+            "spent time discussing the testing strategy, reviewed a handful of access tokens "
+            "and the authentication flow, and agreed the security posture across several "
+            "endpoints needs another look before the next release ships out the door."
+        )
+        text = install.route_text(prompt, skills, agents)
+        assert len(text) <= 600
+        names = install._matched_names(prompt, install._load_route_table())
+        assert len(names) <= 5
+
+    def test_worker_and_reviewer_come_out_as_agent_build_as_skill(
+        self, role_and_skill_fixture
+    ) -> None:
+        skills, agents = role_and_skill_fixture
+        text = install.route_text(
+            "please implement this new feature and fix the bug", skills, agents
+        )
+        assert "worker" in text
+        assert "build" in text
+        assert "Agent tool" in text
+        assert "subagent_type" in text
+        assert "Skill tool" in text
+
+    def test_manager_role_also_comes_out_as_agent(self, role_and_skill_fixture) -> None:
+        skills, agents = role_and_skill_fixture
+        text = install.route_text(
+            "help me plan and break down the requirements", skills, agents
+        )
+        if "manager" in text:
+            assert "Agent tool" in text
+            assert "subagent_type" in text
+
+
+# DG-521 lead follow-up: the most important Thai phrasing for the role flow -- "do this ticket",
+# "finish this ticket" -- routed to nothing at all, or to build/test skills without the worker
+# agent, because neither a Jira-style ticket key nor a bare "ticket" word was ever in the table.
+TICKET_FLOW_POSITIVE_CASES = [
+    ("th-key", "ทำ ticket ALPHA-12 ให้หน่อย"),
+    ("th-bare", "ลงมือทำ ticket นี้จนเสร็จ"),
+    (
+        "th-long",
+        "มี ticket ALPHA-12 ให้ทำ: เพิ่มส่วนลด 10% เมื่อซื้อตั้งแต่ 10 ชิ้นขึ้นไปใน "
+        "pricing.py มีเทสด้วย ช่วยลงมือทำจนเสร็จ",
+    ),
+    ("en-key", "implement ticket ALPHA-12"),
+    ("th-key-fix", "ช่วยลงมือแก้ ticket BETA-7 ให้หน่อย"),
+    ("th-bare-task", "งานนี้ทำให้เสร็จหน่อย"),
+    ("en-key-fix", "please fix ticket ZETA-3 today"),
+]
+
+TICKET_FLOW_NEGATIVE_CASES = [
+    ("what-is-a-ticket", "what is a ticket"),
+    ("chitchat-ticket", "I bought a concert ticket for this weekend"),
+    (
+        "quoted-ticket",
+        "> please work on ticket ALPHA-12 and finish it\n> it is urgent",
+    ),
+    (
+        "pasted-log-ticket",
+        "OK    jira.ticket_alpha        ticket ALPHA-12 ทำ เสร็จแล้ว, nothing to do",
+    ),
+]
+
+
+class TestTicketFlowRoutesToTheWorkerAgentDG521FollowUp:
+    """DG-521 lead follow-up: a Jira-style ticket key (or a bare Thai ticket word) combined
+    with an action word must route to the build/worker role, same as the English "implement" /
+    "fix the bug" phrasing already did -- without this, the worker agent was never named for
+    exactly the phrasing a real ticket hand-off uses."""
+
+    @pytest.mark.parametrize(
+        "case_id, prompt",
+        TICKET_FLOW_POSITIVE_CASES,
+        ids=[c for c, _p in TICKET_FLOW_POSITIVE_CASES],
+    )
+    def test_ticket_plus_action_routes_to_build_and_worker(
+        self, role_and_skill_fixture, case_id, prompt
+    ) -> None:
+        skills, agents = role_and_skill_fixture
+        text = install.route_text(prompt, skills, agents)
+        assert "worker" in text, f"{case_id}: expected worker in {text!r}"
+        assert "build" in text, f"{case_id}: expected build in {text!r}"
+        assert "Agent tool" in text
+        assert "subagent_type" in text
+        assert len(text) <= 600
+
+    @pytest.mark.parametrize(
+        "case_id, prompt",
+        TICKET_FLOW_NEGATIVE_CASES,
+        ids=[c for c, _p in TICKET_FLOW_NEGATIVE_CASES],
+    )
+    def test_ticket_without_an_action_or_inside_noise_prints_nothing(
+        self, role_and_skill_fixture, case_id, prompt
+    ) -> None:
+        skills, agents = role_and_skill_fixture
+        text = install.route_text(prompt, skills, agents)
+        assert text == "", f"{case_id}: expected nothing, got {text!r}"
+
+    def test_review_category_keywords_are_unchanged(
+        self, role_and_skill_fixture
+    ) -> None:
+        """SCOPE item 2: the review category (ช่วยรีวิว / ตรวจ PR / pull request / code
+        review) stays exactly as it was -- this ticket-flow fix must not touch it."""
+        skills, agents = role_and_skill_fixture
+        for prompt in (
+            "ช่วยรีวิวโค้ดให้หน่อย",
+            "ตรวจ PR นี้ให้หน่อย",
+            "please review this pull request",
+            "a quick code review please",
+        ):
+            text = install.route_text(prompt, skills, agents)
+            assert "reviewer" in text, f"{prompt!r} -> {text!r}"
+
+    def test_caps_still_hold_for_the_long_ticket_prompt(
+        self, role_and_skill_fixture
+    ) -> None:
+        skills, agents = role_and_skill_fixture
+        prompt = (
+            "มี ticket ALPHA-12 ให้ทำ: เพิ่มส่วนลด 10% เมื่อซื้อตั้งแต่ 10 ชิ้นขึ้นไปใน "
+            "pricing.py มีเทสด้วย ช่วยลงมือทำจนเสร็จ"
+        )
+        table = install._load_route_table()
+        names = install._matched_names(prompt, table)
+        assert len(names) <= 5
+        text = install.route_text(prompt, skills, agents)
+        assert len(text) <= 600
+        assert "worker" in text
+
+
+class TestStripBeforeWindowDG521ReviewRound2:
+    """DG-521 review round 2, HIGH: the 400-character window used to be applied to the *raw*
+    prompt before :func:`install._strip_noise` ran, so a pasted log (noise) followed by a real
+    request past character 400 never reached the real text at all -- strip first, then window."""
+
+    def test_pasted_log_plus_trailing_ticket_request_routes_to_build_and_worker(
+        self, role_and_skill_fixture
+    ) -> None:
+        skills, agents = role_and_skill_fixture
+        log_text = (FIXTURES_DIR / "pasted_doctor_log.txt").read_text(encoding="utf-8")
+        prompt = log_text + "\nทำ ticket ALPHA-12 ให้หน่อย"
+        text = install.route_text(prompt, skills, agents)
+        assert "worker" in text, f"expected worker in {text!r}"
+        assert "build" in text, f"expected build in {text!r}"
+
+    def test_pasted_log_plus_trailing_review_request_routes_to_reviewer(
+        self, role_and_skill_fixture
+    ) -> None:
+        skills, agents = role_and_skill_fixture
+        log_text = (FIXTURES_DIR / "pasted_doctor_log.txt").read_text(encoding="utf-8")
+        prompt = log_text + "\nช่วยรีวิว PR นี้"
+        text = install.route_text(prompt, skills, agents)
+        assert "reviewer" in text, f"expected reviewer in {text!r}"
+
+    def test_a_request_within_400_chars_after_stripping_is_detected(
+        self, role_and_skill_fixture
+    ) -> None:
+        """380 characters of plain, non-noise preamble, then a short ticket request: once the
+        (noise-free) preamble is stripped away (there is nothing to strip here) the request
+        still lands inside the 400-character window, so it is detected."""
+        skills, agents = role_and_skill_fixture
+        preamble = "x" * 380
+        prompt = preamble + "ทำ ticket ALPHA-12"
+        assert len(prompt) <= 400, "fixture must actually land inside the window"
+        text = install.route_text(prompt, skills, agents)
+        assert "worker" in text, f"expected worker in {text!r}"
+
+    def test_a_request_buried_past_400_chars_of_real_text_is_not_detected(
+        self, role_and_skill_fixture
+    ) -> None:
+        """The documented, intended limit: once 400 characters of *real* (non-noise) text have
+        gone by, nothing past that point is ever considered -- only noise ahead of a request is
+        skipped for free, not an arbitrary amount of real text."""
+        skills, agents = role_and_skill_fixture
+        preamble = "x" * 600
+        prompt = preamble + "ทำ ticket ALPHA-12 ให้หน่อย"
+        text = install.route_text(prompt, skills, agents)
+        assert text == "", f"expected nothing (documented limit), got {text!r}"
+
+
+TICKET_KEY_FALSE_POSITIVE_NEGATIVES = [
+    ("utf-8", "fix utf-8 encoding"),
+    ("sha-256", "sha-256 hash"),
+    ("py-3", "python 3.13 py-3 issue"),
+]
+
+
+class TestTicketKeyRequiresAJiraLookingShapeDG521ReviewRound2:
+    """DG-521 review round 2, LOW but cheap: the ticket-key regex used to match any lowercase
+    technical token of the same shape -- "fix utf-8 encoding" nominated build+worker. A
+    lowercase prefix is now only accepted off a small stoplist of exactly these look-alikes; an
+    uppercase prefix (a real project key, e.g. ALPHA-12) is still accepted outright."""
+
+    @pytest.mark.parametrize(
+        "case_id, prompt",
+        TICKET_KEY_FALSE_POSITIVE_NEGATIVES,
+        ids=[c for c, _p in TICKET_KEY_FALSE_POSITIVE_NEGATIVES],
+    )
+    def test_lowercase_technical_tokens_do_not_look_like_a_ticket_key(
+        self, role_and_skill_fixture, case_id, prompt
+    ) -> None:
+        skills, agents = role_and_skill_fixture
+        text = install.route_text(prompt, skills, agents)
+        assert text == "", f"{case_id}: expected nothing, got {text!r}"
+
+    def test_an_uppercase_project_key_is_still_accepted(self) -> None:
+        assert install._contains_ticket_key("please fix ALPHA-12 today") is True
+
+    def test_a_stoplisted_lowercase_token_is_rejected(self) -> None:
+        assert install._contains_ticket_key("fix utf-8 encoding") is False
+
+
+BARE_WORK_WORD_NEGATIVES = [
+    ("plan-weekend", "plan our weekend"),
+    ("plan-lunch", "plan our lunch"),
+    ("what-is-architecture", "what is architecture"),
+]
+
+
+class TestBarePlanAndArchitectureNeedAWorkWordDG521ReviewRound2:
+    """DG-521 review round 2: the reviewer measured 3/20 benign chat prompts still nominating --
+    bare "architecture" (design category) and "plan our weekend"/"plan our lunch" (requirements
+    category, via "plan"). Both now require a companion work noun/verb in the same prompt."""
+
+    @pytest.mark.parametrize(
+        "case_id, prompt",
+        BARE_WORK_WORD_NEGATIVES,
+        ids=[c for c, _p in BARE_WORK_WORD_NEGATIVES],
+    )
+    def test_bare_plan_or_architecture_without_a_work_word_prints_nothing(
+        self, core_skills, case_id, prompt
+    ) -> None:
+        skills, agents = core_skills
+        text = install.route_text(prompt, skills, agents)
+        assert text == "", f"{case_id}: expected nothing, got {text!r}"
+
+    def test_plan_with_a_work_noun_still_matches(self, core_skills) -> None:
+        skills, agents = core_skills
+        text = install.route_text("let's plan the next feature", skills, agents)
+        assert "prd" in text
+
+    def test_architecture_with_a_work_verb_still_matches(self, core_skills) -> None:
+        skills, agents = core_skills
+        text = install.route_text(
+            "let's review the architecture of this service", skills, agents
+        )
+        assert "ddd" in text
+
+    def test_existing_realistic_positive_cases_with_plan_or_architecture_still_pass(
+        self, extras_skills
+    ) -> None:
+        """The existing SDLC/realistic cases that already use "plan"/"architecture" always have
+        a companion work word right alongside it -- this must not regress."""
+        skills, agents = extras_skills
+        cases = [
+            ("Help me design the architecture for this service.", "ddd"),
+            ("ช่วยออกแบบระบบและสถาปัตยกรรมให้หน่อย", "ddd"),
+            ("Help me plan and break down this project.", "prd"),
+            ("ช่วยวางแผนและแตกงานโปรเจกต์นี้หน่อย", "prd"),
+        ]
+        for prompt, expected in cases:
+            text = install.route_text(prompt, skills, agents)
+            assert expected in text, f"{prompt!r} -> {text!r}"

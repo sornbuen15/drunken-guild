@@ -7,6 +7,18 @@ The top heading is the version this tree declares in `pyproject.toml`; `Unreleas
 while a release is being prepared, and is renamed to the version when it is tagged
 (`tests/test_install_agents.py::TestTheChangelog`).
 
+## Unreleased
+
+### Fixed
+- `drunken-install route` no longer over-triggers on a pasted log, a quoted block or fenced
+  code: it now considers only the first 400 characters of a prompt, strips log-looking lines,
+  quoted lines and `<pasted_content>`-style blocks before matching, and caps a nudge at the two
+  highest-scoring categories and five names in total — a pasted `drunken-doctor` log used to
+  nominate as many as 10 skills in one run. It also tells a role (`worker`, `reviewer`,
+  `manager` — installed as both a skill and an agent) apart from a plain skill: a role is named
+  through the Agent tool with its `subagent_type`, everything else through the Skill tool
+  (DG-521).
+
 ## 2.0.2 — 2026-10-12
 
 Makes the guild's skills and agents reach a session, brings the older ones back, and fixes what
