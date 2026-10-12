@@ -66,6 +66,10 @@ one `PRD.md`, naming what the sources disagreed about, never silently. A Jira ba
 else already cut is read first, not duplicated: `/breakdown` binds an existing ticket instead of
 creating a second one for the same work.
 
+> **New or existing, an untracked AI layer has no worktree memory.** `AGENTS.md`, `CLAUDE.md` and
+> `.claude/` are deliberately not committed, so a *new* `git worktree` of either kind of project
+> starts with none of them — details: [`docs/REFERENCE.md`](./docs/REFERENCE.md#ai-layer-location-and-git-worktrees).
+
 ## Windows notes
 
 - PowerShell 5.1+ or [PowerShell 7+](https://github.com/PowerShell/PowerShell/releases).
