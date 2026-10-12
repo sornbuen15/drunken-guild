@@ -16,7 +16,8 @@
       "วางแผน",
       "แตกงาน"
     ],
-    "names": ["prd", "clarify", "breakdown"]
+    "names": ["prd", "clarify", "breakdown"],
+    "priority": 1
   },
   {
     "category": "design",
@@ -32,7 +33,8 @@
       "โครงสร้างข้อมูล",
       "ไดอะแกรม"
     ],
-    "names": ["ddd", "system-design-rules", "clean-architecture"]
+    "names": ["ddd", "system-design-rules", "clean-architecture"],
+    "priority": 2
   },
   {
     "category": "build",
@@ -48,7 +50,8 @@
       "เขียนโค้ด",
       "พัฒนาฟีเจอร์"
     ],
-    "names": ["build", "worker"]
+    "names": ["build", "worker"],
+    "priority": 3
   },
   {
     "category": "tests",
@@ -63,7 +66,8 @@
       "ทดสอบ",
       "หน่วยทดสอบ"
     ],
-    "names": ["build", "test-strategy", "test-architecture"]
+    "names": ["build", "test-strategy", "test-architecture"],
+    "priority": 4
   },
   {
     "category": "bugfix",
@@ -82,7 +86,8 @@
       "พัง",
       "ผิดพลาด"
     ],
-    "names": ["build", "worker"]
+    "names": ["build", "worker"],
+    "priority": 5
   },
   {
     "category": "review",
@@ -96,7 +101,8 @@
       "ตรวจโค้ด",
       "รีวิวโค้ด"
     ],
-    "names": ["reviewer"]
+    "names": ["reviewer"],
+    "priority": 6
   },
   {
     "category": "security",
@@ -120,7 +126,8 @@
       "สิทธิ์การเข้าถึง",
       "สิทธิ์"
     ],
-    "names": ["reviewer", "secure-by-design", "security-engineer"]
+    "names": ["reviewer", "secure-by-design", "security-engineer"],
+    "priority": 7
   },
   {
     "category": "ui_ux",
@@ -144,7 +151,8 @@
       "ล็อกอิน",
       "สมัครสมาชิก"
     ],
-    "names": ["universal-ui", "universal-ux", "build"]
+    "names": ["universal-ui", "universal-ux", "build"],
+    "priority": 8
   },
   {
     "category": "git",
@@ -159,7 +167,8 @@
       "เมิร์จโค้ด",
       "รีเบส"
     ],
-    "names": ["git-workflow"]
+    "names": ["git-workflow"],
+    "priority": 9
   },
   {
     "category": "deploy",
@@ -175,7 +184,8 @@
       "รีลีส",
       "ขึ้นโปรดักชัน"
     ],
-    "names": ["ask-boss"]
+    "names": ["ask-boss"],
+    "priority": 10
   },
   {
     "category": "docs",
@@ -191,6 +201,7 @@
       "เขียนเอกสาร",
       "คู่มือ"
     ],
-    "names": ["project-docs", "concise-docs"]
+    "names": ["project-docs", "concise-docs"],
+    "priority": 11
   }
 ]

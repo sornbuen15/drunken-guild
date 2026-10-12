@@ -742,3 +742,132 @@ class TestDoctorPromptHookCheck:
         check = next(c for c in report.checks if c.name == "routes.prompt_hook")
         assert check.status == "warn"
         assert "not this installation" in check.detail
+
+
+FIXTURES_DIR = Path(__file__).resolve().parent / "fixtures"
+
+
+@pytest.fixture
+def role_and_skill_fixture(tmp_path: Path) -> tuple[Path, Path]:
+    """``worker``, ``reviewer`` and ``manager`` installed as both a skill and an agent -- real
+    roles, per ``agents/_sources.json`` -- and ``build`` installed as a skill only. The exact
+    shape DG-521's kind lookup must tell apart."""
+    skills = tmp_path / "skills"
+    agents = tmp_path / "agents"
+    for name in (
+        "build",
+        "worker",
+        "reviewer",
+        "manager",
+        "git-workflow",
+        "ask-boss",
+        "prd",
+        "clarify",
+    ):
+        make_skill(skills, name)
+    for name in ("worker", "reviewer", "manager"):
+        make_agent(agents, name)
+    return skills, agents
+
+
+class TestRouterPrecisionDG521:
+    """DG-521 FINDING: a pasted doctor log made the hook nominate 10 skills, and the worker /
+    reviewer AGENTS were called 0 times in 18 runs because the nudge never told them apart from
+    the skills sharing their name. This covers ignoring pasted/quoted/log-looking text, capping
+    categories and names, and phrasing a role as the Agent tool."""
+
+    def test_pasted_doctor_log_nominates_nothing(self, extras_skills) -> None:
+        skills, agents = extras_skills
+        log_text = (FIXTURES_DIR / "pasted_doctor_log.txt").read_text(encoding="utf-8")
+        text = install.route_text(log_text, skills, agents)
+        assert text == "", f"a pasted doctor log must nominate nothing, got {text!r}"
+
+    def test_quoted_block_nominates_nothing(self, extras_skills) -> None:
+        skills, agents = extras_skills
+        prompt = (
+            "> please review this pull request and check the security of this endpoint\n"
+            "> also add a unit test for it"
+        )
+        text = install.route_text(prompt, skills, agents)
+        assert text == "", f"a fully-quoted prompt must nominate nothing, got {text!r}"
+
+    def test_fenced_code_block_is_ignored(self, extras_skills) -> None:
+        skills, agents = extras_skills
+        prompt = (
+            "```\ndef test_login():\n    assert check_password(token) is True\n```\n"
+        )
+        text = install.route_text(prompt, skills, agents)
+        assert text == "", f"fenced code must not be matched, got {text!r}"
+
+    def test_pasted_content_block_is_ignored(self, extras_skills) -> None:
+        skills, agents = extras_skills
+        prompt = (
+            "<pasted_content>\n"
+            "security token endpoint test review deploy documentation\n"
+            "</pasted_content>"
+        )
+        text = install.route_text(prompt, skills, agents)
+        assert text == "", f"a pasted_content block must not be matched, got {text!r}"
+
+    def test_at_most_two_categories_are_ever_selected(self) -> None:
+        prompt = (
+            "please implement this new feature, fix the bug, review this pull request, "
+            "write the documentation, and deploy to production"
+        )
+        table = install._load_route_table()
+        matches = install._category_matches(prompt, table)
+        assert len(matches) >= 3, "fixture prompt must tempt more than 2 categories"
+        names = install._matched_names(prompt, table)
+        assert len(names) <= 5
+
+    def test_five_name_cap_actually_trims_when_two_categories_combine_past_it(
+        self, extras_skills
+    ) -> None:
+        skills, agents = extras_skills
+        prompt = "check the security of this login form and the endpoint token"
+        table = install._load_route_table()
+        matches = install._category_matches(prompt, table)
+        uncapped = {n for _h, _p, _c, names in matches[:2] for n in names}
+        assert len(uncapped) > 5, "fixture must actually tempt more than 5 names"
+        names = install._matched_names(prompt, table)
+        assert len(names) <= 5
+        text = install.route_text(prompt, skills, agents)
+        assert len(text) <= 600
+
+    def test_long_prose_paragraph_mentioning_tests_and_security_stays_bounded(
+        self, extras_skills
+    ) -> None:
+        skills, agents = extras_skills
+        prompt = (
+            "In today's retro we talked a lot about how our overall test coverage and the "
+            "team's general approach to security have been on everyone's mind lately. We "
+            "spent time discussing the testing strategy, reviewed a handful of access tokens "
+            "and the authentication flow, and agreed the security posture across several "
+            "endpoints needs another look before the next release ships out the door."
+        )
+        text = install.route_text(prompt, skills, agents)
+        assert len(text) <= 600
+        names = install._matched_names(prompt, install._load_route_table())
+        assert len(names) <= 5
+
+    def test_worker_and_reviewer_come_out_as_agent_build_as_skill(
+        self, role_and_skill_fixture
+    ) -> None:
+        skills, agents = role_and_skill_fixture
+        text = install.route_text(
+            "please implement this new feature and fix the bug", skills, agents
+        )
+        assert "worker" in text
+        assert "build" in text
+        assert "Agent tool" in text
+        assert "subagent_type" in text
+        assert "Skill tool" in text
+
+    def test_manager_role_also_comes_out_as_agent(self, role_and_skill_fixture) -> None:
+        skills, agents = role_and_skill_fixture
+        text = install.route_text(
+            "help me plan and break down the requirements", skills, agents
+        )
+        if "manager" in text:
+            assert "Agent tool" in text
+            assert "subagent_type" in text

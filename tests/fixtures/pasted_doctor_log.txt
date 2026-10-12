@@ -1,0 +1,40 @@
+OK    env.python_version        python 3.11 detected, matches pyproject
+OK    env.uv_installed           uv 0.4.0 on PATH
+WARN  env.node_optional          node not found; optional, skipping JS checks
+OK    registry.projects          2 project(s) registered: alpha, beta
+OK    registry.schema            registry matches the expected schema
+FAIL  credentials.alpha          could not reach Jira for project alpha
+        -> re-run drunken-doctor after fixing env://ALPHA_JIRA_TOKEN
+OK    credentials.beta           Jira reachable for project beta
+OK    ai_layer.skills            42 skill(s) installed under C:\Users\alpha\.claude\skills
+OK    ai_layer.agents            3 agent(s) installed under C:\Users\alpha\.claude\agents
+WARN  ai_layer.orphans           1 unrecognised skill found, not removed automatically
+OK    hooks.session_start        SessionStart hook present and trusted
+OK    hooks.prompt_submit        UserPromptSubmit hook present and trusted
+SKIP  hooks.legacy               legacy install script not found, nothing to check
+OK    tests.unit                 312 unit test(s) collected
+WARN  tests.coverage             coverage below the configured floor for src/core/usage.py
+OK    tests.e2e                  deselected by default, not run
+OK    security.secrets_scan      no secret-looking token found in tracked files
+WARN  security.permissions       one hook grants a wide file permission; review recommended
+OK    security.agent_labels      every active ticket carries an agent: label
+OK    git.hooks_installed        pre-commit installed at .git/hooks/pre-commit
+OK    git.branch                 on develop, up to date with origin/develop
+OK    deployment.mcp_pin         drunken-jira-mcp pinned to the locked version
+WARN  deployment.wheel_build     wheel build is stale; rebuild before release
+OK    docs.changelog             CHANGELOG.md has a section for the latest tag
+OK    docs.readme                README.md matches the repository map
+OK    board.registered_only      no local board files found, as expected
+OK    jira.project_alpha         project alpha resolves through the registry
+FAIL  jira.project_beta          project beta token expired
+        -> refresh env://BETA_JIRA_TOKEN and re-run this check
+OK    orphans.processes          0 orphaned session process(es) found
+OK    orphans.lock_holders       0 guild lock holder(s) found
+WARN  extras.drunken_extras      8 of 31 extras skills installed
+OK    usage.pricing              usage report resolved rates for every DG- branch seen
+OK    worker_role.installed      worker agent present and matches its skill
+OK    reviewer_role.installed    reviewer agent present and matches its skill
+OK    manager_role.installed     manager agent present and matches its skill
+OK    audit.session_checkpoint   SESSION_CHECKPOINT.md updated this session
+
+26 ok, 6 warning, 2 failed, 0 skipped
