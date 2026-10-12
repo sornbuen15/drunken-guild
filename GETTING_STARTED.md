@@ -2,6 +2,11 @@
 
 From nothing installed to your first completed ticket.
 
+```mermaid
+flowchart LR
+    install["install"] --> doctor["drunken-doctor"] --> prd["/prd"]
+```
+
 ## Install
 
 Needs [`uv`](https://docs.astral.sh/uv/) and Git.
