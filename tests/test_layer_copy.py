@@ -1765,7 +1765,7 @@ class TestContentScanRefusesBeforeAnyWrite:
             "contact jane.doe@realcorp.test\n", encoding="utf-8"
         )
         (project_folder / "CONVENTIONS.md").write_text(
-            r"C:\Users\argig\.drunken\secrets.json" + "\n", encoding="utf-8"
+            r"C:\Users\alpha\.drunken\secrets.json" + "\n", encoding="utf-8"
         )
 
         try:

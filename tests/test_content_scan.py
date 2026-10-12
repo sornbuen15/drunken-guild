@@ -78,7 +78,7 @@ def test_flags_an_email_address() -> None:
 
 
 def test_flags_a_windows_drive_path() -> None:
-    text = r"C:\Users\argig\.drunken\secrets.json"
+    text = r"C:\Users\alpha\.drunken\secrets.json"
     findings = content_scan.scan_text(text, "f")
     assert any(f.kind == "path" for f in findings)
 

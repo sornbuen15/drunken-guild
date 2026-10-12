@@ -1,0 +1,196 @@
+[
+  {
+    "category": "requirements",
+    "keywords": [
+      "requirement",
+      "requirements",
+      "prd",
+      "user story",
+      "scope",
+      "spec",
+      "plan",
+      "ความต้องการ",
+      "ขอบเขตงาน",
+      "สเปก",
+      "ยูสเคส",
+      "วางแผน",
+      "แตกงาน"
+    ],
+    "names": ["prd", "clarify", "breakdown"]
+  },
+  {
+    "category": "design",
+    "keywords": [
+      "design the system",
+      "architecture",
+      "data model",
+      "schema",
+      "diagram",
+      "domain model",
+      "ออกแบบระบบ",
+      "สถาปัตยกรรม",
+      "โครงสร้างข้อมูล",
+      "ไดอะแกรม"
+    ],
+    "names": ["ddd", "system-design-rules", "clean-architecture"]
+  },
+  {
+    "category": "build",
+    "keywords": [
+      "build a feature",
+      "implement",
+      "add a feature",
+      "develop",
+      "write code",
+      "new feature",
+      "สร้างฟีเจอร์",
+      "เพิ่มฟีเจอร์",
+      "เขียนโค้ด",
+      "พัฒนาฟีเจอร์"
+    ],
+    "names": ["build", "worker"]
+  },
+  {
+    "category": "tests",
+    "keywords": [
+      "test",
+      "tests",
+      "testing",
+      "tdd",
+      "unit test",
+      "coverage",
+      "เทส",
+      "ทดสอบ",
+      "หน่วยทดสอบ"
+    ],
+    "names": ["build", "test-strategy", "test-architecture"]
+  },
+  {
+    "category": "bugfix",
+    "keywords": [
+      "bug",
+      "fix the bug",
+      "broken",
+      "crash",
+      "regression",
+      "does not work",
+      "exception",
+      "บัก",
+      "แก้บัก",
+      "แก้",
+      "ใช้งานไม่ได้",
+      "พัง",
+      "ผิดพลาด"
+    ],
+    "names": ["build", "worker"]
+  },
+  {
+    "category": "review",
+    "keywords": [
+      "review",
+      "pull request",
+      "code review",
+      "pr feedback",
+      "pr",
+      "รีวิว",
+      "ตรวจโค้ด",
+      "รีวิวโค้ด"
+    ],
+    "names": ["reviewer"]
+  },
+  {
+    "category": "security",
+    "keywords": [
+      "security",
+      "secure",
+      "vulnerability",
+      "password",
+      "secret",
+      "access token",
+      "token",
+      "authentication",
+      "auth",
+      "permission check",
+      "api endpoint",
+      "rest api",
+      "endpoint",
+      "ความปลอดภัย",
+      "รหัสผ่าน",
+      "ช่องโหว่",
+      "สิทธิ์การเข้าถึง",
+      "สิทธิ์"
+    ],
+    "names": ["reviewer", "secure-by-design", "security-engineer"]
+  },
+  {
+    "category": "ui_ux",
+    "keywords": [
+      "ui",
+      "ux",
+      "user interface",
+      "screen design",
+      "form design",
+      "page layout",
+      "login",
+      "page",
+      "form",
+      "component",
+      "screen",
+      "หน้าจอ",
+      "หน้า",
+      "ฟอร์ม",
+      "ดีไซน์หน้า",
+      "เลย์เอาต์",
+      "ล็อกอิน",
+      "สมัครสมาชิก"
+    ],
+    "names": ["universal-ui", "universal-ux", "build"]
+  },
+  {
+    "category": "git",
+    "keywords": [
+      "git branch",
+      "git commit",
+      "merge branch",
+      "rebase",
+      "pull request workflow",
+      "กิตแบรนช์",
+      "กิตคอมมิต",
+      "เมิร์จโค้ด",
+      "รีเบส"
+    ],
+    "names": ["git-workflow"]
+  },
+  {
+    "category": "deploy",
+    "keywords": [
+      "deploy",
+      "deployment",
+      "release",
+      "ship to production",
+      "go live",
+      "ดีพลอย",
+      "ปล่อยขึ้นโปรดักชัน",
+      "ปล่อย",
+      "รีลีส",
+      "ขึ้นโปรดักชัน"
+    ],
+    "names": ["ask-boss"]
+  },
+  {
+    "category": "docs",
+    "keywords": [
+      "documentation",
+      "write the docs",
+      "readme",
+      "changelog",
+      "write a guide",
+      "doc",
+      "เอกสาร",
+      "เขียนคู่มือ",
+      "เขียนเอกสาร",
+      "คู่มือ"
+    ],
+    "names": ["project-docs"]
+  }
+]

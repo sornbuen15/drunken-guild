@@ -30,7 +30,7 @@ class TestResolution:
         assert assign.is_self_reference("@me") is True
 
     def test_a_real_name_is_not_a_self_reference(self) -> None:
-        assert assign.is_self_reference("Jakkawan") is False
+        assert assign.is_self_reference("Alphawan") is False
         assert assign.is_self_reference("owner@example.com") is False
 
     def test_unassign_is_expressed_as_none_not_as_a_name(self) -> None:
@@ -46,12 +46,12 @@ class TestPickingTheRightUser:
     CANDIDATES = [
         {
             "accountId": "a1",
-            "displayName": "Jakkawan R",
+            "displayName": "Alphawan R",
             "emailAddress": "owner@example.com",
         },
         {
             "accountId": "a2",
-            "displayName": "Jak Other",
+            "displayName": "Alph Other",
             "emailAddress": "other@example.com",
         },
     ]
@@ -63,19 +63,19 @@ class TestPickingTheRightUser:
         )
 
     def test_an_exact_display_name_match_wins(self) -> None:
-        assert assign.pick_user(self.CANDIDATES, "Jak Other")["accountId"] == "a2"
+        assert assign.pick_user(self.CANDIDATES, "Alph Other")["accountId"] == "a2"
 
     def test_matching_is_case_insensitive(self) -> None:
-        assert assign.pick_user(self.CANDIDATES, "JAKKAWAN R")["accountId"] == "a1"
+        assert assign.pick_user(self.CANDIDATES, "ALPHAWAN R")["accountId"] == "a1"
 
     def test_an_ambiguous_partial_match_is_refused_rather_than_guessed(self) -> None:
-        """ "Jak" matches both. Assigning the wrong person is worse than
+        """ "Alph" matches both. Assigning the wrong person is worse than
         refusing: the work goes quiet on someone else's board and nobody is
         told. So it raises, and the message names every candidate."""
         with pytest.raises(ValueError) as caught:
-            assign.pick_user(self.CANDIDATES, "Jak")
-        assert "Jakkawan R" in str(caught.value)
-        assert "Jak Other" in str(caught.value)
+            assign.pick_user(self.CANDIDATES, "Alph")
+        assert "Alphawan R" in str(caught.value)
+        assert "Alph Other" in str(caught.value)
 
     def test_a_unique_partial_match_is_accepted(self) -> None:
         assert assign.pick_user(self.CANDIDATES, "Other")["accountId"] == "a2"
@@ -85,7 +85,7 @@ class TestPickingTheRightUser:
         The error carries who *is* assignable, so it can try again."""
         with pytest.raises(ValueError) as caught:
             assign.pick_user(self.CANDIDATES, "Somebody Else")
-        assert "Jakkawan R" in str(caught.value)
+        assert "Alphawan R" in str(caught.value)
 
     def test_an_empty_candidate_list_says_so_clearly(self) -> None:
         """Distinct from "no match": nobody is assignable on this project at

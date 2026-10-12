@@ -305,7 +305,7 @@ TODO  →  IN PROGRESS  →  IN REVIEW  →  DONE
 
 ```
 jira_assign(key, "me")            # this one is mine
-jira_assign(key, "Jakkawan")      # hand it over — name, email, or "none"
+jira_assign(key, "Alex Alpha")    # hand it over — name, email, or "none"
 jira_start_task(key)              # → In Progress, and gives you the branch command
 jira_submit_for_review(key, pr, files)
 ```
