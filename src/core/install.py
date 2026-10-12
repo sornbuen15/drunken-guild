@@ -1300,6 +1300,27 @@ def _matched_names(prompt: str, table: list[dict[str, Any]]) -> list[str]:
     return names
 
 
+def _is_installed(name: str, skills_target: Path, agents_target: Path) -> bool:
+    """Is *name* an installed skill or agent — checked directly, not by enumerating every
+    other installed name (DG-515 review round 2: ``route_text`` used to call
+    :func:`_routing_names` — a full directory walk and frontmatter parse of *everything*
+    installed — on every single prompt, 400 decoy skills alone measured over 1.6s per call).
+    A plain file-existence check on just the handful of candidates the keyword table matched
+    keeps the same "never names an uninstalled skill" guarantee for a fraction of the cost.
+    """
+    try:
+        if (Path(skills_target) / name / "SKILL.md").is_file():
+            return True
+    except OSError:
+        pass
+    try:
+        if (Path(agents_target) / f"{name}.md").is_file():
+            return True
+    except OSError:
+        pass
+    return False
+
+
 def route_text(prompt: str, skills_target: Path, agents_target: Path) -> str:
     """The short routing nudge for *prompt*, or ``""`` for no match.
 
@@ -1312,11 +1333,9 @@ def route_text(prompt: str, skills_target: Path, agents_target: Path) -> str:
     candidates = _matched_names(prompt, _load_route_table())
     if not candidates:
         return ""
-    try:
-        installed = set(_routing_names(Path(skills_target), Path(agents_target)))
-    except OSError:
-        installed = set()
-    names = [n for n in candidates if n in installed]
+    skills_target = Path(skills_target)
+    agents_target = Path(agents_target)
+    names = [n for n in candidates if _is_installed(n, skills_target, agents_target)]
     if not names:
         return ""
     while names:
@@ -2145,12 +2164,31 @@ def _run_hook(args: argparse.Namespace) -> int:
     return 1 if "refused" in (session_plan.action, route_plan.action) else 0
 
 
+#: DG-515 review round 2: an unbounded ``sys.stdin.read()`` loads however much a hook's caller
+#: cares to send before ``json.loads`` ever runs — a 50MB stream makes a plain ``.read()`` read
+#: all of it. 64KiB comfortably covers a real ``UserPromptSubmit`` payload (Claude Code's own
+#: prompts are nowhere near this) while bounding the worst case to a fixed, fast read.
+_ROUTE_STDIN_CAP: Final = 65536
+
+
 def _prompt_from_stdin() -> str:
     """The ``"prompt"`` field of a UserPromptSubmit JSON payload on stdin, or ``""`` for
-    anything that is not exactly that — malformed JSON, no stdin, the wrong shape."""
+    anything that is not exactly that — malformed JSON, no stdin, the wrong shape.
+
+    Reads at most :data:`_ROUTE_STDIN_CAP` characters, never the whole stream, and parses only
+    the *leading* JSON value in what was read (``json.JSONDecoder.raw_decode``, not
+    ``json.loads``) — a valid, short prompt object followed by megabytes of anything else on
+    the same stream still parses, rather than failing on "extra data" the moment the read is
+    capped mid-stream.
+    """
     try:
-        raw = sys.stdin.read()
-        payload_in = json.loads(raw) if raw.strip() else {}
+        raw = sys.stdin.read(_ROUTE_STDIN_CAP)
+    except Exception:  # noqa: BLE001 - a hook's stdout must never be a traceback
+        return ""
+    if not raw.strip():
+        return ""
+    try:
+        payload_in, _end = json.JSONDecoder().raw_decode(raw)
     except Exception:  # noqa: BLE001 - a hook's stdout must never be a traceback
         return ""
     if not isinstance(payload_in, dict):

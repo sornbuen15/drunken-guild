@@ -199,6 +199,10 @@ NEGATIVE_PROMPTS = [
     "เล่นเกมอะไรดีคืนนี้",
     "I'm just saying hello, how are you today?",
     "What's your favorite color?",
+    # DG-515 second review round: bare "error" and bare "api" were both false-positiving on
+    # a question *about* the word, not a request to do anything with it.
+    "What does this error message mean: KeyError?",
+    "What does API stand for?",
 ]
 
 
@@ -328,6 +332,57 @@ class TestRouteInstalledOnlyFilter:
         assert "system-design-rules" not in text
         assert "clean-architecture" not in text
 
+    def test_does_not_enumerate_every_installed_skill(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        """DG-515 review round 2: ``route_text`` used to call ``_routing_names`` on every
+        prompt -- a full directory walk and frontmatter parse of *every* installed skill and
+        agent, not just the handful the keyword table actually named. Only the matched
+        candidates' own existence should ever be checked."""
+        skills = tmp_path / "skills"
+        agents = tmp_path / "agents"
+        make_skill(skills, "reviewer")
+        agents.mkdir()
+        # A decoy that would make a full enumeration slow/observable if it ever ran.
+        make_skill(skills, "some-other-skill-entirely")
+
+        calls: list[str] = []
+        original = install._routing_names
+
+        def spy(*args: object, **kwargs: object):
+            calls.append("called")
+            return original(*args, **kwargs)  # type: ignore[arg-type]
+
+        monkeypatch.setattr(install, "_routing_names", spy)
+        text = install.route_text("please review this pull request", skills, agents)
+        assert "reviewer" in text
+        assert calls == [], (
+            "route_text must check only the matched candidate names' own existence, not "
+            "enumerate every installed skill via _routing_names"
+        )
+
+    def test_stays_fast_with_many_installed_skills(self, tmp_path: Path) -> None:
+        """The behavioural twin of the spy test above: with hundreds of installed skills on
+        disk, routing a single prompt must stay fast -- it no longer has any reason to scale
+        with how much is installed."""
+        import time
+
+        skills = tmp_path / "skills"
+        agents = tmp_path / "agents"
+        for i in range(400):
+            make_skill(skills, f"decoy-skill-{i:04d}")
+        make_skill(skills, "reviewer")
+        agents.mkdir()
+
+        start = time.monotonic()
+        text = install.route_text("please review this pull request", skills, agents)
+        elapsed = time.monotonic() - start
+
+        assert "reviewer" in text
+        assert elapsed < 1.0, (
+            f"route_text took {elapsed:.3f}s with 400 installed skills"
+        )
+
 
 class TestRouteOutputShape:
     def test_output_stays_under_the_character_cap(self, core_skills) -> None:
@@ -407,6 +462,50 @@ class TestRouteCli:
         )
         assert code == 0
         assert capsys.readouterr().out == ""
+
+
+class TestPromptFromStdinIsBounded:
+    """DG-515 review round 2: ``_prompt_from_stdin`` used to call ``sys.stdin.read()`` with no
+    limit at all -- a hook fed an unbounded stream reads the whole thing into memory before
+    ``json.loads`` ever runs. It must read at most a fixed cap, and a short, valid prompt that
+    arrives within that cap must still route correctly even with megabytes of data behind it."""
+
+    def test_a_50mb_stdin_finishes_quickly_and_still_routes_the_short_prefix(
+        self, core_skills, monkeypatch
+    ) -> None:
+        import io
+        import time
+
+        skills, agents = core_skills
+        payload = json.dumps({"prompt": "please review this pull request"})
+        # The valid JSON prompt first, then ~50MB of padding behind it on the same stream --
+        # exactly what an unbounded `.read()` would otherwise load in full.
+        huge = payload + ("x" * (50 * 1024 * 1024))
+        monkeypatch.setattr(sys, "stdin", io.StringIO(huge))
+
+        start = time.monotonic()
+        prompt = install._prompt_from_stdin()
+        elapsed = time.monotonic() - start
+
+        assert elapsed < 1.0, f"_prompt_from_stdin took {elapsed:.3f}s on a 50MB stream"
+        assert prompt == "please review this pull request"
+
+    def test_reads_at_most_the_stdin_cap(self, monkeypatch) -> None:
+        import io
+
+        seen: list[int] = []
+        real_stringio = io.StringIO("x" * (2 * install._ROUTE_STDIN_CAP))
+        original_read = real_stringio.read
+
+        def spy_read(size=-1):  # noqa: ANN001 - mirrors io.StringIO.read's own signature
+            seen.append(size if size is not None else -1)
+            return original_read(size)
+
+        real_stringio.read = spy_read  # type: ignore[method-assign]
+        monkeypatch.setattr(sys, "stdin", real_stringio)
+        install._prompt_from_stdin()
+        assert seen, "stdin.read was never called"
+        assert all(0 < n <= install._ROUTE_STDIN_CAP for n in seen), seen
 
 
 class TestRouteHook:
