@@ -121,7 +121,8 @@ to an agent. `skills/INDEX.md` and `agents/INDEX.md` list every one with its pat
 uv sync
 ```
 
-Put credentials in a file **outside the repository**, readable only by you:
+Put credentials in a file **outside the repository**, readable only by you (Windows/PowerShell
+form: [`Drunken-Guild-Guide.md`, section 2](../Drunken-Guild-Guide.md#2-registry-credentials-and-the-mcp-server)):
 
 ```bash
 mkdir -p ~/.drunken && chmod 700 ~/.drunken
@@ -175,8 +176,8 @@ uv tool install .
 
 `uv tool install .` fails with *"Executables already exist"* while the old package owns those
 names, and **`--force` is not the fix**: it repoints the symlinks but leaves the previous tool
-environment installed, and that environment still ships `drunken-board-mcp`, which is no longer
-part of this package (DG-265). Uninstalling first is what actually removes it from your PATH.
+environment installed, still shipping a server this package has since retired (`RETIRED.md`).
+Uninstalling first is what actually removes it from your PATH.
 
 ```bash
 drunken-doctor --project drunken-guild
@@ -242,7 +243,8 @@ The `--extra dev` is not optional if you intend to run the tests. Without pytest
 `uv run pytest` falls through to whatever `pytest` is on PATH — which may import a different
 checkout entirely and pass. The suite refuses to start in that state and tells you so.
 
-Put your credentials in a file **outside any repository**, readable only by you:
+Put your credentials in a file **outside any repository**, readable only by you (Windows/PowerShell
+form: [`Drunken-Guild-Guide.md`, section 2](../Drunken-Guild-Guide.md#2-registry-credentials-and-the-mcp-server)):
 
 ```bash
 mkdir -p ~/.drunken && chmod 700 ~/.drunken
@@ -290,7 +292,7 @@ uv tool install .
 
 If a previous version is installed under the old package name, `uv tool install .` fails with
 *"Executables already exist"*. `--force` is not the fix — it repoints the symlinks and leaves the
-old environment installed, still shipping a `drunken-board-mcp` this package no longer contains.
+old environment installed, still shipping a server this package has since retired (`RETIRED.md`).
 
 Then **declare the server once for the whole machine**. Do not put a `.mcp.json` in your project:
 the server is the same for every project (each tool takes the registry project id as its first

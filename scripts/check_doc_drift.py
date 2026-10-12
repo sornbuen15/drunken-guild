@@ -19,6 +19,7 @@ instructions, and instructions naming a dead command are the bug.
 
 from __future__ import annotations
 
+import re
 import sys
 from pathlib import Path
 from typing import NamedTuple
@@ -171,6 +172,21 @@ RETIRED = (
         "DG-427",
         "a project's own AGENTS.md (REQ-015), written by drunken-init",
     ),
+    # DG-522. A document explaining *that* a server was retired is doing
+    # RETIRED.md's job a second time outside RETIRED.md/CHANGELOG, the one
+    # exemption large enough to hold the detail. Naming the retired thing to
+    # say it is gone is still naming it -- the point DG-337's guard already
+    # made about ".guild_templates".
+    Retired(
+        "drunken-board-mcp",
+        "DG-265",
+        "Jira via drunken-jira-mcp; the retirement detail is in RETIRED.md",
+    ),
+    Retired(
+        "approval server",
+        "DG-355",
+        "ask the Boss in the conversation; the retirement detail is in RETIRED.md",
+    ),
 )
 
 #: Documents whose job is to record what changed. They have to be able to name
@@ -272,6 +288,245 @@ def documents() -> list[Path]:
     return sorted(found)
 
 
+#: DG-522. The doc set the three structural checks below run against: the
+#: top-level docs that tell the install/architecture/Jira story, plus the one
+#: detail page. Not the whole repository -- a skill's own `#rules` anchor and
+#: a plugin's `references/` link follow no numbering convention at all, and
+#: scanning them would report noise rather than the drift this ticket found
+#: (the Guide's own §3.4 pointing at a §3.2 that does not say what §3.4
+#: claims, and its heading numbering jumping 3.4 to 3.6).
+LINKED_DOC_NAMES = (
+    "README.md",
+    "GETTING_STARTED.md",
+    "Drunken-Guild-Guide.md",
+    "Integration-Guide.md",
+    "DESIGN.md",
+    "CONTRIBUTING.md",
+    "REPOSITORY_MAP.md",
+    "AGENTS.md",
+    "CONFIG_REPO.md",
+)
+
+
+def linked_documents() -> list[Path]:
+    paths = [REPO_ROOT / name for name in LINKED_DOC_NAMES]
+    paths.append(REPO_ROOT / "docs" / "REFERENCE.md")
+    return [path for path in paths if path.exists()]
+
+
+_LINK_RE = re.compile(r"\[[^\]]*\]\(([^)\s][^)]*)\)")
+_HEADING_RE = re.compile(r"^(#{1,6})\s+(.*?)\s*$")
+_HEADING_NUM_RE = re.compile(r"^(#{2,4})\s+(\d+)(?:\.(\d+))?\.?\s+\S")
+_SECTION_REF_RE = re.compile(r"§\s*(\d+(?:\.\d+)*)")
+_NON_SLUG_CHARS = re.compile(r"[^\w\s-]")
+_EMPHASIS_CHARS = re.compile(r"[`*_]")
+_WHITESPACE_RUN = re.compile(r"^\s+|\s+$")
+_WHITESPACE_CHAR = re.compile(r"\s")
+
+
+def _slugify(heading: str, seen: dict[str, int]) -> str:
+    """Approximates GitHub's heading-anchor algorithm closely enough to catch
+    a genuinely missing anchor, including its duplicate-heading suffixing.
+
+    Each whitespace *character* becomes its own hyphen rather than collapsing
+    a run into one — GitHub does the same, which is why a heading with an
+    em-dash surrounded by spaces (two adjacent spaces once the dash itself is
+    stripped as punctuation) anchors with a double hyphen, exactly what
+    `docs/REFERENCE.md`'s own Contents list already links to."""
+    text = _EMPHASIS_CHARS.sub("", heading.strip().lower())
+    text = _NON_SLUG_CHARS.sub("", text)
+    text = _WHITESPACE_RUN.sub("", text)
+    slug = _WHITESPACE_CHAR.sub("-", text)
+    count = seen.get(slug, 0)
+    seen[slug] = count + 1
+    return slug if count == 0 else f"{slug}-{count}"
+
+
+def heading_slugs(text: str) -> set[str]:
+    seen: dict[str, int] = {}
+    slugs = set()
+    for line in text.splitlines():
+        match = _HEADING_RE.match(line)
+        if match:
+            slugs.add(_slugify(match.group(2), seen))
+    return slugs
+
+
+#: `SESSION_CHECKPOINT.md` is a per-session scratch note, deliberately
+#: untracked (`.gitignore`) so it never ships in a checkout -- a document is
+#: allowed to link to it even though it is routinely absent on disk.
+EXPECTED_ABSENT_LINK_TARGETS = frozenset({"SESSION_CHECKPOINT.md"})
+
+
+def _check_one_link(path: Path, number: int, link: str, text: str) -> str | None:
+    """One problem string, or `None` if *link* resolves cleanly."""
+    if link.startswith("#"):
+        # A bare `#anchor` targets this same document.
+        if link[1:] and link[1:] not in heading_slugs(text):
+            return (
+                f"{path.relative_to(REPO_ROOT)}:{number}: anchor '{link}' has "
+                "no matching heading in this document."
+            )
+        return None
+
+    target_part, _, anchor = link.partition("#")
+    if Path(target_part).name in EXPECTED_ABSENT_LINK_TARGETS:
+        return None
+    target_path = (path.parent / target_part).resolve()
+    if not target_path.exists():
+        return (
+            f"{path.relative_to(REPO_ROOT)}:{number}: link target "
+            f"'{target_part}' does not exist."
+        )
+    if not anchor or target_path.suffix.lower() != ".md":
+        return None
+    try:
+        target_text = target_path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return None
+    if anchor not in heading_slugs(target_text):
+        return (
+            f"{path.relative_to(REPO_ROOT)}:{number}: anchor '#{anchor}' has "
+            f"no matching heading in '{target_part}'."
+        )
+    return None
+
+
+def check_links(paths: list[Path]) -> list[str]:
+    """A relative link or an in-page anchor that resolves nowhere."""
+    problems = []
+    for path in paths:
+        try:
+            text = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+        for number, line in enumerate(text.splitlines(), 1):
+            if ESCAPE in line:
+                continue
+            for link in _LINK_RE.findall(line):
+                if link.startswith(("http://", "https://", "mailto:")):
+                    continue
+                problem = _check_one_link(path, number, link, text)
+                if problem:
+                    problems.append(problem)
+    return problems
+
+
+def check_section_references(paths: list[Path]) -> list[str]:
+    """A `§N` or `§N.M` pointing at a section number this same
+    document's own numbered headings never declare."""
+    problems = []
+    for path in paths:
+        try:
+            text = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+        lines = text.splitlines()
+        declared: set[str] = set()
+        for line in lines:
+            match = _HEADING_NUM_RE.match(line)
+            if match:
+                number = match.group(2) + (
+                    f".{match.group(3)}" if match.group(3) else ""
+                )
+                declared.add(number)
+        for number, line in enumerate(lines, 1):
+            if ESCAPE in line:
+                continue
+            for ref in _SECTION_REF_RE.findall(line):
+                if ref not in declared:
+                    problems.append(
+                        f"{path.relative_to(REPO_ROOT)}:{number}: §{ref} "
+                        "refers to a section number this document does not "
+                        "declare in a heading."
+                    )
+    return problems
+
+
+def check_heading_gaps(paths: list[Path]) -> list[str]:
+    """A numbered heading sequence that skips a number -- `3.4` to `3.6` with
+    no `3.5` -- the exact shape DG-522 found in the old Guide."""
+    problems = []
+    for path in paths:
+        try:
+            text = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+        top_numbers: list[int] = []
+        children: dict[int, list[int]] = {}
+        for line in text.splitlines():
+            match = _HEADING_NUM_RE.match(line)
+            if not match:
+                continue
+            level = len(match.group(1))
+            parent = int(match.group(2))
+            child = match.group(3)
+            if child is None:
+                if level == 2:
+                    top_numbers.append(parent)
+            else:
+                children.setdefault(parent, []).append(int(child))
+
+        relative = path.relative_to(REPO_ROOT)
+        expected = list(range(1, len(top_numbers) + 1))
+        if top_numbers and top_numbers != expected:
+            problems.append(
+                f"{relative}: top-level heading numbers {top_numbers} are not "
+                f"a contiguous run starting at 1 (expected {expected})."
+            )
+        for parent, numbers in children.items():
+            expected_children = list(range(1, len(numbers) + 1))
+            if numbers != expected_children:
+                problems.append(
+                    f"{relative}: heading numbers under section {parent} are "
+                    f"{numbers}, not a contiguous run starting at 1 (expected "
+                    f"{expected_children})."
+                )
+    return problems
+
+
+#: DG-522 lead review. A document claiming the registry (or its secret file)
+#: may be committed is not drift against something *removed* -- it is wrong
+#: against a standing rule (REQ-023: no registered id, Jira URL or email
+#: reaches a repository) that this exact phrase stated the opposite of in the
+#: old Guide, carried forward unexamined into its rewrite. A short forbidden-
+#: phrase list, the same shape as RETIRED, catches it going forward.
+FORBIDDEN_CLAIMS = (
+    (
+        "can be committed and shared",
+        "the registry and its secret file are not for a public repo (REQ-023)",
+    ),
+    (
+        "committed, reviewed and shared",
+        "the registry and its secret file are not for a public repo (REQ-023)",
+    ),
+    (
+        "so it can be committed",
+        "the registry and its secret file are not for a public repo (REQ-023)",
+    ),
+)
+
+
+def check_forbidden_claims(paths: list[Path]) -> list[str]:
+    """A line claiming the registry or its secret file may be committed."""
+    problems = []
+    for path in paths:
+        try:
+            text = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+        for number, line in enumerate(text.splitlines(), 1):
+            if ESCAPE in line:
+                continue
+            for phrase, reason in FORBIDDEN_CLAIMS:
+                if phrase in line:
+                    problems.append(
+                        f"{path.relative_to(REPO_ROOT)}:{number}: claims "
+                        f"'{phrase}' -- {reason}."
+                    )
+    return problems
+
+
 def scan() -> list[str]:
     problems = []
     for path in documents():
@@ -289,6 +544,13 @@ def scan() -> list[str]:
                         f"{relative}:{number}: names '{retired.name}', removed "
                         f"in {retired.removed_in}. Use {retired.use_instead}."
                     )
+
+    problems += check_forbidden_claims(documents())
+
+    linked = linked_documents()
+    problems += check_links(linked)
+    problems += check_section_references(linked)
+    problems += check_heading_gaps(linked)
     return problems
 
 
