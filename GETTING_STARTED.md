@@ -8,10 +8,10 @@ Needs [`uv`](https://docs.astral.sh/uv/) and Git.
 
 ```bash
 uv tool install git+https://github.com/sornbuen15/drunken-guild@v2.0.2   # pick the tag you want
-drunken-install all                                                       # skills + agents -> ~/.claude
-drunken-install extras --apply                                           # optional: the older skills and agents
-drunken-install hook --apply                                             # every session gets the routing rule
-drunken-doctor                                                           # proves it: routes.session_hook runs the recorded command
+drunken-install all                                                      # skills + agents -> ~/.claude
+drunken-install extras --apply                                          # optional: the older skills and agents
+drunken-install hook --apply                                            # both hooks: session context + per-prompt routing
+drunken-doctor                                                          # proves it: credential, skills/agents, both hooks
 ```
 
 `drunken-install all --dry-run` shows what it would write first. The skills and agents travel
@@ -20,7 +20,7 @@ inside the package, so one install gives you both.
 ## Update
 
 ```bash
-uv tool install --force git+https://github.com/sornbuen15/drunken-guild@v2.1.0
+uv tool install --force git+https://github.com/sornbuen15/drunken-guild@<new-tag>
 drunken-install status      # what would change, and the changelog entry; writes nothing
 drunken-install all         # apply it
 ```
@@ -31,16 +31,12 @@ A tag is a pin — nothing here relies on `uv tool upgrade` moving it.
 > is denied" while the running MCP server still holds the tool's files open. If that happened,
 > delete `%APPDATA%\uv\tools\drunken-guild` and install again without `--force`.
 
-## Add the runtime (optional)
+## Coordinating through Jira (optional)
 
-Gives you the `jira_*` tools that `/breakdown`, `/build` and `/audit` need.
-
-```bash
-uv sync --extra dev
-```
-
-Register a project (credentials live in a file outside any repository) and declare
-`drunken-jira-mcp` once per machine. Full steps: [`Drunken-Guild-Guide.md`](./Drunken-Guild-Guide.md).
+`/breakdown`, `/build` and `/audit` need the `jira_*` tools, which come from registering a
+project and declaring `drunken-jira-mcp` once per machine. The exact commands — credentials,
+`drunken-init`, proving the credential resolves — are in
+[`Drunken-Guild-Guide.md`](./Drunken-Guild-Guide.md), sections 3.3 and 3.4.
 
 ## A new project
 
@@ -54,7 +50,8 @@ Register a project (credentials live in a file outside any repository) and decla
 4. `/build` takes one task at a time: the test is written and seen failing before the fix, one
    branch, one PR. The agent opens it; a human merges it.
 5. `/audit` traces every requirement to a merged, tested, deployed task and writes the day's
-   report — gaps become tickets only on your approval.
+   report — where a project deploys is recorded in its own `AGENTS.md`; gaps become tickets only
+   on your approval.
 
 ## An existing project
 
@@ -67,8 +64,6 @@ creating a second one for the same work.
 ## Windows notes
 
 - PowerShell 5.1+ or [PowerShell 7+](https://github.com/PowerShell/PowerShell/releases).
-- `.\scripts\install\install_skills.ps1` and `.\scripts\install\install_agents.ps1` are the
-  contributor path's equivalent of the two `.sh` scripts; both take `-IndexOnly`.
 - Close every Claude window before `uv tool install --force` (see Update, above).
 
 ## Doctor
@@ -77,15 +72,18 @@ creating a second one for the same work.
 drunken-doctor
 ```
 
-Checks the credential authenticates (not that the Jira project itself exists — a bad credential
-can come back `200` with an empty list; confirm the key yourself the first time), that this
-machine's skills and agents match the source, and that the routing hook — recorded in its own `AGENTS.md`'s settings entry — actually runs rather than merely being present.
+Checks three things: the Jira credential actually authenticates (not that the Jira project
+itself exists — a bad credential can come back `200` with an empty list; confirm the key
+yourself the first time); that this machine's installed skills and agents match the package; and
+that both hooks actually run rather than merely sitting unused in `~/.claude/settings.json`.
+`drunken-install hook --apply` installs both of them: the SessionStart context and the
+per-prompt route.
 
 ## Where to go next
 
 | | |
 |---|---|
-| [`README.md`](./README.md) | the two-sentence version and the flow diagram |
+| [`README.md`](./README.md) | the two-sentence version and the flow table |
 | [`AGENTS.md`](./AGENTS.md) | the rules, if you are contributing here |
 | [`skills/INDEX.md`](./skills/INDEX.md) | every skill, its trigger and its path |
 | [`Drunken-Guild-Guide.md`](./Drunken-Guild-Guide.md) | architecture, Jira workflow, approvals |
