@@ -9,6 +9,19 @@ while a release is being prepared, and is renamed to the version when it is tagg
 
 ## Unreleased
 
+### Added
+- `drunken-doctor`'s `processes.orphans` check lists leftover session processes with a dead
+  parent and a known-leftover command line (a shell snapshot, a stdin interpreter, `uv run`,
+  `drunken-jira-mcp`), and **lock holders** — a process whose executable sits inside the installed
+  guild tool, whatever its parent, labeled `orphan` or `held by session <ppid>`. `drunken-install
+  reap` plans the same list; `--apply` re-verifies every id (same pid, same start time, parent
+  state unchanged) immediately before terminating it, terminates orphans unconditionally, and
+  terminates a held lock holder only with `--include-held` — stopping one can make Jira tools
+  unavailable until the session restarts it. Nothing is ever killed by inference, and an unreadable
+  process table refuses rather than reporting a clean, unchecked list. `drunken-install
+  skills`/`agents`/`all` print a one-line warning, before writing anything, naming how many lock
+  holders exist and the exact command to clear them (DG-518).
+
 ### Fixed
 - `drunken-doctor`'s `paths.home.permissions` warning (and `paths.auth_db.permissions`) could
   never clear on Windows: the check read `path.stat().st_mode`, which `pathlib` synthesizes there

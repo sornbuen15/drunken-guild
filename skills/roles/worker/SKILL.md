@@ -59,6 +59,7 @@ description: >
     <constraint priority="HIGH">Validate input at system boundaries. No SQL string interpolation. No eval().</constraint>
     <constraint priority="HIGH">Never introduce a dependency without checking whether an existing one already covers it.</constraint>
     <constraint priority="HIGH">All output must be in English.</constraint>
+    <constraint priority="HIGH">Never run an interpreter that reads its script from stdin (`python -`, a heredoc into `python -`); use a file or `-c`. Track and stop any background command you start; report any process you leave running.</constraint>
   </constraints>
 
   <output_format>
