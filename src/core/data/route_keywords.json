@@ -8,12 +8,15 @@
       "user story",
       "scope",
       "spec",
+      "plan",
       "ความต้องการ",
       "ขอบเขตงาน",
       "สเปก",
-      "ยูสเคส"
+      "ยูสเคส",
+      "วางแผน",
+      "แตกงาน"
     ],
-    "names": ["prd", "clarify"]
+    "names": ["prd", "clarify", "breakdown"]
   },
   {
     "category": "design",
@@ -71,8 +74,11 @@
       "crash",
       "regression",
       "does not work",
+      "error",
+      "exception",
       "บัก",
       "แก้บัก",
+      "แก้",
       "ใช้งานไม่ได้",
       "พัง",
       "ผิดพลาด"
@@ -86,6 +92,7 @@
       "pull request",
       "code review",
       "pr feedback",
+      "pr",
       "รีวิว",
       "ตรวจโค้ด",
       "รีวิวโค้ด"
@@ -101,14 +108,19 @@
       "password",
       "secret",
       "access token",
+      "token",
       "authentication",
+      "auth",
       "permission check",
+      "api",
+      "endpoint",
       "ความปลอดภัย",
       "รหัสผ่าน",
       "ช่องโหว่",
-      "สิทธิ์การเข้าถึง"
+      "สิทธิ์การเข้าถึง",
+      "สิทธิ์"
     ],
-    "names": ["reviewer", "secure-by-design"]
+    "names": ["reviewer", "secure-by-design", "security-engineer"]
   },
   {
     "category": "ui_ux",
@@ -119,10 +131,18 @@
       "screen design",
       "form design",
       "page layout",
+      "login",
+      "page",
+      "form",
+      "component",
+      "screen",
       "หน้าจอ",
+      "หน้า",
       "ฟอร์ม",
       "ดีไซน์หน้า",
-      "เลย์เอาต์"
+      "เลย์เอาต์",
+      "ล็อกอิน",
+      "สมัครสมาชิก"
     ],
     "names": ["universal-ui", "universal-ux", "build"]
   },
@@ -151,6 +171,7 @@
       "go live",
       "ดีพลอย",
       "ปล่อยขึ้นโปรดักชัน",
+      "ปล่อย",
       "รีลีส",
       "ขึ้นโปรดักชัน"
     ],
@@ -164,9 +185,11 @@
       "readme",
       "changelog",
       "write a guide",
+      "doc",
       "เอกสาร",
       "เขียนคู่มือ",
-      "เขียนเอกสาร"
+      "เขียนเอกสาร",
+      "คู่มือ"
     ],
     "names": ["project-docs"]
   }

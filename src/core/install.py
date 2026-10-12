@@ -1237,17 +1237,62 @@ def _load_route_table() -> list[dict[str, Any]]:
     return [row for row in data if isinstance(row, dict)]
 
 
+#: A Latin keyword this short is a real word on its own ("ui", "ux", "api", "pr") and a
+#: substring of something unrelated often enough to misfire as a bare `in` check — "build"
+#: contains "ui", "required" contains "ui", "rapid" contains "api", "print"/"approve" contain
+#: "pr" (DG-515 follow-up, found by the lead running the built exe against real prompts). Above
+#: this length a Latin keyword is treated as a phrase and a plain substring check is kept.
+_WORD_BOUNDARY_MAX_LEN: Final = 3
+
+#: Thai combining tone marks (ไม้เอก ไม้โท ไม้ตรี ไม้จัตวา) — stripped from both the keyword
+#: table and the prompt before comparing, so a real user's "บั๊ก" and this table's "บัก" compare
+#: equal (DG-515 follow-up item 3) instead of silently missing each other.
+_THAI_TONE_MARKS: Final = str.maketrans("", "", "่้๊๋")
+
+_WORD_BOUNDARY_CHARS = "a-z0-9"
+
+
+def _normalize_for_match(text: str) -> str:
+    """Lowercase (so ASCII matching is case-insensitive) with Thai tone marks stripped (so a
+    tone-mark spelling variant compares equal) — applied to the prompt once, and to each
+    keyword before comparing against it."""
+    return text.lower().translate(_THAI_TONE_MARKS)
+
+
+def _keyword_hits(keyword: str, normalized_prompt: str) -> bool:
+    """Does *keyword* appear in *normalized_prompt* (already run through
+    :func:`_normalize_for_match`)? A short, bare Latin keyword matches only on a word boundary;
+    everything else — a longer Latin phrase, any Thai keyword — stays a plain substring check,
+    since Thai has no word-boundary convention to anchor on."""
+    normalized_keyword = _normalize_for_match(keyword)
+    compact = normalized_keyword.replace(" ", "")
+    if (
+        compact.isascii()
+        and compact.isalnum()
+        and len(compact) <= _WORD_BOUNDARY_MAX_LEN
+    ):
+        pattern = (
+            f"(?<![{_WORD_BOUNDARY_CHARS}])"
+            + re.escape(normalized_keyword)
+            + f"(?![{_WORD_BOUNDARY_CHARS}])"
+        )
+        return re.search(pattern, normalized_prompt) is not None
+    return normalized_keyword in normalized_prompt
+
+
 def _matched_names(prompt: str, table: list[dict[str, Any]]) -> list[str]:
     """Every candidate skill/agent name whose row's keyword appears in *prompt*, in table order,
     deduplicated — before the installed-only filter is applied."""
-    lowered = prompt.lower()
+    normalized_prompt = _normalize_for_match(prompt)
     names: list[str] = []
     for row in table:
         keywords = row.get("keywords")
         row_names = row.get("names")
         if not isinstance(keywords, list) or not isinstance(row_names, list):
             continue
-        if not any(isinstance(k, str) and k.lower() in lowered for k in keywords):
+        if not any(
+            isinstance(k, str) and _keyword_hits(k, normalized_prompt) for k in keywords
+        ):
             continue
         for name in row_names:
             if isinstance(name, str) and name not in names:

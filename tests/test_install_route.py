@@ -34,6 +34,14 @@ def make_skill(root: Path, name: str, description: str = "A skill.") -> None:
     )
 
 
+def make_agent(root: Path, name: str, description: str = "An agent.") -> None:
+    root.mkdir(parents=True, exist_ok=True)
+    (root / f"{name}.md").write_text(
+        f"---\nname: {name}\ndescription: {description}\n---\n\nbody\n",
+        encoding="utf-8",
+    )
+
+
 @pytest.fixture
 def stub_resolve_route(monkeypatch):
     monkeypatch.setattr(
@@ -105,6 +113,166 @@ def core_skills(tmp_path: Path) -> tuple[Path, Path]:
         make_skill(skills, name)
     agents.mkdir()
     return skills, agents
+
+
+@pytest.fixture
+def extras_skills(tmp_path: Path) -> tuple[Path, Path]:
+    """Core skills plus the ``drunken-extras`` names the widened table can also name — a temp
+    HOME with extras installed, the shape the lead's follow-up measured against and found the
+    core-only matrix run (DG-515's first pass) was not representative of."""
+    skills = tmp_path / "skills"
+    agents = tmp_path / "agents"
+    for name in (
+        "prd",
+        "clarify",
+        "ddd",
+        "build",
+        "reviewer",
+        "git-workflow",
+        "ask-boss",
+        "project-docs",
+        "worker",
+        "breakdown",
+        "universal-ui",
+        "universal-ux",
+        "secure-by-design",
+        "test-strategy",
+        "test-architecture",
+    ):
+        make_skill(skills, name)
+    make_agent(agents, "security-engineer")
+    return skills, agents
+
+
+# DG-515 follow-up: realistic prompts the lead actually ran against a built exe, Thai, English
+# and mixed -- the exact shape the narrow first-pass table missed.
+REALISTIC_POSITIVE_CASES = [
+    ("ui_ux", "th", "ทำหน้า login ให้หน่อย", ["universal-ui", "universal-ux"]),
+    ("ui_ux", "th", "เพิ่มฟอร์มสมัครสมาชิก", ["universal-ui", "universal-ux"]),
+    (
+        "bugfix",
+        "th",
+        "ฟังก์ชัน price คิดเงินผิดเมื่อ qty เป็น 0 ช่วยแก้ให้หน่อย",
+        ["build", "worker"],
+    ),
+    (
+        "security",
+        "mixed",
+        "เพิ่ม endpoint รับ token แล้วเช็กสิทธิ์",
+        ["reviewer", "secure-by-design", "security-engineer"],
+    ),
+    (
+        "tests",
+        "mixed",
+        "เพิ่มฟังก์ชันคำนวณส่วนลดพร้อมเทส",
+        ["build", "test-strategy", "test-architecture"],
+    ),
+    ("review", "mixed", "review PR นี้ให้หน่อย", ["reviewer"]),
+    ("deploy", "mixed", "deploy ขึ้น staging", ["ask-boss"]),
+    ("docs", "mixed", "เขียน README", ["project-docs"]),
+    # Tone-mark variants of the already-covered bugfix case (DG-515 follow-up item 3): a real
+    # user spells "bug"/"fix" with or without the tone mark interchangeably.
+    ("bugfix", "th", "เจอบั๊กแล้ว ช่วยแก้บั๊กให้หน่อย", ["build", "worker"]),
+    # Planning/breakdown, the group the lead listed without naming a category explicitly.
+    ("requirements", "th", "ช่วยวางแผนและแตกงานโปรเจกต์นี้หน่อย", ["prd", "breakdown"]),
+    (
+        "requirements",
+        "en",
+        "Help me plan and break down this project.",
+        ["prd", "breakdown"],
+    ),
+]
+
+# DG-515 follow-up item 1: at least 12 prompts that must print nothing -- chit-chat, a request
+# to explain existing code, anything with no SDLC-step keyword at all.
+NEGATIVE_PROMPTS = [
+    "สวัสดีครับ วันนี้อากาศเป็นไง",
+    "คุณเป็น AI ตัวไหน",
+    "เล่าเรื่องตลกให้ฟังหน่อย",
+    "วันนี้วันอะไร",
+    "มื้อเที่ยงกินอะไรดี",
+    "เพลงนี้ชื่ออะไร",
+    "อธิบายโค้ดนี้ให้หน่อย",
+    "สรุปบทความนี้ให้หน่อย",
+    "ขอสูตรทำขนมหน่อย",
+    "แปลประโยคนี้เป็นภาษาไทย",
+    "เล่นเกมอะไรดีคืนนี้",
+    "I'm just saying hello, how are you today?",
+    "What's your favorite color?",
+]
+
+
+class TestRealisticPromptsFromTheLeadsFollowUp:
+    """DG-515 follow-up: the first-pass table was measured too narrow on real prompts against
+    a temp HOME with extras installed -- these are exactly the prompts that were checked."""
+
+    @pytest.mark.parametrize(
+        "category, lang, prompt, expected",
+        REALISTIC_POSITIVE_CASES,
+        ids=[
+            f"{c}-{lang}-{i}"
+            for i, (c, lang, _p, _e) in enumerate(REALISTIC_POSITIVE_CASES)
+        ],
+    )
+    def test_realistic_prompt_names_the_expected_skills(
+        self, extras_skills, category, lang, prompt, expected
+    ) -> None:
+        skills, agents = extras_skills
+        text = install.route_text(prompt, skills, agents)
+        for name in expected:
+            assert name in text, f"{category}/{lang}: expected {name!r} in {text!r}"
+
+    @pytest.mark.parametrize(
+        "prompt", NEGATIVE_PROMPTS, ids=range(len(NEGATIVE_PROMPTS))
+    )
+    def test_negative_prompt_prints_nothing(self, extras_skills, prompt) -> None:
+        skills, agents = extras_skills
+        assert install.route_text(prompt, skills, agents) == ""
+
+
+class TestKeywordMatchingRules:
+    """DG-515 follow-up item 3: a short Latin token ("ui", "ux", "api", "pr") must match on
+    word boundaries only -- the first-pass table matched "ui" as a bare substring, so
+    "please build this feature" and "this field is required" both silently routed to
+    universal-ui/universal-ux too. Thai keywords stay substring matches (no word-boundary
+    convention in Thai orthography), and a tone-mark variant must compare equal."""
+
+    def test_build_does_not_trigger_ui(self, extras_skills) -> None:
+        skills, agents = extras_skills
+        text = install.route_text("please build this feature", skills, agents)
+        assert "universal-ui" not in text
+        assert "universal-ux" not in text
+
+    def test_required_does_not_trigger_ui(self, extras_skills) -> None:
+        skills, agents = extras_skills
+        text = install.route_text("this field is required", skills, agents)
+        assert text == ""
+
+    def test_print_does_not_trigger_review_via_pr(self, extras_skills) -> None:
+        skills, agents = extras_skills
+        text = install.route_text("please print the report", skills, agents)
+        assert "reviewer" not in text
+
+    def test_rapid_does_not_trigger_security_via_api(self, extras_skills) -> None:
+        skills, agents = extras_skills
+        text = install.route_text("let's take a rapid approach here", skills, agents)
+        assert "secure-by-design" not in text
+        assert "security-engineer" not in text
+
+    def test_a_whole_word_ui_still_matches(self, extras_skills) -> None:
+        skills, agents = extras_skills
+        text = install.route_text("please fix the UI on this page", skills, agents)
+        assert "universal-ui" in text
+
+    def test_a_whole_word_pr_still_matches(self, extras_skills) -> None:
+        skills, agents = extras_skills
+        text = install.route_text("please merge this PR", skills, agents)
+        assert "reviewer" in text
+
+    def test_tone_mark_variant_of_a_bug_keyword_matches(self, extras_skills) -> None:
+        skills, agents = extras_skills
+        text = install.route_text("เจอบั๊กแล้ว", skills, agents)
+        assert "build" in text
 
 
 class TestRouteTextSdlcCoverage:
