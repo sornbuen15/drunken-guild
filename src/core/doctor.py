@@ -1317,6 +1317,57 @@ def _check_session_hook(report: Report, settings_path: Optional[Path] = None) ->
     )
 
 
+def _check_prompt_hook(report: Report, settings_path: Optional[Path] = None) -> None:
+    """Whether a prompt mid-session is routed to the guild's skills at all — DG-515.
+
+    The ``UserPromptSubmit`` twin of :func:`_check_session_hook`: a ``SessionStart`` hook only
+    speaks once, at the top of a session, and the FINDING that opened DG-515 measured 0 Skill
+    calls across 24 runs on an existing project once that single nudge had scrolled out of
+    context. ``drunken-install hook --apply`` writes this entry too (merged with the
+    SessionStart one); this is the check that notices it has not been run, or that the recorded
+    command does not actually work — same two-layer reasoning as the SessionStart check
+    (identify the shape, then trust only this installation's own binary before ever running it).
+    """
+    path = (
+        settings_path if settings_path is not None else install.default_settings_path()
+    )
+    plan = install.plan_route_hook(path, remove=False)
+    if plan.action == "refused":
+        report.add("routes.prompt_hook", "skip", f"{path}: {plan.reason}")
+        return
+    if plan.action != "already-present":
+        report.add(
+            "routes.prompt_hook",
+            "warn",
+            f"No UserPromptSubmit hook for the guild in {path}.",
+            remediation="drunken-install hook --apply",
+        )
+        return
+    if not install.is_trusted_route_hook_command(plan.command):
+        report.add(
+            "routes.prompt_hook",
+            "warn",
+            f"The UserPromptSubmit entry in {path} points at {plan.command!r}, which is "
+            "not this installation's drunken-install; not executed.",
+            remediation="drunken-install hook --apply",
+        )
+        return
+    ok, reason = install.verify_route_hook_command(plan.command)
+    if ok:
+        report.add(
+            "routes.prompt_hook",
+            "ok",
+            f"UserPromptSubmit hook present in {path} and runs correctly.",
+        )
+        return
+    report.add(
+        "routes.prompt_hook",
+        "warn",
+        f"UserPromptSubmit hook in {path} does not work: {reason}.",
+        remediation="drunken-install hook --apply",
+    )
+
+
 def _check_routes(report: Report, repo_root: Optional[Path] = None) -> None:
     """REQ-013: fail when a route's target is missing, or a skill is reached
     by nothing at all.
@@ -3035,6 +3086,7 @@ def run_doctor(
     _check_ai_layer(report)
     _check_routes(report)
     _check_session_hook(report)
+    _check_prompt_hook(report)
     _check_host_configs(report)
 
     if secrets.cached_refs():
