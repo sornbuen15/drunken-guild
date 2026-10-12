@@ -35,7 +35,7 @@ drunken-doctor --project my-project                   # proves it authenticates
 ```
 
 The full walk-through, including why a reference and not a token, is
-[Drunken-Guild-Guide.md §3.3](../../Drunken-Guild-Guide.md#33-configure-credentials).
+[Drunken-Guild-Guide.md §2](../../Drunken-Guild-Guide.md#2-registry-credentials-and-the-mcp-server).
 
 ## How to Run & Test (Human Developer)
 

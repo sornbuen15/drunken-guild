@@ -12,7 +12,7 @@ flowchart LR
 Needs [`uv`](https://docs.astral.sh/uv/) and Git.
 
 ```bash
-uv tool install git+https://github.com/sornbuen15/drunken-guild@v2.0.2   # pick the tag you want
+uv tool install git+https://github.com/sornbuen15/drunken-guild@v2.0.3   # pick the tag you want
 drunken-install all                                                      # skills + agents -> ~/.claude
 drunken-install extras --apply                                          # optional: the older skills and agents
 drunken-install hook --apply                                            # both hooks: session context + per-prompt routing
@@ -41,7 +41,7 @@ A tag is a pin — nothing here relies on `uv tool upgrade` moving it.
 `/breakdown`, `/build` and `/audit` need the `jira_*` tools, which come from registering a
 project and declaring `drunken-jira-mcp` once per machine. The exact commands — credentials,
 `drunken-init`, proving the credential resolves — are in
-[`Drunken-Guild-Guide.md`](./Drunken-Guild-Guide.md), sections 3.3 and 3.4.
+[`Drunken-Guild-Guide.md`, section 2](./Drunken-Guild-Guide.md#2-registry-credentials-and-the-mcp-server).
 
 ## A new project
 

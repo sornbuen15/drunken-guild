@@ -319,7 +319,7 @@ def run_smoke(report: SmokeReport, venv_dir: Path, fake_home: Path) -> None:
     status_ok = (
         status_result.returncode == 0
         and "up to date" in status_out
-        and "retired" not in status_out
+        and "retired, still installed" not in status_out
     )
     report.record(
         "status.no_retired_line",

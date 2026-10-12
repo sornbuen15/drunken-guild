@@ -1234,10 +1234,10 @@ ROUTE_PROMPT_CHAR_LIMIT: Final = 600
 #: :func:`resolve_route_hook_command`, the ``route`` twin of :data:`GUILD_HOOK_FALLBACK`.
 GUILD_ROUTE_FALLBACK: Final = "drunken-install route"
 
-_ROUTE_PREFIX: Final = (
-    "Guild routing for this prompt: before doing the work, call the Skill or Agent tool for "
-    "each of: "
-)
+#: DG-521 SCOPE item 2: a role name (installed as both a skill and an agent) is called through
+#: the Agent tool with its subagent_type; everything else is called through the Skill tool --
+#: see :func:`_render_route_text`, which fills in the clause(s) between these two.
+_ROUTE_PREFIX: Final = "Guild routing for this prompt: before doing the work, call "
 _ROUTE_SUFFIX: Final = ". Do this first, then follow what it says."
 
 
@@ -1312,24 +1312,253 @@ def _keyword_hits(keyword: str, normalized_prompt: str) -> bool:
     return normalized_keyword in normalized_prompt
 
 
-def _matched_names(prompt: str, table: list[dict[str, Any]]) -> list[str]:
-    """Every candidate skill/agent name whose row's keyword appears in *prompt*, in table order,
-    deduplicated — before the installed-only filter is applied."""
+#: DG-521 SCOPE item 1: at most two categories and at most five names, so a prompt that happens
+#: to brush past several SDLC-step keywords at once (a pasted log, a long chat paragraph) stops
+#: nominating a double-digit list of skills -- the FINDING's own measurement was 10.
+_MAX_CATEGORIES: Final = 2
+_MAX_NAMES: Final = 5
+
+#: DG-521 SCOPE item 1: only the first this many characters of the *cleaned* prompt (after
+#: :func:`_strip_noise` has removed fenced code, quoted lines, pasted-content blocks and
+#: log-looking lines) are ever considered for matching -- a pasted log or a long paste runs far
+#: past this, and nothing beyond it can nominate anything. DG-521 review round 2 (HIGH): this
+#: used to be applied to the *raw* prompt before stripping, so a pasted log followed by a real
+#: request past character 400 never reached the real text at all -- strip first, then window.
+_ROUTE_PROMPT_PREFIX_LEN: Final = 400
+
+#: DG-515 review round 2: an unbounded ``sys.stdin.read()`` loads however much a hook's caller
+#: cares to send before ``json.loads`` ever runs — a 50MB stream makes a plain ``.read()`` read
+#: all of it. 64KiB comfortably covers a real ``UserPromptSubmit`` payload (Claude Code's own
+#: prompts are nowhere near this) while bounding the worst case to a fixed, fast read. DG-521
+#: review round 2: also the cap on how much of a *raw* prompt :func:`route_text` will ever run
+#: :func:`_strip_noise` over, before windowing down to :data:`_ROUTE_PROMPT_PREFIX_LEN` -- the
+#: reviewer measured stripping a full 64KiB at 0.8ms, comfortably fast enough to do on every call
+#: rather than only on an already-truncated 400-character slice.
+_ROUTE_STDIN_CAP: Final = 65536
+
+_FENCE_LINE_RE = re.compile(r"^\s*(```|~~~)")
+_QUOTE_LINE_RE = re.compile(r"^\s*>")
+_PASTED_TAG_OPEN_RE = re.compile(r"^\s*<([a-zA-Z][\w-]*)>\s*$")
+_PASTED_TAG_CLOSE_RE = re.compile(r"^\s*</([a-zA-Z][\w-]*)>\s*$")
+
+#: DG-521 SCOPE item 1/3: a line that looks like one row of a ``drunken-doctor`` style report --
+#: ``core.doctor.render`` prints ``"OK  ", "WARN", "FAIL", "SKIP"`` at the start of a check line
+#: and ``"    -> remediation"`` underneath it; the keyword table's own "test", "security",
+#: "agent" words show up constantly in such a report's check names and details, which is exactly
+#: how a pasted log made the FINDING's hook nominate 10 skills in one run.
+_LOG_STATUS_LINE_RE = re.compile(
+    r"^\s*\[?(OK|WARN|WARNING|FAIL|FAILED|SKIP|SKIPPED|PASS|ERROR)\]?\b", re.IGNORECASE
+)
+_LOG_REMEDIATION_LINE_RE = re.compile(r"^\s*->\s")
+#: The doctor report's own trailing summary line, e.g. "26 ok, 6 warning, 2 failed, 0 skipped".
+_LOG_SUMMARY_LINE_RE = re.compile(
+    r"\d+\s*ok,\s*\d+\s*warn(?:ing)?s?,\s*\d+\s*fail(?:ed)?s?,\s*\d+\s*skip(?:ped)?s?",
+    re.IGNORECASE,
+)
+#: Three or more columns separated by two or more spaces -- a pasted report's tabular shape. A
+#: real sentence, Thai or English, is not written with runs of multiple spaces between words.
+_LOG_TABULAR_LINE_RE = re.compile(r"\S+\s{2,}\S+\s{2,}\S+")
+
+
+def _is_log_looking_line(line: str) -> bool:
+    return bool(
+        _LOG_STATUS_LINE_RE.match(line)
+        or _LOG_REMEDIATION_LINE_RE.match(line)
+        or _LOG_SUMMARY_LINE_RE.search(line)
+        or _LOG_TABULAR_LINE_RE.search(line)
+    )
+
+
+def _strip_noise(text: str) -> str:
+    """*text* with fenced code, quoted lines (``>``), ``<pasted_content>``-style blocks and
+    log-looking lines removed (DG-521 SCOPE item 1) -- what is left is what the keyword table is
+    actually matched against. An unterminated fence or tag (the 400-character prefix cut one
+    open) stays suppressed through to the end, the conservative direction: better to miss a
+    nudge than to route on a stray fragment of a paste.
+    """
+    kept: list[str] = []
+    in_fence = False
+    open_tag: Optional[str] = None
+    for line in text.splitlines():
+        if _FENCE_LINE_RE.match(line):
+            in_fence = not in_fence
+            continue
+        if in_fence:
+            continue
+        if open_tag is not None:
+            close = _PASTED_TAG_CLOSE_RE.match(line)
+            if close and close.group(1).lower() == open_tag.lower():
+                open_tag = None
+            continue
+        open_match = _PASTED_TAG_OPEN_RE.match(line)
+        if open_match and "content" in open_match.group(1).lower():
+            open_tag = open_match.group(1)
+            continue
+        if _QUOTE_LINE_RE.match(line):
+            continue
+        if _is_log_looking_line(line):
+            continue
+        kept.append(line)
+    return "\n".join(kept)
+
+
+#: DG-521 review round 2 (LOW but cheap): a candidate Jira-looking key -- at least two letters,
+#: a hyphen, then digits, as a word. Checked against the ORIGINAL-case text, not the lowercased
+#: one :func:`_normalize_for_match` produces, because case is exactly the signal that tells
+#: "ALPHA-12"/"DG-519" apart from a lowercase technical token that merely has the same shape.
+_TICKET_KEY_CANDIDATE_RE = re.compile(r"\b([A-Za-z]{2,})-([0-9]+)\b")
+
+#: Lowercase prefix/digit tokens that look exactly like a ticket key but are not one -- found by
+#: the reviewer running "fix utf-8 encoding" and "sha-256 hash" through the unmodified regex.
+#: Checked case-insensitively; an uppercase prefix (a real project key) never reaches this list
+#: at all (see :func:`_contains_ticket_key`).
+_TICKET_KEY_STOPLIST: Final = frozenset(
+    {
+        "utf-8",
+        "utf-16",
+        "x-86",
+        "sha-1",
+        "sha-256",
+        "iso-8859",
+        "win-32",
+        "py-3",
+    }
+)
+
+
+def _contains_ticket_key(original_text: str) -> bool:
+    """Does *original_text* contain something that looks like a real ticket key?
+
+    An uppercase prefix (``ALPHA-12``, ``DG-519`` -- the shape every registered project in this
+    guild actually uses) is accepted outright. A lowercase or mixed-case prefix is accepted only
+    if it is at least two letters, the digit part is at least one digit (both already guaranteed
+    by :data:`_TICKET_KEY_CANDIDATE_RE`), and the whole token is not on the small stoplist of
+    lowercase technical tokens that merely have the same shape (``utf-8``, ``sha-256``, ...).
+    """
+    for match in _TICKET_KEY_CANDIDATE_RE.finditer(original_text):
+        prefix, digits = match.group(1), match.group(2)
+        if prefix.isupper():
+            return True
+        token = f"{prefix}-{digits}".lower()
+        if token not in _TICKET_KEY_STOPLIST:
+            return True
+    return False
+
+
+def _group_matches(group: Any, normalized_prompt: str, original_prompt: str) -> bool:
+    """Does *group* match? ``{"type": "ticket_key"}`` runs :func:`_contains_ticket_key` against
+    *original_prompt* (case matters there); ``{"type": "regex", ...}`` runs each value as a
+    regex search against *normalized_prompt*; anything else (including a missing or
+    unrecognised ``type``) falls back to the same substring/word-boundary semantics as a plain
+    keyword (:func:`_keyword_hits`) -- DG-521's ``combos`` need a group that can be a ticket-key
+    check or a regex alongside one that is a plain keyword list.
+    """
+    if not isinstance(group, dict):
+        return False
+    group_type = group.get("type")
+    if group_type == "ticket_key":
+        return _contains_ticket_key(original_prompt)
+    values = group.get("values")
+    if not isinstance(values, list):
+        return False
+    if group_type == "regex":
+        for pattern in values:
+            if not isinstance(pattern, str):
+                continue
+            try:
+                if re.search(pattern, normalized_prompt):
+                    return True
+            except re.error:
+                continue
+        return False
+    return any(
+        isinstance(v, str) and _keyword_hits(v, normalized_prompt) for v in values
+    )
+
+
+def _combo_satisfied(combo: Any, normalized_prompt: str, original_prompt: str) -> bool:
+    """A combo matches only when *every* one of its groups matches -- DG-521 lead follow-up
+    SCOPE item 1: a ticket-key-shaped token alone, or a bare "ticket" word alone, must never be
+    enough on its own (that is exactly the "what is a ticket" / "I bought a ... ticket" negative
+    cases); only the key or the word *together with* an action word nominates anything."""
+    if not isinstance(combo, dict):
+        return False
+    groups = combo.get("all")
+    if not isinstance(groups, list) or not groups:
+        return False
+    return all(
+        _group_matches(group, normalized_prompt, original_prompt) for group in groups
+    )
+
+
+def _category_matches(
+    prompt: str, table: list[dict[str, Any]]
+) -> list[tuple[int, int, str, list[str]]]:
+    """``(hit_count, priority, category, names)`` for every category with at least one keyword
+    hit or satisfied ``combos`` entry in *prompt*, sorted by the highest hit count first, ties
+    broken by the table's own ``priority`` field (lower wins) -- DG-521 SCOPE item 1. A row with
+    no ``priority`` of its own falls back to its position in the table, so an older, hand-edited
+    copy of the data file still sorts deterministically rather than raising or being skipped.
+    """
     normalized_prompt = _normalize_for_match(prompt)
-    names: list[str] = []
-    for row in table:
+    out: list[tuple[int, int, str, list[str]]] = []
+    for index, row in enumerate(table):
         keywords = row.get("keywords")
         row_names = row.get("names")
         if not isinstance(keywords, list) or not isinstance(row_names, list):
             continue
-        if not any(
-            isinstance(k, str) and _keyword_hits(k, normalized_prompt) for k in keywords
-        ):
+        hit_count = sum(
+            1
+            for k in keywords
+            if isinstance(k, str) and _keyword_hits(k, normalized_prompt)
+        )
+        combos = row.get("combos")
+        if isinstance(combos, list):
+            hit_count += sum(
+                1
+                for combo in combos
+                if _combo_satisfied(combo, normalized_prompt, prompt)
+            )
+        if hit_count == 0:
             continue
+        category_raw = row.get("category")
+        category = category_raw if isinstance(category_raw, str) else f"row{index}"
+        priority_raw = row.get("priority")
+        priority = priority_raw if isinstance(priority_raw, int) else index
+        names = [n for n in row_names if isinstance(n, str)]
+        out.append((hit_count, priority, category, names))
+    out.sort(key=lambda m: (-m[0], m[1]))
+    return out
+
+
+def _matched_names(prompt: str, table: list[dict[str, Any]]) -> list[str]:
+    """Every candidate skill/agent name from at most the two highest-scoring categories
+    (:func:`_category_matches`), deduplicated in that order, capped at :data:`_MAX_NAMES` names
+    in total -- before the installed-only filter is applied (DG-521 SCOPE item 1)."""
+    names: list[str] = []
+    for _hit_count, _priority, _category, row_names in _category_matches(prompt, table)[
+        :_MAX_CATEGORIES
+    ]:
         for name in row_names:
-            if isinstance(name, str) and name not in names:
+            if name not in names:
                 names.append(name)
+            if len(names) >= _MAX_NAMES:
+                return names
     return names
+
+
+def _is_installed_as_skill(name: str, skills_target: Path) -> bool:
+    try:
+        return (Path(skills_target) / name / "SKILL.md").is_file()
+    except OSError:
+        return False
+
+
+def _is_installed_as_agent(name: str, agents_target: Path) -> bool:
+    try:
+        return (Path(agents_target) / f"{name}.md").is_file()
+    except OSError:
+        return False
 
 
 def _is_installed(name: str, skills_target: Path, agents_target: Path) -> bool:
@@ -1340,17 +1569,29 @@ def _is_installed(name: str, skills_target: Path, agents_target: Path) -> bool:
     A plain file-existence check on just the handful of candidates the keyword table matched
     keeps the same "never names an uninstalled skill" guarantee for a fraction of the cost.
     """
-    try:
-        if (Path(skills_target) / name / "SKILL.md").is_file():
-            return True
-    except OSError:
-        pass
-    try:
-        if (Path(agents_target) / f"{name}.md").is_file():
-            return True
-    except OSError:
-        pass
-    return False
+    return _is_installed_as_skill(name, skills_target) or _is_installed_as_agent(
+        name, agents_target
+    )
+
+
+def _render_route_text(
+    names: list[str], skills_target: Path, agents_target: Path
+) -> str:
+    """The nudge sentence for exactly *names*, in order, naming a role (installed as an agent —
+    DG-521 SCOPE item 2: ``worker``, ``reviewer``, ``manager`` exist as both a skill and an
+    agent) through the Agent tool with its ``subagent_type``, and everything else through the
+    Skill tool. Kind is looked up from what is actually installed, never guessed from the name.
+    """
+    agent_names = [n for n in names if _is_installed_as_agent(n, agents_target)]
+    skill_names = [n for n in names if n not in agent_names]
+    clauses = []
+    if skill_names:
+        clauses.append("the Skill tool for: " + ", ".join(skill_names))
+    if agent_names:
+        clauses.append(
+            "the Agent tool with subagent_type for: " + ", ".join(agent_names)
+        )
+    return _ROUTE_PREFIX + "; ".join(clauses) + _ROUTE_SUFFIX
 
 
 def route_text(prompt: str, skills_target: Path, agents_target: Path) -> str:
@@ -1359,10 +1600,23 @@ def route_text(prompt: str, skills_target: Path, agents_target: Path) -> str:
     Only ever names a skill or agent actually installed under *skills_target*/*agents_target*
     (ACCEPTANCE: "names of uninstalled skills are never emitted") and is hard-capped at
     :data:`ROUTE_PROMPT_CHAR_LIMIT` characters by trimming names, never by cutting mid-sentence.
+
+    Fenced code, quoted lines, pasted-content blocks and log-looking lines are stripped out of
+    *up to* :data:`_ROUTE_STDIN_CAP` characters of the raw prompt **first**; only the first
+    :data:`_ROUTE_PROMPT_PREFIX_LEN` characters of what is left after that are ever considered
+    for matching (DG-521 review round 2, HIGH: stripping used to run on an already-truncated
+    400-character slice of the *raw* prompt, so a pasted log followed by a real request past
+    character 400 never reached the real text — a 2.8KB log plus a trailing request nominated
+    nothing). This means a real request buried past 400 characters of *real* (non-noise) text is
+    still not detected — only noise ahead of it is ever skipped for free; that is intended, not a
+    bug the cap is meant to catch.
     """
     if not isinstance(prompt, str) or not prompt:
         return ""
-    candidates = _matched_names(prompt, _load_route_table())
+    cleaned = _strip_noise(prompt[:_ROUTE_STDIN_CAP])[:_ROUTE_PROMPT_PREFIX_LEN]
+    if not cleaned.strip():
+        return ""
+    candidates = _matched_names(cleaned, _load_route_table())
     if not candidates:
         return ""
     skills_target = Path(skills_target)
@@ -1371,7 +1625,7 @@ def route_text(prompt: str, skills_target: Path, agents_target: Path) -> str:
     if not names:
         return ""
     while names:
-        text = _ROUTE_PREFIX + ", ".join(names) + _ROUTE_SUFFIX
+        text = _render_route_text(names, skills_target, agents_target)
         if len(text) <= ROUTE_PROMPT_CHAR_LIMIT:
             return text
         names.pop()
@@ -2194,13 +2448,6 @@ def _run_hook(args: argparse.Namespace) -> int:
         print_settings_line=False,
     )
     return 1 if "refused" in (session_plan.action, route_plan.action) else 0
-
-
-#: DG-515 review round 2: an unbounded ``sys.stdin.read()`` loads however much a hook's caller
-#: cares to send before ``json.loads`` ever runs — a 50MB stream makes a plain ``.read()`` read
-#: all of it. 64KiB comfortably covers a real ``UserPromptSubmit`` payload (Claude Code's own
-#: prompts are nowhere near this) while bounding the worst case to a fixed, fast read.
-_ROUTE_STDIN_CAP: Final = 65536
 
 
 def _prompt_from_stdin() -> str:

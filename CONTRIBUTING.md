@@ -10,6 +10,25 @@ By participating in this project, you agree to abide by our [Code of Conduct](CO
 
 ---
 
+## 🔧 Development Setup
+
+Working from a clone is the contributor path — a user installs a release tag instead (see
+[README.md](./README.md#install)); this is the only place that story is told:
+
+```bash
+git clone https://github.com/sornbuen15/drunken-guild.git
+cd drunken-guild
+uv sync --extra dev
+pre-commit install
+```
+
+`--extra dev` is not optional if you intend to run the tests — without it `uv run pytest` can fall
+through to whatever `pytest` is on `PATH`. `uv run drunken-install all --dry-run` and
+`uv run drunken-doctor` work the same from a clone as from an installed tool; the full credential
+and registry setup is in [Drunken-Guild-Guide.md](./Drunken-Guild-Guide.md#2-registry-credentials-and-the-mcp-server).
+
+---
+
 ## 🛠️ How Can I Contribute?
 
 ### Reporting Bugs
