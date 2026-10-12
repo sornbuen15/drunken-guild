@@ -1318,9 +1318,23 @@ def _keyword_hits(keyword: str, normalized_prompt: str) -> bool:
 _MAX_CATEGORIES: Final = 2
 _MAX_NAMES: Final = 5
 
-#: DG-521 SCOPE item 1: only the first this many characters of a prompt are ever considered --
-#: a pasted log or a long paste runs far past this, and nothing beyond it can nominate anything.
+#: DG-521 SCOPE item 1: only the first this many characters of the *cleaned* prompt (after
+#: :func:`_strip_noise` has removed fenced code, quoted lines, pasted-content blocks and
+#: log-looking lines) are ever considered for matching -- a pasted log or a long paste runs far
+#: past this, and nothing beyond it can nominate anything. DG-521 review round 2 (HIGH): this
+#: used to be applied to the *raw* prompt before stripping, so a pasted log followed by a real
+#: request past character 400 never reached the real text at all -- strip first, then window.
 _ROUTE_PROMPT_PREFIX_LEN: Final = 400
+
+#: DG-515 review round 2: an unbounded ``sys.stdin.read()`` loads however much a hook's caller
+#: cares to send before ``json.loads`` ever runs — a 50MB stream makes a plain ``.read()`` read
+#: all of it. 64KiB comfortably covers a real ``UserPromptSubmit`` payload (Claude Code's own
+#: prompts are nowhere near this) while bounding the worst case to a fixed, fast read. DG-521
+#: review round 2: also the cap on how much of a *raw* prompt :func:`route_text` will ever run
+#: :func:`_strip_noise` over, before windowing down to :data:`_ROUTE_PROMPT_PREFIX_LEN` -- the
+#: reviewer measured stripping a full 64KiB at 0.8ms, comfortably fast enough to do on every call
+#: rather than only on an already-truncated 400-character slice.
+_ROUTE_STDIN_CAP: Final = 65536
 
 _FENCE_LINE_RE = re.compile(r"^\s*(```|~~~)")
 _QUOTE_LINE_RE = re.compile(r"^\s*>")
@@ -1388,19 +1402,66 @@ def _strip_noise(text: str) -> str:
     return "\n".join(kept)
 
 
-def _group_matches(group: Any, normalized_prompt: str) -> bool:
-    """Does any one value of *group* appear in *normalized_prompt*? ``{"type": "regex", ...}``
-    runs each value as a regex search; anything else (including a missing or unrecognised
-    ``type``) falls back to the same substring/word-boundary semantics as a plain keyword
-    (:func:`_keyword_hits`) -- DG-521 lead follow-up's ``combos`` need a group that is a regex
-    (a Jira-style ticket key) alongside one that is a plain keyword list.
+#: DG-521 review round 2 (LOW but cheap): a candidate Jira-looking key -- at least two letters,
+#: a hyphen, then digits, as a word. Checked against the ORIGINAL-case text, not the lowercased
+#: one :func:`_normalize_for_match` produces, because case is exactly the signal that tells
+#: "ALPHA-12"/"DG-519" apart from a lowercase technical token that merely has the same shape.
+_TICKET_KEY_CANDIDATE_RE = re.compile(r"\b([A-Za-z]{2,})-([0-9]+)\b")
+
+#: Lowercase prefix/digit tokens that look exactly like a ticket key but are not one -- found by
+#: the reviewer running "fix utf-8 encoding" and "sha-256 hash" through the unmodified regex.
+#: Checked case-insensitively; an uppercase prefix (a real project key) never reaches this list
+#: at all (see :func:`_contains_ticket_key`).
+_TICKET_KEY_STOPLIST: Final = frozenset(
+    {
+        "utf-8",
+        "utf-16",
+        "x-86",
+        "sha-1",
+        "sha-256",
+        "iso-8859",
+        "win-32",
+        "py-3",
+    }
+)
+
+
+def _contains_ticket_key(original_text: str) -> bool:
+    """Does *original_text* contain something that looks like a real ticket key?
+
+    An uppercase prefix (``ALPHA-12``, ``DG-519`` -- the shape every registered project in this
+    guild actually uses) is accepted outright. A lowercase or mixed-case prefix is accepted only
+    if it is at least two letters, the digit part is at least one digit (both already guaranteed
+    by :data:`_TICKET_KEY_CANDIDATE_RE`), and the whole token is not on the small stoplist of
+    lowercase technical tokens that merely have the same shape (``utf-8``, ``sha-256``, ...).
+    """
+    for match in _TICKET_KEY_CANDIDATE_RE.finditer(original_text):
+        prefix, digits = match.group(1), match.group(2)
+        if prefix.isupper():
+            return True
+        token = f"{prefix}-{digits}".lower()
+        if token not in _TICKET_KEY_STOPLIST:
+            return True
+    return False
+
+
+def _group_matches(group: Any, normalized_prompt: str, original_prompt: str) -> bool:
+    """Does *group* match? ``{"type": "ticket_key"}`` runs :func:`_contains_ticket_key` against
+    *original_prompt* (case matters there); ``{"type": "regex", ...}`` runs each value as a
+    regex search against *normalized_prompt*; anything else (including a missing or
+    unrecognised ``type``) falls back to the same substring/word-boundary semantics as a plain
+    keyword (:func:`_keyword_hits`) -- DG-521's ``combos`` need a group that can be a ticket-key
+    check or a regex alongside one that is a plain keyword list.
     """
     if not isinstance(group, dict):
         return False
+    group_type = group.get("type")
+    if group_type == "ticket_key":
+        return _contains_ticket_key(original_prompt)
     values = group.get("values")
     if not isinstance(values, list):
         return False
-    if group.get("type") == "regex":
+    if group_type == "regex":
         for pattern in values:
             if not isinstance(pattern, str):
                 continue
@@ -1415,7 +1476,7 @@ def _group_matches(group: Any, normalized_prompt: str) -> bool:
     )
 
 
-def _combo_satisfied(combo: Any, normalized_prompt: str) -> bool:
+def _combo_satisfied(combo: Any, normalized_prompt: str, original_prompt: str) -> bool:
     """A combo matches only when *every* one of its groups matches -- DG-521 lead follow-up
     SCOPE item 1: a ticket-key-shaped token alone, or a bare "ticket" word alone, must never be
     enough on its own (that is exactly the "what is a ticket" / "I bought a ... ticket" negative
@@ -1425,7 +1486,9 @@ def _combo_satisfied(combo: Any, normalized_prompt: str) -> bool:
     groups = combo.get("all")
     if not isinstance(groups, list) or not groups:
         return False
-    return all(_group_matches(group, normalized_prompt) for group in groups)
+    return all(
+        _group_matches(group, normalized_prompt, original_prompt) for group in groups
+    )
 
 
 def _category_matches(
@@ -1452,7 +1515,9 @@ def _category_matches(
         combos = row.get("combos")
         if isinstance(combos, list):
             hit_count += sum(
-                1 for combo in combos if _combo_satisfied(combo, normalized_prompt)
+                1
+                for combo in combos
+                if _combo_satisfied(combo, normalized_prompt, prompt)
             )
         if hit_count == 0:
             continue
@@ -1535,12 +1600,20 @@ def route_text(prompt: str, skills_target: Path, agents_target: Path) -> str:
     Only ever names a skill or agent actually installed under *skills_target*/*agents_target*
     (ACCEPTANCE: "names of uninstalled skills are never emitted") and is hard-capped at
     :data:`ROUTE_PROMPT_CHAR_LIMIT` characters by trimming names, never by cutting mid-sentence.
-    Considers only the first :data:`_ROUTE_PROMPT_PREFIX_LEN` characters, with fenced code,
-    quoted lines, pasted-content blocks and log-looking lines stripped out first (DG-521).
+
+    Fenced code, quoted lines, pasted-content blocks and log-looking lines are stripped out of
+    *up to* :data:`_ROUTE_STDIN_CAP` characters of the raw prompt **first**; only the first
+    :data:`_ROUTE_PROMPT_PREFIX_LEN` characters of what is left after that are ever considered
+    for matching (DG-521 review round 2, HIGH: stripping used to run on an already-truncated
+    400-character slice of the *raw* prompt, so a pasted log followed by a real request past
+    character 400 never reached the real text — a 2.8KB log plus a trailing request nominated
+    nothing). This means a real request buried past 400 characters of *real* (non-noise) text is
+    still not detected — only noise ahead of it is ever skipped for free; that is intended, not a
+    bug the cap is meant to catch.
     """
     if not isinstance(prompt, str) or not prompt:
         return ""
-    cleaned = _strip_noise(prompt[:_ROUTE_PROMPT_PREFIX_LEN])
+    cleaned = _strip_noise(prompt[:_ROUTE_STDIN_CAP])[:_ROUTE_PROMPT_PREFIX_LEN]
     if not cleaned.strip():
         return ""
     candidates = _matched_names(cleaned, _load_route_table())
@@ -2375,13 +2448,6 @@ def _run_hook(args: argparse.Namespace) -> int:
         print_settings_line=False,
     )
     return 1 if "refused" in (session_plan.action, route_plan.action) else 0
-
-
-#: DG-515 review round 2: an unbounded ``sys.stdin.read()`` loads however much a hook's caller
-#: cares to send before ``json.loads`` ever runs — a 50MB stream makes a plain ``.read()`` read
-#: all of it. 64KiB comfortably covers a real ``UserPromptSubmit`` payload (Claude Code's own
-#: prompts are nowhere near this) while bounding the worst case to a fixed, fast read.
-_ROUTE_STDIN_CAP: Final = 65536
 
 
 def _prompt_from_stdin() -> str:

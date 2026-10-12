@@ -8,13 +8,35 @@
       "user story",
       "scope",
       "spec",
-      "plan",
       "ความต้องการ",
       "ขอบเขตงาน",
       "สเปก",
       "ยูสเคส",
-      "วางแผน",
       "แตกงาน"
+    ],
+    "combos": [
+      {
+        "all": [
+          {"type": "keyword", "values": ["plan", "วางแผน"]},
+          {
+            "type": "keyword",
+            "values": [
+              "feature",
+              "project",
+              "ticket",
+              "sprint",
+              "backlog",
+              "release",
+              "migration",
+              "tasks",
+              "ฟีเจอร์",
+              "โปรเจกต์",
+              "งาน",
+              "ระบบ"
+            ]
+          }
+        ]
+      }
     ],
     "names": ["prd", "clarify", "breakdown"],
     "priority": 1
@@ -23,7 +45,6 @@
     "category": "design",
     "keywords": [
       "design the system",
-      "architecture",
       "data model",
       "schema",
       "diagram",
@@ -32,6 +53,26 @@
       "สถาปัตยกรรม",
       "โครงสร้างข้อมูล",
       "ไดอะแกรม"
+    ],
+    "combos": [
+      {
+        "all": [
+          {"type": "keyword", "values": ["architecture"]},
+          {
+            "type": "keyword",
+            "values": [
+              "design",
+              "review",
+              "diagram",
+              "service",
+              "module",
+              "system",
+              "ออกแบบ",
+              "ระบบ"
+            ]
+          }
+        ]
+      }
     ],
     "names": ["ddd", "system-design-rules", "clean-architecture"],
     "priority": 2
@@ -53,7 +94,7 @@
     "combos": [
       {
         "all": [
-          {"type": "regex", "values": ["\\b[a-z][a-z0-9]+-[0-9]+\\b"]},
+          {"type": "ticket_key"},
           {
             "type": "keyword",
             "values": [
