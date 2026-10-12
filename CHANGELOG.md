@@ -39,6 +39,18 @@ the routing is measured below (scratch runs, three per cell, so a direction, not
   is step 0 of the release checklist in CONTRIBUTING.md (DG-514).
 - `scripts/check_skill_size.py` keeps skills (120 lines) and agents (100 lines) light: a new file over
   the limit fails and a file already over may only shrink (DG-516).
+- `drunken-doctor`'s `processes.orphans` check lists leftover session processes with a dead
+  parent and a known-leftover command line (a shell snapshot, a stdin interpreter, `uv run`,
+  `drunken-jira-mcp`), and **lock holders** — a process whose executable sits inside the installed
+  guild tool, whatever its parent, labeled `orphan` or `held by session <ppid>`. `drunken-install
+  reap` plans the same list; `--apply` re-verifies every id (same pid, same start time, parent
+  state unchanged) immediately before terminating it, terminates orphans unconditionally, and
+  terminates a held lock holder only with `--include-held` — stopping one can make Jira tools
+  unavailable until the session restarts it. Nothing is ever killed by inference, and an unreadable
+  process table refuses rather than reporting a clean, unchecked list. `drunken-install
+  skills`/`agents`/`all` print a one-line warning, before writing anything, naming how many lock
+  holders exist and the exact command to clear them (DG-518).
+- README.md is now 54 lines with the seven-command flow diagram and a five-command install, GETTING_STARTED.md is 100 lines, and everything they used to carry moved word for word into `docs/REFERENCE.md` and `REPOSITORY_MAP.md`; the new `concise-docs` skill covers guides, test cases, status reports, release notes, tickets and chat summaries (DG-517).
 
 ### Fixed
 - After `extras --apply`, `status` called all 16 extras "retired" and `skills --prune --prune-apply`

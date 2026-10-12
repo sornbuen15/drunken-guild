@@ -70,6 +70,11 @@ to. `scripts/check_skill_size.py` checks this file shape too, under the same rat
   regenerate them with `--index-only`, never hand-edit, because hand-generation drifts. Note what
   the index is *not*: nothing in the harness reads it when deciding what to load. It is for a human
   or an agent browsing this repository.
+- **Never run an interpreter that reads its script from stdin** (`python -`, a heredoc piped into
+  `python -`) — a tool timeout moving that call to the background leaves it waiting on stdin
+  forever, with no parent once the session ends (DG-518). Pass a file or `-c` instead. A background
+  command is tracked and stopped by whoever started it; any process left running at the end of a
+  session goes in the final report.
 - `skills/.external` lists skills this repo ships but did not author. **An empty file is a claim
   that there are none, made to everyone who installs a public MIT-licensed repository — not a
   default.** It has been wrong in both directions: it once declared four skills third-party whose

@@ -83,8 +83,13 @@ def mcp_config(project_id: str = "") -> Dict[str, Any]:
     return {"mcpServers": {name: {"command": name} for name in MCP_SERVERS}}
 
 
-def _tool_bin_dir() -> Path:
-    """Where ``uv tool install`` puts executables. The stable location."""
+def tool_bin_dir() -> Path:
+    """Where ``uv tool install`` puts executables. The stable location.
+
+    Public (DG-518): :func:`core.doctor.guild_tool_paths` reads this too, to
+    tell a ``drunken-*`` console-script shim here apart from an unrelated
+    program of the same name living anywhere else.
+    """
     override = os.environ.get("UV_TOOL_BIN_DIR")
     return Path(override).expanduser() if override else Path.home() / ".local" / "bin"
 
@@ -97,7 +102,7 @@ def resolve_command(name: str) -> str:
     that works until the venv is rebuilt and then fails with no obvious
     connection to the cause.
     """
-    installed = _tool_bin_dir() / name
+    installed = tool_bin_dir() / name
     if installed.is_file():
         return str(installed)
 

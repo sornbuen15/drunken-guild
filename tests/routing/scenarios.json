@@ -27,6 +27,9 @@
     {"request": "Where does this project keep its PRD?", "expect": {"kind": "skill", "name": "project-docs"}},
     {"request": "There's a PRD.md in the root and another in .ai — which one do we use?", "expect": {"kind": "skill", "name": "project-docs"}},
 
+    {"request": "Write the install guide for this tool — keep it short and scannable.", "expect": {"kind": "skill", "name": "concise-docs"}},
+    {"request": "Turn this test run into release notes a reader can scan in ten seconds.", "expect": {"kind": "skill", "name": "concise-docs"}},
+
     {"request": "I'm stepping away for the afternoon — you need my OK before force-pushing, so how do you ask?", "expect": {"kind": "skill", "name": "ask-boss"}},
     {"request": "You need my approval to drop the staging database. Get it without blocking your other work.", "expect": {"kind": "skill", "name": "ask-boss"}},
 
