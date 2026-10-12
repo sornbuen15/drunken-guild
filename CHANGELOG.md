@@ -7,7 +7,9 @@ The top heading is the version this tree declares in `pyproject.toml`; `Unreleas
 while a release is being prepared, and is renamed to the version when it is tagged
 (`tests/test_install_agents.py::TestTheChangelog`).
 
-## Unreleased
+## 2.0.3 — 2026-10-12
+
+The per-prompt routing hook stops over-triggering and sends build work to the worker agent.
 
 ### Fixed
 - `drunken-install route` no longer over-triggers on a pasted log, a quoted block or fenced
@@ -18,6 +20,17 @@ while a release is being prepared, and is renamed to the version when it is tagg
   `manager` — installed as both a skill and an agent) apart from a plain skill: a role is named
   through the Agent tool with its `subagent_type`, everything else through the Skill tool
   (DG-521).
+- A Thai or English ticket hand-off ("ทำ ticket ALPHA-12 ให้หน่อย", "implement ticket ALPHA-12")
+  routes to `build` and the `worker` agent; a ticket key needs a Jira-looking shape (`utf-8` is not
+  one), and bare "plan" or "architecture" without a work word no longer nominates anything. A real
+  request after a pasted log is still found (noise is stripped before the 400-character window).
+
+### Measured
+Scratch runs of `claude -p` on a Thai build ticket with edits allowed, four runs per side and the
+same 53 skills and 24 agents available: without the hook the `worker` agent ran in 1 of 4 and the
+test skills in 0 of 4; with it, 4 of 4 and 4 of 4. The `reviewer` agent ran in 0 of 4 both ways.
+Cost per run rose from about $0.21 to $0.43 on average (range $0.13 to $0.68), because the work now
+runs in an agent. Small samples on one small task: a direction, not a price.
 
 ## 2.0.2 — 2026-10-12
 

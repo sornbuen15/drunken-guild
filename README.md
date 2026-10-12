@@ -26,7 +26,7 @@ flowchart LR
 ## Install
 
 ```bash
-uv tool install git+https://github.com/sornbuen15/drunken-guild@v2.0.2   # pick the tag you want
+uv tool install git+https://github.com/sornbuen15/drunken-guild@v2.0.3   # pick the tag you want
 drunken-install all                                                      # skills + agents -> ~/.claude
 drunken-install extras --apply                                          # optional: the older skills and agents
 drunken-install hook --apply                                            # both hooks: session context + per-prompt routing
