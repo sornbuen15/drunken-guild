@@ -39,9 +39,16 @@ from datetime import datetime, timezone
 from importlib import resources as importlib_resources
 from importlib import util as importlib_util
 from pathlib import Path
-from typing import Any, Callable, Final, Iterator, Optional, Sequence
+from typing import TYPE_CHECKING, Any, Callable, Final, Iterator, Optional, Sequence
 
 from .errors import DrunkenError, ValidationError
+
+if TYPE_CHECKING:
+    # DG-518: `orphans` is imported lazily at call time everywhere else in
+    # this module (`core.doctor` imports `core.install`, so a module-level
+    # import here would be circular) -- this branch never runs, it only
+    # gives mypy the names used in the type hints below.
+    from . import orphans as orphans_types
 
 #: Where a source checkout keeps the skills when ``drunken_skills`` is not importable.
 _SOURCE_TREE = Path(__file__).resolve().parent.parent.parent
@@ -862,6 +869,31 @@ def build_parser() -> argparse.ArgumentParser:
     route.add_argument("--target", help="Skills folder. Default: ~/.claude/skills.")
     route.add_argument(
         "--agents-target", help="Agents folder. Default: ~/.claude/agents."
+    )
+
+    # DG-518: list session-leftover processes with a dead parent; --apply terminates exactly
+    # those, re-verified immediately before each one. A Boss command -- never run by an agent.
+    reap = sub.add_parser(
+        "reap",
+        help=(
+            "list session-leftover processes with a dead parent (plan by default); "
+            "--apply terminates exactly those, re-verified first -- a Boss command, "
+            "never run by an agent"
+        ),
+    )
+    reap.add_argument(
+        "--apply",
+        action="store_true",
+        help="Terminate the listed processes. Default: plan only, nothing touched.",
+    )
+    reap.add_argument(
+        "--include-held",
+        action="store_true",
+        help=(
+            "With --apply, also terminate lock holders whose parent is alive "
+            "(stops a running MCP server until it restarts). Default: leave "
+            "those alone."
+        ),
     )
 
     # DG-512: the drunken-extras plugin's optional skills and agents — plan by default, never prunes.
@@ -2205,37 +2237,187 @@ def _run_route(args: argparse.Namespace) -> int:
     return 0
 
 
-def _run(args: argparse.Namespace) -> int:
-    if args.what == "context":
-        return _run_context(args)
-    if args.what == "hook":
-        return _run_hook(args)
-    if args.what == "route":
-        return _run_route(args)
-    skills_target, agents_target = _targets(args)
-    if args.what == "status":
-        _print_status(status(skills_target, agents_target))
-        return 0
-    if args.what == "extras":
-        from . import install_extras
+def _reap_plan(
+    table: Sequence["orphans_types.ProcessInfo"], tool_roots: Sequence[str]
+) -> tuple[list["orphans_types.OrphanProcess"], list["orphans_types.LockHolder"]]:
+    """Split *table* into (orphans, live-held lock holders) for ``reap``.
 
-        only = (
-            [n.strip() for n in args.only.split(",") if n.strip()]
-            if args.only
-            else None
+    A dead-parented lock holder is folded into the orphan list -- deduped by
+    pid against the plain session-leftover orphans -- since it is reaped
+    exactly the same way; only a live-parented one stays a separate case.
+    """
+    from . import orphans  # noqa: PLC0415 - only this subcommand needs it
+
+    session_orphans = orphans.find_orphans(table)
+    lock_holders = orphans.find_lock_holders(table, tool_roots)
+    orphan_pids = {o.pid for o in session_orphans}
+    dead_lock_holders = [
+        h for h in lock_holders if not h.parent_alive and h.pid not in orphan_pids
+    ]
+    held_live = [h for h in lock_holders if h.parent_alive]
+    all_orphans = session_orphans + [
+        orphans.OrphanProcess(h.pid, h.ppid, h.start_time, h.command)
+        for h in dead_lock_holders
+    ]
+    return all_orphans, held_live
+
+
+def _print_reap_plan(
+    all_orphans: Sequence["orphans_types.OrphanProcess"],
+    held_live: Sequence["orphans_types.LockHolder"],
+) -> None:
+    for candidate in all_orphans:
+        print(
+            f"pid {candidate.pid}  ppid {candidate.ppid}  "
+            f"started {candidate.start_time}  orphan  {candidate.command}"
         )
-        extras_result = install_extras.install_extras(
-            skills_target, agents_target, apply=args.apply, only=only
+    for holder in held_live:
+        print(
+            f"pid {holder.pid}  ppid {holder.ppid}  started {holder.start_time}  "
+            f"{holder.label}  {holder.command}"
         )
-        install_extras.print_report(extras_result)
-        return (
-            1
-            if any(
-                a.status == "refused"
-                for a in (*extras_result.skills, *extras_result.agents)
-            )
-            else 0
+    if held_live:
+        print(
+            f"\n{len(held_live)} lock holder(s) are still held by a live "
+            "session. Stopping a held drunken-jira-mcp makes Jira tools "
+            "unavailable in that session until it restarts -- terminated "
+            "only with --include-held."
         )
+
+
+def _apply_reap_plan(
+    all_orphans: Sequence["orphans_types.OrphanProcess"],
+    held_live: Sequence["orphans_types.LockHolder"],
+    *,
+    include_held: bool,
+) -> None:
+    from . import orphans  # noqa: PLC0415 - only this subcommand needs it
+
+    outcome = orphans.apply_reap(
+        all_orphans,
+        apply=True,
+        terminate_fn=orphans.terminate_process,
+        list_processes_fn=orphans.list_processes,
+    )
+    for candidate in outcome.terminated:
+        print(f"terminated pid {candidate.pid}")
+    for candidate, reason in outcome.skipped:
+        print(f"skipped pid {candidate.pid}: {reason}")
+
+    if not held_live:
+        return
+    held_outcome = orphans.apply_lock_holders(
+        held_live,
+        apply=True,
+        include_held=include_held,
+        terminate_fn=orphans.terminate_process,
+        list_processes_fn=orphans.list_processes,
+    )
+    for holder in held_outcome.terminated:
+        print(
+            f"terminated pid {holder.pid} (was held by session "
+            f"{holder.ppid}); restart it if it was an MCP server"
+        )
+    for holder, reason in held_outcome.skipped:
+        print(f"skipped pid {holder.pid}: {reason}")
+
+
+def _run_reap(args: argparse.Namespace) -> int:
+    """DG-518: list session-leftover processes with a dead parent, and guild
+    tool **lock holders** (a process whose executable sits inside the
+    installed guild tool, whatever its parent -- a running ``drunken-jira-mcp``
+    the desktop app is still keeping alive counts, even with no window open).
+
+    ``--apply`` re-verifies every orphan (same pid, same start time, parent
+    still dead) immediately before terminating it, and terminates orphaned
+    lock holders the same way. A lock holder whose parent is alive is left
+    alone unless ``--include-held`` is also given -- terminating one stops a
+    running MCP server until it restarts, which must be the Boss's explicit
+    choice, never the default. Never run by an agent.
+    """
+    from . import doctor, orphans  # noqa: PLC0415 - only this subcommand needs them
+
+    try:
+        table = orphans.list_processes()
+    except orphans.ProcessTableUnavailableError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        if exc.remediation:
+            print(f"  -> {exc.remediation}", file=sys.stderr)
+        return 1
+
+    all_orphans, held_live = _reap_plan(table, doctor.guild_tool_paths())
+    if not all_orphans and not held_live:
+        print("No leftover session processes found.")
+        return 0
+
+    _print_reap_plan(all_orphans, held_live)
+
+    if not args.apply:
+        print(
+            f"\n{len(all_orphans)} orphan(s), {len(held_live)} held lock "
+            "holder(s). Nothing was touched. Re-run with --apply to "
+            "re-verify each and terminate the orphans; add --include-held "
+            "to also terminate the held ones."
+        )
+        return 0
+
+    _apply_reap_plan(all_orphans, held_live, include_held=args.include_held)
+    return 0
+
+
+def _warn_about_lock_holders() -> None:
+    """DG-518 scope addition: one line, printed before an install/update
+    proceeds, naming how many guild processes currently hold files inside the
+    installed tool -- the reason ``uv tool install --force`` can fail outright
+    -- and the exact command to clear them. Never acts; only ``drunken-install
+    reap`` ever terminates anything, and only when told to. Silent on a
+    process table this cannot read: a missing ``ps``/``powershell`` must never
+    block the update this warning is only a courtesy before.
+    """
+    from . import doctor, orphans  # noqa: PLC0415 - only this call site needs them
+
+    try:
+        table = orphans.list_processes()
+    except orphans.ProcessTableUnavailableError:
+        return
+    holders = orphans.find_lock_holders(table, doctor.guild_tool_paths())
+    if not holders:
+        return
+    print(
+        f"note: {len(holders)} guild process(es) currently hold files inside "
+        "the installed tool -- `uv tool install --force` can fail while they "
+        "do. See `drunken-install reap --include-held --apply` if an update "
+        "fails."
+    )
+
+
+def _run_extras(
+    args: argparse.Namespace, skills_target: Path, agents_target: Path
+) -> int:
+    from . import install_extras
+
+    only = [n.strip() for n in args.only.split(",") if n.strip()] if args.only else None
+    extras_result = install_extras.install_extras(
+        skills_target, agents_target, apply=args.apply, only=only
+    )
+    install_extras.print_report(extras_result)
+    return (
+        1
+        if any(
+            a.status == "refused"
+            for a in (*extras_result.skills, *extras_result.agents)
+        )
+        else 0
+    )
+
+
+def _run_update(
+    args: argparse.Namespace, skills_target: Path, agents_target: Path
+) -> int:
+    """``skills`` / ``agents`` / ``all``: the usual update. DG-518: warns once,
+    before writing anything, about pre-existing guild tool lock holders."""
+    if not args.dry_run:
+        _warn_about_lock_holders()
     refused = False
     if args.what in ("skills", "all"):
         result = install_skills(
@@ -2253,6 +2435,24 @@ def _run(args: argparse.Namespace) -> int:
         _print_agents(agents)
         refused = refused or any(a.status == "refused" for a in agents.agents)
     return 1 if refused else 0
+
+
+def _run(args: argparse.Namespace) -> int:
+    if args.what == "context":
+        return _run_context(args)
+    if args.what == "hook":
+        return _run_hook(args)
+    if args.what == "route":
+        return _run_route(args)
+    if args.what == "reap":
+        return _run_reap(args)
+    skills_target, agents_target = _targets(args)
+    if args.what == "status":
+        _print_status(status(skills_target, agents_target))
+        return 0
+    if args.what == "extras":
+        return _run_extras(args, skills_target, agents_target)
+    return _run_update(args, skills_target, agents_target)
 
 
 def main(argv: Optional[Sequence[str]] = None) -> int:

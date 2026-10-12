@@ -251,6 +251,18 @@ def _check_route_command(
     )
 
 
+def _doctor_check_status(
+    checks: list[dict[str, Any]], name: str, ok_statuses: tuple[str, ...]
+) -> tuple[bool, str]:
+    """Whether *name* is present in a ``drunken-doctor --json`` report and
+    reads one of *ok_statuses*, plus the one-line detail to show either way."""
+    match = next((c for c in checks if c.get("name") == name), None)
+    if match is None:
+        return False, f"{name} check not present in doctor's report"
+    status = match.get("status")
+    return status in ok_statuses, f"status={status!r}: {match.get('detail', '')}"
+
+
 def run_smoke(report: SmokeReport, venv_dir: Path, fake_home: Path) -> None:
     env = _fake_home_env(fake_home)
     drunken_install = _exe(venv_dir, "drunken-install")
@@ -386,8 +398,10 @@ def run_smoke(report: SmokeReport, venv_dir: Path, fake_home: Path) -> None:
     doctor_result = _run([str(drunken_doctor), "--json"], env=env)
     session_hook_ok = False
     prompt_hook_ok = False
+    orphans_ok = False
     doctor_detail = ""
     prompt_doctor_detail = ""
+    orphans_detail = ""
     if doctor_result.returncode in (
         0,
         1,
@@ -397,37 +411,31 @@ def run_smoke(report: SmokeReport, venv_dir: Path, fake_home: Path) -> None:
         except ValueError as exc:
             doctor_detail = f"doctor did not print valid JSON: {exc}"
             prompt_doctor_detail = doctor_detail
+            orphans_detail = doctor_detail
         else:
             checks = doctor_payload.get("checks", [])
-            match = next(
-                (c for c in checks if c.get("name") == "routes.session_hook"), None
+            session_hook_ok, doctor_detail = _doctor_check_status(
+                checks, "routes.session_hook", ("ok",)
             )
-            if match is None:
-                doctor_detail = (
-                    "routes.session_hook check not present in doctor's report"
-                )
-            else:
-                session_hook_ok = match.get("status") == "ok"
-                doctor_detail = (
-                    f"status={match.get('status')!r}: {match.get('detail', '')}"
-                )
             # DG-515: the UserPromptSubmit twin of the above -- same temp HOME, same `hook
             # --apply` run above, so this must also read "ok" once it actually ran.
-            prompt_match = next(
-                (c for c in checks if c.get("name") == "routes.prompt_hook"), None
+            prompt_hook_ok, prompt_doctor_detail = _doctor_check_status(
+                checks, "routes.prompt_hook", ("ok",)
             )
-            if prompt_match is None:
-                prompt_doctor_detail = (
-                    "routes.prompt_hook check not present in doctor's report"
-                )
-            else:
-                prompt_hook_ok = prompt_match.get("status") == "ok"
-                prompt_doctor_detail = f"status={prompt_match.get('status')!r}: {prompt_match.get('detail', '')}"
+            # DG-518: the orphan-process check must be present and must never report `fail` --
+            # `ok`, `warn` (orphans found, named, nothing killed) and `skip` (no ps/powershell
+            # on this runner) are all honest answers from a read-only check.
+            orphans_ok, orphans_detail = _doctor_check_status(
+                checks, "processes.orphans", ("ok", "warn", "skip")
+            )
     else:
         doctor_detail = (doctor_result.stdout + doctor_result.stderr)[-300:]
         prompt_doctor_detail = doctor_detail
+        orphans_detail = doctor_detail
+        orphans_ok = False
     report.record("doctor.routes_session_hook_ok", session_hook_ok, doctor_detail)
     report.record("doctor.routes_prompt_hook_ok", prompt_hook_ok, prompt_doctor_detail)
+    report.record("doctor.processes_orphans_present", orphans_ok, orphans_detail)
 
     after_settings = _snapshot(_REAL_SETTINGS)
     after_registry = _snapshot(_REAL_REGISTRY)

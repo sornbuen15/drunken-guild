@@ -30,12 +30,13 @@ from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from typing import Any, Final, Literal, Optional, Sequence
 
-from . import ai_layer, content_scan, install, paths, secrets
+from . import ai_layer, content_scan, install, orphans, paths, secrets
 from .config_gen import (
     count_pins,
     export_requirements,
     install_command,
     is_drunken_managed,
+    tool_bin_dir,
 )
 from .context import ProjectContext
 from .errors import DrunkenError, ValidationError
@@ -393,6 +394,21 @@ def tool_env_root(tool_dir: Optional[Path] = None) -> Path:
     if raw := os.environ.get(ENV_TOOL_ROOT):
         return Path(os.path.expandvars(raw)).expanduser()
     return (tool_dir if tool_dir is not None else uv_tool_dir()) / TOOL_PACKAGE
+
+
+def guild_tool_paths() -> list[str]:
+    """Path prefixes that count as "inside the installed guild tool" for the
+    lock-holder check (DG-518 scope addition): the ``uv tool`` environment
+    this package installs into, and the ``drunken-*`` console-script shims
+    beside it. Matched by :func:`core.orphans.is_inside_guild_tool` as an
+    exact path prefix — never a bare name — so an unrelated program sharing
+    part of a name is never swept in.
+    """
+    root = str(tool_env_root())
+    if not root.endswith(("/", "\\")):
+        root += os.sep
+    bin_shim_prefix = str(tool_bin_dir() / "drunken-")
+    return [root, bin_shim_prefix]
 
 
 def _site_dirs(env_root: Path) -> list[Path]:
@@ -1365,6 +1381,80 @@ def _check_prompt_hook(report: Report, settings_path: Optional[Path] = None) -> 
         "warn",
         f"UserPromptSubmit hook in {path} does not work: {reason}.",
         remediation="drunken-install hook --apply",
+    )
+
+
+#: How many orphans to name before summarising, matching :data:`_STALE_NAMES_SHOWN`.
+_ORPHAN_NAMES_SHOWN: Final = 5
+
+
+def _check_orphans(
+    report: Report,
+    processes: Optional[Sequence[orphans.ProcessInfo]] = None,
+    tool_roots: Optional[Sequence[str]] = None,
+) -> None:
+    """``processes.orphans`` (DG-518) — leftover session processes with a dead
+    parent and a known-leftover command line, **and** guild tool lock holders
+    (a process whose executable sits inside the installed tool, whatever its
+    parent — DG-518 scope addition, measured on Windows: the desktop app keeps
+    a ``drunken-jira-mcp.exe`` alive for a session it itself lists as not
+    running). Read-only; never kills anything — the remedy named below is a
+    Boss command, never run by this check.
+
+    *processes* lets a caller (every test, and nothing else) hand in a fixed
+    table instead of this reading the real one. An unreadable process table is
+    a **skip**, not a failure: a sandboxed CI runner with neither ``ps`` nor
+    ``powershell`` on PATH has genuinely nothing this check can look at, and a
+    check that cries wolf there is one nobody reads.
+    """
+    try:
+        table = processes if processes is not None else orphans.list_processes()
+    except orphans.ProcessTableUnavailableError as exc:
+        report.add("processes.orphans", "skip", str(exc))
+        return
+
+    roots = tool_roots if tool_roots is not None else guild_tool_paths()
+    leftover = orphans.find_orphans(table)
+    holders = orphans.find_lock_holders(table, roots)
+
+    # Merged by pid: a process can be named by both (an orphaned
+    # drunken-jira-mcp matches the session-leftover pattern too) -- the
+    # lock-holder label wins, since it carries the live/dead parent state.
+    named: dict[int, str] = {
+        o.pid: f"pid {o.pid} (orphan, started {o.start_time})" for o in leftover
+    }
+    held_live = 0
+    for holder in holders:
+        if holder.parent_alive:
+            held_live += 1
+        named[holder.pid] = (
+            f"pid {holder.pid} ({holder.label}, started {holder.start_time})"
+        )
+
+    if not named:
+        report.add("processes.orphans", "ok", "no leftover session processes found.")
+        return
+
+    shown = list(named.values())[:_ORPHAN_NAMES_SHOWN]
+    more = len(named) - len(shown)
+    listed = ", ".join(shown) + (f", and {more} more" if more else "")
+    remediation = (
+        "drunken-install reap to see the plan; as the Boss, "
+        "drunken-install reap --apply to terminate every orphan, "
+        "re-verified immediately before each one."
+    )
+    if held_live:
+        remediation += (
+            f" {held_live} of these is/are still held by a live session; "
+            "drunken-install reap --include-held --apply also terminates "
+            "those, but stopping a held drunken-jira-mcp makes Jira tools "
+            "unavailable in that session until it restarts."
+        )
+    report.add(
+        "processes.orphans",
+        "warn",
+        f"{len(named)} leftover/lock-holding process(es): {listed}",
+        remediation=remediation,
     )
 
 
@@ -3084,6 +3174,7 @@ def run_doctor(
 
     _check_deployment(report, source_root=source_tree_root())
     _check_ai_layer(report)
+    _check_orphans(report)
     _check_routes(report)
     _check_session_hook(report)
     _check_prompt_hook(report)
