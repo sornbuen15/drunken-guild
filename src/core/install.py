@@ -2242,7 +2242,7 @@ def _reap_plan(
 ) -> tuple[
     list["orphans_types.OrphanProcess"],
     list["orphans_types.LockHolder"],
-    list["orphans_types.ProcessInfo"],
+    list[tuple["orphans_types.ProcessInfo", str]],
 ]:
     """Split *table* into (orphans, live-held lock holders, protected) for
     ``reap``.
@@ -2251,18 +2251,25 @@ def _reap_plan(
     pid against the plain session-leftover orphans -- since it is reaped
     exactly the same way; only a live-parented one stays a separate case.
 
-    *protected* (DG-518 review, CRITICAL self-protection finding) is this
-    very ``reap`` process and every ancestor of it (its shell, its terminal,
-    the Claude session that launched it, per
-    :func:`core.orphans.protected_pids`) -- excluded from both lists here,
-    at plan time, and named separately so the plan still shows them. They
-    are excluded *again*, independently, inside
+    *protected* (DG-518 review, CRITICAL self-protection finding, round 2)
+    is this very ``reap`` process, every ancestor of it (its shell, its
+    terminal, the Claude session that launched it), and **every descendant
+    of any of those** (:func:`core.orphans.protected_pids`) — a real run
+    found a protected session's own ``drunken-jira-mcp.exe`` and its python
+    children listed as an ordinary, terminable lock holder, because the
+    first round only ever walked *up* from the running process. Each entry
+    here is paired with its label — :data:`core.orphans.PROTECTED_LABEL` for
+    the chain itself, :data:`core.orphans.PROTECTED_DESCENDANT_LABEL` for
+    everything under it — and excluded from both lists, at plan time, named
+    separately so the plan still shows them. They are excluded *again*,
+    independently, inside
     :func:`core.orphans.apply_reap`/:func:`core.orphans.apply_lock_holders`
-    immediately before anything is terminated -- this filtering is a first
+    immediately before anything is terminated — this filtering is a first
     layer, never the only one.
     """
     from . import orphans  # noqa: PLC0415 - only this subcommand needs it
 
+    ancestors = orphans.protected_ancestors(table)
     protected = orphans.protected_pids(table)
     session_orphans = [o for o in orphans.find_orphans(table) if o.pid not in protected]
     lock_holders = [
@@ -2270,7 +2277,16 @@ def _reap_plan(
         for h in orphans.find_lock_holders(table, tool_roots)
         if h.pid not in protected
     ]
-    protected_entries = [process for process in table if process.pid in protected]
+    protected_entries = [
+        (
+            process,
+            orphans.PROTECTED_LABEL
+            if process.pid in ancestors
+            else orphans.PROTECTED_DESCENDANT_LABEL,
+        )
+        for process in table
+        if process.pid in protected
+    ]
 
     orphan_pids = {o.pid for o in session_orphans}
     dead_lock_holders = [
@@ -2287,7 +2303,7 @@ def _reap_plan(
 def _print_reap_plan(
     all_orphans: Sequence["orphans_types.OrphanProcess"],
     held_live: Sequence["orphans_types.LockHolder"],
-    protected_entries: Sequence["orphans_types.ProcessInfo"],
+    protected_entries: Sequence[tuple["orphans_types.ProcessInfo", str]],
 ) -> None:
     from . import orphans  # noqa: PLC0415 - only this subcommand needs it
 
@@ -2303,11 +2319,11 @@ def _print_reap_plan(
             f"started {orphans.format_start_time(holder.start_time)}  "
             f"{holder.label}  {holder.command}"
         )
-    for process in protected_entries:
+    for process, label in protected_entries:
         print(
             f"pid {process.pid}  ppid {process.ppid}  "
             f"started {orphans.format_start_time(process.start_time)}  "
-            f"{orphans.PROTECTED_LABEL}  {process.command}"
+            f"{label}  {process.command}"
         )
     if held_live:
         print(

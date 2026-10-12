@@ -13,7 +13,12 @@ from __future__ import annotations
 import pytest
 
 from core import orphans
-from core.orphans import OrphanProcess, ProcessInfo, ProcessTableUnavailableError
+from core.orphans import (
+    LockHolder,
+    OrphanProcess,
+    ProcessInfo,
+    ProcessTableUnavailableError,
+)
 
 
 def _proc(pid, ppid, start_time="t1", command="") -> ProcessInfo:
@@ -344,15 +349,38 @@ class TestProtectedPids:
         protected = orphans.protected_pids(table, self_pid=100)
         assert {5, 50, 100} <= protected
 
-    def test_an_unrelated_lock_holder_is_not_protected_by_being_a_sibling(self):
-        """Only the chain to the running pid is protected -- an unrelated
-        lock holder elsewhere in the tree is an ordinary candidate."""
+    def test_a_sibling_under_the_same_protected_ancestor_is_also_protected(self):
+        """DG-518 review round 2: a real run found ``drunken-jira-mcp.exe``,
+        a *sibling* of the bash chain running ``reap`` under the same
+        ``claude.exe`` session, listed as an ordinary, terminable lock
+        holder -- walking only *up* from the running process missed it.
+        The whole subtree under any protected ancestor is protected too."""
         table = [
             _proc(5, 1, command="claude.exe"),
             _proc(100, 5, command="drunken-install reap --apply"),
             _proc(200, 5, command="drunken-jira-mcp.exe --stdio"),
         ]
-        assert orphans.protected_pids(table, self_pid=100) == {5, 100}
+        assert orphans.protected_pids(table, self_pid=100) == {5, 100, 200}
+        ancestors = orphans.protected_ancestors(table, self_pid=100)
+        assert ancestors == {5, 100}
+        assert orphans._protected_label(200, ancestors) == (
+            orphans.PROTECTED_DESCENDANT_LABEL
+        )
+
+    def test_an_identical_tree_under_a_different_session_is_not_protected(self):
+        """A different ``claude.exe`` (a different session entirely) is not
+        on this run's ancestor chain, so its own identical-looking tree of
+        tools is an ordinary, terminable candidate."""
+        table = [
+            _proc(5, 1, command="claude.exe"),
+            _proc(100, 5, command="drunken-install reap --apply"),
+            _proc(9000, 1, command="claude.exe"),
+            _proc(9100, 9000, command="drunken-jira-mcp.exe --stdio"),
+        ]
+        protected = orphans.protected_pids(table, self_pid=100)
+        assert protected == {5, 100}
+        assert 9000 not in protected
+        assert 9100 not in protected
 
     def test_a_query_helper_child_of_a_protected_ancestor_is_protected(self):
         table = [
@@ -396,6 +424,73 @@ class TestProtectedPids:
         assert outcome.terminated == []
         assert {c.pid for c, _ in outcome.skipped} == {5, 50, 100}
         assert all(reason == orphans.PROTECTED_LABEL for _, reason in outcome.skipped)
+
+    def test_a_sessions_whole_tool_tree_is_protected_even_with_include_held_true(
+        self,
+    ):
+        """DG-518 review round 2, the exact real-machine shape: a Claude
+        session (``claude.exe``) running a bash chain that runs ``reap``,
+        and -- as a *sibling* of that chain, not an ancestor of it --
+        ``drunken-jira-mcp.exe`` with two further ``python.exe`` children.
+        All three of the MCP tree must stay protected even with
+        ``include_held=True``. The identical shape under a *different*
+        ``claude.exe`` session is untouched by the protection and is
+        reaped normally.
+        """
+        session_a_claude = _proc(9784, 1, command="claude.exe")
+        bash_chain = _proc(50, 9784, command="bash.exe")
+        reap_self = _proc(
+            100, 50, command="drunken-install reap --include-held --apply"
+        )
+        jira_mcp = _proc(1192, 9784, command="drunken-jira-mcp.exe --stdio")
+        python_1 = _proc(19392, 1192, command="python.exe -m jira_mcp.server")
+        python_2 = _proc(17088, 19392, command="python.exe worker")
+
+        session_b_claude = _proc(9000, 1, command="claude.exe")
+        other_jira_mcp = _proc(9100, 9000, command="drunken-jira-mcp.exe --stdio")
+        other_python_1 = _proc(9200, 9100, command="python.exe -m jira_mcp.server")
+        other_python_2 = _proc(9300, 9200, command="python.exe worker")
+
+        table = [
+            session_a_claude,
+            bash_chain,
+            reap_self,
+            jira_mcp,
+            python_1,
+            python_2,
+            session_b_claude,
+            other_jira_mcp,
+            other_python_1,
+            other_python_2,
+        ]
+
+        candidates = [
+            LockHolder(1192, 9784, "t1", jira_mcp.command, parent_alive=True),
+            LockHolder(19392, 1192, "t1", python_1.command, parent_alive=True),
+            LockHolder(17088, 19392, "t1", python_2.command, parent_alive=True),
+            LockHolder(9100, 9000, "t1", other_jira_mcp.command, parent_alive=True),
+            LockHolder(9200, 9100, "t1", other_python_1.command, parent_alive=True),
+            LockHolder(9300, 9200, "t1", other_python_2.command, parent_alive=True),
+        ]
+        list_processes_fn, terminate_fn, terminated_pids = _mutable_world(table)
+
+        outcome = orphans.apply_lock_holders(
+            candidates,
+            apply=True,
+            include_held=True,
+            terminate_fn=terminate_fn,
+            list_processes_fn=list_processes_fn,
+            self_pid=100,
+        )
+
+        assert sorted(terminated_pids) == [9100, 9200, 9300]
+        assert {c.pid for c in outcome.terminated} == {9100, 9200, 9300}
+        protected_pids_skipped = {c.pid for c, _ in outcome.skipped}
+        assert protected_pids_skipped == {1192, 19392, 17088}
+        assert all(
+            reason == orphans.PROTECTED_DESCENDANT_LABEL
+            for _, reason in outcome.skipped
+        )
 
     def test_apply_lock_holders_never_terminates_a_protected_candidate_even_with_include_held(
         self,

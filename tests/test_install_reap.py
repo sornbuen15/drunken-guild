@@ -209,6 +209,60 @@ class TestReapSelfProtection:
         # dropped from the plan.
         assert "claude.exe" in out
 
+    def test_a_sessions_mcp_tree_is_protected_while_a_different_sessions_is_not(
+        self, monkeypatch, capsys
+    ):
+        """DG-518 review round 2 -- the exact real-machine shape reported:
+        ``drunken-jira-mcp.exe`` and two ``python.exe`` children, as a
+        *sibling* of the bash chain running ``reap`` under the same
+        ``claude.exe`` session, must come out protected even with
+        ``--include-held --apply``. The identical shape under a different
+        ``claude.exe`` session is listed as held and is terminated."""
+        monkeypatch.setattr(doctor, "guild_tool_paths", lambda: [_TOOL_ROOT, _BIN_SHIM])
+        table = [
+            _proc(9784, 1, command="claude.exe"),
+            _proc(50, 9784, command="bash.exe"),
+            _proc(999, 50, command="drunken-install.exe reap --include-held --apply"),
+            _proc(1192, 9784, command=r'"C:\bin\drunken-jira-mcp.exe" --stdio'),
+            _proc(
+                19392,
+                1192,
+                command=r'"C:\tools\drunken-guild\Scripts\python.exe" -m jira_mcp.server',
+            ),
+            _proc(
+                17088,
+                19392,
+                command=r'"C:\tools\drunken-guild\Scripts\python.exe" worker',
+            ),
+            _proc(9000, 1, command="claude.exe"),
+            _proc(9100, 9000, command=r'"C:\bin\drunken-jira-mcp.exe" --stdio'),
+            _proc(
+                9200,
+                9100,
+                command=r'"C:\tools\drunken-guild\Scripts\python.exe" -m jira_mcp.server',
+            ),
+            _proc(
+                9300,
+                9200,
+                command=r'"C:\tools\drunken-guild\Scripts\python.exe" worker',
+            ),
+        ]
+        terminated = _patch_mutable_world(monkeypatch, table)
+        monkeypatch.setattr(orphans.os, "getpid", lambda: 999)
+
+        exit_code = install.main(["reap", "--include-held", "--apply"])
+        out = capsys.readouterr().out
+
+        assert exit_code == 0
+        # the protected session's own MCP tree is named, never terminated.
+        assert "pid 1192" in out and orphans.PROTECTED_DESCENDANT_LABEL in out
+        for pid in (1192, 19392, 17088):
+            assert pid not in terminated
+        # the other session's identical tree is listed as held, and IS
+        # terminated with --include-held --apply.
+        assert sorted(terminated) == [9100, 9200, 9300]
+        assert "terminated pid 9100" in out
+
 
 class TestPreUpdateLockHolderWarning:
     def test_skills_apply_warns_about_existing_lock_holders(

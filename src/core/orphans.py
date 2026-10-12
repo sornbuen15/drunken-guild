@@ -159,59 +159,77 @@ def find_orphans(processes: Sequence[ProcessInfo]) -> list[OrphanProcess]:
     ]
 
 
-#: Shapes of this module's own process-table query helper (DG-518 review,
-#: self-protection layer 2): ``ps`` and the PowerShell CIM query
-#: :func:`_list_processes_windows` runs. Both exit before
-#: :func:`list_processes` returns, so this ordinarily matches nothing in a
-#: table that was actually read; it exists only so a helper that has somehow
-#: not exited yet is never swept up as a descendant of a protected ancestor.
-_QUERY_HELPER_PATTERNS: Final = (
-    re.compile(r"(?:^|[\\/])ps(?:\.exe)?(?:\s|$)"),
-    re.compile(r"Get-CimInstance", re.IGNORECASE),
-)
-
-
-def _is_query_helper_command(command: str) -> bool:
-    return any(pattern.search(command) for pattern in _QUERY_HELPER_PATTERNS)
+def protected_ancestors(
+    processes: Sequence[ProcessInfo], self_pid: Optional[int] = None
+) -> set[int]:
+    """The running process itself (``os.getpid()`` by default) and every
+    ancestor of it found in *processes* — its shell, its terminal, the
+    Claude session that launched it — walked up the ``ppid`` chain until one
+    is not in the table (DG-518 review, CRITICAL self-protection finding).
+    """
+    pid = self_pid if self_pid is not None else os.getpid()
+    by_pid = {process.pid: process for process in processes}
+    ancestors = {pid}
+    current = pid
+    while current in by_pid:
+        parent_pid = by_pid[current].ppid
+        if parent_pid in ancestors or parent_pid not in by_pid:
+            break
+        ancestors.add(parent_pid)
+        current = parent_pid
+    return ancestors
 
 
 def protected_pids(
     processes: Sequence[ProcessInfo], self_pid: Optional[int] = None
 ) -> set[int]:
-    """Never-reap pids, for *this run of* ``reap`` (DG-518 review, CRITICAL
-    self-protection finding): the running process itself (``os.getpid()`` by
-    default), every ancestor of it found in *processes* — its shell, its
-    terminal, the Claude session that launched it, walked up the ``ppid``
-    chain until one is not in the table — and, defensively, any direct child
-    of a protected ancestor that looks like this module's own process-table
-    query helper (:func:`_is_query_helper_command`).
-
-    Nothing here is reaped **by virtue of being one of these** — a lock
-    holder that happens to be some other, unrelated child of a protected
-    ancestor is still an ordinary candidate, exactly as before. Only the
-    chain itself, and that one specific kind of descendant, is ever excluded.
+    """Never-reap pids, for *this run of* ``reap``: :func:`protected_ancestors`
+    plus **every descendant of any of them** (DG-518 review round 2) — a real
+    run found ``drunken-jira-mcp.exe`` and two ``python.exe`` children listed
+    as an ordinary, terminable lock holder because the check only walked
+    *up* from the running process, never back *down* the same session's own
+    tree. The Claude session on the ancestor chain is ``this session`` for
+    every one of its tools, not only for the one shell that happens to be
+    running ``reap`` right now — so the whole subtree rooted at any
+    protected ancestor is protected too, labeled distinctly
+    (:data:`PROTECTED_LABEL` for the chain itself,
+    :data:`PROTECTED_DESCENDANT_LABEL` for everything under it) by whichever
+    caller reports it. An unrelated session (a *different* Claude process,
+    a different root) is not on this chain at all, so its own identical
+    tree of tools is untouched by this function.
     """
-    pid = self_pid if self_pid is not None else os.getpid()
-    by_pid = {process.pid: process for process in processes}
-    protected = {pid}
-    current = pid
-    while current in by_pid:
-        parent_pid = by_pid[current].ppid
-        if parent_pid in protected or parent_pid not in by_pid:
-            break
-        protected.add(parent_pid)
-        current = parent_pid
-    protected |= {
-        process.pid
-        for process in processes
-        if process.ppid in protected and _is_query_helper_command(process.command)
-    }
+    ancestors = protected_ancestors(processes, self_pid=self_pid)
+    children_by_ppid: dict[int, list[int]] = {}
+    for process in processes:
+        children_by_ppid.setdefault(process.ppid, []).append(process.pid)
+
+    protected = set(ancestors)
+    frontier = list(ancestors)
+    while frontier:
+        parent_pid = frontier.pop()
+        for child_pid in children_by_ppid.get(parent_pid, []):
+            if child_pid not in protected:
+                protected.add(child_pid)
+                frontier.append(child_pid)
     return protected
 
 
-#: The label shown in a reap plan for a process :func:`protected_pids` named
-#: -- never terminated, whatever flag is passed.
+#: The label shown in a reap plan for the running ``reap`` itself, or one of
+#: its ancestors (its shell, the Claude session that launched it) -- never
+#: terminated, whatever flag is passed.
 PROTECTED_LABEL: Final = "this session (running reap) -- never stopped"
+
+#: The label for anything *else* under a protected ancestor's own tree (DG-518
+#: review round 2) -- a lock holder's MCP server and its own children, which
+#: are "this session's tools" even though they are not on the direct path to
+#: the running ``reap`` process.
+PROTECTED_DESCENDANT_LABEL: Final = (
+    "this session's tools (running reap) -- never stopped"
+)
+
+
+def _protected_label(pid: int, ancestors: set[int]) -> str:
+    return PROTECTED_LABEL if pid in ancestors else PROTECTED_DESCENDANT_LABEL
 
 
 def _attempt_terminate(
@@ -286,11 +304,14 @@ def apply_reap(
     current = list_processes_fn()
     current_by_pid = {process.pid: process for process in current}
     live_pids = set(current_by_pid)
+    ancestors = protected_ancestors(current, self_pid=self_pid)
     protected = protected_pids(current, self_pid=self_pid)
 
     for candidate in candidates:
         if candidate.pid in protected:
-            outcome.skipped.append((candidate, PROTECTED_LABEL))
+            outcome.skipped.append(
+                (candidate, _protected_label(candidate.pid, ancestors))
+            )
             continue
         now = current_by_pid.get(candidate.pid)
         if now is None:
@@ -507,11 +528,14 @@ def apply_lock_holders(
     current = list_processes_fn()
     current_by_pid = {process.pid: process for process in current}
     live_pids = set(current_by_pid)
+    ancestors = protected_ancestors(current, self_pid=self_pid)
     protected = protected_pids(current, self_pid=self_pid)
 
     for candidate in candidates:
         if candidate.pid in protected:
-            outcome.skipped.append((candidate, PROTECTED_LABEL))
+            outcome.skipped.append(
+                (candidate, _protected_label(candidate.pid, ancestors))
+            )
             continue
         now = current_by_pid.get(candidate.pid)
         if now is None:
