@@ -19,12 +19,15 @@ mocks or stubs the installer:
    (DG-514 blocker A).
 6. ``drunken-install skills --prune`` — the plan must remove nothing.
 7. ``drunken-install hook --apply`` twice — the first must record the temp venv's OWN
-   ``drunken-install`` executable (DG-514 blocker B), the second must say "already present".
-8. ``drunken-install context`` — valid JSON, at most 2,500 characters, naming ``/prd`` and
+   ``drunken-install`` executable (DG-514 blocker B) for BOTH the SessionStart and the
+   UserPromptSubmit entry (DG-515), the second must say "already present".
+8. ``drunken-install route`` — a matching prompt on stdin must name an installed skill, under
+   600 characters; an unmatched prompt must print nothing at all (DG-515).
+9. ``drunken-install context`` — valid JSON, at most 2,500 characters, naming ``/prd`` and
    ``worker``.
-9. ``drunken-doctor --json`` in the same temp ``HOME`` — the ``routes.session_hook`` check must be
-   ``ok``.
-10. Confirm the real ``~/.claude/settings.json`` and ``~/.drunken/projects.json`` — captured
+10. ``drunken-doctor --json`` in the same temp ``HOME`` — the ``routes.session_hook`` and
+    ``routes.prompt_hook`` checks must both be ``ok``.
+11. Confirm the real ``~/.claude/settings.json`` and ``~/.drunken/projects.json`` — captured
     BEFORE any ``HOME`` override took effect — are byte-for-byte and mtime-for-mtime untouched.
 
 Prints a final PASS/FAIL table and exits 1 if anything failed. Run directly:
@@ -92,10 +95,15 @@ class SmokeReport:
 
 
 def _run(
-    argv: list[str], *, env: Optional[dict[str, str]] = None, timeout: float = 120.0
+    argv: list[str],
+    *,
+    env: Optional[dict[str, str]] = None,
+    timeout: float = 120.0,
+    input_text: Optional[str] = None,
 ) -> subprocess.CompletedProcess[str]:
     return subprocess.run(  # nosec B603 - fixed argv built from known paths, shell=False
         argv,
+        input=input_text,
         capture_output=True,
         text=True,
         env=env,
@@ -190,6 +198,57 @@ def _fake_home_env(fake_home: Path) -> dict[str, str]:
     for name in ("LOGNAME", "USER", "LNAME"):
         env.pop(name, None)
     return env
+
+
+def _check_route_command(
+    report: SmokeReport, drunken_install: Path, env: dict[str, str]
+) -> None:
+    """DG-515: a known-to-match prompt must name an installed skill, under the 600-character
+    cap; an unmatched prompt must print nothing at all. Split out of ``run_smoke`` to keep its
+    own cyclomatic complexity within the project's gate."""
+    route_match = _run(
+        [str(drunken_install), "route"],
+        env=env,
+        input_text=json.dumps({"prompt": "please review this pull request"}),
+    )
+    route_match_ok = False
+    route_match_detail = ""
+    if route_match.returncode == 0:
+        out = route_match.stdout.strip()
+        try:
+            payload = json.loads(out)
+        except ValueError as exc:
+            route_match_detail = f"not valid JSON: {exc}"
+        else:
+            hook_output = (
+                payload.get("hookSpecificOutput", {})
+                if isinstance(payload, dict)
+                else {}
+            )
+            additional = hook_output.get("additionalContext", "")
+            route_match_ok = (
+                hook_output.get("hookEventName") == "UserPromptSubmit"
+                and "reviewer" in additional
+                and len(out) < 600
+            )
+            route_match_detail = f"{len(out)} chars"
+    else:
+        route_match_detail = (route_match.stdout + route_match.stderr)[-300:]
+    report.record(
+        "route.matched_prompt_names_a_skill", route_match_ok, route_match_detail
+    )
+
+    route_no_match = _run(
+        [str(drunken_install), "route"],
+        env=env,
+        input_text=json.dumps({"prompt": "let's chat about the weather today"}),
+    )
+    no_match_ok = route_no_match.returncode == 0 and route_no_match.stdout.strip() == ""
+    report.record(
+        "route.unmatched_prompt_prints_nothing",
+        no_match_ok,
+        "empty" if no_match_ok else route_no_match.stdout.strip()[-300:],
+    )
 
 
 def run_smoke(report: SmokeReport, venv_dir: Path, fake_home: Path) -> None:
@@ -289,6 +348,10 @@ def run_smoke(report: SmokeReport, venv_dir: Path, fake_home: Path) -> None:
         "already present" if second_ok else hook_second.stdout.strip()[-300:],
     )
 
+    # DG-515: the UserPromptSubmit hook `hook --apply` just merged in, actually run end to end
+    # against the real temp HOME install.
+    _check_route_command(report, drunken_install, env)
+
     context_result = _run([str(drunken_install), "context"], env=env)
     context_text = context_result.stdout.strip()
     context_ok = False
@@ -322,7 +385,9 @@ def run_smoke(report: SmokeReport, venv_dir: Path, fake_home: Path) -> None:
 
     doctor_result = _run([str(drunken_doctor), "--json"], env=env)
     session_hook_ok = False
+    prompt_hook_ok = False
     doctor_detail = ""
+    prompt_doctor_detail = ""
     if doctor_result.returncode in (
         0,
         1,
@@ -331,6 +396,7 @@ def run_smoke(report: SmokeReport, venv_dir: Path, fake_home: Path) -> None:
             doctor_payload: Any = json.loads(doctor_result.stdout)
         except ValueError as exc:
             doctor_detail = f"doctor did not print valid JSON: {exc}"
+            prompt_doctor_detail = doctor_detail
         else:
             checks = doctor_payload.get("checks", [])
             match = next(
@@ -345,9 +411,23 @@ def run_smoke(report: SmokeReport, venv_dir: Path, fake_home: Path) -> None:
                 doctor_detail = (
                     f"status={match.get('status')!r}: {match.get('detail', '')}"
                 )
+            # DG-515: the UserPromptSubmit twin of the above -- same temp HOME, same `hook
+            # --apply` run above, so this must also read "ok" once it actually ran.
+            prompt_match = next(
+                (c for c in checks if c.get("name") == "routes.prompt_hook"), None
+            )
+            if prompt_match is None:
+                prompt_doctor_detail = (
+                    "routes.prompt_hook check not present in doctor's report"
+                )
+            else:
+                prompt_hook_ok = prompt_match.get("status") == "ok"
+                prompt_doctor_detail = f"status={prompt_match.get('status')!r}: {prompt_match.get('detail', '')}"
     else:
         doctor_detail = (doctor_result.stdout + doctor_result.stderr)[-300:]
+        prompt_doctor_detail = doctor_detail
     report.record("doctor.routes_session_hook_ok", session_hook_ok, doctor_detail)
+    report.record("doctor.routes_prompt_hook_ok", prompt_hook_ok, prompt_doctor_detail)
 
     after_settings = _snapshot(_REAL_SETTINGS)
     after_registry = _snapshot(_REAL_REGISTRY)

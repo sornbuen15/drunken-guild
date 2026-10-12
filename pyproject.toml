@@ -100,8 +100,10 @@ packages = ["scripts", "core", "route", "jira_mcp", "drunken_skills", "drunken_a
 package-dir = {"core" = "src/core", "route" = "src/route", "jira_mcp" = "src/jira_mcp", "drunken_skills" = "skills", "drunken_agents" = "agents", "drunken_extras" = "plugins/drunken-extras"}
 
 # DG-392: drunken-init reads the AGENTS.md template from the installed package.
+# DG-515: `drunken-install route` reads its keyword table from `data/route_keywords.json`,
+# shipped the same way so the route command needs no clone either.
 [tool.setuptools.package-data]
-core = ["templates/*.md"]
+core = ["templates/*.md", "data/*.json"]
 # DG-498 (REQ-022): the skills and roles travel inside the wheel, so an install needs no clone.
 # `drunken_skills` is the repository's skills/ folder under an importable name. The retired-names
 # list the installer prunes by is read from scripts/install/.
