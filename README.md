@@ -23,9 +23,6 @@ flowchart LR
 | validate | `/audit` |
 | replan | `/replan` |
 
-`/breakdown` cuts `REQ-xxx → Epic → Story | Task → Subtask`, Story and Task both siblings under
-the Epic — every level labelled `req:REQ-xxx`, the only thing `/audit` traces on.
-
 ## Install
 
 ```bash
@@ -38,11 +35,15 @@ drunken-doctor                                                          # proves
 
 Full steps, update, Windows notes: [`GETTING_STARTED.md`](./GETTING_STARTED.md).
 
+**Limits.** It installs from a git tag, not from PyPI — nothing has been released there yet. The
+full list of known limitations is in [`docs/REFERENCE.md`](./docs/REFERENCE.md).
+
 ## Where to go next
 
 | | |
 |---|---|
 | [`GETTING_STARTED.md`](./GETTING_STARTED.md) | install, update, your first project, Windows notes |
+| [`docs/REFERENCE.md`](./docs/REFERENCE.md) | skills vs agents, the extras catalog, the flow in detail, known limitations |
 | [`AGENTS.md`](./AGENTS.md) | the rules, if you are contributing here — a project's root `AGENTS.md` is the map to its own documents |
 | [`skills/INDEX.md`](./skills/INDEX.md) | every skill, its trigger and its path |
 | [`REPOSITORY_MAP.md`](./REPOSITORY_MAP.md) | which directory is whose, and the `templates/` inventory |

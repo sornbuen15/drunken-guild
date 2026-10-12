@@ -89,6 +89,7 @@ per-prompt route.
 | | |
 |---|---|
 | [`README.md`](./README.md) | the two-sentence version and the flow table |
+| [`docs/REFERENCE.md`](./docs/REFERENCE.md) | the extras catalog, the flow in detail, mid-sprint scenarios, known limitations |
 | [`AGENTS.md`](./AGENTS.md) | the rules, if you are contributing here |
 | [`skills/INDEX.md`](./skills/INDEX.md) | every skill, its trigger and its path |
 | [`Drunken-Guild-Guide.md`](./Drunken-Guild-Guide.md) | architecture, Jira workflow, approvals |
