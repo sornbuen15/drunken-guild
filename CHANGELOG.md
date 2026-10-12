@@ -9,22 +9,11 @@ while a release is being prepared, and is renamed to the version when it is tagg
 
 ## Unreleased
 
-### Fixed
-- `drunken-doctor`'s `paths.home.permissions` warning (and `paths.auth_db.permissions`) could
-  never clear on Windows: the check read `path.stat().st_mode`, which `pathlib` synthesizes there
-  from a single read-only attribute bit rather than the real ACL, so a directory always reported
-  as world-accessible — the warning stayed even right after running the `icacls` command the
-  report itself printed. On Windows the check now runs `icacls` and reads the ACL it reports,
-  treating `Everyone`, `BUILTIN\Users`, `NT AUTHORITY\Authenticated Users` and similar as other
-  principals; the current user, `SYSTEM`, `Administrators` and the owner are not. If `icacls`
-  cannot be run or its output cannot be parsed, the check still warns rather than silently passing.
-  POSIX is unchanged (DG-509).
-
 ## 2.0.2 — 2026-10-12
 
 Makes the guild's skills and agents reach a session, brings the older ones back, and fixes what
 the installed 2.0.1 showed on real projects. Delivery is proven; whether the model then follows
-the routing is **not measured yet**.
+the routing is measured below (scratch runs, three per cell, so a direction, not a proof).
 
 ### Added
 - `drunken-install context` prints the routing rule and the skills and agents actually installed
@@ -40,7 +29,22 @@ the routing is **not measured yet**.
   default, `--apply` writes, `--only` picks names, nothing is removed or overwritten. Retired items
   (local-board kanban skills, unlicensed packs) are not restored (DG-512).
 
+- `drunken-install route` is a `UserPromptSubmit` hook: it matches the prompt against a Thai and
+  English keyword table (one data file, `src/core/data/route_keywords.json`) and names the installed
+  skills or agents to call, at most 600 characters, nothing for a prompt that matches nothing, never
+  echoing the prompt. `hook --apply` and `--remove` now manage both hooks; `drunken-doctor` checks
+  `routes.prompt_hook` (DG-515).
+- `scripts/release_smoke.py` builds the wheel, installs it into a throwaway venv under a temp home and
+  checks install, extras, prune, both hooks, the doctor and that the real settings are untouched; it
+  is step 0 of the release checklist in CONTRIBUTING.md (DG-514).
+- `scripts/check_skill_size.py` keeps skills (120 lines) and agents (100 lines) light: a new file over
+  the limit fails and a file already over may only shrink (DG-516).
+
 ### Fixed
+- After `extras --apply`, `status` called all 16 extras "retired" and `skills --prune --prune-apply`
+  would have deleted them; the retired list no longer names them. The hook recorded the first
+  `drunken-install` on PATH instead of the one running; it now records the running executable, as an
+  absolute path (DG-514).
 - `drunken-doctor` no longer warns forever about `~/.drunken` permissions on Windows: it reads the
   ACL from `icacls` instead of a synthesized mode, and an ACL that still grants another account
   warns (DG-509).
@@ -54,8 +58,11 @@ the routing is **not measured yet**.
   without entering a link and still refuses it (DG-510).
 
 ### Known and open
-- Whether a session that receives the routing then calls the skills and agents is not measured; the
-  one scratch run without the hook and the one with it both called none.
+- Routing, measured with `claude -p` in scratch projects: on an existing project the session-start
+  text alone made 0 of 24 UI and test runs call a skill; with the prompt hook, UI, test and security
+  prompts called the matching skill in 12 of 12 runs, and a bug-fix prompt in 1 of 3. A new-project
+  prompt called `/prd` in about 10 of 12 runs with or without a hook. Agents (`worker`, `reviewer`)
+  were not measured. The keyword table is the weak spot: a prompt it does not match gets no help.
 - A project's AI layer is absent in a new git worktree when it is untracked (DG-511).
 - The hang first reported for one installer test on Windows did not reproduce and is not explained
   (DG-510); locale-dependent `icacls` parsing and a real domain-joined machine are unverified (DG-509).
