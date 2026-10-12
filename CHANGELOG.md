@@ -25,6 +25,18 @@ The per-prompt routing hook stops over-triggering and sends build work to the wo
   one), and bare "plan" or "architecture" without a work word no longer nominates anything. A real
   request after a pasted log is still found (noise is stripped before the 400-character window).
 
+### Changed
+- The documents tell one story: README (what and install), GETTING_STARTED (first project), a 150-line
+  operator guide that opens with the same product description, and CONTRIBUTING for the clone path.
+  The guide no longer tells a tag-install user to `git clone`, no longer asks for a `.mcp.json` in
+  every checkout (declare the MCP server once per machine), shows PowerShell beside bash, and points
+  at `drunken-doctor` instead of listing its checks. Stale cross-references and references to the
+  retired board and approval servers are gone. `docs/REFERENCE.md` keeps the long detail word for
+  word (DG-517, DG-522).
+- `scripts/check_doc_drift.py` now fails on a broken relative link or anchor, a `§` reference to a
+  section that does not exist, a gap in numbered headings, and a claim that the registry can be
+  committed (DG-522).
+
 ### Measured
 Scratch runs of `claude -p` on a Thai build ticket with edits allowed, four runs per side and the
 same 53 skills and 24 agents available: without the hook the `worker` agent ran in 1 of 4 and the
