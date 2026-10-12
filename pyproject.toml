@@ -39,7 +39,7 @@ name = "drunken-guild"
 # failed on both branches. The tag stays: it names a real commit, and that
 # commit did carry a MINOR change (the python-quality-gates skill, DG-333).
 # 1.3.1 is that commit plus DG-334, a security repair, so PATCH (DG-335).
-version = "2.0.1"
+version = "2.0.2"
 description = "Skills, agents and MCP servers for directing AI coding agents"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -96,18 +96,23 @@ drunken-jira-mcp = "jira_mcp.server:main"
 
 
 [tool.setuptools]
-packages = ["scripts", "core", "route", "jira_mcp", "drunken_skills", "drunken_agents"]
-package-dir = {"core" = "src/core", "route" = "src/route", "jira_mcp" = "src/jira_mcp", "drunken_skills" = "skills", "drunken_agents" = "agents"}
+packages = ["scripts", "core", "route", "jira_mcp", "drunken_skills", "drunken_agents", "drunken_extras"]
+package-dir = {"core" = "src/core", "route" = "src/route", "jira_mcp" = "src/jira_mcp", "drunken_skills" = "skills", "drunken_agents" = "agents", "drunken_extras" = "plugins/drunken-extras"}
 
 # DG-392: drunken-init reads the AGENTS.md template from the installed package.
+# DG-515: `drunken-install route` reads its keyword table from `data/route_keywords.json`,
+# shipped the same way so the route command needs no clone either.
 [tool.setuptools.package-data]
-core = ["templates/*.md"]
+core = ["templates/*.md", "data/*.json"]
 # DG-498 (REQ-022): the skills and roles travel inside the wheel, so an install needs no clone.
 # `drunken_skills` is the repository's skills/ folder under an importable name. The retired-names
 # list the installer prunes by is read from scripts/install/.
 drunken_skills = ["**/*", ".external"]
 drunken_agents = ["*.md", "_sources.json"]
 scripts = ["install/retired_skills.txt"]
+# DG-512: the drunken-extras plugin's skills and agents travel inside the wheel too, so
+# `drunken-install extras` needs no clone, the same reason DG-498 gave the core skills/agents.
+drunken_extras = ["**/*"]
 
 # DG-501: the changelog travels beside the package so `drunken-install status` can quote it.
 [tool.setuptools.data-files]
@@ -129,14 +134,18 @@ max-complexity = 10
 asyncio_mode = "strict"
 markers = [
     "e2e: mark test as end-to-end",
-    "routing: sends the routing scenarios to a live agent and spends tokens (DG-398)"
+    "routing: sends the routing scenarios to a live agent and spends tokens (DG-398)",
+    "integration: builds a real wheel and installs it into a throwaway venv (DG-514, slow — minutes, not seconds)"
 ]
 # `-m "not e2e"` is what the e2e marker always meant -- its own comment says
 # "so it doesn't run on standard unit test runs unless requested", but nothing
 # ever deselected it, so every plain `pytest` filed two real tickets into the
 # live Jira project. Run them on purpose with `pytest -m e2e`.
 # `routing` spends tokens the same way; run it with `pytest -m routing`.
-addopts = "--cov=src --cov-report=term-missing -v -m 'not e2e and not routing'"
+# `integration` is slow for a different reason -- a real `uv build` and `uv venv` per run, not a
+# live call anywhere -- but belongs out of the default run for the same reason: `pytest -m
+# integration` before a tag (see scripts/release_smoke.py), never on every plain `pytest`.
+addopts = "--cov=src --cov-report=term-missing -v -m 'not e2e and not routing and not integration'"
 testpaths = ["tests"]
 
 [tool.mypy]

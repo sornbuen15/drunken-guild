@@ -160,7 +160,11 @@ def _ensure_registry_document(registry_file: str) -> dict[str, Any]:
         return {"version": SCHEMA_VERSION, "projects": {}}
 
     try:
-        with open(registry_file, "r", encoding="utf-8") as handle:
+        # DG-507: "utf-8-sig" strips a leading BOM if one is present and
+        # behaves exactly like "utf-8" when one is not, so a registry a
+        # Windows tool saved with a BOM reads normally instead of failing
+        # JSON decoding on the literal ﻿ character in front of "{".
+        with open(registry_file, "r", encoding="utf-8-sig") as handle:
             document = json.load(handle)
     except UnicodeDecodeError as exc:
         # DG-475: a registry an operator hand-edited, copied or otherwise
@@ -179,6 +183,22 @@ def _ensure_registry_document(registry_file: str) -> dict[str, Any]:
                 "then run drunken-init again. Nothing has been written."
             ),
         ) from exc
+    except json.JSONDecodeError as exc:
+        # DG-507: an empty, truncated or otherwise undecodable
+        # projects.json (no bytes at all, a crash mid-write, a hand edit
+        # that left a dangling comma) raised a raw json.JSONDecodeError
+        # straight out of this function, with no try/except around
+        # json.load at all -- a traceback instead of the typed refusal
+        # every other malformed-registry shape already gets. Nothing has
+        # been written by this point, so a refusal here leaves the
+        # registry untouched.
+        raise ValidationError(
+            f"{registry_file} is not valid JSON: {exc}",
+            remediation=(
+                "Fix or remove the file, then run drunken-init again. "
+                "Nothing has been written."
+            ),
+        ) from exc
 
     if not isinstance(document, dict):
         raise ValidationError(
@@ -188,6 +208,24 @@ def _ensure_registry_document(registry_file: str) -> dict[str, Any]:
 
     if "projects" in document and isinstance(document["projects"], dict):
         return document
+
+    if "version" in document and not isinstance(document["version"], dict):
+        # DG-507 (reviewer finding on PR #197): "version" in document tests
+        # key *presence*, not shape -- a genuine v1 registry whose only (or
+        # one) project happens to be named "version" (a valid id under
+        # PROJECT_ID_PATTERN) was wrongly refused here as if it were a v2
+        # document missing its "projects" object. The v2 schema marker
+        # (SCHEMA_VERSION) is always a scalar int; a v1 project entry is
+        # always a dict (its own fields: "path", "jira", ...). Only a
+        # non-dict "version" value is the v2 shape this branch exists to
+        # refuse -- reading "projects" below used to fall through to the
+        # v1 branch and wrap the *whole* document (including "version"
+        # itself) as if it were the project map: a misread, not a
+        # refusal, for a "projects" that is missing or not an object.
+        raise ValidationError(
+            f'{registry_file} has no "projects" object.',
+            remediation="Fix or remove the file, then run drunken-init again.",
+        )
 
     # A v1 file: the document *is* the project map. Wrapping it is a real
     # migration, so it happens only here, where the operator asked for it.

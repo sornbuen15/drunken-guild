@@ -54,7 +54,7 @@ def registry(tmp_path) -> ProjectRegistry:
 def _identity_response() -> mock.MagicMock:
     response = mock.MagicMock()
     response.read.return_value = json.dumps(
-        {"accountId": "abc", "displayName": "R. Jakkawan"}
+        {"accountId": "abc", "displayName": "R. Alpha"}
     ).encode()
     response.__enter__.return_value = response
     return response
@@ -174,11 +174,25 @@ class TestThePermissionsRemedyMatchesThePlatform:
         home.chmod(0o777)
         return home
 
+    @staticmethod
+    def _loose_acl(path) -> str:
+        """DG-509: the real check now reads the ACL, not ``st_mode`` — which
+        on Windows is synthesized and never reflects it. Hand it a fixture
+        granting a principal other than the owner, so the warning this test
+        is about still has a reason to fire."""
+        return (
+            f"{path} Everyone:(OI)(CI)(F)\n"
+            "                          alpha:(OI)(CI)(F)\n"
+            "\n"
+            "Successfully processed 1 files; Failed processing 0 files.\n"
+        )
+
     def test_on_windows_the_home_remedy_does_not_say_chmod(
         self, monkeypatch, registry, tmp_path
     ) -> None:
         self._loose_home(tmp_path)
         monkeypatch.setattr(paths, "is_windows", lambda: True)
+        monkeypatch.setattr(paths, "_windows_icacls_output", self._loose_acl)
 
         report = doctor.run_doctor(registry=registry, offline=True)
 
@@ -198,6 +212,7 @@ class TestThePermissionsRemedyMatchesThePlatform:
         auth_db.chmod(0o666)
         monkeypatch.setenv(paths.ENV_AUTH_DB, str(auth_db))
         monkeypatch.setattr(paths, "is_windows", lambda: True)
+        monkeypatch.setattr(paths, "_windows_icacls_output", self._loose_acl)
 
         report = doctor.run_doctor(registry=registry, offline=True)
 
@@ -214,11 +229,40 @@ class TestThePermissionsRemedyMatchesThePlatform:
         for name in ("LOGNAME", "USER", "LNAME", "USERNAME"):
             monkeypatch.delenv(name, raising=False)
         monkeypatch.setattr(paths, "is_windows", lambda: True)
+        monkeypatch.setattr(paths, "_windows_icacls_output", self._loose_acl)
 
         report = doctor.run_doctor(registry=registry, offline=True)
 
         assert len(report.checks) > 1
         assert find(report, "paths.home.permissions").remediation.startswith("icacls ")
+
+    def test_on_windows_an_owner_only_acl_raises_no_permissions_warning(
+        self, monkeypatch, registry, tmp_path
+    ) -> None:
+        """DG-509 acceptance: after the operator runs the printed ``icacls``
+        command, the home directory's ACL grants only the owner, and the
+        warning this check drives must not appear at all — not reappear with
+        a different detail, simply not be in the report."""
+        self._loose_home(tmp_path)
+        monkeypatch.setattr(paths, "is_windows", lambda: True)
+        for name in ("LOGNAME", "USER", "LNAME"):
+            monkeypatch.delenv(name, raising=False)
+        monkeypatch.setenv("USERNAME", "alpha")
+        monkeypatch.setattr(
+            paths,
+            "_windows_icacls_output",
+            lambda path: (
+                f"{path} alpha:(OI)(CI)(F)\n"
+                "\n"
+                "Successfully processed 1 files; Failed processing 0 files.\n"
+            ),
+        )
+
+        report = doctor.run_doctor(registry=registry, offline=True)
+
+        assert not any(c.name == "paths.home.permissions" for c in report.checks), (
+            "an owner-only ACL must not still read as readable by other users"
+        )
 
     def test_on_posix_the_home_remedy_is_unchanged(
         self, monkeypatch, registry, tmp_path
@@ -310,7 +354,7 @@ class TestJiraVerification:
 
         check = find(report, "project.alpha.jira")
         assert check.status == "ok"
-        assert "R. Jakkawan" in check.detail
+        assert "R. Alpha" in check.detail
 
     def test_a_rejected_credential_is_a_failure_not_an_empty_board(
         self, registry

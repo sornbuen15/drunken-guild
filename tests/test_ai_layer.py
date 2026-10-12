@@ -169,3 +169,61 @@ class TestScaffoldOutputStaysInsideTheList:
             f"ai_layer.is_ai_layer_path: {not_recognised}. Add it to "
             "AI_LAYER_BASENAMES, AI_LAYER_ROOT_FILES or AI_LAYER_ROOT_DIRS."
         )
+
+
+class TestContentScanPathIsBroaderThanTheCopyInList:
+    """DG-508: `is_content_scan_path` is a *second*, wider predicate used only to decide what
+    `drunken-doctor`'s content_scan reads for leaked-secret-shaped content — never to decide what
+    the config-repo copy-in provides, and never `is_ai_layer_path` itself (`layering.tracked` and
+    the copy-in keep reading exactly what they always did).
+    """
+
+    def test_everything_is_ai_layer_path_recognises_is_still_recognised(self) -> None:
+        # The narrower predicate is a strict subset — nothing it already covers may regress.
+        for path in (
+            "AGENTS.md",
+            "CLAUDE.md",
+            ".claude",
+            ".claude/settings.json",
+            ".mcp.json",
+        ):
+            assert ai_layer.is_content_scan_path(path), path
+
+    def test_nested_claude_settings_json_is_scanned(self) -> None:
+        # Claude Code's own settings docs (code.claude.com/docs/en/settings, "Where Claude Code
+        # keeps the local file in a git repository" / main body): "Claude Code reads the shared
+        # `.claude/settings.json` from the session's primary working directory" — a session
+        # started inside `packages/x/` reads `packages/x/.claude/settings.json`, not only a
+        # root one. `is_ai_layer_path` stays root-only (no change); this wider predicate must
+        # not.
+        assert ai_layer.is_content_scan_path("packages/x/.claude/settings.json")
+        assert not ai_layer.is_ai_layer_path("packages/x/.claude/settings.json")
+
+    def test_nested_gemini_settings_json_is_scanned(self) -> None:
+        assert ai_layer.is_content_scan_path("packages/x/.gemini/settings.json")
+
+    def test_differently_cased_root_claude_dir_is_scanned(self) -> None:
+        # NTFS and APFS (default) are case-insensitive, the same filesystem fact DG-453 already
+        # relies on for the tracked-file check: `.Claude/` and `.claude/` are the very same
+        # on-disk directory there, so a case-sensitive `is_ai_layer_path` comparison alone
+        # misses it.
+        assert ai_layer.is_content_scan_path(".Claude/settings.json")
+        assert not ai_layer.is_ai_layer_path(".Claude/settings.json")
+
+    def test_nested_mcp_json_is_scanned_though_unverified(self) -> None:
+        # No citation found: Claude Code's own MCP docs (code.claude.com/docs/en/mcp) say only
+        # "a `.mcp.json` file at your project's root directory" / "at your project root", and
+        # never discuss a nested copy. Scanned anyway, on the "where unsure, scan it" side of
+        # DG-508's SCOPE — a credential sitting there is still a credential.
+        assert ai_layer.is_content_scan_path("packages/x/.mcp.json")
+        assert not ai_layer.is_ai_layer_path("packages/x/.mcp.json")
+
+    def test_a_claude_notes_directory_is_still_not_matched(self) -> None:
+        # The basename-substring guard already on is_ai_layer_path must not be loosened here:
+        # a `.claude-notes/` segment is not `.claude/`, whatever its case.
+        assert not ai_layer.is_content_scan_path(".claude-notes/x")
+        assert not ai_layer.is_content_scan_path(".ClaudeNotes/x")
+
+    def test_an_unrelated_file_is_still_not_matched(self) -> None:
+        assert not ai_layer.is_content_scan_path("src/core/scaffold.py")
+        assert not ai_layer.is_content_scan_path("README.md")

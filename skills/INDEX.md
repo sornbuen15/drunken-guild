@@ -2,6 +2,9 @@
 
 Map task keywords to their absolute skill file paths. Load ONLY the relevant skill before executing.
 
+- `concise-docs` — Use when writing a guide, a test case, a report, a release note, a Jira ticket body or a chat/session summary for a human to read — "write the install guide", "
+  Path: $HOME/.claude/skills/concise-docs/SKILL.md
+
 - `project-docs` — Use when a step has to find, create or reconcile a project's own documents — "where does this project keep its PRD?", "there are two PRD.md files, which one win
   Path: $HOME/.claude/skills/project-docs/SKILL.md
 

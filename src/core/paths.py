@@ -18,9 +18,11 @@ volume and points ``DRUNKEN_HOME`` at it; nothing else in the system has to know
 
 from __future__ import annotations
 
+import locale
 import os
 import shlex
 import stat
+import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Final
@@ -127,11 +129,198 @@ def is_group_or_world_accessible(path: Path) -> bool:
     Used by :mod:`core.doctor` rather than enforced here: on a shared machine a
     world-readable credential file is a real finding, but silently re-chmod'ing
     a path the operator chose is its own kind of surprise.
+
+    DG-509: ``path.stat().st_mode`` is the right question on POSIX and the
+    wrong one on Windows — ``pathlib`` synthesizes it there from a single
+    read-only attribute bit, so a directory is reported ``0o755`` and a file
+    ``0o644`` *regardless of its real ACL*. On Windows this answer always
+    came back "accessible", and the warning it drives could never clear, not
+    even right after running the ``icacls`` command the report itself
+    printed. On Windows the ACL is asked instead; POSIX is unchanged.
     """
     if not path.exists():
         return False
+    if is_windows():
+        return _windows_is_group_or_world_accessible(path)
     mode = path.stat().st_mode
     return bool(mode & (stat.S_IRWXG | stat.S_IRWXO))
+
+
+#: Principals an ACE naming them does not make *is_group_or_world_accessible*
+#: true: the machine's own trusted accounts, and the two spellings
+#: ``icacls`` uses for "whoever owns this" when it cannot resolve a name.
+#: Membership alone is not enough to trust an ACE — see
+#: :func:`_windows_is_trusted_principal`: a *qualified* ACE naming one of
+#: these only counts when the qualifier is itself trustworthy, never an
+#: arbitrary other machine's own identically-named account or group.
+_WINDOWS_TRUSTED_PRINCIPALS: Final = frozenset(
+    {
+        "SYSTEM",
+        "ADMINISTRATORS",
+        "CREATOR OWNER",
+        "OWNER RIGHTS",
+        ICACLS_OWNER_SID.upper(),
+    }
+)
+
+#: The fixed Windows pseudo-authorities a well-known name is legitimately
+#: qualified by, regardless of which machine or domain this is — unlike
+#: ``FOREIGNHOST\Administrators``, ``BUILTIN\Administrators`` always means
+#: the same, local, trusted group everywhere. Deliberately not extended to
+#: ``NT SERVICE``: nothing in this check's current fixtures or real-world
+#: ``icacls`` output needs it, and adding it un-asked would widen trust.
+_WINDOWS_PSEUDO_AUTHORITIES: Final = frozenset({"BUILTIN", "NT AUTHORITY"})
+
+#: The two lines ``icacls <path>`` ends every successful run with — never an
+#: ACE, always the summary. Matched to know where the ACE lines stop,
+#: independently of locale, since both start with the identical token.
+_ICACLS_SUMMARY_PREFIXES: Final = ("Successfully processed", "Failed processing")
+
+
+def _windows_icacls_output(path: Path) -> str | None:
+    """The raw text of ``icacls <path>``, or ``None`` if it could not be run.
+
+    Kept separate from the parsing below so a test can hand it real, captured
+    output without depending on an actual Windows ACL existing on disk — and
+    so a production failure to even launch ``icacls`` (missing from PATH, no
+    permission to run it, a timeout) is one ``None`` the caller treats the
+    same way as output it could not parse.
+    """
+    try:
+        completed = subprocess.run(  # noqa: S603 — no shell, fixed argv, no user input in argv[0]
+            ["icacls", str(path)],
+            capture_output=True,
+            timeout=5,
+            check=False,
+            text=True,
+            encoding=locale.getpreferredencoding(False),
+            errors="replace",
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if completed.returncode != 0:
+        return None
+    return completed.stdout
+
+
+def _windows_icacls_principals(output: str, path: Path) -> list[str] | None:
+    """The principal named on every ACE line of ``icacls`` output for *path*.
+
+    ``icacls`` prints the path and the first ACE on one line, then every
+    further ACE on its own indented line, and closes with a summary line.
+    The path is stripped by exact string match — not by a column count,
+    since a Windows account name may itself contain spaces — so the caller
+    passes the same :class:`Path` it asked ``icacls`` about. ``None`` means
+    "this did not look like real ``icacls`` output" — no summary line found,
+    or no ACE recognised — and the caller must answer conservatively, not
+    guess that nobody else has access.
+    """
+    lines = output.splitlines()
+    if not lines:
+        return None
+    path_str = str(path)
+    if lines[0].startswith(path_str):
+        lines[0] = lines[0][len(path_str) :]
+    principals: list[str] = []
+    saw_summary = False
+    for line in lines:
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if stripped.startswith(_ICACLS_SUMMARY_PREFIXES):
+            saw_summary = True
+            continue
+        if ":" not in stripped:
+            continue
+        principal, _, _rights = stripped.partition(":")
+        principal = principal.strip()
+        if principal:
+            principals.append(principal)
+    if not saw_summary or not principals:
+        return None
+    return principals
+
+
+def _windows_current_machine() -> str:
+    """The ``MACHINE`` half of a ``MACHINE\\<user>`` ACE that means "this
+    machine's own account", not merely an account of the same short name
+    somewhere else.
+
+    ``USERDOMAIN`` takes priority for the same reason ``USERNAME`` already
+    does in :func:`_icacls_principal`: for a domain account it is the domain
+    the account was actually issued under, where ``COMPUTERNAME`` is just
+    this machine's own name and would be the wrong qualifier to trust for a
+    domain account logged in from elsewhere. Read through its own function,
+    not inlined, so a test can pin it without depending on the real host.
+    """
+    return os.environ.get("USERDOMAIN") or os.environ.get("COMPUTERNAME") or ""
+
+
+def _windows_is_trusted_principal(
+    full: str, current_user: str, current_machine: str
+) -> bool:
+    """Whether a single ACE principal (already upper-cased) is the current
+    user, the owner, or one of the machine's own trusted accounts — never
+    merely a name that *looks* like one.
+
+    DG-509 re-review round 2: trusting "the current user" by its bare short
+    name alone accepted ``OTHERMACHINE\\alpha`` as if it were this machine's
+    own ``alpha``. Round 3: the same mistake was still there for the
+    well-known names — ``FOREIGNHOST\\Administrators`` read as the trusted
+    local Administrators group purely because the *name* after the ``\\``
+    matched, regardless of what came before it. Both now require the
+    qualifier itself to be trustworthy: unqualified, a fixed Windows
+    pseudo-authority (``BUILTIN``, ``NT AUTHORITY``) for a well-known name,
+    or this machine's own name/domain for either a well-known name or the
+    current user. An arbitrary other qualifier trusts nothing, however
+    familiar the name after the ``\\`` looks.
+    """
+    if "\\" in full:
+        qualifier, _, name = full.partition("\\")
+        qualifier = qualifier.strip()
+        name = name.strip()
+    else:
+        qualifier, name = "", full.strip()
+
+    if name in _WINDOWS_TRUSTED_PRINCIPALS:
+        if not qualifier:
+            return True
+        if qualifier in _WINDOWS_PSEUDO_AUTHORITIES:
+            return True
+        return bool(current_machine) and qualifier == current_machine
+
+    if name == current_user:
+        if not qualifier:
+            return True
+        return bool(current_machine) and qualifier == current_machine
+
+    return False
+
+
+def _windows_is_group_or_world_accessible(path: Path) -> bool:
+    """DG-509: accessible to others when an ACE names anyone but the current
+    user, the owner, or one of the machine's own trusted accounts — an
+    ``Everyone``, ``BUILTIN\\Users`` or ``NT AUTHORITY\\Authenticated Users``
+    ACE included, since none of those is any one of those three. See
+    :func:`_windows_is_trusted_principal` for exactly what "trusted" means.
+
+    Unparseable or unrunnable ``icacls`` output answers ``True`` — the same,
+    conservative "warn" this check always gave on Windows before DG-509 —
+    rather than risk a parsing gap reading as a silent, wrong "fine".
+    """
+    output = _windows_icacls_output(path)
+    if output is None:
+        return True
+    principals = _windows_icacls_principals(output, path)
+    if principals is None:
+        return True
+    current_user = _icacls_principal().upper()
+    current_machine = _windows_current_machine().upper()
+    for principal in principals:
+        full = principal.upper()
+        if not _windows_is_trusted_principal(full, current_user, current_machine):
+            return True
+    return False
 
 
 def is_windows() -> bool:

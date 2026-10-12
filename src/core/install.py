@@ -27,16 +27,28 @@ import argparse
 import hashlib
 import json
 import os
+import re
+import shlex
 import shutil
+import subprocess  # nosec B404 - a fixed, self-generated argv, run with shell=False
 import sys
 import sysconfig
 import tempfile
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
+from importlib import resources as importlib_resources
 from importlib import util as importlib_util
 from pathlib import Path
-from typing import Optional, Sequence
+from typing import TYPE_CHECKING, Any, Callable, Final, Iterator, Optional, Sequence
 
 from .errors import DrunkenError, ValidationError
+
+if TYPE_CHECKING:
+    # DG-518: `orphans` is imported lazily at call time everywhere else in
+    # this module (`core.doctor` imports `core.install`, so a module-level
+    # import here would be circular) -- this branch never runs, it only
+    # gives mypy the names used in the type hints below.
+    from . import orphans as orphans_types
 
 #: Where a source checkout keeps the skills when ``drunken_skills`` is not importable.
 _SOURCE_TREE = Path(__file__).resolve().parent.parent.parent
@@ -133,6 +145,34 @@ def retired_names() -> frozenset[str]:
     return frozenset()
 
 
+def _extras_skill_names() -> frozenset[str]:
+    """Skill names the packaged ``drunken-extras`` plugin ships (DG-514).
+
+    A name here must never be reported or removed as retired or unrecognised: these are shipped by
+    this very package, through ``drunken-install extras``, not abandoned. Imported lazily — module
+    level would be circular, since ``install_extras`` itself imports from this module. Any failure
+    to find the packaged extras (none built, or a stripped-down install) is read as "no extras
+    names to exclude", never as a reason to fail the caller.
+    """
+    from . import install_extras
+
+    try:
+        return frozenset(install_extras.extras_skill_names())
+    except InstallRefusedError:
+        return frozenset()
+
+
+def _extras_agent_names() -> frozenset[str]:
+    """Agent adapter names the packaged ``drunken-extras`` plugin ships (DG-514). See
+    :func:`_extras_skill_names` — same reasoning, same fallback."""
+    from . import install_extras
+
+    try:
+        return frozenset(install_extras.extras_agent_names())
+    except InstallRefusedError:
+        return frozenset()
+
+
 def _external_names(source: Path) -> frozenset[str]:
     path = source / ".external"
     if not path.is_file():
@@ -144,10 +184,36 @@ def _external_names(source: Path) -> frozenset[str]:
     )
 
 
+def _walk_no_links(root: Path) -> Iterator[Path]:
+    """Every path under *root*, depth-first, never descending into a link.
+
+    ``Path.rglob`` does not know a Windows junction from an ordinary folder: a junction is a
+    reparse point, but ``Path.is_symlink()`` (and ``os.path.islink``) is False for one — see
+    ``_is_link`` below, confirmed on this build. ``rglob`` therefore follows a junction wherever
+    it leads, and a folder planted back into its own tree — one junction suffices to go deep,
+    two cross-referencing ones make the walk double in size every level — turns the walk
+    exponential: measured, two such junctions produced 20000 entries in 6s and kept climbing
+    (DG-510). The caller's own ``_is_link`` check still refuses the junction itself; this only
+    stops the walk from ever stepping through it.
+    """
+    stack = [root]
+    while stack:
+        current = stack.pop()
+        try:
+            entries = list(current.iterdir())
+        except OSError:
+            continue
+        for entry in entries:
+            yield entry
+            if entry.is_dir() and not _is_link(entry):
+                stack.append(entry)
+
+
 def _skill_folders(source: Path) -> dict[str, Path]:
     """{install name: source folder} for every folder that holds a SKILL.md; duplicates refuse."""
     found: dict[str, Path] = {}
-    for skill_md in sorted(source.rglob("SKILL.md")):
+    skill_mds = (p for p in _walk_no_links(source) if p.name == "SKILL.md")
+    for skill_md in sorted(skill_mds):
         folder = skill_md.parent
         if folder == source:
             continue
@@ -163,7 +229,7 @@ def _skill_folders(source: Path) -> dict[str, Path]:
 
 def _files_in(folder: Path) -> list[Path]:
     out: list[Path] = []
-    for path in sorted(folder.rglob("*")):
+    for path in sorted(_walk_no_links(folder)):
         if _is_link(path):
             raise InstallRefusedError(
                 f"the source skill file {path} is a symlink.",
@@ -292,11 +358,24 @@ def _installed_names(target_root: Path) -> list[str]:
 
 
 def _find_orphans(
-    target_root: Path, ours: set[str], external: frozenset[str], retired: frozenset[str]
+    target_root: Path,
+    ours: set[str],
+    external: frozenset[str],
+    retired: frozenset[str],
+    extras: frozenset[str] = frozenset(),
 ) -> list[Orphan]:
+    """Everything installed under *target_root* that this install did not just write.
+
+    A name the packaged ``drunken-extras`` plugin ships (*extras*) is never reported here at all —
+    not "retired", not "unrecognised" — because ``drunken-install extras`` put it there on
+    purpose, and a name can be on ``retired_skills.txt`` *and* shipped today under
+    ``drunken-extras`` at the same time (DG-514): "currently shipped elsewhere" must win over "on
+    the retired list", the same rule ``install_skills.sh``/``.ps1`` and ``doctor.py`` already
+    apply — this was the one place in the Python installer that had never been taught it.
+    """
     orphans: list[Orphan] = []
     for name in _installed_names(target_root):
-        if name in ours or name in external:
+        if name in ours or name in external or name in extras:
             continue
         kind = "retired" if name in retired else "unrecognised"
         note = "link, not touched" if _is_link((target_root / name)) else ""
@@ -366,7 +445,11 @@ def install_skills(
                 _apply_skill(action, folders[action.name], target_root)
     result.index_updated = _sync_index(src_root, target_root, apply)
     result.orphans = _find_orphans(
-        target_root, set(folders), _external_names(src_root), retired_names()
+        target_root,
+        set(folders),
+        _external_names(src_root),
+        retired_names(),
+        _extras_skill_names(),
     )
     if prune and prune_apply and apply:
         result.pruned = _prune(target_root, result.orphans)
@@ -514,7 +597,9 @@ def install_agents(
                     target_root,
                 )
     result.index_updated = _sync_index(src_root, target_root, apply)
-    ours = set(_adapter_names(src_root))
+    # A name the packaged drunken-extras plugin ships as an agent is not "not shipped" (DG-514) —
+    # `drunken-install extras` put it here on purpose, same reasoning as `_find_orphans` above.
+    ours = set(_adapter_names(src_root)) | _extras_agent_names()
     if target_root.is_dir():
         result.orphans = sorted(
             p.stem
@@ -531,6 +616,15 @@ class StatusReport:
     retired_installed: list[str] = field(default_factory=list)
     changelog_heading: str = ""
     changelog_body: str = ""
+    # DG-512: extras is optional, so it is never folded into up_to_date — a missing extra is
+    # expected unless the operator has asked for it.
+    extras_changes: list[str] = field(default_factory=list)
+    #: How many extras exist and how many are not fully missing (installed, partial or differing).
+    #: Reviewer round 2: printing all 31 "missing: <name>" lines on a machine with none of them
+    #: installed is noise, not status — a count covers that case, and the per-name lines are kept
+    #: for when there is actually something to look at (installed, partial, or differing).
+    extras_total: int = 0
+    extras_installed: int = 0
 
     @property
     def up_to_date(self) -> bool:
@@ -598,14 +692,26 @@ def status(
         if action.status != "unchanged":
             report.agents_changes.append(f"{action.status}: {name}")
     retired = retired_names()
+    # A name shipped today under plugins/drunken-extras/skills/ is not "retired, still installed"
+    # (DG-514) — `drunken-install extras` put it there on purpose, same exclusion `_find_orphans`
+    # applies for `install_skills`'s own prune plan.
+    extras_skills = _extras_skill_names()
     report.retired_installed = [
         n
         for n in _installed_names(Path(skills_target))
-        if n in retired and n not in folders
+        if n in retired and n not in folders and n not in extras_skills
     ]
     report.changelog_heading, report.changelog_body = newest_changelog_section(
         changelog_text()
     )
+    from . import install_extras
+
+    try:
+        report.extras_total, report.extras_installed, report.extras_changes = (
+            install_extras.extras_overview(skills_target, agents_target)
+        )
+    except InstallRefusedError:
+        pass
     return report
 
 
@@ -722,6 +828,89 @@ def build_parser() -> argparse.ArgumentParser:
     stat.add_argument(
         "--agents-target", help="Agents folder. Default: ~/.claude/agents."
     )
+
+    ctx = sub.add_parser(
+        "context",
+        help="print the SessionStart routing context as one JSON object (for a hook's stdout)",
+    )
+    ctx.add_argument("--target", help="Skills folder. Default: ~/.claude/skills.")
+    ctx.add_argument(
+        "--agents-target", help="Agents folder. Default: ~/.claude/agents."
+    )
+
+    hook = sub.add_parser(
+        "hook",
+        help=(
+            "manage the SessionStart hook ('drunken-install context') and the "
+            "UserPromptSubmit hook ('drunken-install route'), merged together"
+        ),
+    )
+    hook.add_argument(
+        "--settings", help="Claude settings file. Default: ~/.claude/settings.json."
+    )
+    hook.add_argument(
+        "--apply", action="store_true", help="Write the change. Default: plan only."
+    )
+    hook.add_argument(
+        "--remove",
+        action="store_true",
+        help="Remove the guild's hook entries instead of adding them.",
+    )
+
+    # DG-515: a UserPromptSubmit hook, read a prompt from stdin, print which installed
+    # skill/agent to call for it (Thai and English) — or nothing, on no match.
+    route = sub.add_parser(
+        "route",
+        help=(
+            "read a UserPromptSubmit JSON from stdin, print a routing nudge naming "
+            "installed skills/agents (for a hook's stdout; prints nothing on no match)"
+        ),
+    )
+    route.add_argument("--target", help="Skills folder. Default: ~/.claude/skills.")
+    route.add_argument(
+        "--agents-target", help="Agents folder. Default: ~/.claude/agents."
+    )
+
+    # DG-518: list session-leftover processes with a dead parent; --apply terminates exactly
+    # those, re-verified immediately before each one. A Boss command -- never run by an agent.
+    reap = sub.add_parser(
+        "reap",
+        help=(
+            "list session-leftover processes with a dead parent (plan by default); "
+            "--apply terminates exactly those, re-verified first -- a Boss command, "
+            "never run by an agent"
+        ),
+    )
+    reap.add_argument(
+        "--apply",
+        action="store_true",
+        help="Terminate the listed processes. Default: plan only, nothing touched.",
+    )
+    reap.add_argument(
+        "--include-held",
+        action="store_true",
+        help=(
+            "With --apply, also terminate lock holders whose parent is alive "
+            "(stops a running MCP server until it restarts). Default: leave "
+            "those alone."
+        ),
+    )
+
+    # DG-512: the drunken-extras plugin's optional skills and agents — plan by default, never prunes.
+    extras = sub.add_parser(
+        "extras",
+        help="plan or install the optional drunken-extras skills and agents (plan by default)",
+    )
+    extras.add_argument("--target", help="Skills folder. Default: ~/.claude/skills.")
+    extras.add_argument(
+        "--agents-target", help="Agents folder. Default: ~/.claude/agents."
+    )
+    extras.add_argument(
+        "--apply", action="store_true", help="Write the files; the default only plans."
+    )
+    extras.add_argument(
+        "--only", help="Comma-separated names to install; unknown names are refused."
+    )
     return parser
 
 
@@ -773,6 +962,16 @@ def _print_status(report: StatusReport) -> None:
         print(
             f"retired, still installed: {name} (drunken-install skills --prune lists them)"
         )
+    if report.extras_total:
+        if report.extras_installed == 0:
+            print(
+                f"\nextras: {report.extras_total} available, 0 installed "
+                "(drunken-install extras --apply)"
+            )
+        else:
+            print("\nextras (optional, drunken-install extras --apply):")
+            for line in report.extras_changes:
+                print(f"  {line}")
     if report.changelog_heading:
         print(f"\nchangelog — {report.changelog_heading}")
         print(report.changelog_body)
@@ -780,11 +979,1501 @@ def _print_status(report: StatusReport) -> None:
         print("\nchangelog: not found in this install.")
 
 
-def _run(args: argparse.Namespace) -> int:
+#: DG-session-routing: a session calls no skill and no agent when nothing at
+#: session start tells it to — a project's own ``AGENTS.md`` may be absent (a
+#: fresh ``git worktree``), and there is no ``SessionStart`` hook anywhere.
+#: ``drunken-install context`` is the fix that depends on neither: it is the
+#: command a host's ``SessionStart`` hook runs, and it prints the routing
+#: rule plus what this machine actually has installed, so an agent is told
+#: once, every session, rather than relying on a file that may not exist or a
+#: model that may not remember.
+ROUTING_RULE: Final = (
+    "Guild routing, read before doing the work yourself: a new project or a "
+    "requirement that changed -> run /prd, then /clarify, /ddd, /breakdown, in "
+    "that order. A ticket that is ready to build -> run /build, carried out by "
+    "the worker agent; its pull request is read by the reviewer agent before "
+    "the Boss merges it. Planning or breaking work into tickets -> use the "
+    "manager agent. A Jira ticket to write, read or move -> use /jira-tickets. "
+    "Git: branch, commit, PR, merge strategy -> use /git-workflow. End of day "
+    "or closing a session -> run /audit. Call the skill or agent with the "
+    "Skill or Agent tool instead of doing the work yourself. When the project "
+    "already has an example of what is asked, follow it and do not ask the "
+    "Boss which option to choose."
+)
+
+#: The bare command, used only when nothing resolves to an absolute path
+#: (:func:`resolve_hook_command`) — a last resort, not the usual case.
+GUILD_HOOK_FALLBACK: Final = "drunken-install context"
+
+#: The two program basenames :func:`_is_guild_command` accepts, casefolded.
+#: Not a substring/regex match (round 2 of DG-513's review): an unanchored
+#: pattern accepted ``evil-drunken-install.exe context`` and
+#: ``"not-drunken-install.exe" context`` as our own entry, and the doctor
+#: check would then *execute* whatever that command actually was.
+_GUILD_PROGRAM_BASENAMES: Final = frozenset({"drunken-install", "drunken-install.exe"})
+
+#: Hard cap on the text handed to a host every single session (REQ/DG-513
+#: item 5): the first real measurement on a real machine came to 3,624
+#: characters (~900 tokens) with per-item descriptions, and a second plugin's
+#: worth of extras would roughly double that. The routing rule itself is
+#: never cut; only the installed-names list is, with a marker saying so.
+CONTEXT_CHAR_LIMIT: Final = 2500
+
+_SENTENCE_END = re.compile(r"(?<=[.!?])\s")
+
+
+def _frontmatter(text: str) -> dict[str, str]:
+    """``{key: value}`` from a ``SKILL.md``/agent ``.md``'s YAML frontmatter.
+
+    Deliberately not a YAML parser — PyYAML is not a declared runtime
+    dependency of this package — just enough to read a flat ``key: value`` or
+    a folded (``>``) block scalar, which is every form this repository's own
+    files use.
+    """
+    lines = text.splitlines()
+    if not lines or lines[0].strip() != "---":
+        return {}
+    values: dict[str, str] = {}
+    key: Optional[str] = None
+    buf: list[str] = []
+
+    def flush() -> None:
+        if key is not None:
+            values[key] = " ".join(part for part in buf if part).strip()
+
+    for line in lines[1:]:
+        if line.strip() == "---":
+            break
+        if line[:1] not in ("", " ", "\t") and ":" in line:
+            flush()
+            name, _, rest = line.partition(":")
+            key = name.strip()
+            rest = rest.strip()
+            buf = [rest] if rest not in ("", ">", "|", ">-", "|-") else []
+        elif key is not None:
+            buf.append(line.strip())
+    flush()
+    return values
+
+
+def _truncate_sentence(description: str, limit: int = 160) -> str:
+    """The first sentence of *description*, hard-capped at *limit* characters.
+
+    The marker is the ASCII ``...``, not U+2026 — the single-character
+    ellipsis is dropped by :func:`_scrub`'s ASCII encode, which made a
+    truncated description read as merely cut off with no sign it had been
+    (DG-513 item 4: the review that found it, by inspection, not a test).
+    """
+    description = description.strip()
+    if not description:
+        return ""
+    match = _SENTENCE_END.search(description)
+    first = description[: match.start() + 1] if match else description
+    if len(first) > limit:
+        first = first[: limit - 3].rstrip() + "..."
+    return first
+
+
+def _scrub(text: str) -> str:
+    """Force ASCII.
+
+    Round 2 of DG-513's review: this used to also strip anything that
+    looked like a per-machine home path, but `render_context` has not
+    passed a description through here since item 5 switched to
+    names-only — nothing it is ever called on can contain one, so that
+    half of the function (and its two tests) was asserting against dead
+    code. Names alone could in principle be unusual, which is the only
+    reason this still exists at all.
+    """
+    return text.encode("ascii", "ignore").decode("ascii")
+
+
+def _skill_entries(skills_target: Path) -> list[tuple[str, str]]:
+    """{name: first sentence of its description} for every skill actually installed."""
+    out: list[tuple[str, str]] = []
+    if not skills_target.is_dir():
+        return out
+    for entry in sorted(skills_target.iterdir()):
+        skill_md = entry / "SKILL.md"
+        if not entry.is_dir() or not skill_md.is_file():
+            continue
+        try:
+            text = skill_md.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+        description = _frontmatter(text).get("description", "")
+        if description:
+            out.append((entry.name, _truncate_sentence(description)))
+    return out
+
+
+def _agent_entries(agents_target: Path) -> list[tuple[str, str]]:
+    """{name: first sentence of its description} for every agent actually installed."""
+    out: list[tuple[str, str]] = []
+    if not agents_target.is_dir():
+        return out
+    for md in sorted(agents_target.glob("*.md")):
+        if md.name == "INDEX.md" or not md.is_file():
+            continue
+        try:
+            text = md.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+        description = _frontmatter(text).get("description", "")
+        if description:
+            out.append((md.stem, _truncate_sentence(description)))
+    return out
+
+
+def _routing_names(skills_target: Path, agents_target: Path) -> list[str]:
+    """Every installed skill and agent name, deduplicated, sorted.
+
+    Names only, deliberately (DG-513 item 5): a role such as ``worker``
+    installs as both a skill folder (``roles/worker``) and an agent adapter,
+    and the fixed routing rule above already names every flow skill and role
+    with its own short clause — repeating each one's full description here
+    is what made the real measurement 3,624 characters for a single
+    machine's worth of skills, before a second plugin's extras even enter.
+    """
+    try:
+        skills = [name for name, _ in _skill_entries(Path(skills_target))]
+    except OSError:
+        skills = []
+    try:
+        agents = [name for name, _ in _agent_entries(Path(agents_target))]
+    except OSError:
+        agents = []
+    seen: list[str] = []
+    for name in (*skills, *agents):
+        if name not in seen:
+            seen.append(name)
+    return sorted(seen)
+
+
+def render_context(skills_target: Path, agents_target: Path) -> str:
+    """The routing rule, which is never cut, plus a capped list of what is installed.
+
+    Never raises. The names list is truncated before :data:`CONTEXT_CHAR_LIMIT`
+    is reached, with a marker saying how many more there are — the routing
+    rule itself is built first and is always short enough on its own that
+    truncating it is never in question.
+    """
+    try:
+        names = _routing_names(Path(skills_target), Path(agents_target))
+    except OSError:
+        names = []
+    text = ROUTING_RULE
+    if names:
+        prefix = " Installed: "
+        # Reserved unconditionally, not only once a marker turns out to be
+        # needed: computing "would this list plus a marker still fit?" after
+        # already committing to a longer list is how a cap gets missed by a
+        # few characters on the one run that is exactly on the edge.
+        marker_reserve = len(" (+9999 more, see drunken-install status)")
+        budget = (
+            CONTEXT_CHAR_LIMIT - len(text) - len(prefix) - len(".") - marker_reserve
+        )
+        kept: list[str] = []
+        used = 0
+        for name in names:
+            piece = name if not kept else f", {name}"
+            if used + len(piece) > budget:
+                break
+            kept.append(name)
+            used += len(piece)
+        remaining = len(names) - len(kept)
+        marker = (
+            f" (+{remaining} more, see drunken-install status)" if remaining else ""
+        )
+        text = text + prefix + ", ".join(kept) + marker + "."
+    return _scrub(text)
+
+
+def context_json(skills_target: Path, agents_target: Path) -> str:
+    """One JSON object on a line, for a ``SessionStart`` hook's stdout.
+
+    Must never raise and must never be slow: on any error this prints the
+    minimal routing rule rather than propagate, because a hook that fails
+    noisily at every session start is worse than one that says less.
+    """
+    try:
+        text = render_context(skills_target, agents_target)
+    except Exception:  # noqa: BLE001 - a hook's stdout must never be a traceback
+        text = ROUTING_RULE
+    payload = {
+        "hookSpecificOutput": {
+            "hookEventName": "SessionStart",
+            "additionalContext": text,
+        }
+    }
+    try:
+        return json.dumps(payload, ensure_ascii=True)
+    except (TypeError, ValueError):
+        return json.dumps(
+            {
+                "hookSpecificOutput": {
+                    "hookEventName": "SessionStart",
+                    "additionalContext": ROUTING_RULE,
+                }
+            },
+            ensure_ascii=True,
+        )
+
+
+#: DG-515: a ``SessionStart`` hook speaks once, at the top of a session. A later prompt on an
+#: existing project — "add a test", "fix this bug", "ทำหน้า login ให้หน่อย" — gets no routing
+#: nudge at all: the FINDING measured 0 Skill calls in 24 runs under the guild block, the
+#: ``SessionStart`` hook, installed extras and a wider routing table alone. ``drunken-install
+#: route`` is the ``UserPromptSubmit`` hook that reads a prompt and says which skill or agent to
+#: call before the model starts the work itself.
+#:
+#: Hard cap, matching ACCEPTANCE: a short nudge, not a second routing rule's worth of text.
+ROUTE_PROMPT_CHAR_LIMIT: Final = 600
+
+#: The bare command, used only when nothing resolves to an absolute path — see
+#: :func:`resolve_route_hook_command`, the ``route`` twin of :data:`GUILD_HOOK_FALLBACK`.
+GUILD_ROUTE_FALLBACK: Final = "drunken-install route"
+
+_ROUTE_PREFIX: Final = (
+    "Guild routing for this prompt: before doing the work, call the Skill or Agent tool for "
+    "each of: "
+)
+_ROUTE_SUFFIX: Final = ". Do this first, then follow what it says."
+
+
+def _route_table_path() -> Path:
+    """Where the keyword table lives: the installed package's own copy, else the source tree's.
+
+    One data file, Thai and English, per SCOPE — never duplicated into the router logic itself,
+    so adding a keyword or a language never touches this module.
+    """
+    packaged = importlib_resources.files("core").joinpath("data/route_keywords.json")
+    if Path(str(packaged)).is_file():
+        return Path(str(packaged))
+    return _SOURCE_TREE / "src" / "core" / "data" / "route_keywords.json"
+
+
+def _load_route_table() -> list[dict[str, Any]]:
+    """The keyword table as ``[{"category", "keywords", "names"}, ...]``.
+
+    Never raises: a missing or malformed table is read as "no rows", the same "say less, not
+    wrong" reasoning :func:`context_json` already applies to the SessionStart hook.
+    """
+    try:
+        text = _route_table_path().read_text(encoding="utf-8-sig")
+        data = json.loads(text)
+    except (OSError, ValueError):
+        return []
+    if not isinstance(data, list):
+        return []
+    return [row for row in data if isinstance(row, dict)]
+
+
+#: A Latin keyword this short is a real word on its own ("ui", "ux", "api", "pr") and a
+#: substring of something unrelated often enough to misfire as a bare `in` check — "build"
+#: contains "ui", "required" contains "ui", "rapid" contains "api", "print"/"approve" contain
+#: "pr" (DG-515 follow-up, found by the lead running the built exe against real prompts). Above
+#: this length a Latin keyword is treated as a phrase and a plain substring check is kept.
+_WORD_BOUNDARY_MAX_LEN: Final = 3
+
+#: Thai combining tone marks (ไม้เอก ไม้โท ไม้ตรี ไม้จัตวา) — stripped from both the keyword
+#: table and the prompt before comparing, so a real user's "บั๊ก" and this table's "บัก" compare
+#: equal (DG-515 follow-up item 3) instead of silently missing each other.
+_THAI_TONE_MARKS: Final = str.maketrans("", "", "่้๊๋")
+
+_WORD_BOUNDARY_CHARS = "a-z0-9"
+
+
+def _normalize_for_match(text: str) -> str:
+    """Lowercase (so ASCII matching is case-insensitive) with Thai tone marks stripped (so a
+    tone-mark spelling variant compares equal) — applied to the prompt once, and to each
+    keyword before comparing against it."""
+    return text.lower().translate(_THAI_TONE_MARKS)
+
+
+def _keyword_hits(keyword: str, normalized_prompt: str) -> bool:
+    """Does *keyword* appear in *normalized_prompt* (already run through
+    :func:`_normalize_for_match`)? A short, bare Latin keyword matches only on a word boundary;
+    everything else — a longer Latin phrase, any Thai keyword — stays a plain substring check,
+    since Thai has no word-boundary convention to anchor on."""
+    normalized_keyword = _normalize_for_match(keyword)
+    compact = normalized_keyword.replace(" ", "")
+    if (
+        compact.isascii()
+        and compact.isalnum()
+        and len(compact) <= _WORD_BOUNDARY_MAX_LEN
+    ):
+        pattern = (
+            f"(?<![{_WORD_BOUNDARY_CHARS}])"
+            + re.escape(normalized_keyword)
+            + f"(?![{_WORD_BOUNDARY_CHARS}])"
+        )
+        return re.search(pattern, normalized_prompt) is not None
+    return normalized_keyword in normalized_prompt
+
+
+def _matched_names(prompt: str, table: list[dict[str, Any]]) -> list[str]:
+    """Every candidate skill/agent name whose row's keyword appears in *prompt*, in table order,
+    deduplicated — before the installed-only filter is applied."""
+    normalized_prompt = _normalize_for_match(prompt)
+    names: list[str] = []
+    for row in table:
+        keywords = row.get("keywords")
+        row_names = row.get("names")
+        if not isinstance(keywords, list) or not isinstance(row_names, list):
+            continue
+        if not any(
+            isinstance(k, str) and _keyword_hits(k, normalized_prompt) for k in keywords
+        ):
+            continue
+        for name in row_names:
+            if isinstance(name, str) and name not in names:
+                names.append(name)
+    return names
+
+
+def _is_installed(name: str, skills_target: Path, agents_target: Path) -> bool:
+    """Is *name* an installed skill or agent — checked directly, not by enumerating every
+    other installed name (DG-515 review round 2: ``route_text`` used to call
+    :func:`_routing_names` — a full directory walk and frontmatter parse of *everything*
+    installed — on every single prompt, 400 decoy skills alone measured over 1.6s per call).
+    A plain file-existence check on just the handful of candidates the keyword table matched
+    keeps the same "never names an uninstalled skill" guarantee for a fraction of the cost.
+    """
+    try:
+        if (Path(skills_target) / name / "SKILL.md").is_file():
+            return True
+    except OSError:
+        pass
+    try:
+        if (Path(agents_target) / f"{name}.md").is_file():
+            return True
+    except OSError:
+        pass
+    return False
+
+
+def route_text(prompt: str, skills_target: Path, agents_target: Path) -> str:
+    """The short routing nudge for *prompt*, or ``""`` for no match.
+
+    Only ever names a skill or agent actually installed under *skills_target*/*agents_target*
+    (ACCEPTANCE: "names of uninstalled skills are never emitted") and is hard-capped at
+    :data:`ROUTE_PROMPT_CHAR_LIMIT` characters by trimming names, never by cutting mid-sentence.
+    """
+    if not isinstance(prompt, str) or not prompt:
+        return ""
+    candidates = _matched_names(prompt, _load_route_table())
+    if not candidates:
+        return ""
+    skills_target = Path(skills_target)
+    agents_target = Path(agents_target)
+    names = [n for n in candidates if _is_installed(n, skills_target, agents_target)]
+    if not names:
+        return ""
+    while names:
+        text = _ROUTE_PREFIX + ", ".join(names) + _ROUTE_SUFFIX
+        if len(text) <= ROUTE_PROMPT_CHAR_LIMIT:
+            return text
+        names.pop()
+    return ""
+
+
+def route_json(prompt: str, skills_target: Path, agents_target: Path) -> str:
+    """One JSON object (the ``UserPromptSubmit`` hook shape), or ``""`` to print nothing.
+
+    Never raises: a hook's stdout must never be a traceback, the same rule :func:`context_json`
+    follows for ``SessionStart``.
+    """
+    try:
+        text = route_text(prompt, skills_target, agents_target)
+    except Exception:  # noqa: BLE001 - a hook's stdout must never be a traceback
+        return ""
+    if not text:
+        return ""
+    try:
+        return json.dumps(
+            {
+                "hookSpecificOutput": {
+                    "hookEventName": "UserPromptSubmit",
+                    "additionalContext": text,
+                }
+            },
+            ensure_ascii=True,
+        )
+    except (TypeError, ValueError):
+        return ""
+
+
+@dataclass
+class HookPlan:
+    """What ``drunken-install hook`` found, and what it would do about it."""
+
+    settings_path: Path
+    action: str  # "add" | "already-present" | "remove" | "not-present" | "refused"
+    reason: str = ""
+    #: The command that would be written (for "add"), or the one already
+    #: there (for "already-present"/"remove"). Empty for "not-present"/"refused".
+    command: str = ""
+    #: False only for "add" when nothing resolved to an absolute path and
+    #: *command* is the bare :data:`GUILD_HOOK_FALLBACK` instead (DG-513 item
+    #: 1) — true otherwise, including when nothing is being added at all.
+    resolved: bool = True
+
+
+def default_settings_path() -> Path:
+    """``~/.claude/settings.json`` — the same home resolution as :func:`default_target`."""
+    return default_target().parent / "settings.json"
+
+
+def _quote_path_for_command(path: str) -> str:
+    """*path* as one token, always double-quoted.
+
+    Not "only when it has a space": a bare, unquoted Windows path fed back
+    through :func:`_split_hook_command`'s ``shlex.split(..., posix=True)``
+    has every backslash treated as an escape character and stripped —
+    found by the doctor check's own end-to-end test failing on exactly the
+    no-spaces-in-the-path case, the common one. Quoting unconditionally
+    means parsing it back is the one case already proven to round-trip.
+    """
+    if os.name == "nt":
+        return f'"{path}"'
+    return shlex.quote(path)
+
+
+#: The two basenames a ``drunken-install`` program may legitimately have,
+#: compared casefolded — see :func:`_running_drunken_install`.
+_DRUNKEN_INSTALL_NAMES: Final = ("drunken-install", "drunken-install.exe")
+
+
+def _running_drunken_install() -> Optional[str]:
+    """``sys.argv[0]``, if this process IS a ``drunken-install`` run (DG-514 blocker B).
+
+    Confirmed by reproduction, both through a plain ``uv tool install`` and through a fresh venv
+    built from a release-candidate wheel: a Windows console-script launcher's ``sys.argv[0]`` is
+    the path the launcher was actually invoked as — not ``sys.executable`` (that is always the
+    venv's own ``python.exe``, embedded in the launcher at install time) — but with the ``.exe``
+    suffix stripped relative to the file that is actually on disk. ``os.path.isfile(argv[0])`` is
+    therefore False for the bare name and True only once ``.exe`` is appended back; both forms are
+    tried here before giving up on this candidate. On a non-Windows launcher argv[0] already
+    matches the real file, so the plain form alone succeeds there.
+
+    Deliberately ``os.path``, never ``pathlib.Path``: a test exercising this module's Windows
+    formatting monkeypatches ``os.name`` to ``"nt"`` while actually running on POSIX (there is no
+    other way to exercise that branch on a POSIX CI runner) — ``pathlib.Path()`` reads ``os.name``
+    at *construction* time and raises ``NotImplementedError`` building a ``WindowsPath`` on a real
+    POSIX system, while ``os.path`` stays bound to the real platform's implementation, decided
+    once when ``os`` itself was imported.
+    """
+    if not sys.argv or not sys.argv[0]:
+        return None
+    raw = sys.argv[0]
+    candidates = [raw]
+    if os.name == "nt" and not raw.casefold().endswith(".exe"):
+        candidates.append(raw + ".exe")
+    for candidate in candidates:
+        basename = os.path.basename(candidate).casefold()
+        if basename in _DRUNKEN_INSTALL_NAMES and os.path.isfile(candidate):
+            # Absolute: the hook runs later from another cwd (DG-514 review).
+            return os.path.abspath(candidate)
+    return None
+
+
+def resolve_hook_command() -> tuple[str, bool]:
+    """The command the SessionStart hook should run, and whether it resolved.
+
+    DG-513 item 1: the bare command ``drunken-install context`` fails
+    *silently* when the directory running the hook does not have it on
+    PATH — exit 127, no context, no visible error, the exact failure mode
+    this feature exists to end. An absolute path removes PATH from the
+    question entirely.
+
+    Tried in order (DG-514 blocker B changed this order — see
+    :func:`_running_drunken_install`'s docstring for the reproduction that found it):
+
+    1. **The installation actually running this call** — confirmed by reproduction to be the one
+       that matters: running ``drunken-install hook --apply`` from a venv's own executable
+       recorded a DIFFERENT, older installation that merely happened to be first on PATH, because
+       ``shutil.which`` used to be tried first. Whoever is running the hook setup is who the hook
+       should run later.
+    2. **The console script that should sit next to the running interpreter** (covers a venv
+       whose ``Scripts``/``bin`` is not on PATH — exactly how a project's own ``.venv`` is
+       normally *not* on PATH, and argv[0] does not help there since it is often just the bare
+       command name typed on a shell already on PATH).
+    3. ``drunken-install`` on PATH (covers a ``uv tool install`` reached some other way — a shim,
+       a symlink, anything argv[0]/sys.executable did not already resolve).
+
+    The bare fallback is returned, with ``resolved=False``, only when none of the three exist;
+    the caller is responsible for surfacing that.
+    """
+    return _resolve_drunken_install_command("context", GUILD_HOOK_FALLBACK)
+
+
+def _resolve_drunken_install_command(
+    subcommand: str, fallback: str
+) -> tuple[str, bool]:
+    """The shared three-tier search behind :func:`resolve_hook_command` and
+    :func:`resolve_route_hook_command` (DG-515) — only the trailing subcommand and the bare
+    fallback differ between a ``SessionStart`` hook and a ``UserPromptSubmit`` one."""
+    found = _running_drunken_install()
+    if not found:
+        # os.path, not pathlib.Path -- see _running_drunken_install's docstring for why.
+        name = "drunken-install.exe" if os.name == "nt" else "drunken-install"
+        candidate = os.path.abspath(os.path.join(os.path.dirname(sys.executable), name))
+        if os.path.isfile(candidate):
+            found = candidate
+    if not found:
+        found = shutil.which("drunken-install")
+    if found:
+        return f"{_quote_path_for_command(found)} {subcommand}", True
+    return fallback, False
+
+
+def resolve_route_hook_command() -> tuple[str, bool]:
+    """The command the UserPromptSubmit (``route``) hook should run, and whether it resolved.
+
+    The ``route`` twin of :func:`resolve_hook_command` (DG-515) — same reasoning, same
+    three-tier search, through :func:`_resolve_drunken_install_command`.
+    """
+    return _resolve_drunken_install_command("route", GUILD_ROUTE_FALLBACK)
+
+
+def _load_settings(path: Path) -> dict[str, Any]:
+    try:
+        data = json.loads(path.read_text(encoding="utf-8-sig"))
+    except (OSError, ValueError) as exc:
+        raise InstallRefusedError(
+            f"{path} is not valid JSON: {exc}",
+            remediation="Fix the file by hand; nothing here was changed.",
+        ) from exc
+    if not isinstance(data, dict):
+        raise InstallRefusedError(
+            f"{path} must contain a JSON object at the top level.",
+            remediation="Nothing here was changed.",
+        )
+    hooks = data.get("hooks")
+    if hooks is not None and not isinstance(hooks, dict):
+        raise InstallRefusedError(
+            f"{path}: 'hooks' is not an object.",
+            remediation="Fix 'hooks' by hand; nothing here was changed.",
+        )
+    return data
+
+
+def _is_guild_command(command: Any) -> bool:
+    """Is *command* exactly ``<drunken-install> context`` — nothing else?
+
+    Exactly two tokens after splitting (:func:`_split_hook_command`, the
+    same splitter :func:`verify_hook_command` runs it through): a program
+    whose basename, casefolded, is ``drunken-install`` or
+    ``drunken-install.exe``, and a second token that is exactly
+    ``"context"``. Anything with extra arguments, a shell operator as a
+    literal token, or a program name that merely *contains* ``drunken-
+    install`` is not ours — identification, not execution-time trust; see
+    :func:`is_trusted_hook_command` for the second layer.
+    """
+    if not isinstance(command, str):
+        return False
+    try:
+        argv = _split_hook_command(command)
+    except ValueError:
+        return False
+    if len(argv) != 2 or argv[1] != "context":
+        return False
+    return Path(argv[0]).name.casefold() in _GUILD_PROGRAM_BASENAMES
+
+
+def _is_guild_entry(hook_entry: Any) -> bool:
+    if not isinstance(hook_entry, dict):
+        return False
+    return any(
+        isinstance(h, dict) and _is_guild_command(h.get("command"))
+        for h in hook_entry.get("hooks") or []
+    )
+
+
+def _guild_command_in(settings: dict[str, Any]) -> Optional[str]:
+    """The command of the guild's own SessionStart entry, if one is there."""
+    hooks = settings.get("hooks")
+    if not isinstance(hooks, dict):
+        return None
+    session_start = hooks.get("SessionStart")
+    if not isinstance(session_start, list):
+        return None
+    for entry in session_start:
+        if not isinstance(entry, dict):
+            continue
+        for h in entry.get("hooks") or []:
+            if isinstance(h, dict) and _is_guild_command(h.get("command")):
+                return str(h.get("command"))
+    return None
+
+
+def _is_guild_route_command(command: Any) -> bool:
+    """The ``UserPromptSubmit`` twin of :func:`_is_guild_command`: exactly
+    ``<drunken-install> route`` — nothing else. Same reasoning, same two-token shape, swapping
+    only the trailing subcommand."""
+    if not isinstance(command, str):
+        return False
+    try:
+        argv = _split_hook_command(command)
+    except ValueError:
+        return False
+    if len(argv) != 2 or argv[1] != "route":
+        return False
+    return Path(argv[0]).name.casefold() in _GUILD_PROGRAM_BASENAMES
+
+
+def _is_guild_route_entry(hook_entry: Any) -> bool:
+    if not isinstance(hook_entry, dict):
+        return False
+    return any(
+        isinstance(h, dict) and _is_guild_route_command(h.get("command"))
+        for h in hook_entry.get("hooks") or []
+    )
+
+
+def _guild_route_command_in(settings: dict[str, Any]) -> Optional[str]:
+    """The command of the guild's own UserPromptSubmit entry, if one is there."""
+    hooks = settings.get("hooks")
+    if not isinstance(hooks, dict):
+        return None
+    prompt_submit = hooks.get("UserPromptSubmit")
+    if not isinstance(prompt_submit, list):
+        return None
+    for entry in prompt_submit:
+        if not isinstance(entry, dict):
+            continue
+        for h in entry.get("hooks") or []:
+            if isinstance(h, dict) and _is_guild_route_command(h.get("command")):
+                return str(h.get("command"))
+    return None
+
+
+def _unresolved_warning() -> str:
+    return (
+        "could not resolve an absolute path to drunken-install; using the bare "
+        "command, which fails silently (no context, no visible error) if it is "
+        "not on PATH when the hook runs"
+    )
+
+
+#: ``()`` -> ``(command, resolved)`` — the shape of :func:`resolve_hook_command` and
+#: :func:`resolve_route_hook_command`.
+_Resolver = Callable[[], tuple[str, bool]]
+#: ``settings`` -> the guild's own command in some event array, if present — the shape of
+#: :func:`_guild_command_in` and :func:`_guild_route_command_in`.
+_FindCommand = Callable[[dict[str, Any]], Optional[str]]
+
+
+def _plan_add(
+    settings_path: Path,
+    *,
+    file_will_be_created: bool,
+    resolver: _Resolver = resolve_hook_command,
+) -> HookPlan:
+    command, resolved = resolver()
+    notes = []
+    if file_will_be_created:
+        notes.append("the settings file does not exist yet; it would be created")
+    if not resolved:
+        notes.append(_unresolved_warning())
+    return HookPlan(
+        settings_path, "add", reason=" ".join(notes), command=command, resolved=resolved
+    )
+
+
+def _plan_hook_generic(
+    settings_path: Path,
+    *,
+    remove: bool,
+    find_command: _FindCommand,
+    resolver: _Resolver,
+) -> HookPlan:
+    """Shared shape behind :func:`plan_hook` (SessionStart) and :func:`plan_route_hook`
+    (UserPromptSubmit) — DG-515: the second event needs exactly the same plan-first, read-only
+    reasoning the first one already has, so this is the one place it is written."""
+    settings_path = Path(settings_path)
+    if not settings_path.is_file():
+        if remove:
+            return HookPlan(settings_path, "not-present")
+        return _plan_add(settings_path, file_will_be_created=True, resolver=resolver)
+    try:
+        settings = _load_settings(settings_path)
+    except InstallRefusedError as exc:
+        return HookPlan(settings_path, "refused", str(exc))
+    existing = find_command(settings)
+    if remove:
+        return HookPlan(
+            settings_path,
+            "remove" if existing else "not-present",
+            command=existing or "",
+        )
+    if existing:
+        return HookPlan(settings_path, "already-present", command=existing)
+    return _plan_add(settings_path, file_will_be_created=False, resolver=resolver)
+
+
+def plan_hook(settings_path: Path, *, remove: bool = False) -> HookPlan:
+    """What applying (or removing) the guild's SessionStart hook would do. Read-only."""
+    return _plan_hook_generic(
+        settings_path,
+        remove=remove,
+        find_command=_guild_command_in,
+        resolver=resolve_hook_command,
+    )
+
+
+def plan_route_hook(settings_path: Path, *, remove: bool = False) -> HookPlan:
+    """What applying (or removing) the guild's UserPromptSubmit (``route``) hook would do.
+    Read-only — the ``route`` twin of :func:`plan_hook` (DG-515)."""
+    return _plan_hook_generic(
+        settings_path,
+        remove=remove,
+        find_command=_guild_route_command_in,
+        resolver=resolve_route_hook_command,
+    )
+
+
+def _merge_add(settings: dict[str, Any], command: str) -> dict[str, Any]:
+    new_settings = dict(settings)
+    hooks = dict(settings.get("hooks") or {})
+    session_start = list(hooks.get("SessionStart") or [])
+    session_start.append(
+        {
+            "matcher": "",
+            "hooks": [{"type": "command", "command": command}],
+        }
+    )
+    hooks["SessionStart"] = session_start
+    new_settings["hooks"] = hooks
+    return new_settings
+
+
+def _merge_remove(settings: dict[str, Any]) -> dict[str, Any]:
+    new_settings = dict(settings)
+    hooks = dict(settings.get("hooks") or {})
+    session_start = [
+        e for e in (hooks.get("SessionStart") or []) if not _is_guild_entry(e)
+    ]
+    if session_start:
+        hooks["SessionStart"] = session_start
+    else:
+        hooks.pop("SessionStart", None)
+    if hooks:
+        new_settings["hooks"] = hooks
+    else:
+        new_settings.pop("hooks", None)
+    return new_settings
+
+
+def _merge_add_route(settings: dict[str, Any], command: str) -> dict[str, Any]:
+    """The ``route`` twin of :func:`_merge_add` — same shape, the ``UserPromptSubmit`` array
+    (DG-515)."""
+    new_settings = dict(settings)
+    hooks = dict(settings.get("hooks") or {})
+    prompt_submit = list(hooks.get("UserPromptSubmit") or [])
+    prompt_submit.append(
+        {
+            "matcher": "",
+            "hooks": [{"type": "command", "command": command}],
+        }
+    )
+    hooks["UserPromptSubmit"] = prompt_submit
+    new_settings["hooks"] = hooks
+    return new_settings
+
+
+def _merge_remove_route(settings: dict[str, Any]) -> dict[str, Any]:
+    """The ``route`` twin of :func:`_merge_remove`."""
+    new_settings = dict(settings)
+    hooks = dict(settings.get("hooks") or {})
+    prompt_submit = [
+        e for e in (hooks.get("UserPromptSubmit") or []) if not _is_guild_route_entry(e)
+    ]
+    if prompt_submit:
+        hooks["UserPromptSubmit"] = prompt_submit
+    else:
+        hooks.pop("UserPromptSubmit", None)
+    if hooks:
+        new_settings["hooks"] = hooks
+    else:
+        new_settings.pop("hooks", None)
+    return new_settings
+
+
+def _backup(path: Path) -> Path:
+    """Copy *path* to a sibling ``<name>.bak-<UTC stamp>``, created exclusively."""
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    suffix = 0
+    while True:
+        name = f"{path.name}.bak-{stamp}" + (f"-{suffix}" if suffix else "")
+        candidate = path.with_name(name)
+        try:
+            fd = os.open(candidate, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        except FileExistsError:
+            suffix += 1
+            continue
+        break
+    with os.fdopen(fd, "wb") as handle:
+        handle.write(path.read_bytes())
+    return candidate
+
+
+def _write_json_atomic(path: Path, data: dict[str, Any], root: Path) -> None:
+    _assert_inside(root, path)
+    if _is_link(path):
+        raise InstallRefusedError(
+            f"{path} is a link.", remediation="Nothing was written."
+        )
+    fd, tmp_name = tempfile.mkstemp(dir=path.parent, prefix=".drunken-install-")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            json.dump(data, handle, indent=2)
+            handle.write("\n")
+        os.replace(tmp_name, path)
+    except BaseException:
+        Path(tmp_name).unlink(missing_ok=True)
+        raise
+
+
+#: ``(settings_path, remove=...)`` -> plan — the shape of :func:`plan_hook` and
+#: :func:`plan_route_hook`.
+_PlanFn = Callable[..., HookPlan]
+#: ``(settings, command)`` -> new settings — the shape of :func:`_merge_add` and
+#: :func:`_merge_add_route`.
+_MergeAdd = Callable[[dict[str, Any], str], dict[str, Any]]
+#: ``(settings)`` -> new settings — the shape of :func:`_merge_remove` and
+#: :func:`_merge_remove_route`.
+_MergeRemove = Callable[[dict[str, Any]], dict[str, Any]]
+
+
+def _apply_hook_generic(
+    settings_path: Path,
+    *,
+    apply: bool,
+    remove: bool,
+    plan_fn: _PlanFn,
+    merge_add: _MergeAdd,
+    merge_remove: _MergeRemove,
+) -> HookPlan:
+    """Shared shape behind :func:`apply_hook` (SessionStart) and :func:`apply_route_hook`
+    (UserPromptSubmit) — DG-515, same safety as the SessionStart merge (plan first, backup,
+    idempotent, abort on a concurrent edit) for the second event too, written once."""
+    settings_path = Path(settings_path)
+    plan = plan_fn(settings_path, remove=remove)
+    if plan.action == "refused":
+        if apply:
+            raise InstallRefusedError(plan.reason, remediation="Nothing was changed.")
+        return plan
+    if not apply or plan.action in ("already-present", "not-present"):
+        return plan
+
+    root = settings_path.parent
+    if _is_link(settings_path) or _is_link(root):
+        raise InstallRefusedError(
+            f"{settings_path} sits behind a link.",
+            remediation="Nothing was changed.",
+        )
+    existed = settings_path.is_file()
+    original_bytes = settings_path.read_bytes() if existed else None
+    settings = _load_settings(settings_path) if existed else {}
+    root.mkdir(parents=True, exist_ok=True)
+    if existed:
+        _backup(settings_path)
+    new_settings = (
+        merge_remove(settings) if remove else merge_add(settings, plan.command)
+    )
+    if existed:
+        # DG-513 item 6: re-read immediately before writing, not only once at
+        # the top — a second writer between the first read and now must
+        # abort rather than have its edit silently overwritten. NTFS ACL
+        # entries set directly on this file are not preserved across the
+        # atomic replace below; see GETTING_STARTED.md.
+        current_bytes = settings_path.read_bytes() if settings_path.is_file() else None
+        if current_bytes != original_bytes:
+            raise InstallRefusedError(
+                f"{settings_path} changed on disk since it was read; "
+                "refusing to overwrite a concurrent edit.",
+                remediation="Nothing was written. Run this again.",
+            )
+    _write_json_atomic(settings_path, new_settings, root)
+    return plan
+
+
+def apply_hook(
+    settings_path: Path, *, apply: bool = False, remove: bool = False
+) -> HookPlan:
+    """Plan (``apply=False``) or perform adding/removing the guild's SessionStart hook."""
+    return _apply_hook_generic(
+        settings_path,
+        apply=apply,
+        remove=remove,
+        plan_fn=plan_hook,
+        merge_add=_merge_add,
+        merge_remove=_merge_remove,
+    )
+
+
+def apply_route_hook(
+    settings_path: Path, *, apply: bool = False, remove: bool = False
+) -> HookPlan:
+    """Plan (``apply=False``) or perform adding/removing the guild's UserPromptSubmit
+    (``route``) hook. The ``route`` twin of :func:`apply_hook` (DG-515)."""
+    return _apply_hook_generic(
+        settings_path,
+        apply=apply,
+        remove=remove,
+        plan_fn=plan_route_hook,
+        merge_add=_merge_add_route,
+        merge_remove=_merge_remove_route,
+    )
+
+
+def _split_hook_command(command: str) -> list[str]:
+    """``[program, *args]`` for a command this tool itself generated.
+
+    ``shlex.split(..., posix=True)`` is used deliberately *always*, even on
+    Windows: it strips the double quotes :func:`resolve_hook_command` wraps
+    an absolute path in, and a bare backslash in a Windows path (``C:\\Users
+    \\...``) is not a POSIX escape character unless it precedes a quote or
+    another backslash, so a plain path survives unchanged. ``posix=False``
+    was tried first and rejected — it leaves the quote characters inside the
+    token, which breaks the quoted-path case this exists for.
+    """
+    try:
+        return shlex.split(command.strip(), posix=True)
+    except ValueError:
+        # An unterminated quote, say — fall back to the crudest possible
+        # split rather than raise out of a doctor check.
+        return command.split()
+
+
+def _real_path(raw: str) -> str:
+    """A path's canonical form for comparing two commands' programs.
+
+    ``os.path.normcase`` lower-cases on Windows (filesystem paths there are
+    case-insensitive) and is a no-op on POSIX; ``os.path.realpath`` resolves
+    ``..``/symlinks. Comparing this, not the raw strings, is what makes two
+    different-looking paths to the same file compare equal — and two
+    same-named files in different directories compare *unequal*, which is
+    the whole point.
+    """
+    return os.path.normcase(os.path.realpath(raw))
+
+
+def is_trusted_hook_command(command: str) -> bool:
+    """Does *command*'s program resolve to **this installation's own**
+    ``drunken-install`` — not merely a file of the right name?
+
+    DG-513 round 2, layer (b): identification (:func:`_is_guild_command`)
+    only checks the *shape* of the command — a program named exactly
+    ``drunken-install.exe`` sitting in an attacker-controlled directory
+    passes it. This is the check the doctor runs before actually executing
+    anything: the program must resolve to the same file as what
+    :func:`resolve_hook_command` would produce right now, or to
+    ``shutil.which("drunken-install")`` — both describe *this machine's*
+    real installation, never the command recorded in a settings file.
+    """
+    argv = _split_hook_command(command)
+    if not argv:
+        return False
+    candidate = _real_path(argv[0])
+
+    current_command, resolved = resolve_hook_command()
+    if resolved:
+        current_argv = _split_hook_command(current_command)
+        if current_argv and _real_path(current_argv[0]) == candidate:
+            return True
+
+    found = shutil.which("drunken-install")
+    if found and _real_path(found) == candidate:
+        return True
+    return False
+
+
+def is_trusted_route_hook_command(command: str) -> bool:
+    """The ``route`` twin of :func:`is_trusted_hook_command` (DG-515) — same reasoning, checked
+    against :func:`resolve_route_hook_command` instead."""
+    argv = _split_hook_command(command)
+    if not argv:
+        return False
+    candidate = _real_path(argv[0])
+
+    current_command, resolved = resolve_route_hook_command()
+    if resolved:
+        current_argv = _split_hook_command(current_command)
+        if current_argv and _real_path(current_argv[0]) == candidate:
+            return True
+
+    found = shutil.which("drunken-install")
+    if found and _real_path(found) == candidate:
+        return True
+    return False
+
+
+def verify_hook_command(command: str, *, timeout: float = 5.0) -> tuple[bool, str]:
+    """Actually run *command* and check it behaves like our own hook (DG-513 item 1).
+
+    Presence of an entry in ``settings.json`` is not the same as it working:
+    the recorded program can be missing (uninstalled, moved, a stale venv),
+    or too old to have the ``context`` subcommand at all. Both fail with no
+    visible error at session start, which is exactly the silent failure this
+    whole feature exists to end — so the doctor runs the real command,
+    briefly, rather than trust the file.
+    """
+    if not command:
+        return False, "no command is configured"
+    argv = _split_hook_command(command)
+    if not argv or not argv[0]:
+        return False, "the configured command has no program to run"
+    try:
+        proc = subprocess.run(  # nosec B603 - no shell, argv built above, fixed tail
+            argv,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            shell=False,
+            check=False,
+        )
+    except FileNotFoundError:
+        return (
+            False,
+            f"{argv[0]!r} was not found (not on PATH, or moved since it was recorded)",
+        )
+    except subprocess.TimeoutExpired:
+        return False, f"did not finish within {timeout}s"
+    except OSError as exc:
+        return False, f"could not be run: {exc}"
+    if proc.returncode != 0:
+        return False, (
+            f"exited with code {proc.returncode} (an older drunken-install without "
+            "'context', perhaps)"
+        )
+    try:
+        payload = json.loads(proc.stdout)
+        event = payload["hookSpecificOutput"]["hookEventName"]
+    except (ValueError, KeyError, TypeError):
+        return False, "ran, but did not print the expected SessionStart JSON"
+    if event != "SessionStart":
+        return False, "ran, but hookEventName was not 'SessionStart'"
+    return True, ""
+
+
+#: A prompt guaranteed to match the ``git`` row of the shipped keyword table (DG-515): any
+#: core install always ships the `git-workflow` skill, so a working ``route`` command must
+#: print the UserPromptSubmit JSON naming it for this prompt — "no match" would mean broken,
+#: not quiet, for this specific probe.
+_ROUTE_PROBE_PROMPT: Final = "please help with this git commit and open a pull request"
+
+
+def verify_route_hook_command(
+    command: str, *, timeout: float = 5.0
+) -> tuple[bool, str]:
+    """Actually run *command* with a known-to-match prompt on stdin and check it behaves like
+    our own ``route`` hook (the ``route`` twin of :func:`verify_hook_command`, DG-515).
+
+    Presence in ``settings.json`` is not the same as it working, same reasoning as the
+    SessionStart check: the recorded program can be missing, moved, or too old to have the
+    ``route`` subcommand at all — and an empty stdout is ambiguous between "no match" (by
+    design) and "broken", so this sends a prompt the shipped table always matches
+    (``git-workflow`` is a core skill, never optional) and insists on real output.
+    """
+    if not command:
+        return False, "no command is configured"
+    argv = _split_hook_command(command)
+    if not argv or not argv[0]:
+        return False, "the configured command has no program to run"
+    probe = json.dumps({"prompt": _ROUTE_PROBE_PROMPT})
+    try:
+        proc = subprocess.run(  # nosec B603 - no shell, argv built above, fixed tail
+            argv,
+            input=probe,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            shell=False,
+            check=False,
+        )
+    except FileNotFoundError:
+        return (
+            False,
+            f"{argv[0]!r} was not found (not on PATH, or moved since it was recorded)",
+        )
+    except subprocess.TimeoutExpired:
+        return False, f"did not finish within {timeout}s"
+    except OSError as exc:
+        return False, f"could not be run: {exc}"
+    if proc.returncode != 0:
+        return False, (
+            f"exited with code {proc.returncode} (an older drunken-install without "
+            "'route', perhaps)"
+        )
+    out = proc.stdout.strip()
+    if not out:
+        return (
+            False,
+            "ran, but printed nothing for a prompt the shipped table always matches",
+        )
+    try:
+        payload = json.loads(out)
+        event = payload["hookSpecificOutput"]["hookEventName"]
+    except (ValueError, KeyError, TypeError):
+        return False, "ran, but did not print the expected UserPromptSubmit JSON"
+    if event != "UserPromptSubmit":
+        return False, "ran, but hookEventName was not 'UserPromptSubmit'"
+    return True, ""
+
+
+def _print_hook_plan(
+    plan: HookPlan,
+    *,
+    apply: bool,
+    event: str = "SessionStart",
+    fallback: str = GUILD_HOOK_FALLBACK,
+    print_settings_line: bool = True,
+) -> None:
+    if print_settings_line:
+        print(f"settings : {plan.settings_path}")
+    labels = {
+        "add": "would add" if not apply else "added",
+        "already-present": "already present",
+        "remove": "would remove" if not apply else "removed",
+        "not-present": "not present (nothing to remove)",
+        "refused": f"refused — {plan.reason}",
+    }
+    command = plan.command or fallback
+    print(f"{event} hook ({command}): {labels[plan.action]}")
+    if plan.action == "add" and not plan.resolved:
+        print(f"  WARNING: {_unresolved_warning()}")
+    elif plan.action == "add" and plan.reason and not apply:
+        print(f"  {plan.reason}")
+    if not apply and plan.action in ("add", "remove"):
+        print("dry run  : nothing was written. Add --apply to write it.")
+
+
+def _run_context(args: argparse.Namespace) -> int:
+    try:
+        skills_target, agents_target = _targets(args)
+        print(context_json(skills_target, agents_target))
+    except Exception:  # noqa: BLE001 - a hook's stdout must never be a traceback
+        print(
+            json.dumps(
+                {
+                    "hookSpecificOutput": {
+                        "hookEventName": "SessionStart",
+                        "additionalContext": ROUTING_RULE,
+                    }
+                },
+                ensure_ascii=True,
+            )
+        )
+    return 0
+
+
+def _run_hook(args: argparse.Namespace) -> int:
+    """``drunken-install hook``: the SessionStart hook (``context``) and the UserPromptSubmit
+    hook (``route``) are merged together by one ``--apply``/``--remove`` — one settings file,
+    one command, same plan-first/backup/idempotent safety for both (DG-515 SCOPE: "hook --apply
+    also merges the UserPromptSubmit entry")."""
+    settings_path = (
+        Path(args.settings).expanduser() if args.settings else default_settings_path()
+    )
+    session_plan = apply_hook(settings_path, apply=args.apply, remove=args.remove)
+    _print_hook_plan(
+        session_plan,
+        apply=args.apply,
+        event="SessionStart",
+        fallback=GUILD_HOOK_FALLBACK,
+    )
+    route_plan = apply_route_hook(settings_path, apply=args.apply, remove=args.remove)
+    _print_hook_plan(
+        route_plan,
+        apply=args.apply,
+        event="UserPromptSubmit",
+        fallback=GUILD_ROUTE_FALLBACK,
+        print_settings_line=False,
+    )
+    return 1 if "refused" in (session_plan.action, route_plan.action) else 0
+
+
+#: DG-515 review round 2: an unbounded ``sys.stdin.read()`` loads however much a hook's caller
+#: cares to send before ``json.loads`` ever runs — a 50MB stream makes a plain ``.read()`` read
+#: all of it. 64KiB comfortably covers a real ``UserPromptSubmit`` payload (Claude Code's own
+#: prompts are nowhere near this) while bounding the worst case to a fixed, fast read.
+_ROUTE_STDIN_CAP: Final = 65536
+
+
+def _prompt_from_stdin() -> str:
+    """The ``"prompt"`` field of a UserPromptSubmit JSON payload on stdin, or ``""`` for
+    anything that is not exactly that — malformed JSON, no stdin, the wrong shape.
+
+    Reads at most :data:`_ROUTE_STDIN_CAP` characters, never the whole stream, and parses only
+    the *leading* JSON value in what was read (``json.JSONDecoder.raw_decode``, not
+    ``json.loads``) — a valid, short prompt object followed by megabytes of anything else on
+    the same stream still parses, rather than failing on "extra data" the moment the read is
+    capped mid-stream.
+    """
+    try:
+        raw = sys.stdin.read(_ROUTE_STDIN_CAP)
+    except Exception:  # noqa: BLE001 - a hook's stdout must never be a traceback
+        return ""
+    if not raw.strip():
+        return ""
+    try:
+        payload_in, _end = json.JSONDecoder().raw_decode(raw)
+    except Exception:  # noqa: BLE001 - a hook's stdout must never be a traceback
+        return ""
+    if not isinstance(payload_in, dict):
+        return ""
+    candidate = payload_in.get("prompt", "")
+    return candidate if isinstance(candidate, str) else ""
+
+
+def _run_route(args: argparse.Namespace) -> int:
     skills_target, agents_target = _targets(args)
-    if args.what == "status":
-        _print_status(status(skills_target, agents_target))
+    out = route_json(_prompt_from_stdin(), skills_target, agents_target)
+    if out:
+        print(out)
+    return 0
+
+
+def _reap_plan(
+    table: Sequence["orphans_types.ProcessInfo"], tool_roots: Sequence[str]
+) -> tuple[
+    list["orphans_types.OrphanProcess"],
+    list["orphans_types.LockHolder"],
+    list[tuple["orphans_types.ProcessInfo", str]],
+]:
+    """Split *table* into (orphans, live-held lock holders, protected) for
+    ``reap``.
+
+    A dead-parented lock holder is folded into the orphan list -- deduped by
+    pid against the plain session-leftover orphans -- since it is reaped
+    exactly the same way; only a live-parented one stays a separate case.
+
+    *protected* (DG-518 review, CRITICAL self-protection finding, round 2)
+    is this very ``reap`` process, every ancestor of it (its shell, its
+    terminal, the Claude session that launched it), and **every descendant
+    of any of those** (:func:`core.orphans.protected_pids`) — a real run
+    found a protected session's own ``drunken-jira-mcp.exe`` and its python
+    children listed as an ordinary, terminable lock holder, because the
+    first round only ever walked *up* from the running process. Each entry
+    here is paired with its label — :data:`core.orphans.PROTECTED_LABEL` for
+    the chain itself, :data:`core.orphans.PROTECTED_DESCENDANT_LABEL` for
+    everything under it — and excluded from both lists, at plan time, named
+    separately so the plan still shows them. They are excluded *again*,
+    independently, inside
+    :func:`core.orphans.apply_reap`/:func:`core.orphans.apply_lock_holders`
+    immediately before anything is terminated — this filtering is a first
+    layer, never the only one.
+    """
+    from . import orphans  # noqa: PLC0415 - only this subcommand needs it
+
+    ancestors = orphans.protected_ancestors(table)
+    protected = orphans.protected_pids(table)
+    session_orphans = [o for o in orphans.find_orphans(table) if o.pid not in protected]
+    lock_holders = [
+        h
+        for h in orphans.find_lock_holders(table, tool_roots)
+        if h.pid not in protected
+    ]
+    protected_entries = [
+        (
+            process,
+            orphans.PROTECTED_LABEL
+            if process.pid in ancestors
+            else orphans.PROTECTED_DESCENDANT_LABEL,
+        )
+        for process in table
+        if process.pid in protected
+    ]
+
+    orphan_pids = {o.pid for o in session_orphans}
+    dead_lock_holders = [
+        h for h in lock_holders if not h.parent_alive and h.pid not in orphan_pids
+    ]
+    held_live = [h for h in lock_holders if h.parent_alive]
+    all_orphans = session_orphans + [
+        orphans.OrphanProcess(h.pid, h.ppid, h.start_time, h.command)
+        for h in dead_lock_holders
+    ]
+    return all_orphans, held_live, protected_entries
+
+
+def _print_reap_plan(
+    all_orphans: Sequence["orphans_types.OrphanProcess"],
+    held_live: Sequence["orphans_types.LockHolder"],
+    protected_entries: Sequence[tuple["orphans_types.ProcessInfo", str]],
+) -> None:
+    from . import orphans  # noqa: PLC0415 - only this subcommand needs it
+
+    for candidate in all_orphans:
+        print(
+            f"pid {candidate.pid}  ppid {candidate.ppid}  "
+            f"started {orphans.format_start_time(candidate.start_time)}  "
+            f"orphan  {candidate.command}"
+        )
+    for holder in held_live:
+        print(
+            f"pid {holder.pid}  ppid {holder.ppid}  "
+            f"started {orphans.format_start_time(holder.start_time)}  "
+            f"{holder.label}  {holder.command}"
+        )
+    for process, label in protected_entries:
+        print(
+            f"pid {process.pid}  ppid {process.ppid}  "
+            f"started {orphans.format_start_time(process.start_time)}  "
+            f"{label}  {process.command}"
+        )
+    if held_live:
+        print(
+            f"\n{len(held_live)} lock holder(s) are still held by a live "
+            "session. Stopping a held drunken-jira-mcp makes Jira tools "
+            "unavailable in that session until it restarts -- terminated "
+            "only with --include-held."
+        )
+
+
+def _apply_reap_plan(
+    all_orphans: Sequence["orphans_types.OrphanProcess"],
+    held_live: Sequence["orphans_types.LockHolder"],
+    *,
+    include_held: bool,
+) -> None:
+    from . import orphans  # noqa: PLC0415 - only this subcommand needs it
+
+    outcome = orphans.apply_reap(
+        all_orphans,
+        apply=True,
+        terminate_fn=orphans.terminate_process,
+        list_processes_fn=orphans.list_processes,
+    )
+    for candidate in outcome.terminated:
+        print(f"terminated pid {candidate.pid}")
+    for candidate, reason in outcome.skipped:
+        print(f"skipped pid {candidate.pid}: {reason}")
+
+    if not held_live:
+        return
+    held_outcome = orphans.apply_lock_holders(
+        held_live,
+        apply=True,
+        include_held=include_held,
+        terminate_fn=orphans.terminate_process,
+        list_processes_fn=orphans.list_processes,
+    )
+    for holder in held_outcome.terminated:
+        print(
+            f"terminated pid {holder.pid} (was held by session "
+            f"{holder.ppid}); restart it if it was an MCP server"
+        )
+    for holder, reason in held_outcome.skipped:
+        print(f"skipped pid {holder.pid}: {reason}")
+
+
+def _run_reap(args: argparse.Namespace) -> int:
+    """DG-518: list session-leftover processes with a dead parent, and guild
+    tool **lock holders** (a process whose executable sits inside the
+    installed guild tool, whatever its parent -- a running ``drunken-jira-mcp``
+    the desktop app is still keeping alive counts, even with no window open).
+
+    ``--apply`` re-verifies every orphan (same pid, same start time, parent
+    still dead) immediately before terminating it, and terminates orphaned
+    lock holders the same way. A lock holder whose parent is alive is left
+    alone unless ``--include-held`` is also given -- terminating one stops a
+    running MCP server until it restarts, which must be the Boss's explicit
+    choice, never the default. Never run by an agent.
+    """
+    from . import doctor, orphans  # noqa: PLC0415 - only this subcommand needs them
+
+    try:
+        table = orphans.list_processes()
+    except orphans.ProcessTableUnavailableError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        if exc.remediation:
+            print(f"  -> {exc.remediation}", file=sys.stderr)
+        return 1
+
+    all_orphans, held_live, protected_entries = _reap_plan(
+        table, doctor.guild_tool_paths()
+    )
+    if not all_orphans and not held_live and not protected_entries:
+        print("No leftover session processes found.")
         return 0
+
+    _print_reap_plan(all_orphans, held_live, protected_entries)
+
+    if not args.apply:
+        print(
+            f"\n{len(all_orphans)} orphan(s), {len(held_live)} held lock "
+            "holder(s). Nothing was touched. Re-run with --apply to "
+            "re-verify each and terminate the orphans; add --include-held "
+            "to also terminate the held ones."
+        )
+        return 0
+
+    _apply_reap_plan(all_orphans, held_live, include_held=args.include_held)
+    return 0
+
+
+def _warn_about_lock_holders() -> None:
+    """DG-518 scope addition: one line, printed before an install/update
+    proceeds, naming how many guild processes currently hold files inside the
+    installed tool -- the reason ``uv tool install --force`` can fail outright
+    -- and the exact command to clear them. Never acts; only ``drunken-install
+    reap`` ever terminates anything, and only when told to.
+
+    DG-518 review, MEDIUM finding: the *entire* body is wrapped in one broad
+    ``except`` that skips quietly, not only the process-table read. This is a
+    courtesy before an unrelated operation (installing skills/agents), and
+    anything going wrong here -- an unreadable process table, a bug in the
+    lock-holder lookup itself, anything at all -- must never fail, delay or
+    otherwise affect that operation.
+    """
+    try:
+        from . import doctor, orphans  # noqa: PLC0415 - only this call site needs them
+
+        table = orphans.list_processes()
+        holders = orphans.find_lock_holders(table, doctor.guild_tool_paths())
+        if not holders:
+            return
+        print(
+            f"note: {len(holders)} guild process(es) currently hold files "
+            "inside the installed tool -- `uv tool install --force` can "
+            "fail while they do. See `drunken-install reap --include-held "
+            "--apply` if an update fails."
+        )
+    except Exception:  # noqa: BLE001 - a courtesy notice must never fail the update
+        return
+
+
+def _run_extras(
+    args: argparse.Namespace, skills_target: Path, agents_target: Path
+) -> int:
+    from . import install_extras
+
+    only = [n.strip() for n in args.only.split(",") if n.strip()] if args.only else None
+    extras_result = install_extras.install_extras(
+        skills_target, agents_target, apply=args.apply, only=only
+    )
+    install_extras.print_report(extras_result)
+    return (
+        1
+        if any(
+            a.status == "refused"
+            for a in (*extras_result.skills, *extras_result.agents)
+        )
+        else 0
+    )
+
+
+def _run_update(
+    args: argparse.Namespace, skills_target: Path, agents_target: Path
+) -> int:
+    """``skills`` / ``agents`` / ``all``: the usual update. DG-518: warns once,
+    before writing anything, about pre-existing guild tool lock holders."""
+    if not args.dry_run:
+        _warn_about_lock_holders()
     refused = False
     if args.what in ("skills", "all"):
         result = install_skills(
@@ -802,6 +2491,24 @@ def _run(args: argparse.Namespace) -> int:
         _print_agents(agents)
         refused = refused or any(a.status == "refused" for a in agents.agents)
     return 1 if refused else 0
+
+
+def _run(args: argparse.Namespace) -> int:
+    if args.what == "context":
+        return _run_context(args)
+    if args.what == "hook":
+        return _run_hook(args)
+    if args.what == "route":
+        return _run_route(args)
+    if args.what == "reap":
+        return _run_reap(args)
+    skills_target, agents_target = _targets(args)
+    if args.what == "status":
+        _print_status(status(skills_target, agents_target))
+        return 0
+    if args.what == "extras":
+        return _run_extras(args, skills_target, agents_target)
+    return _run_update(args, skills_target, agents_target)
 
 
 def main(argv: Optional[Sequence[str]] = None) -> int:

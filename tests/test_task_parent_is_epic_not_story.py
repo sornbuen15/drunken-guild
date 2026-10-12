@@ -39,7 +39,11 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent
 JIRA_TICKETS = REPO_ROOT / "skills" / "workflow" / "jira-tickets" / "SKILL.md"
 BREAKDOWN = REPO_ROOT / "skills" / "flow" / "breakdown" / "SKILL.md"
-README = REPO_ROOT / "README.md"
+#: DG-517 round 4 moved this arrow-chain line out of README's first screen
+#: and into docs/REFERENCE.md, so the "README.md" check below now reads
+#: that file -- the claim itself (Story and Task as siblings under the
+#: Epic) still has to hold wherever it lives.
+README = REPO_ROOT / "docs" / "REFERENCE.md"
 GETTING_STARTED = REPO_ROOT / "GETTING_STARTED.md"
 #: DG-402 moved the manager role's own prose out of `agents/manager.md`
 #: (now a generated adapter carrying no role rule of its own) and into

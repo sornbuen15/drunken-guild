@@ -2084,6 +2084,177 @@ class TestNonUtf8Registry:
             init._ensure_registry_document(str(registry_path))  # noqa: SLF001
 
 
+class TestUndecodableJsonRegistry:
+    """DG-507: ``_ensure_registry_document`` had no ``except
+    json.JSONDecodeError`` at all, so an empty or truncated ``projects.json``
+    raised a raw traceback instead of the same typed refusal every other
+    malformed-registry shape already gets.
+    """
+
+    def test_an_empty_registry_is_a_typed_refusal_not_a_traceback(
+        self, tmp_path, capsys
+    ) -> None:
+        registry_path = tmp_path / "state" / "projects.json"
+        registry_path.parent.mkdir(parents=True)
+        registry_path.write_text("", encoding="utf-8")
+
+        code = run("--project", "sample")
+
+        assert code == 1
+        out = capsys.readouterr().out
+        assert "error:" in out
+        assert str(registry_path) in out
+        assert registry_path.read_text(encoding="utf-8") == ""
+
+    def test_a_truncated_registry_is_a_typed_refusal_not_a_traceback(
+        self, tmp_path, capsys
+    ) -> None:
+        registry_path = tmp_path / "state" / "projects.json"
+        registry_path.parent.mkdir(parents=True)
+        before = '{"version": 2, "projects": {"alpha": {"path": "/abs'
+        registry_path.write_text(before, encoding="utf-8")
+
+        code = run("--project", "sample")
+
+        assert code == 1
+        out = capsys.readouterr().out
+        assert "error:" in out
+        assert str(registry_path) in out
+        assert registry_path.read_text(encoding="utf-8") == before
+
+    def test_the_helper_refuses_an_empty_file_rather_than_raise_a_bare_error(
+        self, tmp_path
+    ) -> None:
+        from core.errors import DrunkenError
+
+        registry_path = tmp_path / "projects.json"
+        registry_path.write_text("", encoding="utf-8")
+
+        with pytest.raises(DrunkenError):
+            init._ensure_registry_document(str(registry_path))  # noqa: SLF001
+
+
+class TestBomPrefixedRegistry:
+    """DG-507: a BOM-prefixed ``projects.json`` -- written by a tool that
+    defaults to ``utf-8-sig`` on Windows, or hand-saved from an editor that
+    adds one -- failed to decode as JSON under a plain ``encoding="utf-8"``
+    open, because the BOM survives as a literal ``\\ufeff`` character in
+    front of the opening brace. Reading with ``utf-8-sig`` strips it, so a
+    BOM-prefixed but otherwise valid registry is read normally.
+    """
+
+    def test_a_bom_prefixed_valid_registry_is_read_normally(self, tmp_path) -> None:
+        registry_path = tmp_path / "state" / "projects.json"
+        registry_path.parent.mkdir(parents=True)
+        registry_path.write_bytes(
+            b"\xef\xbb\xbf"
+            + json.dumps(
+                {"version": 2, "projects": {"alpha": {"path": "/abs/alpha"}}}
+            ).encode("utf-8")
+        )
+
+        assert run("--project", "beta") == 0
+
+        document = registry_contents(tmp_path)
+        assert document["projects"]["alpha"]["path"] == "/abs/alpha"
+        assert "beta" in document["projects"]
+
+
+class TestRegistryWithoutAProjectsObject:
+    """DG-507: when ``"projects"`` is missing or not an object, the old
+    code treated the *whole document* -- including ``"version"`` -- as the
+    project map, a misread rather than a refusal. A document whose own
+    schema-version marker reads as a "project" is exactly the shape a
+    future-version or hand-edited registry would produce.
+    """
+
+    def test_a_registry_with_only_a_version_key_is_refused_not_misread(
+        self, tmp_path, capsys
+    ) -> None:
+        registry_path = tmp_path / "state" / "projects.json"
+        registry_path.parent.mkdir(parents=True)
+        before = json.dumps({"version": 2})
+        registry_path.write_text(before, encoding="utf-8")
+
+        code = run("--project", "sample")
+
+        assert code == 1
+        out = capsys.readouterr().out
+        assert "error:" in out
+        assert str(registry_path) in out
+        # Nothing was written: the refusal happens before any write.
+        assert registry_path.read_text(encoding="utf-8") == before
+
+    def test_a_registry_whose_projects_is_not_an_object_is_refused(
+        self, tmp_path, capsys
+    ) -> None:
+        registry_path = tmp_path / "state" / "projects.json"
+        registry_path.parent.mkdir(parents=True)
+        before = json.dumps({"version": 2, "projects": "not-a-map"})
+        registry_path.write_text(before, encoding="utf-8")
+
+        code = run("--project", "sample")
+
+        assert code == 1
+        assert str(registry_path) in capsys.readouterr().out
+        assert registry_path.read_text(encoding="utf-8") == before
+
+    def test_a_non_dict_version_value_is_refused(self, tmp_path, capsys) -> None:
+        """``{"version": "2"}`` or ``{"version": null}`` carry a "version"
+        key whose value is neither the v2 schema marker (an int) nor a v1
+        project entry (a dict) -- still a malformed registry, refused the
+        same way a missing "projects" is."""
+        registry_path = tmp_path / "state" / "projects.json"
+        registry_path.parent.mkdir(parents=True)
+        before = json.dumps({"version": "2"})
+        registry_path.write_text(before, encoding="utf-8")
+
+        code = run("--project", "sample")
+
+        assert code == 1
+        assert str(registry_path) in capsys.readouterr().out
+        assert registry_path.read_text(encoding="utf-8") == before
+
+    def test_a_null_version_value_is_refused(self, tmp_path, capsys) -> None:
+        registry_path = tmp_path / "state" / "projects.json"
+        registry_path.parent.mkdir(parents=True)
+        before = json.dumps({"version": None})
+        registry_path.write_text(before, encoding="utf-8")
+
+        code = run("--project", "sample")
+
+        assert code == 1
+        assert str(registry_path) in capsys.readouterr().out
+        assert registry_path.read_text(encoding="utf-8") == before
+
+
+class TestAProjectLiterallyNamedVersion:
+    """Reviewer finding on DG-507: ``if "version" in document`` tests key
+    *presence*, not shape, so a genuine v1 registry whose only (or one)
+    project happens to be named "version" -- a valid id under
+    ``PROJECT_ID_PATTERN`` -- was wrongly refused as if it were a v2
+    document missing its "projects" object. The v2 schema marker is always
+    a scalar int (``SCHEMA_VERSION``); a v1 project entry is a dict. Only a
+    non-dict "version" value should trigger the v2-shape refusal.
+    """
+
+    def test_a_v1_registry_whose_only_project_is_named_version_still_migrates(
+        self, tmp_path
+    ) -> None:
+        state = tmp_path / "state"
+        state.mkdir(parents=True)
+        (state / "projects.json").write_text(
+            json.dumps({"version": {"path": "/x"}}), encoding="utf-8"
+        )
+
+        assert run("--project", "fresh") == 0
+
+        document = registry_contents(tmp_path)
+        assert document["version"] == 2
+        assert document["projects"]["version"]["path"] == "/x"
+        assert "fresh" in document["projects"]
+
+
 class TestNonUtf8JiraFragment:
     """DG-475: ``_read_jira_fragment`` caught only ``OSError`` and
     ``json.JSONDecodeError`` around ``jira.json``'s own ``read_text()`` at

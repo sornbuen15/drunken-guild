@@ -74,6 +74,12 @@ description: >
       the audit trace against. A requirement without one cannot be traced — report it rather than
       assigning it an id yourself.
     </rule>
+
+    <rule priority="HIGH" name="Writing One Is concise-docs's Job">
+      Locating a document is this skill's job; writing one short and scannable is `concise-docs`'s —
+      load it when the document being produced is a guide, a report, a release note, a ticket body
+      or a chat summary.
+    </rule>
   </rules>
 
   <constraints>

@@ -36,10 +36,19 @@ without that server learns why the skill will not run.
 
 **The description is the trigger, and it is the only one.** Nothing matches keywords: the
 `description` of every installed skill is loaded at startup and the model decides from it, so a
-skill whose description does not say *when* it applies is a skill that never fires. Two measured
-limits shape it — the combined description is **truncated at 1,536 characters** in that listing, and
-a `SKILL.md` body should stay **under 500 lines**, with detail in files the body names. The body
-costs nothing until the skill is used; the description costs on every turn, of every session.
+skill whose description does not say *when* it applies is a skill that never fires. Write it as an
+activity trigger — "Use when …" — and keep it **at most 400 characters**; the combined description
+across every installed skill is also **truncated at 1,536 characters** in that listing, a separate,
+measured ceiling on the total rather than on any one skill. The description costs on every turn, of
+every session, which is what both limits are against.
+
+**A `SKILL.md` body stays at most 120 lines** (DG-516) — light, not long, so it is read rather than
+skimmed; detail beyond that moves to a `references/` file the body names and that loads only when
+read. The body costs nothing until the skill is used, which is why its limit is looser than the
+description's. `scripts/check_skill_size.py` enforces this, with a checked-in ratchet
+(`scripts/skill_size_baseline.json`) for the files that were already over the limit when the check
+was added — grandfathered at the line count each was measured at, never allowed to grow past it.
+A new or newly-grown file gets no such slack.
 
 `paths:` frontmatter narrows auto-activation to files matching a glob, the same field this rule file
 uses. Reach for it when a skill only makes sense in one part of a tree.
@@ -47,7 +56,9 @@ uses. Reach for it when a skill only makes sense in one part of a tree.
 ## Agent files
 
 Every agent is `agents/<agent-name>.md` with frontmatter carrying `name`, `description`, `model` and
-`tools`, then the same `<system_prompt>` block.
+`tools`, then the same `<system_prompt>` block. **An agent file stays at most 100 lines** (DG-516) —
+the same standard as a skill's body, tighter because an agent has no `references/` to defer detail
+to. `scripts/check_skill_size.py` checks this file shape too, under the same ratchet.
 
 ## Rules that apply to both
 
@@ -59,6 +70,11 @@ Every agent is `agents/<agent-name>.md` with frontmatter carrying `name`, `descr
   regenerate them with `--index-only`, never hand-edit, because hand-generation drifts. Note what
   the index is *not*: nothing in the harness reads it when deciding what to load. It is for a human
   or an agent browsing this repository.
+- **Never run an interpreter that reads its script from stdin** (`python -`, a heredoc piped into
+  `python -`) — a tool timeout moving that call to the background leaves it waiting on stdin
+  forever, with no parent once the session ends (DG-518). Pass a file or `-c` instead. A background
+  command is tracked and stopped by whoever started it; any process left running at the end of a
+  session goes in the final report.
 - `skills/.external` lists skills this repo ships but did not author. **An empty file is a claim
   that there are none, made to everyone who installs a public MIT-licensed repository — not a
   default.** It has been wrong in both directions: it once declared four skills third-party whose

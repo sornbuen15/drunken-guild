@@ -1,8 +1,13 @@
 # mypy: ignore-errors
-"""DG-426. The "Repository map" table in README.md says which file or folder
-lives where, who it is for, whether a person edits it by hand, and what
-generates or checks it. These tests parse that table the way a reader would
-and verify it against the real tree, rather than trusting the prose.
+"""DG-426. The "Repository map" table says which file or folder lives where,
+who it is for, whether a person edits it by hand, and what generates or
+checks it. These tests parse that table the way a reader would and verify it
+against the real tree, rather than trusting the prose.
+
+DG-517 moved the table out of README.md (then 430 lines, over the 80-line
+cap the Boss's finding asked for) into its own `REPOSITORY_MAP.md`, linked
+from README's "Documentation" table -- this module's own target constant
+moved with it, and nothing below changed shape.
 """
 
 from __future__ import annotations
@@ -11,7 +16,7 @@ import re
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-README = REPO_ROOT / "README.md"
+README = REPO_ROOT / "REPOSITORY_MAP.md"
 
 #: The exact, small set of paths this table covers (DG-426's SCOPE list).
 #: Kept here, separately from the parser, so a row silently added or dropped
