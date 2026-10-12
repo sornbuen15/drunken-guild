@@ -217,6 +217,16 @@ jobs:
         if: always()
         run: python scripts/check_doc_drift.py
 
+      # DG-516. Skills and agents are read, not skimmed — a long file costs
+      # context on every load. Wired next to the doc-drift check above for
+      # the same reason that one runs here and not only locally: the gate
+      # has to hold on every push, not only on a machine with pre-commit
+      # installed. Today's oversize files are a checked-in ratchet
+      # (scripts/skill_size_baseline.json), not rewritten by this gate.
+      - name: Skill and agent size
+        if: always()
+        run: python scripts/check_skill_size.py
+
       # The operator's project ids stay out of this public repository (DG-317).
       # The local commit hooks cover commits made on a machine with the
       # registry; this covers every other way in — another machine, GitHub's
