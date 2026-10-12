@@ -87,8 +87,13 @@ SDLC_CASES = [
     ("git", "th", "ช่วยทำกิตแบรนช์และกิตคอมมิตให้หน่อย", ["git-workflow"]),
     ("deploy", "en", "We need to deploy this to production.", ["ask-boss"]),
     ("deploy", "th", "ช่วยดีพลอยขึ้นโปรดักชันให้หน่อย", ["ask-boss"]),
-    ("docs", "en", "Please write the documentation for this.", ["project-docs"]),
-    ("docs", "th", "ช่วยเขียนเอกสารให้หน่อย", ["project-docs"]),
+    (
+        "docs",
+        "en",
+        "Please write the documentation for this.",
+        ["project-docs", "concise-docs"],
+    ),
+    ("docs", "th", "ช่วยเขียนเอกสารให้หน่อย", ["project-docs", "concise-docs"]),
 ]
 
 
@@ -108,6 +113,7 @@ def core_skills(tmp_path: Path) -> tuple[Path, Path]:
         "git-workflow",
         "ask-boss",
         "project-docs",
+        "concise-docs",
         "worker",
     ):
         make_skill(skills, name)
@@ -131,6 +137,7 @@ def extras_skills(tmp_path: Path) -> tuple[Path, Path]:
         "git-workflow",
         "ask-boss",
         "project-docs",
+        "concise-docs",
         "worker",
         "breakdown",
         "universal-ui",
@@ -169,7 +176,7 @@ REALISTIC_POSITIVE_CASES = [
     ),
     ("review", "mixed", "review PR นี้ให้หน่อย", ["reviewer"]),
     ("deploy", "mixed", "deploy ขึ้น staging", ["ask-boss"]),
-    ("docs", "mixed", "เขียน README", ["project-docs"]),
+    ("docs", "mixed", "เขียน README", ["project-docs", "concise-docs"]),
     # Tone-mark variants of the already-covered bugfix case (DG-515 follow-up item 3): a real
     # user spells "bug"/"fix" with or without the tone mark interchangeably.
     ("bugfix", "th", "เจอบั๊กแล้ว ช่วยแก้บั๊กให้หน่อย", ["build", "worker"]),
