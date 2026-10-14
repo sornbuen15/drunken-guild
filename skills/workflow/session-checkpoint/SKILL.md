@@ -3,8 +3,7 @@ name: session-checkpoint
 description: >
   Use when starting or ending a project work session, switching sessions, or saving or restoring
   project handoff context. Reads and updates the local, ignored root `SESSION_CHECKPOINT.md`; it is
-  a handoff note, not project history. For example, "help me pick up where I left off". Trigger on
-  /session-checkpoint.
+  a handoff note, not project history. For example, "help me pick up where I left off". Trigger on /session-checkpoint.
 ---
 
 # Skill: Session Checkpoint
