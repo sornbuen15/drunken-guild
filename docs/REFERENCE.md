@@ -64,7 +64,7 @@ Needs [`uv`](https://docs.astral.sh/uv/) and Git. One install gives you the comm
 and agents, which travel inside the package:
 
 ```bash
-uv tool install git+https://github.com/sornbuen15/drunken-guild@v2.0.0   # pick the tag you want
+uv tool install git+https://github.com/sornbuen15/drunken-guild@v2.1.0   # pick the tag you want
 drunken-install all                                                       # → ~/.claude/skills and ~/.claude/agents
 ```
 
@@ -200,7 +200,7 @@ The steps, the Windows form and the check are in [GETTING_STARTED.md](../GETTING
 The usual way — from a release tag, no clone (needs `uv` and Git):
 
 ```bash
-uv tool install git+https://github.com/sornbuen15/drunken-guild@v2.0.0   # pick the tag you want
+uv tool install git+https://github.com/sornbuen15/drunken-guild@v2.1.0   # pick the tag you want
 drunken-install all                                                       # → ~/.claude/skills and ~/.claude/agents
 drunken-install status                                                    # later: what an update would change
 ```
