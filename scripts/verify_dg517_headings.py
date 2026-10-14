@@ -88,7 +88,7 @@ HEADINGS = [
     (
         "Documentation",
         "README.md",
-        "`SESSION_CHECKPOINT.md`](../SESSION_CHECKPOINT.md) | where the work currently stands",
+        "`templates/SESSION_CHECKPOINT.md`](../templates/SESSION_CHECKPOINT.md) | blank seed for a local, ignored session handoff note",
     ),
     ("Known limitations", "README.md", "Token cost and latency"),
     ("Why this exists", "README.md", "I wanted to know where AI-assisted delivery"),

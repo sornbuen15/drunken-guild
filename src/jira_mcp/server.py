@@ -544,7 +544,10 @@ def refinement() -> str:
         "the `jira-tickets` skill",
         "Backlog membership and status are independent axes: moving a ticket "
         "onto the board changes what is in the working set and nothing else. "
-        "Which tickets move is the Boss's decision, not a skill's.",
+        "Which tickets move is the Boss's decision. When the Boss explicitly "
+        "asks to assess backlog work and begin immediately, that request "
+        "delegates selection for the requested plan; apply that decision. "
+        "Otherwise, ask before moving tickets.",
     )
 
 
@@ -567,8 +570,8 @@ def review_retro() -> str:
         "a review and retrospective",
         "the `audit` skill (`/audit`)",
         "Every requirement traces to a task and to a test that passes on the "
-        "merged tree; each gap becomes a ticket. Before ending the session, "
-        "rewrite SESSION_CHECKPOINT.md if the project keeps one.",
+        "merged tree; each gap becomes a ticket. Before handing off the "
+        "session, use the `session-checkpoint` skill if it is installed.",
     )
 
 

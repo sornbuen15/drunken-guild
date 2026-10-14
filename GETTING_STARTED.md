@@ -1,6 +1,6 @@
 # Getting Started
 
-From nothing installed to your first completed ticket.
+From a clone or installation to using the SDLC skills in a project.
 
 ```mermaid
 flowchart LR
@@ -12,7 +12,7 @@ flowchart LR
 Needs [`uv`](https://docs.astral.sh/uv/) and Git.
 
 ```bash
-uv tool install git+https://github.com/sornbuen15/drunken-guild@v2.0.3   # pick the tag you want
+uv tool install git+https://github.com/sornbuen15/drunken-guild@v2.1.0   # pick the tag you want
 drunken-install all                                                      # skills + agents -> ~/.claude
 drunken-install extras --apply                                          # optional: the older skills and agents
 drunken-install hook --apply                                            # both hooks: session context + per-prompt routing
@@ -36,29 +36,39 @@ A tag is a pin — nothing here relies on `uv tool upgrade` moving it.
 > is denied" while the running MCP server still holds the tool's files open. If that happened,
 > delete `%APPDATA%\uv\tools\drunken-guild` and install again without `--force`.
 
-## Coordinating through Jira (optional)
+## Jira integration (optional)
 
-`/breakdown`, `/build` and `/audit` need the `jira_*` tools, which come from registering a
-project and declaring `drunken-jira-mcp` once per machine. The exact commands — credentials,
-`drunken-init`, proving the credential resolves — are in
+When Jira is registered, its issues can supply tasks and audit evidence. The core skills also
+work from user requests and project files without Jira. Setup details — credentials,
+`drunken-init`, and proving the credential resolves — are in
 [`Drunken-Guild-Guide.md`, section 2](./Drunken-Guild-Guide.md#2-registry-credentials-and-the-mcp-server).
 
-## A new project
+## Use from a clone
 
-1. `drunken-init --project <id> --path <repo>` writes `AGENTS.md` and a one-line `CLAUDE.md`
-   adapter at the project's root (REQ-015) — do not overwrite either by hand.
-2. Open Claude Code inside the project and run `/prd`, then `/clarify`, then `/ddd`. Each prints
-   which project documents it found and where — the map is the project's root `AGENTS.md`. When there is no map, the defaults are
-   `.ai/PRD.md`, `.ai/DOMAIN.md`, `.ai/audit/`, `docs/`, `docs/decisions/`.
-3. `/breakdown` cuts the backlog — `REQ-xxx → Epic → Story | Task → Subtask`, Story and Task
-   both siblings under the Epic — and halts until you approve the plan; nothing is created first.
-4. `/build` takes one task at a time: the test is written and seen failing before the fix, one
-   branch, one PR. The agent opens it; a human merges it.
-5. `/audit` traces every requirement to a merged, tested, deployed task and writes the day's
-   report — where a project deploys is recorded in its own `AGENTS.md`; gaps become tickets only
-   on your approval.
+Read the repository's `AGENTS.md`, then open the relevant `skills/flow/*/SKILL.md` and follow it.
+For an agent that supports skills, use its documented discovery mechanism; otherwise point the
+agent at the skill file explicitly. No runtime or Jira registration is required for the core flow.
 
 ## An existing project
+
+1. Install the shared skills into the selected project or user-level location using the installer.
+   Inspect its dry run first; it must preserve existing instruction and command files.
+2. Read the project's existing `AGENTS.md`; if none exists, add a concise instruction file that
+   points to relevant skills and project rules without overwriting existing guidance.
+3. Run `/prd`, then `/clarify`, then `/ddd` when the task benefits from the full flow. Each prints
+   which project documents it found and where — the map is the project's root `AGENTS.md`. When there is no map, the defaults are
+   `.ai/PRD.md`, `.ai/DOMAIN.md`, `.ai/audit/`, `docs/`, `docs/decisions/`.
+4. `/breakdown` proposes project tasks from requirements and domain context. It uses Jira only if
+   Jira is registered and selected; otherwise tasks can remain in project files or the conversation.
+   For Jira, the hierarchy is `REQ-xxx -> Epic -> Story | Task -> Subtask` (Story and Task are Epic
+   children); without Jira, use the project's own task hierarchy.
+5. `/build` implements one approved task, validates acceptance, and follows the repository's own
+   review policy. Small work can start directly at `/build`.
+6. `/audit` traces requirements to implementation and observed verification; it reports unknowns
+   where sources such as a tracker or deployment are unavailable.
+
+If deployment applies to a project, the deployment target is recorded in its own `AGENTS.md`;
+`/audit` treats that target as a claim to verify, not as proof that deployment occurred.
 
 A project that keeps its documents somewhere else works too — record the paths in `AGENTS.md` and the skills follow; only two copies of the same document is a stop. An older project's
 `PROJECT_BRIEF.md` or `REQUIREMENTS.md` stays where it is — `/prd` offers to consolidate it into
@@ -69,6 +79,12 @@ creating a second one for the same work.
 > **New or existing, an untracked AI layer has no worktree memory.** `AGENTS.md`, `CLAUDE.md` and
 > `.claude/` are deliberately not committed, so a *new* `git worktree` of either kind of project
 > starts with none of them — details: [`docs/REFERENCE.md`](./docs/REFERENCE.md#ai-layer-location-and-git-worktrees).
+
+## Agent compatibility
+
+Compatibility and discovery status are recorded per agent in
+[`docs/AGENT-COMPATIBILITY.md`](./docs/AGENT-COMPATIBILITY.md). Do not infer auto-discovery from
+the fact that an agent can read Markdown files.
 
 ## Windows notes
 

@@ -1,29 +1,46 @@
 ---
 name: git-workflow
 description: >
-  Use when creating a branch, writing a commit, opening a PR, merging or releasing — "what should
-  I name this branch?", "how should I commit this?", "which merge strategy goes into main?".
-  Branch naming, commit conventions, the PR lifecycle, which merge strategy belongs to which
-  target, and release hygiene. Trigger on /git-workflow.
+  Use when planning a Git change, branch, commit, review request or release — "what does this repo
+  require before I commit?", "how do I hand this change off?". Read repository policy and follow
+  its actual branch and review rules. Trigger on /git-workflow.
 ---
 
-# Skill: Git Workflow & Branching Strategy
+# Skill: Git Workflow
 **Version:** v2.3.0
-**Description:** Best-practice Git discipline — branch naming, commit conventions, PR lifecycle, which merge strategy belongs to which target, and release hygiene. An agent opens pull requests; a human merges them.
+**Description:** Applies the repository's documented branch, commit, review and release policy.
 
 ---
 <system_prompt>
   <role>
-    When this skill applies, enforce Git discipline: every code change must flow through the
-    correct branch lifecycle. No direct commits to `main` or `develop`. The branch must be
-    created before any file is touched.
+    When this skill applies, inspect the repository's instructions and current Git state. Explain
+    the workflow that repository actually uses. Do not import branch names or review assumptions
+    from another project.
   </role>
 
   <branch_strategy>
-    <rule priority="FATAL" name="Branch Before You Touch">
-      NEVER modify files on `main` or `develop` directly.
-      The FIRST action for any task is: create the correct feature branch from `develop`.
-      If uncommitted changes already exist on `develop`, branch immediately — the working tree changes will follow.
+    <rule priority="FATAL" name="Read Repository Policy">
+      Read `AGENTS.md`, `CONTRIBUTING.md` and any repository Git workflow skill. If they conflict,
+      report the conflict and follow the most specific current instruction available. Never infer
+      an integration branch name or merge strategy without evidence.
+    </rule>
+
+    <rule priority="FATAL" name="Do Not Perform Unrequested Git Actions">
+      Do not commit, push, create a review request, merge, tag or release unless the user or
+      repository workflow authorizes that action. Explain the proposed target before
+      taking an action that publishes or integrates changes.
+    </rule>
+
+    <rule priority="FATAL" name="Drunken Guild Repository Policy">
+      When working in the Drunken Guild repository, base work on `develop`. A user-authorized
+      review request may target `develop`. Never push to `main`, open a pull request targeting
+      `main`, or merge into `main`. No release or exception can override this. Never merge into `main`. Agents never merge;
+      a human reviews and decides whether to merge into `develop`.
+    </rule>
+
+    <rule priority="HIGH" name="Use A Working Branch When Required">
+      Follow the repository's branch policy. When changes must be isolated, create a working branch
+      before editing. Do not switch or rewrite a branch another process is using.
     </rule>
 
     <rule priority="FATAL" name="Branch Naming Convention">
@@ -54,46 +71,29 @@ description: >
       ordinary work.
     </rule>
 
-    <rule priority="HIGH" name="One Branch Per Task">
-      Each branch addresses exactly one task or concern. If a second concern is discovered mid-work, note it and create a separate branch after the current one is merged.
+    <rule priority="HIGH" name="Keep Change Scope Clear">
+      Keep a branch or change set focused on one task. Record unrelated findings separately rather
+      than silently expanding scope.
     </rule>
   </branch_strategy>
 
   <concurrent_agents>
     <rule priority="FATAL" name="One Working Tree Per Agent">
-      Two agents never share a checked-out working tree. Each works from its own `git worktree`
-      of the repository, on its own branch — so a checkout switched or edited by one can never be
-      pulled out from under another mid-session, whether they are handing off in turn or, by
-      mistake, started at the same time. One task, one owner, one branch, one worktree, one PR.
+      Two agents should not share a mutable working tree. Use isolated worktrees or another
+      project-supported isolation method when agents work concurrently.
 
-      The first agent may work from the checkout its harness starts it in; any agent running beside
-      it works from a sibling worktree, added once and left in place between sessions:
+      A project may use separate worktrees for concurrent tasks:
 
       ```
       git worktree add ../<repo>.<agent> <starting-branch>
       ```
 
-      A harness that isolates each session itself satisfies the rule without that step — Claude
-      Code's worktree sessions, and Remote Control's `--spawn worktree`, both do. No agent runs
-      `git worktree remove` on a path it does not own, and none switches the branch checked out in
-      another's worktree.
+      A harness that isolates each session itself also satisfies this guidance. Do not remove a
+      worktree another person or process owns.
 
-      DG-288: decided over two cheaper-looking alternatives, and why each was rejected —
-      - **One agent read-only, the other writes.** Does not describe how agents are used: each one
-        writes code, tests it, and opens its own PRs.
-      - **Strict alternating turns.** Needs a turn marker every agent reads, which is a second
-        coordination surface that can disagree with the first — the exact failure the retired
-        local board was (DG-250).
-
-      A worktree needs neither: two sessions can start at the same moment and still never touch
-      the same file on disk, because neither ever sees the other's branch.
+      Separate worktrees prevent concurrent sessions from modifying the same files.
     </rule>
 
-    <rule priority="HIGH" name="Unchanged Either Way">
-      Opening a PR and waiting for a human to merge it is identical for every agent, worktree or
-      not — see `<pr_lifecycle>` below. A worktree only decides who owns the filesystem while work
-      is in progress; it changes nothing about review, CI, or merge.
-    </rule>
   </concurrent_agents>
 
   <commit_conventions>
@@ -134,36 +134,19 @@ description: >
   </commit_conventions>
 
   <pr_lifecycle>
-    <rule priority="FATAL" name="Only develop Reaches main">
-      Every working branch — feat, feature, fix, bugfix, refactor, docs, chore — targets
-      `develop`.
-
-      **`main` accepts a PR from `develop` and from nothing else.** No working branch may reach
-      `main`, by PR or by any other route. That is the whole rule; opening a PR against `main`
-      is allowed and is exactly how a release happens, it just has to come from `develop`.
+    <rule priority="FATAL" name="Respect The Repository's Protected Branches">
+      Follow the repository-specific protected-branch policy above. Do not assume that a release
+      or integration target is authorized by a general Git workflow skill.
     </rule>
 
     <rule priority="FATAL" name="Merging Is A Human Action">
-      An agent **opens** pull requests — into `develop`, and into `main` for a release. An agent
-      **never merges one**, and never asks to be allowed to.
-
-      There is no exception for a PR the agent authored, a one-line change, a green CI, or an
-      approval that arrived over Discord. A 👍 authorises the work in the PR; it does not press
-      the button.
-
-      When a PR is ready, say so, give the link, and stop.
+      Agents never merge. A human reviews changes and decides whether they meet the repository's
+      integration policy.
     </rule>
 
     <rule priority="FATAL" name="No Local Merge, Ever">
-      NEVER run `git merge` locally against `develop` or `main` and push the result. Not with
-      `--squash`, not with `--no-ff`, not fast-forward.
-
-      A local merge produces a commit on a protected branch that no PR ever described. It
-      bypasses review, CI, and the record of why the change happened — and it looks identical
-      afterwards to a change that went through the process. That is what makes it dangerous
-      rather than merely irregular.
-
-      The only place a merge happens is the remote, through a PR that a human merges.
+      Never bypass repository review by merging directly into a protected branch. Follow its
+      documented integration path.
     </rule>
 
     <rule priority="HIGH" name="PR Checklist">
@@ -189,30 +172,20 @@ description: >
 
       | into | strategy | why |
       |---|---|---|
-      | `develop` ← working branch | **Squash** | one branch is one concern, so it becomes one commit. `develop` stays readable and each entry is revertable on its own. |
-      | `main` ← `develop` | **Merge commit** (`--no-ff`) | a release is a set of changes, not one. The merge commit is the release boundary, and squashing it would erase which commits shipped together. |
-      | your own branch ← `develop` | **Rebase**, locally, before pushing | keeps the branch a clean sequence on top of current `develop`. |
-      | anything | **Fast-forward** — never | a fast-forward leaves no trace that a PR existed. The merge record IS the audit trail. |
+      | target | policy |
+      |---|---|
+      | protected branch | use the repository's documented review and merge policy |
+      | working branch | follow project guidance before rebasing or merging updates |
 
-      **Rebase only what you have not pushed.** Once a branch is on the remote and a PR is open,
-      rebasing rewrites commits other people and CI are already referring to. Merge `develop`
-      into your branch instead, or accept the conflict resolution at merge time.
+      Do not rewrite published history unless the project explicitly allows it and collaborators
+      have coordinated.
     </rule>
   </merge_strategy>
 
   <release_flow>
-    <rule priority="HIGH" name="develop → main Release">
-      When `develop` is stable: open PR titled `chore(release): vX.Y.Z`, targeting `main` from
-      `develop`. A human merges it, **with a merge commit** per the table above — no squash, no
-      rebase. Tag only after that merge lands: `git tag vX.Y.Z`.
-
-      Tagging before the merge tags a commit that is not on `main`, which is worse than not
-      tagging at all because it looks right.
-
-      SemVer: MAJOR = breaking interface change | MINOR = new skill/agent/script | PATCH = fix or docs
-
-      **Retiring a skill, an agent, or a slash command is a breaking interface change.** Someone
-      is invoking it.
+    <rule priority="HIGH" name="Release Policy Comes From The Project">
+      This skill does not define release targets, versioning or tag policy. Read the repository's
+      release documentation and require explicit authorization before publishing.
     </rule>
   </release_flow>
 
@@ -225,20 +198,16 @@ description: >
   </execution_protocol>
 
   <constraints>
-    <constraint priority="FATAL">Never commit directly to `main` or `develop`.</constraint>
-    <constraint priority="FATAL">Never merge a pull request. An agent opens PRs; a human merges them. This holds for a PR you authored, a one-line change, a green CI, and an approval that arrived over Discord.</constraint>
-    <constraint priority="FATAL">Never run `git merge` locally against `main` or `develop` and push the result — squash, no-ff or fast-forward alike. Merges happen on the remote, through a PR.</constraint>
-    <constraint priority="FATAL">Never open a PR into `main` from anything except `develop`.</constraint>
-    <constraint priority="FATAL">Always branch first — file changes come second.</constraint>
-    <constraint priority="FATAL">Two agents never share a checked-out working tree. Each works from its own `git worktree`, on its own branch.</constraint>
+    <constraint priority="FATAL">Do not commit to or publish a protected branch unless repository policy and user authorization explicitly allow it.</constraint>
+    <constraint priority="FATAL">Agents do not merge changes.</constraint>
     <constraint priority="HIGH">One branch per task. One commit per logical unit.</constraint>
     <constraint priority="HIGH">All output must be in English.</constraint>
   </constraints>
 
   <output_format>
-    Branch creation:  Branch created: `<type>/<name>` | Base: `develop` at `<short-sha>`
+    Branch creation:  Branch created: `<type>/<name>` | Base: `<project integration branch>` at `<short-sha>`
     Commit guidance:  Proposed commit: `<type>(<scope>): <description>` | Files staged: <list>
-    PR guidance:      PR title: `<type>(<scope>): <description>` | Target: `develop`
+    Review guidance:  Target: `<repository-defined review target>`
                       Then output the full PR body template, pre-filled.
   </output_format>
 </system_prompt>

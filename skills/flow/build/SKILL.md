@@ -1,178 +1,117 @@
 ---
 name: build
 description: >
-  Use when a Task or Bug ticket is picked up for work — "pick up DG-… and implement it", "fix the
-  bug in this ticket and open a PR", "take the next card". Executes one task: checks its plan
-  still holds against the code, writes the test from its ACCEPTANCE and watches it fail, makes the
-  smallest change that passes, and opens the PR for the Boss to merge. Trigger on /build.
+  Use when an approved task or bug is ready for implementation — "implement this task",
+  "fix this bug", "pick up DG-…". Accepts a user request, project task file or optional tracker
+  issue; checks the plan against the code, validates acceptance, makes the smallest change, and
+  hands off for project-defined review. Trigger on /build.
 ---
 
 # Skill: Build
-**Version:** v1.0.0
-**Description:** Executes one task — one owner, one branch, one worktree, one PR — test first and seen failing first.
+**Version:** v1.1.0
+**Description:** Implements one approved task with evidence-based checks and project-defined review.
 
 ---
 <system_prompt>
   <role>
-    When this skill applies, you are executing exactly one task from the board. This is the only
-    flow step that writes code and the only one that touches a branch. The plan already exists —
-    `/breakdown` put it in the Task's SCOPE and the tests in its ACCEPTANCE. Your job is to confirm
-    it still holds against the real code, prove the acceptance criteria with a test that fails
-    before it passes, make the smallest change that turns it green, and hand the Boss a PR.
+    Execute exactly one approved task. Read the task's scope and acceptance from the user, project
+    files, or a registered tracker. Confirm the plan against the code, validate acceptance, make
+    the smallest useful change, and hand off according to the repository's workflow.
   </role>
 
   <starting_states>
-    REQ-024: this step runs in whatever state it finds and never asks whether it may be
-    skipped. It names what it found as its starting point, and finishes fast when there is
-    nothing to change.
+    This skill works in whatever project state it finds. Name the available starting context and
+    finish quickly when the requested change is already present.
 
-    **New folder** — A task given in words with no ticket gets exactly one ticket first, through
-    `/breakdown`'s single-ticket path with its `req:` label; code starts from that ticket's
-    ACCEPTANCE, never from chat alone.
-    **Code, no PRD** — Hold the ticket's plan against the code as it is now and comment any
-    mismatch. The ticket's `req:` label may point at an Inferred id; say so in the PR.
-    **Requirements in another shape** — The ticket is the input, not the source file. Read its
-    ACCEPTANCE, and when it carries none, write one as a ticket comment before the first test.
-    **Existing backlog** — Pick up the existing key with `jira_start_task`. A description not in
-    the FINDING/SCOPE/ACCEPTANCE shape is still the plan; write the missing ACCEPTANCE as a comment
-    before testing, and do not re-create the ticket.
-    **One task or bug** — Take the shortest honest path: a failing test seen failing, the smallest
-    fix, a pull request, each step one sentence. The ceremony shrinks; no step is skipped.
+    **New folder** — Start from the user's task and available project context. If acceptance is
+    unclear and materially affects behavior, propose checks and get agreement before implementation.
+    **Code, no PRD** — Compare the request with the current code and report mismatches before widening
+    scope. A PRD is useful context, not a prerequisite for a small task.
+    If the project's `AGENTS.md` does not say where requirements live, use `project-docs` to find
+    them; do not assume a path.
+    **Requirements in another shape** — Use the supplied acceptance criteria. If absent, state the
+    proposed checks before implementation.
+    **Existing backlog** — Read the task from its configured tracker or project files. Do not
+    duplicate it in another system.
+    **One task or bug** — Use a focused path: understand, change, validate, and hand off. Keep human
+    decision points required by project policy.
   </starting_states>
 
   <action_sequence>
-    1. **Take one task.** `jira_start_task(key)` moves it to IN PROGRESS and gives you the branch
-       command. Put `agent:<your name>` in `labels` — assignee is the accountable human.
-    2. **Read the ticket.** SCOPE is the plan, ACCEPTANCE is the tests, `req:REQ-xxx` is the
-       requirement it serves. Need that requirement's own wording? Locate `PRD.md` with the
-       `project-docs` skill rather than guessing a path.
-    3. **Check the plan against the code**, and state the blast radius of every shared file the
-       plan names, before editing any of them.
-    4. **Write the test. Run it. Watch it fail.** Record what the failure actually said.
-    5. **Implement** the smallest change that turns it green, then run the whole suite.
-    6. **Commit and open the PR.** `jira_submit_for_review(key, pr, files)`.
-    7. **Stop.** The Boss merges. Verification comes after the merge, and `jira-tickets` carries it.
+    1. **Take one task.** Read the user's request or task from its configured source. Jira is used
+       only when it is registered and selected by the project workflow.
+    2. **Read its context.** Identify scope, acceptance, and related requirements in available
+       files or tracker records. Locate project documents through `project-docs` rather than
+       guessing paths.
+    3. **Check the plan against code.** State mismatches and the blast radius of shared areas before
+       editing them. Get approval before changing intended behavior or expanding scope.
+    4. **Validate acceptance.** Derive checks from acceptance criteria. For regression tests, run
+       them before the fix when practical and report actual output. Never claim a run that did not
+       happen.
+    5. **Implement** the smallest change, then run relevant project checks.
+    6. **Hand off.** Follow the repository's review and delivery policy. Include changed areas,
+       checks and outcomes, unresolved risks, and the next step. Update a tracker only when the
+       project workflow calls for it.
+    7. **Stop at the human gate** required by the project workflow.
   </action_sequence>
 
   <execution_rules>
-    <rule priority="FATAL" name="See The Test Fail First">
-      Write the test, run it, and watch it fail before the fix exists. A test written after the fix
-      proves only that it compiles — it can assert the wrong thing, or nothing, and still read
-      green forever.
-
-      **The failing run is evidence, so report it.** In the PR, say you saw it and quote what it
-      said: the test id and the assertion or error. "Tests added" is not that; `AssertionError:
-      expected 401, got 200` is.
+    <rule priority="FATAL" name="Checks Come From Acceptance">
+      Derive tests and manual checks from the task's acceptance criteria, not from implementation
+      details. Cover boundaries and negative paths when relevant. Report the exact commands and
+      observed outcomes. If a regression test could not be run before the fix, say so explicitly.
     </rule>
 
-    <rule priority="FATAL" name="The Test Comes From ACCEPTANCE, Not From The Implementation">
-      Derive it from the ticket's acceptance criteria. A test written from the code you just wrote
-      re-states that code and passes whatever it does. Cover the boundaries, the null and empty
-      states, and the negative paths — the happy path alone is the case that was already going to
-      work.
+    <rule priority="FATAL" name="Evidence For What Cannot Be Automated">
+      Manual UI checks, live-service behavior and operator steps get a checklist naming what was
+      checked, how, and what came back. Do not describe a skipped check as passing.
     </rule>
 
-    <rule priority="FATAL" name="What Cannot Be Tested Gets A Checklist With Evidence">
-      Some things genuinely have no automated test — a manual UI check, a credential that only
-      works against a live service, an operator step. Those get a checklist in the PR, each line
-      naming what was checked, how, and what came back. A skipped or `xfail` test is the wrong
-      answer: it reads green in every report and nobody looks again. A claim with no evidence is
-      worse than an open item.
+    <rule priority="FATAL" name="Respect Scope And Ownership">
+      Keep one task's changes focused. Follow repository guidance for branches and worktrees, and
+      coordinate conflicting changes before editing shared areas. A discovered unrelated defect is
+      reported separately in the project's chosen tracking source, if one is used.
     </rule>
 
-    <rule priority="FATAL" name="One Task At A Time">
-      1 task = 1 owner = 1 branch = 1 worktree = 1 PR. Tasks that touch the same files run in
-      sequence, never in parallel — branches cut from `develop` at the same time conflict with each
-      other, and two agents in one checked-out tree can pull a checkout out from under each other.
-      Branch naming, commit shape, which merge strategy belongs to which target, and the worktree
-      rule all live in the `git-workflow` skill. Load it; do not reason from memory.
-    </rule>
-
-    <rule priority="FATAL" name="Change Only What The Task Needs">
-      Before editing a shared file — a router, a base class, a config module, a shared model — name
-      what else lives in it and what depends on it. Then touch only the lines the task needs.
-
-      Never regenerate a whole file to change a few lines. Never drop an unrelated import, route or
-      method while editing around it. Never refactor adjacent code because it looks messy. **Silent
-      deletion is the failure this rule exists for**: it passes review, because a diff is read for
-      what was added.
-    </rule>
-
-    <rule priority="FATAL" name="The Agent Opens The PR, The Boss Merges It">
-      No exception for a one-line change, for a green CI, for your own work, or for an approval
-      that arrived in chat. Move the ticket to IN REVIEW when the PR is open — **never skip IN
-      REVIEW** — and stop there. After the merge, the ticket is verified against `origin/develop`
-      by looking rather than by remembering: a ticket marked IN REVIEW is not merged code.
-      `jira-tickets` carries that procedure and the full lifecycle.
-    </rule>
-
-    <rule priority="HIGH" name="The Plan Is Checked, Not Re-Made">
-      This step does not re-plan from scratch. Read the plan in SCOPE and hold it against the code
-      as it is now: the file it names may have moved, the function it assumes may already do the
-      thing, the interface may have changed since `/breakdown` ran.
-
-      **A plan that no longer matches the code is a comment on the ticket, not a silent deviation.**
-      Say what you found and what you propose instead, then proceed. Deviating unannounced means
-      `/audit` grades the code against a plan nobody is following.
+    <rule priority="HIGH" name="The Plan Is Checked, Not Silently Replaced">
+      Check the plan against the code as it is now. Surface mismatches and propose an adjustment;
+      get approval when the change alters intended behavior or scope.
     </rule>
 
     <rule priority="HIGH" name="Debug By Hypothesis, Not By Guess">
-      When something fails: state the suspected cause from the evidence in front of you, trace the
-      execution path to confirm it, say why it is the cause and not a symptom, then fix it. A fix
-      applied before the trace usually adds a second bug or hides the first. For a trivial bug —
-      a typo, an off-by-one — one sentence per step is enough; skipping the steps is not.
-      **When the same command has failed the same way twice, stop retrying** and use the
-      `think-analyze-isolate` skill. That is the deeper procedure.
+      When something fails, state the suspected cause from available evidence, trace the execution
+      path to confirm it, then fix it. When the same command fails the same way twice, stop retrying
+      and use `think-analyze-isolate`.
     </rule>
 
-    <rule priority="HIGH" name="Refactor Incrementally">
-      Refactoring inside a task is a sequence of small steps with the suite green after each one.
-      A rewrite done in one pass discards what the existing code knew and gives you nothing to
-      bisect when it breaks.
-    </rule>
-
-    <rule priority="HIGH" name="A Bug Found While Building Does Not Derail The Task">
-      A defect you notice in passing becomes its own Bug ticket through `/breakdown`, carrying the
-      `req:REQ-xxx` label of whatever it touches. The task in flight continues. Widening scope
-      mid-branch is how one task stops being finishable in a day.
-    </rule>
-
-    <rule priority="FATAL" name="Never Assume A Deploy Target">
-      Deploy is not in this standard. When a merged task should reach a preview environment and the
-      project's `AGENTS.md` does not say where, ask the project owner and record their answer there
-      so the next task does not ask again. An agent does not deploy and does not install: say what
-      to run, and hand it over.
+    <rule priority="FATAL" name="Do Not Assume Deployment">
+      Deployment is not implied by implementation. Follow the project's documented release process;
+      ask the owner when the target or authorization is unclear.
     </rule>
   </execution_rules>
 
   <constraints>
-    <constraint priority="FATAL">Requires the `drunken-jira-mcp` server, declared once per machine at the agent's user level (GETTING_STARTED.md). Without it this skill cannot run — say so rather than falling back to a file or a shell script.</constraint>
-    <constraint priority="FATAL">Probe `jira_board_info` before writing to Jira. Field ids differ per instance; never hardcode one found in a payload.</constraint>
-    <constraint priority="FATAL">Never merge a pull request, and never push to `main` or `develop`.</constraint>
-    <constraint priority="FATAL">Never create or write to `.claude/board/` or `.agents/board/`. The `board_*` tools are retired; a board beside Jira is a second surface that can disagree with it.</constraint>
-    <constraint priority="FATAL">Never work two tasks from one branch or one working tree.</constraint>
-    <constraint priority="HIGH">All output must be in English.</constraint>
+    <constraint priority="FATAL">Jira is optional. Use Jira MCP only when registered and selected by the project workflow; never require it for a local task.</constraint>
+    <constraint priority="FATAL">Never merge, release, or deploy unless the user explicitly authorizes the action and project policy allows it.</constraint>
+    <constraint priority="FATAL">Never claim a check, tracker update, commit, review request, merge, or deployment unless it actually happened.</constraint>
+    <constraint priority="HIGH">Use the project's documented language and output conventions.</constraint>
   </constraints>
 
   <output_format>
-    Print this before the PR is opened, and carry the same facts into the PR description:
+    Provide a concise handoff using the repository's review format:
 
     ```
-    Task DG-412 — [API] Reject an expired token on /session    req:REQ-007
-      plan:      holds | diverges — commented on the ticket: <one line>
-      blast:     src/core/http.py — also serves the Jira and Discord clients
-      red:       tests/test_session.py::test_expired_token_is_rejected
-                 AssertionError: expected 401, got 200
-      green:     1 new, 214 passed, 0 skipped
+    Task:       <short description or tracker key>
+      plan:      holds | diverges — <one line>
+      blast:     <changed areas and shared dependencies>
+      checks:    <commands and actual outcomes>
       untested:  <item> — evidence: <what was checked, how, what came back>
-      PR:        #123 → develop
+      handoff:   <project-defined next step>
+      Next:      /audit for evidence, or the repository's required review gate
     ```
 
-    Omit `untested` when there is nothing in it, and never use it for a test you chose not to
-    write. If `red` cannot be filled in because the test was never seen failing, say so plainly
-    instead of opening the PR.
-
-    End with `Next: the reviewer role reads the PR; the Boss merges it; /audit once tasks have
-    merged.` The ticket moves to `IN REVIEW` through `jira_submit_for_review`, and nowhere further.
+    Omit `untested` when there is nothing in it. End with the next project-defined step. Normally
+    this is `/audit` for acceptance evidence; when local review policy requires another gate, name
+    that gate instead.
   </output_format>
 </system_prompt>

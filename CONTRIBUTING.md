@@ -58,8 +58,8 @@ actors, so a direct push is refused by the server. A local hook would duplicate 
 cannot be bypassed with one that can — by not being installed.
 
 ### 1. Branch Structure
-*   **`main`**: Represents the stable, production-ready release state. Do not commit directly here.
-*   **`develop`**: The primary integration branch for active development and features. All PRs must target this branch.
+*   **`main`**: Out of scope for this project work. Do not push to it, open PRs targeting it, or merge into it.
+*   **`develop`**: The integration branch for active development. Authorized review requests target this branch; a human decides whether to merge.
 
 ### 2. Feature & Fix Branching Workflow
 Always follow these steps when working on changes:
@@ -75,53 +75,17 @@ Always follow these steps when working on changes:
     ```bash
     git push -u origin feature/your-feature-name
     ```
-4.  **Create a Pull Request (PR):** Create a PR targeting the `develop` branch of the main repository.
+4.  **Create a Pull Request (PR):** When authorized, create a PR targeting `develop`.
     *   **Using GitHub CLI (`gh`):**
         ```bash
         gh pr create --head feature/your-feature-name --base develop --title "feat: your feature summary" --body "Detailed description of changes"
         ```
     *   *Direct pushes to `main` and `develop` branches are blocked by branch protection hooks. Changes must go through the Pull Request flow.*
 
-### 3. Review & Merging (PR Flow)
-*   All Pull Requests require at least **1 approving review** from a repository owner/maintainer.
-*   **Merging PRs:** Once approved and ready:
-    *   **Using GitHub CLI (`gh`):**
-        ```bash
-        gh pr merge <pr-number> --merge
-        ```
-    *   *If administrative privileges are required to bypass rules on protected branches, admins can use the `--admin` flag:*
-        ```bash
-        gh pr merge <pr-number> --merge --admin
-        ```
+### 3. Review & Merging
+*   A human reviews changes and decides whether to merge into `develop`.
+*   Agents do not merge. No workflow or release step in this guide targets `main`.
 
 ### 4. Release Workflow
-Releases are created by merging `develop` into `main` via a Pull Request, then tagging and creating a release.
-
-0.  **Run the release smoke test first, against the exact commit about to be tagged, and do not
-    proceed until every line is `PASS`:**
-    ```bash
-    uv run pytest -m integration tests/test_release_smoke.py -s
-    ```
-    This builds a real wheel, installs it into a throwaway venv with a temp `HOME`, and runs what
-    an operator would run by hand — `drunken-install all`, `extras --apply`, `status`,
-    `skills --prune`, `hook --apply` (twice), `context`, and `drunken-doctor`'s
-    `routes.session_hook` check — then confirms the real `~/.claude` and `~/.drunken` were never
-    touched. It prints a PASS/FAIL table (see `scripts/release_smoke.py`). Deselected by default
-    (`-m integration`), like the repository's other slow tests, because it takes several minutes.
-1.  Create a PR from `develop` to `main`:
-    ```bash
-    gh pr create --head develop --base main --title "Release vX.Y.Z: release summary" --body "Release notes details"
-    ```
-2.  Merge the release PR (using `--admin` if necessary):
-    ```bash
-    gh pr merge <pr-number> --merge --admin
-    ```
-3.  Tag the merge commit and push tags:
-    ```bash
-    git tag -a vX.Y.Z -m "Release vX.Y.Z description"
-    git push origin vX.Y.Z
-    ```
-4.  Publish the release:
-    ```bash
-    gh release create vX.Y.Z -t "Release Title" -n "Release notes description"
-    ```
+Release policy is intentionally not part of this feature work. Do not tag, publish, or merge into
+`main` without a separate explicit project decision.

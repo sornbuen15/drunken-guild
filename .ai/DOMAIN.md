@@ -6,19 +6,19 @@ Accepted by the Boss, 2026-09-23. Built from `.ai/PRD.md` (REQ-001–022; REQ-00
 
 | context | requirements served | what it owns |
 |---|---|---|
-| **Flow** | REQ-001, REQ-004, REQ-012, REQ-016, REQ-017, REQ-021, REQ-024 | The ordered steps from requirement to validation, and how each step hands to the next |
-| **Routing** | REQ-002, REQ-010, REQ-011, REQ-013 | How an agent decides, unprompted, which skill, role or MCP tool a situation needs, and proof that it does |
+| **Flow** | REQ-001, REQ-004, REQ-012, REQ-016, REQ-017, REQ-021, REQ-024 | The steps from requirement to validation, and how each step hands to the next |
+| **Routing** | REQ-002, REQ-010, REQ-011, REQ-013 | How agents load instructions, select skills and access tools |
 | **Instructions** | REQ-006, REQ-007, REQ-015 | The one instruction file every agent reads, and the adapters that lead each agent to it |
 | **Layering** | REQ-019, REQ-020 | Where a project's AI layer lives and how it gets there: kept out of the project's repository, held in one private config repo, put in place by init |
-| **Distribution** | REQ-003, REQ-008, REQ-009, REQ-014, REQ-022 | The one source of skills and roles, and installing it into each supported agent its own way |
-| **Safety** | REQ-018, REQ-023 | What keeps this project, and the people who use it, safe whether or not an agent is cooperating: checks that run on a schedule or at the last point before something leaves the machine, a guard no agent can skip, and no registered project id reaching this repository |
+| **Distribution** | REQ-003, REQ-008, REQ-009, REQ-014, REQ-022 | The shared source of skills and roles, installation options, and evidence for each agent |
+| **Safety** | REQ-018, REQ-023, REQ-025 | What keeps projects safe and records compatibility evidence for agents and tools |
 
 ## Shared vocabulary
 
 | term | definition | synonyms rejected |
 |---|---|---|
 | **Agent** | A coding tool that does the work: Claude Code, Antigravity, Aider, Gemini CLI | "agent" meaning a role |
-| **Supported agent** | An agent the standard must work under: Claude Code, Antigravity, Aider (Must); Gemini CLI (Could) | "every agent" |
+| **Supported agent** | An agent/version/configuration with evidence recorded in `docs/AGENT-COMPATIBILITY.md` | "every agent" |
 | **Role** | A responsibility in the flow: manager, worker, reviewer | "agent", "subagent" |
 | **Step** | One stage of the flow, owned by exactly one skill and started by one command | "command", "stage" |
 | **Replan** | The step that revises scope and tickets when a requirement is added, cut or changed | — |
@@ -77,6 +77,8 @@ Accepted by the Boss, 2026-09-23. Built from `.ai/PRD.md` (REQ-001–022; REQ-00
 - It belongs to exactly one project and comes from the config repo.
 - The project's own git never tracks any of it.
 - It holds instructions about how the AI works, never facts about what is built.
+- Excluding it from Git does not authorize deleting files from the working tree; migration preserves files and requires owner approval.
+- Projects that do not opt into the guild retain their own instruction-file and tracking policy; agents do not remove or alter those files without an explicit request.
 - Exception: this repository, whose AI layer is the product, keeps it tracked.
 
 **Config repo** — Layering

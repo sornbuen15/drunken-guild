@@ -11,7 +11,7 @@ verbatim from the versions of those two files at the commit this branch forked f
 3. [Guild block and AGENTS.md](#guild-block-and-agentsmd)
 4. [AI layer location and git worktrees](#ai-layer-location-and-git-worktrees)
 5. [Skills, agents and the three roles](#skills-agents-and-the-three-roles)
-6. [The optional extras — 16 skills, 15 agents](#the-optional-extras--16-skills-15-agents)
+6. [The optional extras — 17 skills, 15 agents](#the-optional-extras--17-skills-15-agents)
 7. [Steps 1-7, in detail](#steps-1-7-in-detail)
 8. [Using the three roles](#using-the-three-roles)
 9. [Skills not authored here](#skills-not-authored-here)
@@ -64,7 +64,7 @@ Needs [`uv`](https://docs.astral.sh/uv/) and Git. One install gives you the comm
 and agents, which travel inside the package:
 
 ```bash
-uv tool install git+https://github.com/sornbuen15/drunken-guild@v2.0.0   # pick the tag you want
+uv tool install git+https://github.com/sornbuen15/drunken-guild@v2.1.0   # pick the tag you want
 drunken-install all                                                       # → ~/.claude/skills and ~/.claude/agents
 ```
 
@@ -200,7 +200,7 @@ The steps, the Windows form and the check are in [GETTING_STARTED.md](../GETTING
 The usual way — from a release tag, no clone (needs `uv` and Git):
 
 ```bash
-uv tool install git+https://github.com/sornbuen15/drunken-guild@v2.0.0   # pick the tag you want
+uv tool install git+https://github.com/sornbuen15/drunken-guild@v2.1.0   # pick the tag you want
 drunken-install all                                                       # → ~/.claude/skills and ~/.claude/agents
 drunken-install status                                                    # later: what an update would change
 ```
@@ -470,14 +470,15 @@ first time it matters, the AI asks the project owner and records the answer in t
 ### Skill categories
 
 `flow` · `workflow` · `documents` — the skills the flow uses. The general engineering standards
-(architecture, security, UI/UX, testing, cloud, product, leadership) moved unchanged to the optional
+(architecture, security, UI/UX, testing, cloud, product, leadership) live in the optional
 `drunken-extras` plugin in [`plugins/drunken-extras/`](../plugins/drunken-extras/).
 
-Full catalogue with triggers: [`skills/INDEX.md`](../skills/INDEX.md).
+Full catalogue with triggers: [`skills/INDEX.md`](../skills/INDEX.md). The optional plugin can be
+installed separately and has its own skills and agents.
 
 ---
 
-## The optional extras — 16 skills, 15 agents
+## The optional extras — 17 skills, 15 agents
 
 *(from the old GETTING_STARTED.md, "Older skills and agents")*
 
@@ -514,7 +515,7 @@ It never removes anything, and a file you already have that differs from the pac
 reported, not overwritten. `drunken-install status` lists them too, separately from the core
 skills and agents, since they stay optional.
 
-**The 16 skills:**
+**The 17 skills:**
 
 | skill | one line |
 |---|---|
@@ -525,8 +526,9 @@ skills and agents, since they stay optional.
 | `electron-ipc-protocol` | The IPC contract for Electron apps — context isolation, preload bridge, channel naming. |
 | `incident-response` | Crisis leadership for outage mitigation, comms, and blameless RCA. |
 | `product-midset` | Product thinking, FinOps, and data-driven feature decisions. |
-| `release-notes-writer` | Standardized, markdown-table release notes and tag descriptions. |
-| `secure-by-design` | Zero Trust security, network to application layer. |
+| `release-notes-writer` | Optional release-readiness summary and reader-focused notes; project-defined versioning. |
+| `secure-by-design` | Optional risk assessment, threat modeling, security checks and configuration assessment. |
+| `deployment-preparation` | Optional target-specific preflight, verification and recovery planning. |
 | `servant-leadership` | Empathetic communication, code review feedback, blameless culture. |
 | `standard-playbook-generator` | Generates anonymized engineering playbooks from the skill files themselves. |
 | `system-design-rules` | System design standard — trade-offs, API contracts, diagrams before code. |
@@ -741,8 +743,10 @@ Tasks that touch the same files must run in sequence; that call is yours, not th
 /build
 ```
 
-The only flow step that writes code, and it does exactly one task. `jira_start_task` moves the
-ticket to `IN PROGRESS` and hands back the branch command; the agent puts `agent:<its name>` in
+The only flow step that writes code, and it does exactly one task. When a selected issue is still
+in the backlog, the manager first calls `jira_move_to_board` and verifies the result. The worker
+then calls `jira_start_task`, which moves the ticket to `IN PROGRESS` and hands back the branch
+command; the agent puts `agent:<its name>` in
 `labels`, because the assignee is the accountable human, not the thing doing the typing.
 
 Then, in order: read the ticket's SCOPE and ACCEPTANCE · check the plan still holds against the
@@ -917,7 +921,8 @@ same links that still apply; the rows below are the ones nowhere else today)*
 | [`CONFIG_REPO.md`](../CONFIG_REPO.md) | the one private repo a project's AI layer comes from — its layout, what a project's folder may hold, and what must never be in it (REQ-019, REQ-020) |
 | [`Integration-Guide.md`](../Integration-Guide.md) | connecting an external tool, or bringing another project under this workflow |
 | [`examples/`](../examples/) | the flow and its filled-in setup documents, for a fictional app |
-| [`SESSION_CHECKPOINT.md`](../SESSION_CHECKPOINT.md) | where the work currently stands |
+| [`templates/SESSION_CHECKPOINT.md`](../templates/SESSION_CHECKPOINT.md) | blank seed for a local, ignored session handoff note |
+| [`OPTIONAL-SDLC-PRACTICES.md`](./OPTIONAL-SDLC-PRACTICES.md) | optional security, release and deployment practices; not company policy |
 
 ---
 

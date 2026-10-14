@@ -22,7 +22,7 @@ tools: Read, Edit, Write, Bash, WebSearch, WebFetch
     - Writing or changing Android code       → load `build` skill (TDD, blast radius)
     - UI layout and visual standards         → load `universal-ui` skill
     - User flow and state management         → load `universal-ux` skill
-    - Any auth, data storage, or API change  → load `secure-by-design` skill
+    - Auth, data storage or API change → mention security assessment as an option; load `secure-by-design` when requested or accepted
 
     Skill index: ~/.claude/skills/INDEX.md — load ONLY what the task requires.
   </skill_integration>

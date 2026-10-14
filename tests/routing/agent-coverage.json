@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "about": "Per-agent validation ledger. A schema entry is not evidence that a scenario passed.",
+  "dimensions": [
+    "instruction_loading",
+    "skill_access",
+    "discovery",
+    "routing",
+    "tools_mcp",
+    "human_gates",
+    "token_usage"
+  ],
+  "agents": [
+    {"name": "Codex", "version": "desktop, version not recorded", "model": "not recorded", "os": "macOS", "status": "partial", "evidence": "This implementation session loaded AGENTS.md and relevant skills. Native discovery, scenario suite and MCP operation were not systematically verified.", "token_source": "provider counters not available in the task record", "tokens": null, "measurement_window": null},
+    {"name": "Claude Code", "version": null, "model": null, "os": null, "status": "not_tested", "evidence": null, "token_source": null, "tokens": null, "measurement_window": null},
+    {"name": "Aider", "version": null, "model": null, "os": null, "status": "not_tested", "evidence": null, "token_source": null, "tokens": null, "measurement_window": null},
+    {"name": "Gemini CLI", "version": null, "model": null, "os": null, "status": "not_tested", "evidence": null, "token_source": null, "tokens": null, "measurement_window": null},
+    {"name": "Antigravity", "version": null, "model": null, "os": null, "status": "not_tested", "evidence": null, "token_source": null, "tokens": null, "measurement_window": null}
+  ]
+}

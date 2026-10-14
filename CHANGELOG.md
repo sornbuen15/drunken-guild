@@ -7,6 +7,38 @@ The top heading is the version this tree declares in `pyproject.toml`; `Unreleas
 while a release is being prepared, and is renamed to the version when it is tagged
 (`tests/test_install_agents.py::TestTheChangelog`).
 
+## 2.1.0 — 2026-10-14
+
+Skills-first SDLC workflows work from project context, keep Jira optional, and leave important
+scope and release decisions with the project owner. Security and session handoff practices are
+available as optional skills.
+
+### Added
+- The core workflow skills can start from existing project context, handle small work directly,
+  and continue without Jira; Jira-backed planning remains available when registered.
+- Skills and documentation for optional security assessment, release preparation, deployment
+  preparation and machine-local session checkpoints.
+- Skill routing and compatibility guidance for deciding when a skill or agent fits the requested
+  work, with documented limits instead of universal agent claims.
+
+- `deployment-preparation` prepares a target-specific preflight, verification and recovery plan.
+  It does not deploy, and is available with the other optional extras.
+- `/session-checkpoint` carries optional handoff context in an ignored, machine-local file; only its
+  blank template is tracked.
+- `docs/OPTIONAL-SDLC-PRACTICES.md` maps optional security, release and deployment practices to
+  the skills and checks already available in the repository.
+
+### Changed
+- `secure-by-design` now offers optional risk assessment, threat modeling, development checks,
+  focused review and configuration assessment. The reviewer role offers a focused security review
+  when requested or required by project guidance; it does not impose a default gate.
+- `release-notes-writer` prepares release notes and a project-specific readiness summary. It does
+  not impose a version scheme or tag policy, and release preparation stays separate from deployment.
+- Skill routing distinguishes release preparation, deployment preparation and deployment requests
+  instead of treating the word "release" as a deployment action.
+- Jira-backed planning can move selected backlog work to the active board when the owner delegates
+  a same-day assessment and immediate start; other backlog moves still need the owner's decision.
+
 ## 2.0.3 — 2026-10-12
 
 The per-prompt routing hook stops over-triggering and sends build work to the worker agent.

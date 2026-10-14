@@ -219,11 +219,10 @@ requirements.lock.txt
 # archive beside git history. The index that stays committed is RETIRED.md.
 _not_used/
 
-# Session scratchpad for cross-agent coordination -- not project record.
-# The Boss confirmed this is working state, not history: it belongs to
-# whoever's session wrote it, not to git. Anchored to root so it does not
-# swallow templates/SESSION_CHECKPOINT.md, the tracked template this file is
-# generated from.
+# Session handoff note, local to this working copy and not project record.
+# The `session-checkpoint` skill maintains it; it belongs to whoever's session
+# wrote it, not to git. Anchored to root so it does not swallow the tracked
+# blank seed at templates/SESSION_CHECKPOINT.md.
 /SESSION_CHECKPOINT.md
 
 # DG-313 / DG-250: operating config, not source. It names this machine

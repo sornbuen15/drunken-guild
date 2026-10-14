@@ -8,13 +8,13 @@ Map task keywords to their absolute skill file paths. Load ONLY the relevant ski
 - `project-docs` — Use when a step has to find, create or reconcile a project's own documents — "where does this project keep its PRD?", "there are two PRD.md files, which one win
   Path: $HOME/.claude/skills/project-docs/SKILL.md
 
-- `audit` (`/audit`) — Use when a day's work ends, after tasks merge, or before anyone calls a requirement done — "what actually shipped today?", "does every Must have a passing test
+- `audit` (`/audit`) — Use when a work cycle ends, before anyone calls a requirement done, or when asked what is complete — "what shipped?", "does this requirement have evidence?", "w
   Path: $HOME/.claude/skills/audit/SKILL.md
 
-- `breakdown` (`/breakdown`) — Use when agreed requirements need a backlog, or a bug found mid-flight needs a ticket — "turn the PRD into Jira tickets", "cut the backlog, a day per task", "fi
+- `breakdown` (`/breakdown`) — Use when agreed requirements need to become reviewable implementation tasks, or when a defect needs separate follow-up — "turn the PRD into tasks", "break this
   Path: $HOME/.claude/skills/breakdown/SKILL.md
 
-- `build` (`/build`) — Use when a Task or Bug ticket is picked up for work — "pick up DG-… and implement it", "fix the bug in this ticket and open a PR", "take the next card". Execute
+- `build` (`/build`) — Use when an approved task or bug is ready for implementation — "implement this task", "fix this bug", "pick up DG-…". Accepts a user request, project task file
   Path: $HOME/.claude/skills/build/SKILL.md
 
 - `clarify` (`/clarify`) — Use when a PRD reads cleanly but is not actually decided, after /prd and before /ddd — "what in the requirements is still undecided?", "ask me whatever you need
@@ -26,26 +26,29 @@ Map task keywords to their absolute skill file paths. Load ONLY the relevant ski
 - `prd` (`/prd`) — Use when a project is starting, when the Boss describes something to build, or when a requirement is added before any backlog exists — "help me write down what
   Path: $HOME/.claude/skills/prd/SKILL.md
 
-- `replan` (`/replan`) — Use when a requirement is added, cut or changed after the backlog exists — "we also need…", "drop REQ-… and the tickets under it", "the customer changed their m
+- `replan` (`/replan`) — Use when an existing requirement or task changes — "we also need…", "remove this requirement", "the customer changed their mind", "a requirement was added", or
   Path: $HOME/.claude/skills/replan/SKILL.md
 
-- `manager` — This is the body of the manager Claude subagent, dispatched by name through the Task tool — not a skill to invoke directly. The team's manager role. Use to turn
+- `manager` — This is the reusable manager role for planning work — not an agent-specific subagent contract. Use it to understand project requirements, propose tasks and depe
   Path: $HOME/.claude/skills/manager/SKILL.md
 
-- `reviewer` — This is the body of the reviewer Claude subagent, dispatched by name through the Task tool — not a skill to invoke directly. The team's reviewer role — quality
+- `reviewer` — The reusable reviewer role — quality and security in one. Use to review a manager's plan (one round, as comments), to review a worker's tests before implementat
   Path: $HOME/.claude/skills/reviewer/SKILL.md
 
-- `worker` — This is the body of the worker Claude subagent, dispatched by name through the Task tool — not a skill to invoke directly. The team's worker role. Use to implem
+- `worker` — This is the reusable worker role. Use it to implement one approved task from user-provided context, project files or an optional registered tracker, validate ac
   Path: $HOME/.claude/skills/worker/SKILL.md
 
 - `ask-boss` (`/ask-boss`) — Use when an action is destructive, irreversible or merge-worthy and needs the Boss's OK — "you need my approval before dropping that database", "I'm away this a
   Path: $HOME/.claude/skills/ask-boss/SKILL.md
 
-- `git-workflow` (`/git-workflow`) — Use when creating a branch, writing a commit, opening a PR, merging or releasing — "what should I name this branch?", "how should I commit this?", "which merge
+- `git-workflow` (`/git-workflow`) — Use when planning a Git change, branch, commit, review request or release — "what does this repo require before I commit?", "how do I hand this change off?". Re
   Path: $HOME/.claude/skills/git-workflow/SKILL.md
 
 - `jira-tickets` (`/jira-tickets`) — Use when writing, labelling, moving or closing a Jira ticket in this project — "what sections does a Bug ticket need?", "can I mark this Done now the PR is open
   Path: $HOME/.claude/skills/jira-tickets/SKILL.md
+
+- `session-checkpoint` (`/session-checkpoint`) — Use when starting or ending a project work session, switching sessions, or saving or restoring project handoff context. Reads and updates the local, ignored roo
+  Path: $HOME/.claude/skills/session-checkpoint/SKILL.md
 
 - `think-analyze-isolate` (`/isolate`) — Use when running, starting, deploying or integrating something, when a backgrounded command is reported working without evidence, or when a fix fails the same w
   Path: $HOME/.claude/skills/think-analyze-isolate/SKILL.md
