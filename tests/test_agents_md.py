@@ -339,13 +339,11 @@ def test_guild_block_check_catches_a_duplicated_situation_with_different_wording
     template = (REPO_ROOT / "src" / "core" / "templates" / "AGENTS.md").read_text(
         encoding="utf-8"
     )
+    situation = _table_rows(_guild_block(template))[0][0]
     mutated = template + (
-        "\n\n| **end of day / closing a session** |"
-        " run `/audit` whenever you feel like it |\n"
+        f"\n\n| {situation} | run `/audit` whenever you feel like it |\n"
     )
-    assert _duplicate_situation_mismatches(mutated) == [
-        "**end of day / closing a session**"
-    ]
+    assert _duplicate_situation_mismatches(mutated) == [situation]
 
 
 def test_guild_block_check_catches_a_second_routing_table() -> None:

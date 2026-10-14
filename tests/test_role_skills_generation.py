@@ -117,7 +117,7 @@ class TestRegeneratingMatchesCommittedBytes:
         # with "the mutation did nothing".
         skill_md.write_text(
             skill_md.read_text(encoding="utf-8").replace(
-                "Any language, any framework", "Any language at all, any framework"
+                "approved task", "accepted task"
             ),
             encoding="utf-8",
         )

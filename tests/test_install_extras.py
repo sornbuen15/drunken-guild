@@ -1,5 +1,5 @@
 # mypy: ignore-errors
-"""DG-512 (operator order): drunken-install extras — the drunken-extras plugin's 16 skills and 15
+"""DG-512 (operator order): drunken-install extras — the drunken-extras plugin's optional skills and 15
 agents reach a machine the same way the core skills/agents do, through the wheel, with no clone.
 
 Plan by default; ``apply=True`` writes. Never removes anything — there is no prune here. An agent

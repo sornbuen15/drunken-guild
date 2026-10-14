@@ -1,11 +1,15 @@
 # Session checkpoint — <YYYY-MM-DD>
 
-> **This is a template.** Copy it to your project root as `SESSION_CHECKPOINT.md` and add
-> `/SESSION_CHECKPOINT.md` to `.gitignore` — it is a session scratchpad, not project record,
-> and it belongs to whoever's session wrote it. Authored in `drunken-guild`'s
+> **This is a template.** When session handoff notes are useful, copy it to the project root as
+> `SESSION_CHECKPOINT.md`. Add `/SESSION_CHECKPOINT.md` to `.gitignore` if the project does not
+> already ignore it. It is a session scratchpad, not project record, and it belongs to whoever's
+> session wrote it. Authored in `drunken-guild`'s
 > `templates/SESSION_CHECKPOINT.md`.
 >
-> Read it at the start of a session; rewrite it before ending one. **Jira stays the record.**
+> The template may be tracked; the filled-in root checkpoint is machine-local and must not be
+> tracked, committed, pushed, or copied into a shared config repository. Never put credentials or
+> secrets here. If this file exists, read it at session start and update it before handing work off with
+> `/session-checkpoint`. **Jira stays the record.**
 > Anything here that disagrees with Jira is wrong — this is a handoff note, not a second board.
 
 ---

@@ -309,9 +309,9 @@ def run_smoke(report: SmokeReport, venv_dir: Path, fake_home: Path) -> None:
     )
     report.record(
         "install.extras.counts",
-        all_skills >= 31 and all_agents >= 18,
+        all_skills >= 32 and all_agents >= 18,
         f"{all_skills} skill(s) total, {all_agents} agent(s) total "
-        f"(expect >=15+16=31 skills, >=3+15=18 agents)",
+        f"(expect at least 32 skills including 17 extras, >=3+15=18 agents)",
     )
 
     status_result = _run([str(drunken_install), "status"], env=env)

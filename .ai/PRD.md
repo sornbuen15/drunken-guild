@@ -180,6 +180,12 @@ rather than what is built — and drunken-doctor fails when it does.
 **Decided:** 2026-10-02 — the Boss: applied to any project, the guild must never mix in; a project
 may be handed to a customer as source code, or be a private product. This repository is exempt
 (REQ-006).
+**Clarified:** 2026-10-13 — this is a repository hygiene policy for projects that opt into the
+guild's private AI layer. It means those files are not committed to the project repository; it
+does not authorize deleting `AGENTS.md`, `CLAUDE.md` or other instruction files. Migration only
+changes Git tracking/excludes after explicit owner approval, preserves the files on disk, and backs
+them up. For a project that does not use the guild, its existing instruction files and tracking
+policy belong to that project; an agent must leave them alone unless the owner asks for a change.
 **Decided:** 2026-10-10 — a project has **no `.mcp.json` at all** (neither option in
 `core/ai_layer.py`: not committed, not excluded). The file would hold one line naming a command,
 and `drunken-jira-mcp` already serves every project, because each `jira_*` tool takes the
@@ -197,6 +203,9 @@ project folder, one init step copies that project's layer in from it, lists the 
 read AGENTS.md.
 **Decided:** 2026-10-02 — one config repo for all projects, not one each; files are copied, not
 symlinked; hidden from git through `.git/info/exclude`, not `.gitignore`.
+**Clarified:** 2026-10-13 — excluding AI-layer files from Git never means removing them from the
+working tree. A migration must preserve the files and make the tracking changes reviewable; it
+must not run automatically merely because an agent sees a tracked instruction file.
 **Decided:** 2026-10-09 — Jira credentials live in no git repository, public or private, config
 repo included: a per-machine store outside every checkout (an environment variable or a file
 under the operator's home, referenced as `env://…` or `file://…#key`), and init only points at it.
@@ -295,6 +304,14 @@ is unusable on an existing project for exactly this reason.
 **Decided:** 2026-10-09 — the Boss: new or existing project, with or without requirements,
 small or large — all of it must work; the steps do not change, the size of each step does.
 
+### REQ-025 — Agent compatibility claims have agent-specific evidence
+**Class:** Must
+**Acceptance:** Documentation distinguishes instruction loading, skill access, discovery, routing,
+tool availability, human gates and token data for each named agent. An agent is marked supported
+only for versions and scenarios with recorded evidence; unavailable token data is reported as such.
+**Decided:** 2026-10-12 — the Boss approved validating the shared workflow per agent and avoiding
+general compatibility claims without evidence.
+
 ## Inferred — not yet accepted
 - (none — all accepted by the Boss, 2026-09-23)
 - A user-level SessionStart hook that tells the agent to run init in a folder the guild does not
@@ -308,5 +325,6 @@ small or large — all of it must work; the steps do not change, the size of eac
 - REQ-008, REQ-022 — whether shipping skills inside the installed package changes how
   drunken-doctor and the tests read them (today they read `skills/` in the repository): not yet
   assessed.
-- REQ-008, REQ-022 — where Antigravity, Aider and Gemini CLI keep their skills: no evidence yet
-  (DG-394, DG-399); the single command cannot cover them until there is.
+- REQ-008, REQ-022 — agent-specific discovery and installation remain unverified until each
+  agent's version/configuration is exercised using the evidence protocol in
+  `docs/AGENT-COMPATIBILITY.md`.

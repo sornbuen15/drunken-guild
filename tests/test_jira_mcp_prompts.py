@@ -75,6 +75,15 @@ def test_every_prompt_says_to_stop_without_its_skill(name) -> None:
     assert re.search(r"not installed", PROMPTS[name]), name
 
 
+def test_refinement_honors_explicit_delegation_to_choose_and_start_backlog_work() -> (
+    None
+):
+    prompt = PROMPTS["refinement"]
+
+    assert "explicitly asks to assess backlog work and begin immediately" in prompt
+    assert "apply that decision" in prompt
+
+
 @pytest.mark.parametrize("name", sorted(PROMPTS))
 @pytest.mark.parametrize("pattern", sorted(FORBIDDEN))
 def test_no_prompt_restates_a_retired_or_impossible_rule(name, pattern) -> None:

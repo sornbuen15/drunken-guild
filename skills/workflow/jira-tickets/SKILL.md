@@ -317,10 +317,10 @@ conflict with each other.
 
 ### The backlog is not a status
 
-`jira_move_to_backlog` / `jira_move_to_board` change **membership of the
-current working set, and nothing else**. A ticket parked in the backlog is
-still `IN PROGRESS` if that is what it was. Read backlog as a status and you
-have recreated the two-surfaces problem.
+`jira_move_to_backlog` / `jira_move_to_board` change **membership of the current working set, and nothing else**.
+Move selected backlog issues onto the active board and verify success before starting them: board moves change membership;
+`jira_start_task` changes status. A ticket parked in the backlog is still `IN PROGRESS` if that is what it was.
+Read backlog as a status and you have recreated the two-surfaces problem.
 
 ---
 

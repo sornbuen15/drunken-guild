@@ -76,10 +76,10 @@ a rulebook per tool that drifts.
 | `CLAUDE.md` | Claude Code | A one-line `@AGENTS.md` import (REQ-015), also written by `drunken-init` — not something you fill in by hand. |
 | `templates/.cursorrules` | Cursor | "Read `AGENTS.md`; it is the authority" — plus MCP setup and approvals, the parts that differ for Cursor. Copy-paste; nothing writes this one for you. |
 | `templates/CONVENTIONS.md` + `templates/.aider.conf.yml` | Aider | The config loads `AGENTS.md` and `CONVENTIONS.md` read-only into every session and turns off Aider's own commits. Copy-paste. |
-| `templates/SESSION_CHECKPOINT.md` | every tool | A handoff note, read at session start, rewritten before ending. Untracked. Jira stays the record. Copy-paste. |
+| `templates/SESSION_CHECKPOINT.md` | every tool | Optional blank seed for the machine-local root `SESSION_CHECKPOINT.md`; if used, read at start and update before handoff with `/session-checkpoint`. Never track the filled-in note. Jira stays the record. Copy-paste. |
 | `templates/PROJECT_BRIEF.md`, `templates/REQUIREMENTS.md` | every tool | Optional pre-`/prd` drafting material — what is built and what it must do, written before `/prd`'s interview instead of during it. Copy-paste. |
 
-Which files to copy, and where, is [GETTING_STARTED.md, Step 1](./GETTING_STARTED.md#a-new-project) —
+Which files to copy, and where, is [GETTING_STARTED.md, An existing project](./GETTING_STARTED.md#an-existing-project) —
 one list, kept in one place.
 
 ---
@@ -169,7 +169,7 @@ You want `project.existing-project.jira` to come back naming *you*.
 
 ### Step 3: Copy the templates
 
-Follow [GETTING_STARTED.md, Step 1](./GETTING_STARTED.md#a-new-project). It is
+Follow [GETTING_STARTED.md, An existing project](./GETTING_STARTED.md#an-existing-project). It is
 the one list of what to copy from `templates/` and where each file goes; a second list here is the
 kind of copy that drifts. For an existing project, fill `AGENTS.md`'s build and test commands from
 what the project already runs — the placeholders read as instructions if left in.

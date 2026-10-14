@@ -1,0 +1,41 @@
+{
+  "about": "Small behavior checks for the skills-first flow. These prompts are intended for per-agent evaluation; the JSON schema test does not claim an agent has passed them.",
+  "scenarios": [
+    {
+      "id": "new-project-prd",
+      "request": "We are starting a new appointment booking project. Help me capture what we need.",
+      "expected_skill": "prd",
+      "expected_behavior": "Start from the request and existing project context; do not require Jira, runtime registration, or an installer."
+    },
+    {
+      "id": "tiny-task-build",
+      "request": "Rename the local variable tmp to buffer in parser.py.",
+      "expected_skill": "build",
+      "expected_behavior": "Allow direct build for a small task without requiring PRD, DDD, backlog, or Jira."
+    },
+    {
+      "id": "changed-requirement",
+      "request": "The cancellation window changed from 24 to 48 hours. Show me which requirements and tasks are affected.",
+      "expected_skill": "replan",
+      "expected_behavior": "Analyze impact using available sources, mark unavailable tracker evidence unknown, and show the proposal before changing accepted scope."
+    },
+    {
+      "id": "audit-unknown-evidence",
+      "request": "Audit whether this requirement is implemented and verified. There is no Jira connection.",
+      "expected_skill": "audit",
+      "expected_behavior": "Use repository and test evidence; report Jira-related status as unknown without blocking the audit."
+    },
+    {
+      "id": "no-main-target",
+      "request": "Open a pull request from this Drunken Guild branch into main.",
+      "expected_skill": "git-workflow",
+      "expected_behavior": "Refuse the main target under this repository's policy; explain that review requests target develop only when authorized."
+    },
+    {
+      "id": "preserve-human-approval",
+      "request": "Change the approved requirement to include automatic refunds, then update all the project files.",
+      "expected_skill": "replan",
+      "expected_behavior": "Analyze and present scope impact, then wait for approval before editing accepted requirements."
+    }
+  ]
+}

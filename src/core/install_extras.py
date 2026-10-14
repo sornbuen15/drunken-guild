@@ -1,6 +1,6 @@
 """``drunken-install extras`` — the drunken-extras plugin's optional skills and agents, DG-512.
 
-The operator order: ``plugins/drunken-extras/`` holds 16 skills and 15 specialist agents that were
+The operator order: ``plugins/drunken-extras/`` holds optional skills and 15 specialist agents that were
 never wired into any installer, so no machine with the guild installed could reach them without a
 clone — the same gap REQ-022 closed for the core skills and roles, left open here.
 

@@ -123,17 +123,19 @@
   {
     "category": "tests",
     "keywords": [
-      "test",
-      "tests",
-      "testing",
-      "tdd",
-      "unit test",
-      "coverage",
-      "เทส",
-      "ทดสอบ",
-      "หน่วยทดสอบ"
+      "unit test", "integration test", "regression test", "test case",
+      "write tests", "add tests", "create tests", "tests for",
+      "เขียนทดสอบ", "เพิ่มการทดสอบ", "เขียนเทส", "เพิ่มเทส", "ทำการทดสอบ", "พร้อมเทส"
     ],
-    "names": ["build", "test-strategy", "test-architecture"],
+    "combos": [
+      {
+        "all": [
+          {"type": "keyword", "values": ["write", "add", "create", "implement", "เขียน", "เพิ่ม", "สร้าง"]},
+          {"type": "keyword", "values": ["unit test", "integration test", "regression test", "test case", "ทดสอบ unit", "เทส unit"]}
+        ]
+      }
+    ],
+    "names": ["build"],
     "priority": 4
   },
   {
@@ -177,17 +179,21 @@
       "security",
       "secure",
       "vulnerability",
+      "threat model",
+      "security assessment",
+      "security review",
       "password",
       "secret",
       "access token",
-      "token",
       "authentication",
       "auth",
       "permission check",
       "api endpoint",
       "rest api",
-      "endpoint",
       "ความปลอดภัย",
+      "ประเมินความเสี่ยงด้านความปลอดภัย",
+      "จำลองภัยคุกคาม",
+      "ทบทวนความปลอดภัย",
       "รหัสผ่าน",
       "ช่องโหว่",
       "สิทธิ์การเข้าถึง",
@@ -199,27 +205,39 @@
   {
     "category": "ui_ux",
     "keywords": [
-      "ui",
-      "ux",
-      "user interface",
-      "screen design",
-      "form design",
-      "page layout",
-      "login",
-      "page",
-      "form",
-      "component",
-      "screen",
-      "หน้าจอ",
-      "หน้า",
-      "ฟอร์ม",
-      "ดีไซน์หน้า",
-      "เลย์เอาต์",
-      "ล็อกอิน",
-      "สมัครสมาชิก"
+      "ui", "user interface", "screen design", "form design", "page layout", "login",
+      "ออกแบบหน้าจอ", "ออกแบบฟอร์ม", "ออกแบบหน้า", "ทำหน้า", "สร้างหน้า", "เพิ่มหน้า",
+      "เพิ่มฟอร์ม", "สร้างฟอร์ม", "สมัครสมาชิก", "ดีไซน์หน้า", "เลย์เอาต์",
+      "ออกแบบคอมโพเนนต์", "สร้างคอมโพเนนต์", "สร้าง component"
     ],
-    "names": ["universal-ui", "universal-ux", "build"],
+    "combos": [
+      {
+        "all": [
+          {"type": "keyword", "values": ["design", "create", "build", "implement", "add", "ออกแบบ", "สร้าง", "เพิ่ม"]},
+          {"type": "keyword", "values": ["page", "screen", "form", "component", "input", "layout", "หน้า", "หน้าจอ", "ฟอร์ม", "คอมโพเนนต์", "อินพุต"]}
+        ]
+      },
+      {
+        "all": [
+          {"type": "keyword", "values": ["make an html", "create an html", "write html", "build an html", "ทำเป็น html", "สร้าง html", "เขียน html", "ทำ html"]},
+          {"type": "keyword", "values": ["component", "input", "form", "page", "typology", "showcase", "คอมโพเนนต์", "อินพุต", "ฟอร์ม", "หน้า"]}
+        ]
+      }
+    ],
+    "names": ["universal-ui", "build"],
     "priority": 8
+  },
+  {
+    "category": "ux_research",
+    "keywords": ["ux", "user experience", "user journey", "usability", "heuristic evaluation", "user research", "ประสบการณ์ผู้ใช้", "เส้นทางผู้ใช้", "ความง่ายในการใช้งาน"],
+    "names": ["universal-ux"],
+    "priority": 9
+  },
+  {
+    "category": "test_planning",
+    "keywords": ["test plan", "test strategy", "test architecture", "test design", "วางแผนการทดสอบ", "กลยุทธ์การทดสอบ", "ออกแบบการทดสอบ"],
+    "names": ["test-strategy", "test-architecture"],
+    "priority": 10
   },
   {
     "category": "git",
@@ -235,24 +253,54 @@
       "รีเบส"
     ],
     "names": ["git-workflow"],
-    "priority": 9
+    "priority": 11
   },
   {
     "category": "deploy",
     "keywords": [
-      "deploy",
-      "deployment",
-      "release",
+      "deploy this to production",
+      "deploy ขึ้น staging",
       "ship to production",
       "go live",
-      "ดีพลอย",
+      "ช่วยเตรียมดีพลอย",
       "ปล่อยขึ้นโปรดักชัน",
-      "ปล่อย",
-      "รีลีส",
       "ขึ้นโปรดักชัน"
     ],
     "names": ["ask-boss"],
-    "priority": 10
+    "priority": 12
+  },
+  {
+    "category": "deployment_preparation",
+    "keywords": [
+      "prepare deployment",
+      "deployment plan",
+      "prepare to deploy",
+      "deployment preflight",
+      "แผนเตรียม deployment",
+      "แผนเตรียมดีพลอย",
+      "เตรียมแผน deploy"
+    ],
+    "names": ["deployment-preparation"],
+    "priority": 13
+  },
+  {
+    "category": "release",
+    "keywords": [
+      "prepare release",
+      "release readiness",
+      "write release notes",
+      "prepare release notes",
+      "create release notes",
+      "release summary",
+      "tag version",
+      "เตรียม release",
+      "เตรียมรีลีส",
+      "เขียน release note",
+      "เขียนรีลีสโน้ต",
+      "สรุป release"
+    ],
+    "names": ["release-notes-writer"],
+    "priority": 14
   },
   {
     "category": "docs",
@@ -269,6 +317,6 @@
       "คู่มือ"
     ],
     "names": ["project-docs", "concise-docs"],
-    "priority": 11
+    "priority": 15
   }
 ]

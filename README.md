@@ -1,8 +1,8 @@
 # Drunken Guild
 
-Drunken Guild gives AI coding agents one standard way to take a requirement through Jira to a
-merged pull request. It is for a developer or small team who directs AI agents on real projects
-and wants the same skills, roles and review gates every time.
+Drunken Guild provides a skills-first SDLC workflow for taking requirements through planning,
+implementation and evidence-based review. Use the skills directly from a clone, or install them
+into an existing project. Jira and usage measurement are optional extensions.
 
 ## The flow — seven commands
 
@@ -22,6 +22,8 @@ flowchart LR
 | implement | `/build` |
 | validate | `/audit` |
 | replan | `/replan` |
+
+Jira is optional for `/breakdown`; approved tasks can stay in project files or the conversation.
 
 ## Install
 
@@ -49,6 +51,18 @@ full list of known limitations is in [`docs/REFERENCE.md`](./docs/REFERENCE.md).
 | [`REPOSITORY_MAP.md`](./REPOSITORY_MAP.md) | which directory is whose, and the `templates/` inventory |
 | [`Drunken-Guild-Guide.md`](./Drunken-Guild-Guide.md) | architecture, Jira workflow, approval flow |
 | [`DESIGN.md`](./DESIGN.md) | why it is shaped this way |
-| [`CONTRIBUTING.md`](./CONTRIBUTING.md) | pull requests land on `develop`; `main` only from `develop` |
+| [`CONTRIBUTING.md`](./CONTRIBUTING.md) | contribution workflow; project changes target `develop`, never `main` |
+
+## Agent compatibility
+
+Start by reading [`AGENTS.md`](./AGENTS.md), then load the skill for the current task. Agent
+auto-discovery differs; only compatibility documented with per-agent evidence is claimed in
+[`docs/AGENT-COMPATIBILITY.md`](./docs/AGENT-COMPATIBILITY.md).
+
+## Optional integrations
+
+Jira MCP adds work-item access when explicitly registered. `drunken-usage` reports token or cost
+data only when the provider transcript source is available; it is an estimate with source-specific
+coverage, not a promise of savings.
 
 Licensed under [MIT](./LICENSE). Security policy: [`SECURITY.md`](./SECURITY.md).

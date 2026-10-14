@@ -1,117 +1,95 @@
 ---
 name: replan
 description: >
-  Use when a requirement is added, cut or changed after the backlog exists — "we also need…",
-  "drop REQ-… and the tickets under it", "the customer changed their mind, carry it through".
-  Amends PRD.md by /prd's rules, then shows which tickets to add, amend and close, and applies
-  them only after the Boss says yes. Never orders work. Trigger on /replan.
+  Use when an existing requirement or task changes — "we also need…", "remove this requirement",
+  "the customer changed their mind", "a requirement was added", or "cut this requirement". Reconciles the project plan with the change, shows impacts
+  before writing, and preserves human approval for scope and priority decisions. Trigger on /replan.
 ---
 
 # Skill: Replan
-**Version:** v1.0.0
-**Description:** Carries a changed requirement from PRD.md through to the tickets that trace to it.
+**Version:** v1.1.0
+**Description:** Carries a changed requirement through project documents and related tasks without choosing their order.
 
 ---
 <system_prompt>
   <role>
-    When this skill applies, a plan already exists — a PRD, a DOMAIN, a backlog cut by
-    `/breakdown` — and one of its requirements has moved. Your job is to make the plan follow the
-    change and nothing more: the PRD first, then only the tickets whose `req:` label names the
-    requirement that moved. This is not a second `/breakdown`, and it is not a chance to re-rank the
-    board.
+    When a plan already exists and a requirement moves, reconcile the smallest affected part of the
+    plan. Read the PRD, domain model, task files and registered tracker records that are available.
+    Preserve existing ids and decisions, and do not re-rank work.
   </role>
 
   <execution_rules>
-    <rule priority="FATAL" name="Show Before Writing">
-      Two proposals, each shown and each approved before it is written: first the PRD change, then
-      the ticket change list. A replan applied and then corrected leaves tickets closed for a
-      decision that was never made.
+    <rule priority="FATAL" name="Show Changes Before Writing">
+      First show the proposed requirement change and its affected tasks, files, tests and risks.
+      Get approval before writing changes that alter accepted requirements, intended behavior or
+      scope. Keep independent discovery and impact analysis moving while awaiting a decision.
     </rule>
 
-    <rule priority="FATAL" name="The PRD Changes By The prd Skill's Rules">
-      Load the `prd` skill for the change itself. It owns how ids are allocated and how a dropped
-      requirement is struck through. Do not restate those rules here; follow them. In short, a
-      requirement id is never renumbered and never reused, and a new one takes the next id above
-      the highest that ever existed.
+    <rule priority="FATAL" name="Keep Requirement Identity Stable">
+      Follow the `prd` skill's rules for allocating and retiring requirement ids. Never renumber,
+      reuse or delete an id.
     </rule>
 
-    <rule priority="FATAL" name="Only What Traces To The Change">
-      Find the affected tickets with `jira_search_issues`, one query per changed id:
-      `labels = "req:REQ-xxx"`. A ticket that does not carry the label is not in this replan. Report
-      it as untraced rather than guessing it belongs.
+    <rule priority="FATAL" name="Trace Impact From Available Sources">
+      Search project task files and the configured tracker when available. Identify which tasks
+      directly trace to changed requirements; report unlinked tasks and inaccessible sources as
+      unknown rather than guessing.
     </rule>
 
-    <rule priority="FATAL" name="Work In Progress Is The Boss's Call">
-      A ticket that is IN PROGRESS or IN REVIEW has a branch, and possibly a PR. When its
-      requirement is dropped or changed, list it separately and ask. Do not close it and do not
-      rewrite its acceptance under someone who is working it.
+    <rule priority="FATAL" name="Work In Progress Needs A Decision">
+      Identify work already in progress or under review. Explain the impact and ask the owner before
+      closing it, rewriting acceptance or changing its implementation.
     </rule>
 
-    <rule priority="HIGH" name="A New Requirement Needs A Context">
-      A requirement that no bounded context in `DOMAIN.md` serves is a gap in the model, not a
-      ticket to hang anywhere. Stop and point at `/ddd`. Do not stretch an existing Epic to fit it.
+    <rule priority="FATAL" name="Do Not Reorder Work">
+      Show impact and dependencies, but leave priority and execution order to the human or the
+      project's established policy.
     </rule>
   </execution_rules>
 
-  <what_each_change_produces>
-    | change | PRD | tickets |
-    |---|---|---|
-    | added | new id, by `/prd`'s rules | new Tasks under the context's Epic, in `/breakdown`'s shape, labelled `req:` |
-    | changed | acceptance or class amended, dated `**Decided:**` line | a comment on each traced ticket stating the new acceptance |
-    | cut | struck through with date and reason | TODO tickets: comment who decided and when, then close (`jira-tickets` §8) |
-
-    A class change moves the urgency label by `/breakdown`'s MoSCoW mapping. That is a tier, not a
-    position: where a ticket sits on the board stays the Boss's.
-  </what_each_change_produces>
-
   <starting_states>
-    REQ-024: this step runs in whatever state it finds and never asks whether it may be
-    skipped. It names what it found as its starting point, and finishes fast when there is
-    nothing to change.
-
-    **New folder** — With no plan to move, say "No plan yet." and record the change as the first
-    requirement through `/prd`'s rules, then show what `/breakdown` would cut from it.
-    **Code, no PRD** — Record the change in a PRD that `/prd` first proposes from the code, then
-    trace; with no tickets yet, the table is only the PRD diff.
-    **Requirements in another shape** — Apply the change against the requirement ids `/prd` carried
-    over, naming the source file, and leave that file itself untouched.
-    **Existing backlog** — Tickets that carry no `req:` label are listed as untraced beside the
-    traced ones; none of them is amended or closed on a guess.
-    **One task or bug** — A single changed requirement is one PRD diff and one table; print "No
-    tickets affected." and finish when nothing traces to it.
+    **New folder** — Record the proposed change as the first requirement using `/prd`; show the
+    resulting plan before writing it.
+    **Code, no PRD** — Propose an inferred requirement from the code and request; mark it unaccepted
+    until the owner approves it.
+    **Requirements in another shape** — Use the ids and source format already present; do not
+    silently convert the source document.
+    **Existing backlog** — Reconcile tracker records only when that integration is configured. If
+    unavailable, report that task impact could not be checked.
+    **One task or bug** — Show one focused impact summary; when no task traces to it, say so.
   </starting_states>
 
   <action_sequence>
-    1. LOCATE: `project-docs` — print its block. A missing `PRD.md` or `DOMAIN.md` is reported and handled
-       by `starting_states`, not a reason to stop.
-    2. PRD: the change, through the `prd` skill. Show the diff; write after a yes.
-    3. TRACE: `jira_search_issues` per changed id.
-    4. PROPOSE: one table: add, amend, close, and the separate list of work in progress. Halt.
-    5. APPLY: on a yes, `jira_create_issue` for additions (then `jira_move_to_backlog`),
-       `jira_add_comment` for amendments, comment then `jira_transition_issue` to Done for closures.
-       Confirm each with `jira_search_issues`.
-    6. REPORT: what changed, with keys, and the next step.
+    1. LOCATE: use `project-docs` to find the project requirements, domain and task sources.
+    2. ANALYZE: summarize the proposed change and trace affected tasks, tests and dependencies from
+       available sources.
+    3. PROPOSE: show the requirement diff and impact table, including in-progress work and unknowns.
+    4. APPROVE: wait for the owner's decision before writing accepted-scope changes.
+    5. APPLY: update approved project files. Update external work items only when an integration is
+       registered, the owner approved it, and the project workflow specifies the operation.
+    6. REPORT: state what changed, what remains unresolved and the next project-defined step.
   </action_sequence>
 
   <constraints>
-    <constraint priority="FATAL">Requires the `drunken-jira-mcp` server. Without it, stop after the PRD step and say so.</constraint>
-    <constraint priority="FATAL">Never decide the order of work. Never call `jira_move_to_board`, and never set rank: which ticket comes first is the Boss's.</constraint>
+    <constraint priority="FATAL">Never choose task priority or execution order.</constraint>
     <constraint priority="FATAL">Never renumber, reuse or delete a requirement id.</constraint>
-    <constraint priority="FATAL">Never close or rewrite a ticket that is IN PROGRESS or IN REVIEW without the Boss's yes.</constraint>
-    <constraint priority="HIGH">Never create or write to `.claude/board/` or `.agents/board/`.</constraint>
+    <constraint priority="FATAL">Never close or rewrite in-progress work without its owner's approval.</constraint>
+    <constraint priority="FATAL">Never claim a tracker was checked or updated when its integration was unavailable or unused.</constraint>
+    <constraint priority="HIGH">Trackers are optional. Continue impact analysis with project files and user-provided context when no tracker is registered.</constraint>
   </constraints>
 
   <output_format>
     ```
-    Replan — .ai/PRD.md
-      prd:        added REQ-017; amended REQ-004 (acceptance); dropped REQ-009
-      tickets:    created DG-512 (req:REQ-017)
-                  commented DG-498 (new acceptance, REQ-004)
-                  closed DG-503 (REQ-009 dropped)
-      held:       DG-501 IN PROGRESS on REQ-009 — waiting on the Boss
-      untraced:   none
-
-    Next: /build on the created and amended tickets. /ddd first if a requirement had no context.
+    Replan — <requirements source>
+      proposed:   <added, changed or retired requirement>
+      impact:     <affected tasks, files and checks>
+      in progress:<work needing owner decision>
+      unknown:    <unavailable sources>
+      decision:   pending | approved | declined
+      next:       <project-defined follow-up>
+      Next:       /breakdown when tasks must change; /build for a focused approved task
     ```
+    After approval, `/breakdown` is normally next when the task set must change; a focused task can
+    proceed directly to `/build`.
   </output_format>
 </system_prompt>
