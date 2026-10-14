@@ -47,5 +47,8 @@ Map task keywords to their absolute skill file paths. Load ONLY the relevant ski
 - `jira-tickets` (`/jira-tickets`) — Use when writing, labelling, moving or closing a Jira ticket in this project — "what sections does a Bug ticket need?", "can I mark this Done now the PR is open
   Path: $HOME/.claude/skills/jira-tickets/SKILL.md
 
+- `session-checkpoint` (`/session-checkpoint`) — Use when starting or ending a project work session, switching sessions, or saving or restoring project handoff context. Reads and updates the local, ignored roo
+  Path: $HOME/.claude/skills/session-checkpoint/SKILL.md
+
 - `think-analyze-isolate` (`/isolate`) — Use when running, starting, deploying or integrating something, when a backgrounded command is reported working without evidence, or when a fix fails the same w
   Path: $HOME/.claude/skills/think-analyze-isolate/SKILL.md

@@ -36,6 +36,7 @@
       "WebSearch",
       "WebFetch",
       "mcp__drunken-jira-mcp__jira_start_task",
+      "mcp__drunken-jira-mcp__jira_move_to_board",
       "mcp__drunken-jira-mcp__jira_submit_for_review",
       "mcp__drunken-jira-mcp__jira_add_comment",
       "mcp__drunken-jira-mcp__jira_search_issues",

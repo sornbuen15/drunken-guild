@@ -203,7 +203,7 @@ silently widened permission are both worse than a refusal.
 | question | file |
 |---|---|
 | how to work in this repository | [`AGENTS.md`](./AGENTS.md) |
-| where things stand right now | [`SESSION_CHECKPOINT.md`](./SESSION_CHECKPOINT.md) |
+| session handoff seed | [`templates/SESSION_CHECKPOINT.md`](./templates/SESSION_CHECKPOINT.md); the filled-in root file stays local and ignored |
 | how to write and run a ticket | `skills/workflow/jira-tickets/SKILL.md` |
 | branch, commit, PR and merge rules | `skills/workflow/git-workflow/SKILL.md` |
 | what each component does | [`Drunken-Guild-Guide.md`](./Drunken-Guild-Guide.md) |

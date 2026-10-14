@@ -13,7 +13,8 @@ Pointers only — read the skill, role or tool named; do not reason from this ta
 | **planning or breaking work into tasks** | the **manager** role. |
 | **git — branch, commit, PR, merge strategy** | `/git-workflow` (`skills/workflow/git-workflow/SKILL.md`). |
 | **a Jira issue — write, read, or move it** | Optional: `/jira-tickets` plus registered `jira_*` MCP tools. |
-| **end of day / closing a session** | `/audit`. |
+| **start, hand off or close a work session** | `/session-checkpoint` — read the local handoff note at start; update it before handing off. |
+| **end of day / verify what shipped** | `/audit`. |
 | **something destructive, irreversible or merge-worthy needs the Boss's approval** | `/ask-boss` (`skills/workflow/ask-boss/SKILL.md`). |
 | **unsure which skill, role or tool fits** | `skills/INDEX.md` — read it rather than guessing a name from memory. |
 <!-- guild-block:end -->
@@ -22,6 +23,11 @@ The instructions every coding agent reads in this project, whichever agent it is
 every agent live here and nowhere else; an agent-specific file (CLAUDE.md, …) only points here.
 
 Written by `drunken-init`, which never overwrites it. Edit it freely.
+
+For session continuity, use `/session-checkpoint` to read an existing note at session start or
+update one when persistent handoff context will help. The root `SESSION_CHECKPOINT.md` is optional,
+machine-local and ignored by Git; the tracked Drunken Guild template is only a blank seed, not the
+project's handoff history.
 
 Instruction files are not disposable. Never delete, untrack, overwrite, or ignore project agent
 files because they look AI-specific. Change them only at the owner's request. Excluding a guild AI

@@ -183,3 +183,35 @@ class TestScratchIsIgnoredAsADirectoryNotAsAPrefix:
         """
         assert not guard.is_source(Path("scratch/notes.py"))
         assert not guard.is_source(Path("scratch/claude_advice.txt"))
+
+
+class TestSessionCheckpointIsMachineLocal:
+    def _git(self, *args: str) -> subprocess.CompletedProcess[bytes]:
+        return subprocess.run(  # nosec B603 - fixed argv, no shell
+            ["git", *args],
+            cwd=REPO_ROOT,
+            capture_output=True,
+            timeout=30,
+            check=False,
+        )
+
+    def test_filled_checkpoint_is_ignored_and_untracked(self) -> None:
+        assert self._git("check-ignore", "-q", "SESSION_CHECKPOINT.md").returncode == 0
+        assert (
+            self._git("ls-files", "--error-unmatch", "SESSION_CHECKPOINT.md").returncode
+            != 0
+        )
+
+    def test_blank_template_remains_a_tracked_seed(self) -> None:
+        assert (
+            self._git(
+                "check-ignore", "-q", "templates/SESSION_CHECKPOINT.md"
+            ).returncode
+            != 0
+        )
+        assert (
+            self._git(
+                "ls-files", "--error-unmatch", "templates/SESSION_CHECKPOINT.md"
+            ).returncode
+            == 0
+        )

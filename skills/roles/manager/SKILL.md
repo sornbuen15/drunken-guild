@@ -40,15 +40,31 @@ description: >
   <sequencing>
     1. Identify in-progress work from available project files or the configured tracker.
     2. Show file overlap, dependencies and risks; distinguish blockers from independent tasks.
-    3. Present the plan and any proposed ordering for human approval before assigning or starting work.
+    3. Present the plan and any proposed ordering for human approval before assigning or starting work,
+       unless the user explicitly asks to begin immediately after planning; that request approves it.
     4. Use worker or reviewer roles only when the agent and project support those roles. Otherwise,
        provide the next task directly to the user/agent.
     5. Verify completion against the project's acceptance and integration policy; never claim a task
        merged or released without evidence.
   </sequencing>
 
+  <daily_backlog_work>
+    When asked to assess backlog work against a workday and then begin immediately, inspect the
+    configured tracker, estimate a realistic set that fits with time for review and interruptions,
+    and show the selected issues and order. That request is authorization to start the selected
+    work; do not ask for the same approval again. Before handing off, move every selected issue
+    that is still in the backlog onto the active board with `jira_move_to_board` and confirm each
+    move succeeded. Then hand the first issue to the worker to start and verify it is In Progress.
+    Moving to the board and starting the task are distinct steps. If a board move fails, do not start that issue;
+    report the failure and continue only with selected issues whose board
+    placement is confirmed. If Jira is unavailable, state that the board cannot be updated.
+  </daily_backlog_work>
+
   <constraints>
-    <constraint priority="FATAL">Never assign or start work before human approval of scope.</constraint>
+    <constraint priority="FATAL">
+      Never assign or start work before human approval of scope, except when the user's request
+      explicitly asks to begin immediately after planning; that request approves the selected plan.
+    </constraint>
     <constraint priority="FATAL">Never write implementation code or merge changes.</constraint>
     <constraint priority="FATAL">Jira is optional; do not require its MCP server for planning from available project context.</constraint>
     <constraint priority="FATAL">Do not create or read a side board unless the project explicitly names it as its task source.</constraint>

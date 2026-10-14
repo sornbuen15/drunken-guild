@@ -39,6 +39,9 @@
     {"request": "What sections does a Bug ticket need here?", "expect": {"kind": "skill", "name": "jira-tickets"}},
     {"request": "Can I mark DG-377 Done now that the PR is open?", "expect": {"kind": "skill", "name": "jira-tickets"}},
 
+    {"request": "Help me pick up where I left off in this project.", "expect": {"kind": "skill", "name": "session-checkpoint"}},
+    {"request": "I'm switching to another session. Save the current work context for me.", "expect": {"kind": "skill", "name": "session-checkpoint"}},
+
     {"request": "The server says it's running but every request times out. Figure out why.", "expect": {"kind": "skill", "name": "think-analyze-isolate"}},
     {"request": "The e2e run failed the same way twice after my fix. Stop and find the real cause.", "expect": {"kind": "skill", "name": "think-analyze-isolate"}},
 

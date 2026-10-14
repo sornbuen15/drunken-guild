@@ -13,7 +13,8 @@ Pointers only — read the skill, role or tool named; do not reason from this ta
 | **planning or breaking work into tasks** | the **manager** role. |
 | **git — branch, commit, PR, merge strategy** | `/git-workflow` (`skills/workflow/git-workflow/SKILL.md`). |
 | **a Jira issue — write, read, or move it** | Optional: `/jira-tickets` plus registered `jira_*` MCP tools. |
-| **end of day / closing a session** | `/audit`. |
+| **start, hand off or close a work session** | `/session-checkpoint` — read the local handoff note at start; update it before handing off. |
+| **end of day / verify what shipped** | `/audit`. |
 | **something destructive, irreversible or merge-worthy needs the Boss's approval** | `/ask-boss` (`skills/workflow/ask-boss/SKILL.md`). |
 | **unsure which skill, role or tool fits** | `skills/INDEX.md` — read it rather than guessing a name from memory. |
 <!-- guild-block:end -->
@@ -23,8 +24,10 @@ per-agent evidence.
 **Amended** (REQ-006, Q3-A): a generated one-line adapter that only points at this standard is
 allowed — a project's own `CLAUDE.md` is exactly that when it carries nothing beyond `@AGENTS.md`.
 
-`SESSION_CHECKPOINT.md` is the other half: read it at session start for project state. `.ai/PRD.md`
-and `.ai/DOMAIN.md` hold accepted requirements and vocabulary.
+`SESSION_CHECKPOINT.md` is optional local handoff state: use `/session-checkpoint` to read it at
+session start and update it when persistent notes will help another session. The real file is
+ignored by Git; only `templates/SESSION_CHECKPOINT.md`, its blank seed, is tracked.
+`.ai/PRD.md` and `.ai/DOMAIN.md` hold accepted requirements and vocabulary.
 
 ---
 

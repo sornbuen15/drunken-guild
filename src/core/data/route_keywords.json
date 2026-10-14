@@ -179,17 +179,21 @@
       "security",
       "secure",
       "vulnerability",
+      "threat model",
+      "security assessment",
+      "security review",
       "password",
       "secret",
       "access token",
-      "token",
       "authentication",
       "auth",
       "permission check",
       "api endpoint",
       "rest api",
-      "endpoint",
       "ความปลอดภัย",
+      "ประเมินความเสี่ยงด้านความปลอดภัย",
+      "จำลองภัยคุกคาม",
+      "ทบทวนความปลอดภัย",
       "รหัสผ่าน",
       "ช่องโหว่",
       "สิทธิ์การเข้าถึง",
@@ -254,19 +258,49 @@
   {
     "category": "deploy",
     "keywords": [
-      "deploy",
-      "deployment",
-      "release",
+      "deploy this to production",
+      "deploy ขึ้น staging",
       "ship to production",
       "go live",
-      "ดีพลอย",
+      "ช่วยเตรียมดีพลอย",
       "ปล่อยขึ้นโปรดักชัน",
-      "ปล่อย",
-      "รีลีส",
       "ขึ้นโปรดักชัน"
     ],
     "names": ["ask-boss"],
     "priority": 12
+  },
+  {
+    "category": "deployment_preparation",
+    "keywords": [
+      "prepare deployment",
+      "deployment plan",
+      "prepare to deploy",
+      "deployment preflight",
+      "แผนเตรียม deployment",
+      "แผนเตรียมดีพลอย",
+      "เตรียมแผน deploy"
+    ],
+    "names": ["deployment-preparation"],
+    "priority": 13
+  },
+  {
+    "category": "release",
+    "keywords": [
+      "prepare release",
+      "release readiness",
+      "write release notes",
+      "prepare release notes",
+      "create release notes",
+      "release summary",
+      "tag version",
+      "เตรียม release",
+      "เตรียมรีลีส",
+      "เขียน release note",
+      "เขียนรีลีสโน้ต",
+      "สรุป release"
+    ],
+    "names": ["release-notes-writer"],
+    "priority": 14
   },
   {
     "category": "docs",
@@ -283,6 +317,6 @@
       "คู่มือ"
     ],
     "names": ["project-docs", "concise-docs"],
-    "priority": 13
+    "priority": 15
   }
 ]

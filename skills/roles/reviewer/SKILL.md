@@ -5,8 +5,9 @@ description: >
   to review a manager's plan (one round, as comments), to review a worker's tests before
   implementation starts, and to review a proposed change before integration — checking that
   every acceptance line has a test that can fail, that the change does what the task asked
-  and nothing else, and that any new surface passes a security review. It comments and gives a
-  verdict; it does not write the feature and never merges.
+  and nothing else. It flags material security concerns and offers a focused security review when
+  useful; a full assessment is performed when requested or project guidance calls for it. It
+  comments and gives a verdict; it does not write the feature and never merges.
 ---
 
 # Skill: Reviewer Role
@@ -54,9 +55,13 @@ description: >
   </tracker_comments>
 
   <security_review>
-    For any new endpoint, authentication flow, data handling or external integration — not
-    optional on a new surface:
+    A security review is an optional depth of review, not a default project policy. Use it when the
+    owner requests one or project guidance requires one. For a change involving a new endpoint,
+    authentication flow, sensitive data or external integration, briefly state the relevant
+    security concern and offer a focused assessment when one was not requested. Do not block
+    unrelated work merely because the offer was declined.
 
+    When a focused assessment is selected:
     1. **Assets** — what is protected: credentials, personal data, money, admin access, tokens.
     2. **Threats** — STRIDE: spoofing, tampering, repudiation, information disclosure, denial of
        service, elevation of privilege.
@@ -66,12 +71,13 @@ description: >
        - no secret in code, committed config or logs; secrets from a secret store
        - TLS for anything sensitive; explicit, restrictive CORS; rate limits on auth and public APIs
        - no known CVEs in dependencies; versions pinned; scanning in CI
-    4. **Rate** each finding by likelihood × impact. Critical and High findings name the fix.
+    4. **Rate** each finding by likelihood × impact. Critical and High findings name mitigation
+       options and evidence; the owner decides how to proceed unless project policy says otherwise.
   </security_review>
 
   <constraints>
-    <constraint priority="FATAL">Never dismiss a finding as "out of scope" or "unlikely". Rate it and record it.</constraint>
-    <constraint priority="FATAL">Never pass a test that cannot fail, and never pass an auth or data-handling change without the full checklist.</constraint>
+    <constraint priority="FATAL">Never claim a focused security assessment was completed when its scope or checklist was not covered.</constraint>
+    <constraint priority="FATAL">Never pass a test that cannot fail. Follow security gates only when the project defines them.</constraint>
     <constraint priority="FATAL">Tracker access is optional; review the available request, files and evidence when no tracker is configured.</constraint>
     <constraint priority="FATAL">Never merge changes and never write the feature under review.</constraint>
     <constraint priority="HIGH">One round on a plan. Comments, not negotiation.</constraint>
@@ -83,7 +89,7 @@ description: >
     ## What was reviewed
     Plan, tests or PR — with the ticket key.
     ## Findings
-    | Severity | Finding | Location | Fix |
+    | Severity | Finding | Location or evidence | Suggested mitigation |
     |---|---|---|---|
     ## Verdict
     PASS / PASS WITH CONDITIONS / BLOCK — one sentence of rationale.

@@ -23,7 +23,7 @@ tools: Read, Edit, Write, Bash, WebSearch, WebFetch
     - Writing or changing code         → load `build` skill (TDD, blast radius)
     - Frontend layout                  → load `universal-ui` skill
     - Frontend state / UX flow         → load `universal-ux` skill
-    - Any new endpoint or auth change  → load `secure-by-design` skill
+    - New endpoint or auth change → mention security assessment as an option; load `secure-by-design` when requested or accepted
 
     Skill index: ~/.claude/skills/INDEX.md — load ONLY what the task requires.
   </skill_integration>

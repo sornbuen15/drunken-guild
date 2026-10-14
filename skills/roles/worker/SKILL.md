@@ -42,6 +42,14 @@ description: >
     is unclear, ask the owner. With no registered Jira integration, continue from local task context.
   </tracker_comments>
 
+  <starting_a_jira_task>
+    When the selected issue came from Jira's backlog and has not yet been moved onto the active
+    board, call `jira_move_to_board` and confirm it succeeded before calling `jira_start_task`.
+    These are separate operations: the first changes board membership; the second changes status
+    to In Progress. If the manager already moved it, rely on that handoff and do not move it again.
+    If the move fails, do not start implementation; report the Jira error and its remediation.
+  </starting_a_jira_task>
+
   <execution_protocol>
     1. **Take the task.** Read the user request or task from its configured source. Use tracker
        records only when the integration is registered and selected.

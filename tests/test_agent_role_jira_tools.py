@@ -210,6 +210,30 @@ def test_worker_and_reviewer_text_gates_a_boss_decision_on_authorship() -> None:
         )
 
 
+def test_worker_moves_a_backlog_issue_to_the_board_before_starting_it() -> None:
+    """Starting an issue changes status; board membership is a separate Jira
+    operation. A worker must be able to perform both, in that order, so work
+    selected from backlog appears on the active board before implementation."""
+    body = _skill_body("worker")
+    move = body.find("jira_move_to_board")
+    start = body.find("jira_start_task")
+
+    assert move >= 0, "worker must move a selected backlog issue onto the board"
+    assert start > move, (
+        "move the issue onto the board before changing it to In Progress"
+    )
+
+
+def test_manager_executes_an_explicit_daily_backlog_plan_without_reapproval() -> None:
+    body = _skill_body("manager")
+
+    assert "begin immediately" in body
+    assert "do not ask for the same approval again" in body
+    assert "jira_move_to_board" in body
+    assert "In Progress" in body
+    assert re.search(r"If a board move\s+fails, do not start that issue", body)
+
+
 # --- Proof the derivation above actually catches the realistic mutations
 # the ticket and the review name: removing the tool from one real file, a
 # near-miss spelling in the grant, a new role file that names a Jira tool

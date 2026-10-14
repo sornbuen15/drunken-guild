@@ -2,7 +2,7 @@
 name: worker
 description: This is the reusable worker role. Use it to implement one approved task from user-provided context, project files or an optional registered tracker, validate acceptance and provide the review handoff required by the repository. It can run within an agent's supported role mechanism or directly as a skill.
 model: claude-sonnet-5
-tools: Read, Edit, Write, Bash, Glob, Grep, WebSearch, WebFetch, mcp__drunken-jira-mcp__jira_start_task, mcp__drunken-jira-mcp__jira_submit_for_review, mcp__drunken-jira-mcp__jira_add_comment, mcp__drunken-jira-mcp__jira_search_issues, mcp__drunken-jira-mcp__jira_get_comments, mcp__drunken-jira-mcp__jira_edit_labels, mcp__drunken-jira-mcp__jira_edit_issue
+tools: Read, Edit, Write, Bash, Glob, Grep, WebSearch, WebFetch, mcp__drunken-jira-mcp__jira_start_task, mcp__drunken-jira-mcp__jira_move_to_board, mcp__drunken-jira-mcp__jira_submit_for_review, mcp__drunken-jira-mcp__jira_add_comment, mcp__drunken-jira-mcp__jira_search_issues, mcp__drunken-jira-mcp__jira_get_comments, mcp__drunken-jira-mcp__jira_edit_labels, mcp__drunken-jira-mcp__jira_edit_issue
 skills:
   - worker
 ---
