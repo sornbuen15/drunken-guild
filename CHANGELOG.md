@@ -7,11 +7,20 @@ The top heading is the version this tree declares in `pyproject.toml`; `Unreleas
 while a release is being prepared, and is renamed to the version when it is tagged
 (`tests/test_install_agents.py::TestTheChangelog`).
 
-## Unreleased
+## 2.1.0 — 2026-10-14
 
-Optional practices help teams reason about SDLC work without imposing company policy.
+Skills-first SDLC workflows work from project context, keep Jira optional, and leave important
+scope and release decisions with the project owner. Security and session handoff practices are
+available as optional skills.
 
 ### Added
+- The core workflow skills can start from existing project context, handle small work directly,
+  and continue without Jira; Jira-backed planning remains available when registered.
+- Skills and documentation for optional security assessment, release preparation, deployment
+  preparation and machine-local session checkpoints.
+- Skill routing and compatibility guidance for deciding when a skill or agent fits the requested
+  work, with documented limits instead of universal agent claims.
+
 - `deployment-preparation` prepares a target-specific preflight, verification and recovery plan.
   It does not deploy, and is available with the other optional extras.
 - `/session-checkpoint` carries optional handoff context in an ignored, machine-local file; only its

@@ -28,7 +28,7 @@ Jira is optional for `/breakdown`; approved tasks can stay in project files or t
 ## Install
 
 ```bash
-uv tool install git+https://github.com/sornbuen15/drunken-guild@v2.0.3   # pick the tag you want
+uv tool install git+https://github.com/sornbuen15/drunken-guild@v2.1.0   # pick the tag you want
 drunken-install all                                                      # skills + agents -> ~/.claude
 drunken-install extras --apply                                          # optional: the older skills and agents
 drunken-install hook --apply                                            # both hooks: session context + per-prompt routing
