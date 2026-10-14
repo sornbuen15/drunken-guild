@@ -307,12 +307,16 @@ class TestKeywordMatchingRules:
         text = install.route_text("เจอบั๊กแล้ว", skills, agents)
         assert "build" in text
 
-    def test_existing_page_inventory_does_not_trigger_ui_skills(self, extras_skills) -> None:
+    def test_existing_page_inventory_does_not_trigger_ui_skills(
+        self, extras_skills
+    ) -> None:
         skills, agents = extras_skills
         prompt = "The page already exists; inventory its components and inputs."
         assert install.route_text(prompt, skills, agents) == ""
 
-    def test_mentioning_a_test_does_not_trigger_test_planning(self, extras_skills) -> None:
+    def test_mentioning_a_test_does_not_trigger_test_planning(
+        self, extras_skills
+    ) -> None:
         skills, agents = extras_skills
         prompt = "I am testing whether the workflow works; do not write tests yet."
         assert "test-strategy" not in install.route_text(prompt, skills, agents)

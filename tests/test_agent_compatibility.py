@@ -15,7 +15,15 @@ def test_agent_ledger_has_named_agents_and_dimensions() -> None:
     data = json.loads(LEDGER.read_text(encoding="utf-8"))
     names = {agent["name"] for agent in data["agents"]}
     assert {"Codex", "Claude Code", "Aider", "Gemini CLI", "Antigravity"} <= names
-    assert {"instruction_loading", "skill_access", "discovery", "routing", "tools_mcp", "human_gates", "token_usage"} <= set(data["dimensions"])
+    assert {
+        "instruction_loading",
+        "skill_access",
+        "discovery",
+        "routing",
+        "tools_mcp",
+        "human_gates",
+        "token_usage",
+    } <= set(data["dimensions"])
 
 
 def test_unverified_agents_do_not_claim_evidence() -> None:
@@ -30,12 +38,21 @@ def test_unverified_agents_do_not_claim_evidence() -> None:
 def test_smoke_scenarios_cover_optional_jira_small_task_and_human_gates() -> None:
     data = json.loads(SMOKE.read_text(encoding="utf-8"))
     ids = {scenario["id"] for scenario in data["scenarios"]}
-    assert {"new-project-prd", "tiny-task-build", "changed-requirement", "audit-unknown-evidence", "no-main-target", "preserve-human-approval"} <= ids
+    assert {
+        "new-project-prd",
+        "tiny-task-build",
+        "changed-requirement",
+        "audit-unknown-evidence",
+        "no-main-target",
+        "preserve-human-approval",
+    } <= ids
     assert "Jira" in DOC.read_text(encoding="utf-8")
 
 
 def test_drunkenguild_main_prohibition_is_explicit() -> None:
-    workflow = (ROOT / "skills" / "workflow" / "git-workflow" / "SKILL.md").read_text(encoding="utf-8")
+    workflow = (ROOT / "skills" / "workflow" / "git-workflow" / "SKILL.md").read_text(
+        encoding="utf-8"
+    )
     assert "Never push to `main`, open a pull request targeting" in workflow
     assert "Never merge into `main`" in workflow
 
