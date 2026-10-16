@@ -193,7 +193,44 @@ claude mcp add --scope user drunken-jira-mcp -- "$(command -v drunken-jira-mcp)"
 The steps, the Windows form and the check are in [GETTING_STARTED.md](../GETTING_STARTED.md).
 
 > `uv tool install` ignores `uv.lock`, so the tool environment can drift inside the allowed
-> dependency range. Pass `--with-requirements` if you need it pinned.
+> dependency range. To pin it to the lockfile, export a temporary requirements file, confirm the
+> locked `mcp` version in that file, then pass it to the install. Use the temporary-directory
+> variable for your shell:
+>
+> macOS/Linux:
+>
+> ```bash
+> requirements_file="$(mktemp)"
+> uv export --format requirements.txt --no-dev --no-emit-project -o "$requirements_file"
+> grep '^mcp==' "$requirements_file"
+> uv tool install . --with-requirements "$requirements_file" --force
+> rm "$requirements_file"
+> ```
+>
+> PowerShell:
+>
+> ```powershell
+> $requirementsFile = Join-Path $env:TEMP 'drunken-guild-requirements.txt'
+> uv export --format requirements.txt --no-dev --no-emit-project -o $requirementsFile
+> Select-String -Path $requirementsFile -Pattern '^mcp=='
+> uv tool install . --with-requirements $requirementsFile --force
+> Remove-Item $requirementsFile
+> ```
+>
+> Command Prompt:
+>
+> ```bat
+> set "REQUIREMENTS_FILE=%TEMP%\drunken-guild-requirements.txt"
+> uv export --format requirements.txt --no-dev --no-emit-project -o "%REQUIREMENTS_FILE%"
+> findstr /B /I "mcp==" "%REQUIREMENTS_FILE%"
+> uv tool install . --with-requirements "%REQUIREMENTS_FILE%" --force
+> del "%REQUIREMENTS_FILE%"
+> ```
+>
+> The matching `mcp==…` line is evidence of the exported lock pin. After installation,
+> `uv tool list --show-with` shows the additional requirement recorded for the tool; this is not
+> an independent inspection of the environment's resolved package metadata. The exported file is
+> disposable; do not commit it beside `uv.lock`.
 
 ### Install the AI layer (the old GETTING_STARTED.md walkthrough)
 
