@@ -155,6 +155,26 @@ def _build_jira_block(args: argparse.Namespace) -> Optional[dict[str, str]]:
     return {key: str(value) for key, value in supplied.items()}
 
 
+def _apply_hub_setting(entry: dict[str, Any], enabled: Optional[bool]) -> list[str]:
+    """Apply an explicit Hub enable/disable and report whether it changed."""
+    if enabled is None:
+        return []
+
+    previous_hub = entry.get("hub")
+    previous_hub_config = previous_hub if isinstance(previous_hub, dict) else {}
+    was_enabled = isinstance(previous_hub, dict) and previous_hub.get("enabled") is True
+    if enabled:
+        entry["hub"] = {**previous_hub_config, "enabled": True}
+    else:
+        entry.pop("hub", None)
+
+    if was_enabled != enabled:
+        state = "enabled" if enabled else "disabled"
+    else:
+        state = f"unchanged ({'enabled' if enabled else 'disabled'})"
+    return [f"hub integration: {state}"]
+
+
 def _ensure_registry_document(registry_file: str) -> dict[str, Any]:
     if not os.path.exists(registry_file):
         return {"version": SCHEMA_VERSION, "projects": {}}
@@ -232,9 +252,12 @@ def _ensure_registry_document(registry_file: str) -> dict[str, Any]:
     return {"version": SCHEMA_VERSION, "projects": document}
 
 
-def _apply_project(document: dict[str, Any], args: argparse.Namespace) -> str:
+def _apply_project(
+    document: dict[str, Any], args: argparse.Namespace
+) -> tuple[str, list[str]]:
     project_id = validate_project_id(args.project)
     entry: dict[str, Any] = dict(document["projects"].get(project_id, {}))
+    integration_changes: list[str] = []
 
     if args.path:
         path = os.path.abspath(os.path.expanduser(args.path))
@@ -257,6 +280,7 @@ def _apply_project(document: dict[str, Any], args: argparse.Namespace) -> str:
     jira = _build_jira_block(args)
     if jira:
         entry["jira"] = jira
+    integration_changes.extend(_apply_hub_setting(entry, args.hub_enabled))
     if args.discord_webhook:
         # Validated the same way as the Jira credential: a webhook URL pasted
         # here instead of a reference would be written straight into a file
@@ -268,7 +292,7 @@ def _apply_project(document: dict[str, Any], args: argparse.Namespace) -> str:
         entry["board"] = {"dir": args.board_dir}
 
     document["projects"][project_id] = entry
-    return project_id
+    return project_id, integration_changes
 
 
 def _write(registry_file: str, document: dict[str, Any]) -> None:
@@ -318,6 +342,22 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--jira-credential",
         help="Secret REFERENCE, not a token. e.g. env://JIRA_TOKEN_ALPHA",
+    )
+    hub_options = parser.add_mutually_exclusive_group()
+    hub_options.add_argument(
+        "--hub",
+        dest="hub_enabled",
+        action="store_const",
+        const=True,
+        default=None,
+        help="Enable the optional local Hub for this project.",
+    )
+    hub_options.add_argument(
+        "--no-hub",
+        dest="hub_enabled",
+        action="store_const",
+        const=False,
+        help="Disable the Hub for this project and remove its profile setting.",
     )
     parser.add_argument(
         "--discord-webhook",
@@ -866,6 +906,7 @@ _OTHER_ACTIONS = (
     "jira_email",
     "jira_project_key",
     "jira_credential",
+    "hub_enabled",
     "discord_webhook",
     "board_dir",
     "guild_block",
@@ -922,11 +963,25 @@ def _swap_registry(registry_file: str, document: dict[str, Any]) -> None:
 
 def _run_remove_project(args: argparse.Namespace) -> int:
     """``--remove-project``: back the registry up, then delete one entry (DG-506)."""
-    used = [name for name in _OTHER_ACTIONS if getattr(args, name, None)]
+    used = [
+        name
+        for name in _OTHER_ACTIONS
+        if (
+            getattr(args, name, None) is not None
+            if name == "hub_enabled"
+            else getattr(args, name, None)
+        )
+    ]
     if used:
+        used_options = [
+            ("--hub" if args.hub_enabled else "--no-hub")
+            if name == "hub_enabled"
+            else "--" + name.replace("_", "-")
+            for name in used
+        ]
         raise ValidationError(
             "--remove-project cannot be combined with another action "
-            f"({', '.join('--' + n.replace('_', '-') for n in used)}).",
+            f"({', '.join(used_options)}).",
             remediation="Run it on its own; nothing was changed.",
         )
     project_id = validate_project_id(args.remove_project)
@@ -1000,7 +1055,11 @@ def main() -> int:
         registry_file = args.registry or str(paths.registry_path())
 
         document = _ensure_registry_document(registry_file)
-        project_id = _apply_project(document, args) if args.project else None
+        integration_changes: list[str] = []
+        if args.project:
+            project_id, integration_changes = _apply_project(document, args)
+        else:
+            project_id = None
 
         project_root = (
             Path(document["projects"][project_id]["path"])
@@ -1068,6 +1127,8 @@ def main() -> int:
     print(f"registry        : {registry_file}  (schema v{document['version']})")
     if project_id:
         print(f"registered      : {project_id}")
+    for line in integration_changes:
+        print(line)
     for line in written:
         print(line)
     print(

@@ -62,7 +62,7 @@ librt==0.11.0
     # via mypy
 markupsafe==3.0.3
     # via jinja2
-mcp==1.29.0
+mcp==1.30.0
     # via drunken-guild (pyproject.toml)
 mypy==2.1.0
     # via drunken-guild (pyproject.toml)

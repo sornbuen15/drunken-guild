@@ -66,6 +66,56 @@ class TestBootstrap:
         assert "Invalid project id" in capsys.readouterr().out
 
 
+class TestOptionalHubIntegration:
+    def test_hub_can_be_enabled_without_jira(self, tmp_path, capsys) -> None:
+        assert run("--project", "sample", "--hub") == 0
+
+        entry = registry_contents(tmp_path)["projects"]["sample"]
+        assert entry["hub"] == {"enabled": True}
+        assert "jira" not in entry
+        assert "hub integration: enabled" in capsys.readouterr().out
+
+    def test_hub_can_be_disabled_while_jira_is_enabled(self, tmp_path, capsys) -> None:
+        assert (
+            run(
+                "--project",
+                "sample",
+                "--jira-url",
+                "https://example.atlassian.net",
+                "--jira-email",
+                "someone@example.com",
+                "--jira-project-key",
+                "SMP",
+                "--jira-credential",
+                "env://SAMPLE_TOKEN",
+                "--hub",
+            )
+            == 0
+        )
+
+        assert run("--project", "sample", "--no-hub") == 0
+
+        entry = registry_contents(tmp_path)["projects"]["sample"]
+        assert entry["jira"]["project_key"] == "SMP"
+        assert "hub" not in entry
+        assert "hub integration: disabled" in capsys.readouterr().out
+
+    def test_neither_optional_integration_is_required(self, tmp_path) -> None:
+        assert run("--project", "sample") == 0
+
+        assert registry_contents(tmp_path)["projects"]["sample"] == {}
+
+    def test_reregistering_the_same_hub_setting_reports_no_change(
+        self, tmp_path, capsys
+    ) -> None:
+        assert run("--project", "sample", "--hub") == 0
+        capsys.readouterr()
+
+        assert run("--project", "sample", "--hub") == 0
+
+        assert "hub integration: unchanged (enabled)" in capsys.readouterr().out
+
+
 class TestNoSecretCanBeStored:
     """There is deliberately no flag that accepts a token."""
 
@@ -229,6 +279,18 @@ class TestOutput:
         assert "jira_token" not in options
         assert "discord_token" not in options
         assert "jira_credential" in options
+
+    def test_remove_project_cannot_be_combined_with_an_explicit_hub_change(
+        self, tmp_path, capsys
+    ) -> None:
+        run("--project", "sample")
+
+        assert run("--remove-project", "sample", "--no-hub") == 1
+
+        output = capsys.readouterr().out
+        assert "cannot be combined" in output
+        assert "--no-hub" in output
+        assert "sample" in registry_contents(tmp_path)["projects"]
 
 
 def _stub_this_repository(monkeypatch, checkout) -> None:

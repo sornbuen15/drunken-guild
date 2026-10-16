@@ -392,6 +392,34 @@ class TestTheAgentInstallerWritesTheSameBytes:
         )
 
 
+class TestPowerShellScriptsAreSafeForWindowsPowerShell51:
+    """DG-488. Windows PowerShell 5.1 reads a UTF-8 script without a BOM as
+    the active ANSI code page. Keep tracked PowerShell scripts ASCII unless a
+    BOM explicitly selects UTF-8.
+    """
+
+    def test_tracked_scripts_are_ascii_or_have_a_utf8_bom(self) -> None:
+        tracked = subprocess.run(
+            ["git", "ls-files", "-z", "--", "*.ps1"],
+            capture_output=True,
+            check=True,
+            cwd=REPO_ROOT,
+        ).stdout
+        scripts = [REPO_ROOT / path for path in tracked.decode().split("\0") if path]
+        violations = []
+        for script in scripts:
+            raw = script.read_bytes()
+            if any(byte >= 0x80 for byte in raw) and not raw.startswith(
+                b"\xef\xbb\xbf"
+            ):
+                violations.append(script.relative_to(REPO_ROOT).as_posix())
+
+        assert not violations, (
+            "Windows PowerShell 5.1 reads non-ASCII BOM-less scripts as ANSI: "
+            + ", ".join(violations)
+        )
+
+
 class TestTheIndexOnlySwitchTouchesNothingOutsideTheRepo:
     """DG-423. install_skills.sh and install_agents.sh have had --index-only
     all along: rebuild the repository's own INDEX.md and write nothing else.
