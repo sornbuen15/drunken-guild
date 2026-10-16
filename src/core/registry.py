@@ -97,6 +97,7 @@ class ProjectConfig:
     git_root: Optional[str] = None
     description: str = ""
     jira: Optional[JiraIdentity] = None
+    hub_enabled: bool = False
     discord: Optional[DiscordIdentity] = None
     board_dir: Optional[str] = None
     raw: Dict[str, Any] = field(default_factory=dict, repr=False)
@@ -176,6 +177,9 @@ def parse_project(project_id: str, data: Dict[str, Any]) -> ProjectConfig:
         git_root=str(data["git_root"]) if data.get("git_root") else None,
         description=str(data.get("description", "")),
         jira=_parse_jira(data.get("jira")),
+        hub_enabled=(
+            isinstance(data.get("hub"), dict) and data["hub"].get("enabled") is True
+        ),
         discord=_parse_discord(data.get("discord")),
         board_dir=_parse_board_dir(data.get("board")),
         raw=data,

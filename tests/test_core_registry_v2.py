@@ -134,6 +134,22 @@ class TestV2Schema:
         assert jira.email == "someone@example.com"
         assert jira.credential == "env://JIRA_TOKEN_ALPHA"
 
+    def test_hub_enabled_is_read_from_the_optional_profile_block(
+        self, tmp_path
+    ) -> None:
+        document = {
+            "version": 2,
+            "projects": {"alpha": {"hub": {"enabled": True}}},
+        }
+        registry = ProjectRegistry(write_registry(tmp_path, document))
+
+        assert registry.get_project_config("alpha").hub_enabled is True
+
+    def test_missing_hub_block_means_disabled(self, tmp_path) -> None:
+        registry = ProjectRegistry(write_registry(tmp_path, V2_DOCUMENT))
+
+        assert registry.get_project_config("alpha").hub_enabled is False
+
     def test_trailing_slash_is_stripped_from_the_jira_url(self, tmp_path) -> None:
         """Every call site joins '/rest/api/3/...' onto this."""
         registry = ProjectRegistry(write_registry(tmp_path, V2_DOCUMENT))

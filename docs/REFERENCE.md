@@ -143,9 +143,13 @@ uv run drunken-init \
   --jira-url https://your-domain.atlassian.net \
   --jira-email you@example.com \
   --jira-project-key DG \
-  --jira-credential 'file://~/.drunken/secrets.json#jira.drunken-guild' \
-  --discord-channel 123456789012345678
+  --jira-credential 'file://~/.drunken/secrets.json#jira.drunken-guild'
 ```
+
+The Hub is another optional project integration, independent from Jira. Enable it with
+`uv run drunken-init --project drunken-guild --hub`; disable it explicitly with
+`uv run drunken-init --project drunken-guild --no-hub`. Re-registration reports whether the Hub
+setting changed or stayed the same. Omit both flags when neither integration is configured.
 
 Prove it resolves. This is a separate step on purpose, because Jira answers a search with `200` and
 `[]` when the credential is bad:
