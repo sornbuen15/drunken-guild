@@ -44,9 +44,10 @@ from . import (
     paths,
     scaffold,
     secrets,
+    worktrees,
 )
 from .errors import DrunkenError, ValidationError
-from .registry import SCHEMA_VERSION, validate_project_id
+from .registry import SCHEMA_VERSION, ProjectRegistry, validate_project_id
 
 # One definition, shared with drunken-doctor (DG-503): see core.ai_layer.
 _THIS_REPOSITORY_PACKAGE_NAME = ai_layer.THIS_REPOSITORY_PACKAGE_NAME
@@ -409,6 +410,14 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--sync-worktrees",
+        action="store_true",
+        help=(
+            "Preview or synchronize missing AI-layer files from the registered checkout "
+            "into its linked git worktrees. Manual only; never overwrites differences."
+        ),
+    )
+    parser.add_argument(
         "--remove-project",
         metavar="ID",
         help=(
@@ -421,7 +430,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--apply",
         action="store_true",
-        help="With --migrate-ai-layer: perform the plan instead of only showing it.",
+        help=(
+            "With --migrate-ai-layer or --sync-worktrees: perform the plan instead "
+            "of only showing it."
+        ),
     )
     parser.add_argument(
         "--backup-dir",
@@ -836,7 +848,8 @@ def _run_migrate_ai_layer(args: argparse.Namespace) -> int:
             remediation="Name the registered project whose AI layer should move out of its git.",
         )
     project_id = validate_project_id(args.project)
-    document = _ensure_registry_document(args.registry or str(paths.registry_path()))
+    registry_path = args.registry or str(paths.registry_path())
+    document = _ensure_registry_document(registry_path)
     entry = document["projects"].get(project_id)
     if not entry or not entry.get("path"):
         raise ValidationError(
@@ -913,6 +926,7 @@ _OTHER_ACTIONS = (
     "config_repo",
     "overwrite_ai_layer",
     "migrate_ai_layer",
+    "sync_worktrees",
     "apply",
     "backup_dir",
     "install_git_hooks",
@@ -1033,12 +1047,96 @@ def _remove_project_main(args: argparse.Namespace) -> int:
 
 
 def _standalone_action(args: argparse.Namespace) -> Optional[int]:
-    """The exit code of an action that runs alone (``--migrate-ai-layer``, ``--remove-project``)."""
+    """Run an action that must not share a call with ordinary registration."""
+    selected = [
+        name
+        for name, enabled in (
+            ("remove_project", args.remove_project is not None),
+            ("migrate_ai_layer", args.migrate_ai_layer),
+            ("sync_worktrees", args.sync_worktrees),
+        )
+        if enabled
+    ]
+    if len(selected) > 1:
+        print(
+            "error: --remove-project, --migrate-ai-layer and --sync-worktrees run separately."
+        )
+        return 1
     if args.remove_project is not None:
         return _remove_project_main(args)
     if args.migrate_ai_layer:
         return _migrate_main(args)
+    if args.sync_worktrees:
+        return _sync_worktrees_main(args)
     return None
+
+
+def _run_sync_worktrees(args: argparse.Namespace) -> int:
+    """Preview or apply an AI-layer sync to every linked worktree of a project."""
+    allowed = {"project", "registry", "sync_worktrees", "apply"}
+    other = [
+        name.replace("_", "-")
+        for name, value in vars(args).items()
+        if name not in allowed and value not in (None, False, "")
+    ]
+    if other:
+        raise ValidationError(
+            "--sync-worktrees cannot be combined with "
+            + ", ".join("--" + name for name in other)
+            + ".",
+            remediation="Run worktree synchronization on its own with --project and optional --apply.",
+        )
+    if not args.project:
+        raise ValidationError(
+            "--sync-worktrees needs --project.",
+            remediation="Name the registered project whose linked worktrees should be synchronized.",
+        )
+
+    project_id = validate_project_id(args.project)
+    registry_path = args.registry or str(paths.registry_path())
+    document = _ensure_registry_document(registry_path)
+    entry = document["projects"].get(project_id)
+    if not entry or not entry.get("path"):
+        raise ValidationError(
+            f"{project_id!r} is not registered with a path.",
+            remediation="Register it first: drunken-init --project <id> --path <checkout>.",
+        )
+    config = ProjectRegistry(registry_path).get_project_config(project_id)
+    project_root = config.resolved_path("synchronize worktrees")
+    git_root = (
+        project_root / config.git_root if config.git_root else project_root
+    ).resolve()
+    results = worktrees.sync(project_root, git_root, apply=bool(args.apply))
+    if not results:
+        print(f"no linked worktrees for {project_id}")
+        return 0
+
+    action = "copied" if args.apply else "would copy"
+    for item in results:
+        print(f"worktree        : {item.root}")
+        names = item.copied if args.apply else item.would_copy
+        for relative in names:
+            print(f"{action:<15} : {relative}")
+        for relative in item.unchanged:
+            print(f"unchanged       : {relative}")
+        for relative in item.conflicts:
+            print(f"conflict        : {relative} (left untouched)")
+    if not args.apply:
+        print("dry run         : nothing changed. Add --apply to copy missing files.")
+    return 0
+
+
+def _sync_worktrees_main(args: argparse.Namespace) -> int:
+    try:
+        return _run_sync_worktrees(args)
+    except DrunkenError as exc:
+        print(f"error: {exc}")
+        if exc.remediation:
+            print(f"  -> {exc.remediation}")
+        return 1
+    except OSError as exc:
+        print(f"error: {exc}")
+        return 1
 
 
 def main() -> int:

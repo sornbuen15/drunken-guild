@@ -78,7 +78,9 @@ creating a second one for the same work.
 
 > **New or existing, an untracked AI layer has no worktree memory.** `AGENTS.md`, `CLAUDE.md` and
 > `.claude/` are deliberately not committed, so a *new* `git worktree` of either kind of project
-> starts with none of them — details: [`docs/REFERENCE.md`](./docs/REFERENCE.md#ai-layer-location-and-git-worktrees).
+> starts with none of them. Run `drunken-doctor --project <id> --offline` to find missing copies;
+> `drunken-init --project <id> --sync-worktrees` previews a manual sync — details:
+> [`docs/REFERENCE.md`](./docs/REFERENCE.md#ai-layer-location-and-git-worktrees).
 
 ## Agent compatibility
 

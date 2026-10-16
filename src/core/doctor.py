@@ -31,6 +31,7 @@ from pathlib import Path
 from typing import Any, Final, Literal, Optional, Sequence
 
 from . import ai_layer, content_scan, install, orphans, paths, secrets
+from . import worktrees as ai_worktrees
 from .config_gen import (
     count_pins,
     export_requirements,
@@ -2266,6 +2267,75 @@ def _check_layering(
         _check_project_layering(report, project_id, registry, repo_root)
 
 
+def _describe_worktree_drift(drift: Sequence[ai_worktrees.WorktreeLayer]) -> str:
+    details = []
+    for item in drift:
+        fragments = []
+        if item.missing:
+            fragments.append("missing: " + ", ".join(item.missing))
+        if item.different:
+            fragments.append("different or tracked: " + ", ".join(item.different))
+        details.append(f"{item.root} ({'; '.join(fragments)})")
+    return f"{len(drift)} worktree(s) need attention: " + "; ".join(details)
+
+
+def _check_worktree_layers(
+    report: Report,
+    project_ids: Sequence[str],
+    registry: ProjectRegistry,
+    repo_root: Optional[Path],
+) -> None:
+    """Report linked worktrees missing or diverging from their registered checkout's AI layer."""
+    for project_id in project_ids:
+        name = f"worktrees.ai_layer.{project_id}"
+        try:
+            config = registry.get_project_config(project_id)
+        except DrunkenError as exc:
+            report.add_error(name, exc)
+            continue
+
+        if not config.path:
+            report.add(
+                name, "skip", "No path declared, so there are no worktrees to inspect."
+            )
+            continue
+
+        project_root = config.resolved_path("inspect git worktrees")
+        git_root = project_root / config.git_root if config.git_root else project_root
+        if repo_root is not None and _same_checkout(git_root, repo_root):
+            report.add(
+                name, "skip", "This repository is the AI-layer source; exempt by rule."
+            )
+            continue
+        if not git_root.is_dir() or not (git_root / ".git").exists():
+            report.add(name, "skip", describe_missing_git_root(git_root))
+            continue
+
+        try:
+            inventory = ai_worktrees.inspect(project_root, git_root)
+        except DrunkenError as exc:
+            report.add_error(name, exc)
+            continue
+
+        drift = [item for item in inventory if item.missing or item.different]
+        if drift:
+            report.add(
+                name,
+                "warn",
+                _describe_worktree_drift(drift),
+                remediation=(
+                    f"Preview with `drunken-init --project {project_id} --sync-worktrees`; "
+                    "apply only the missing files with `--apply`. Existing differences are never overwritten."
+                ),
+            )
+        else:
+            report.add(
+                name,
+                "ok",
+                f"all {len(inventory)} linked worktree(s) match the registered checkout's AI layer.",
+            )
+
+
 #: The substring proving a `.pre-commit-config.yaml` actually runs DG-317's
 #: operator-inventory guard, rather than merely declaring hook types a
 #: *different* set of hooks would use. Matched as a raw substring over the
@@ -3217,6 +3287,7 @@ def run_doctor(
         _check_project(report, project_id, registry, offline)
 
     _check_layering(report, project_ids, registry, source_tree_root())
+    _check_worktree_layers(report, project_ids, registry, source_tree_root())
     _check_content_scan(report, project_ids, registry, source_tree_root())
     _check_git_hooks(report, project_ids, registry, source_tree_root())
 
