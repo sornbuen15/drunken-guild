@@ -16,17 +16,16 @@ from .paths import (
 )
 
 SCHEMA_VERSION = 1
-SESSION_FIELDS = frozenset(
-    {
-        "session_id",
-        "agent",
-        "project_id",
-        "project_path",
-        "reported_task",
-        "started_at",
-        "updated_at",
-    }
+SESSION_FIELDS = (
+    "session_id",
+    "agent",
+    "project_id",
+    "project_path",
+    "reported_task",
+    "started_at",
+    "updated_at",
 )
+SESSION_FIELD_SET = frozenset(SESSION_FIELDS)
 REQUIRED_FIELDS = frozenset({"session_id", "agent"})
 
 
@@ -42,7 +41,7 @@ def _path(path: str | os.PathLike[str] | None) -> Path:
 
 def _normalize_session(session: Mapping[str, Any]) -> dict[str, object]:
     """Validate and copy the allowlisted metadata fields only."""
-    unknown = set(session) - SESSION_FIELDS
+    unknown = set(session) - SESSION_FIELD_SET
     if unknown:
         raise SessionMetadataError(
             "Session metadata contains unsupported fields: "
