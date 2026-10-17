@@ -30,6 +30,7 @@ from typing import Final
 ENV_HOME: Final = "DRUNKEN_HOME"
 ENV_REGISTRY: Final = "DRUNKEN_REGISTRY_PATH"
 ENV_AUTH_DB: Final = "DRUNKEN_AUTH_DB"
+ENV_SESSION_METADATA: Final = "DRUNKEN_SESSION_METADATA_PATH"
 
 DEFAULT_HOME: Final = "~/.drunken"
 
@@ -107,6 +108,11 @@ def registry_path() -> ResolvedPath:
 def auth_db_path() -> ResolvedPath:
     """Bearer-token database for HTTP mode. Consumed from 2.4.0 onwards."""
     return _under_home("auth.json", ENV_AUTH_DB)
+
+
+def session_metadata_path() -> ResolvedPath:
+    """Local Hub session metadata, kept outside project source trees."""
+    return _under_home("sessions.json", ENV_SESSION_METADATA)
 
 
 def ensure_home() -> Path:
