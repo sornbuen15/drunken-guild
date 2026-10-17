@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from pathlib import Path
 from typing import Any, Sequence
 
 from .config_gen import MCP_SERVERS
 from .registry import ProjectRegistry
+from .session_store import SessionMetadataError, load_session_metadata
 
 SKILL_ROOTS = ("skills", ".claude/skills", ".agents/skills", ".gemini/skills")
 
@@ -63,13 +65,8 @@ def scan_project_resources(
 
 
 def load_sessions() -> list[dict[str, object]]:
-    """Return session metadata known to this process.
-
-    Agent adapters will provide session records as their evidence and storage
-    contracts land. Until then, an empty result is explicit and never inferred
-    from a network lookup.
-    """
-    return []
+    """Return session metadata saved on this machine, without network access."""
+    return load_session_metadata()
 
 
 def render(
@@ -153,7 +150,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         catalogs[project_id] = scan_project_resources(
             config.path, list(MCP_SERVERS) if config.jira is not None else []
         )
-    sessions = load_sessions()
+    try:
+        sessions = load_sessions()
+    except SessionMetadataError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 2
 
     if args.json:
         print(

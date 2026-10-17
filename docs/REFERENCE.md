@@ -160,6 +160,12 @@ overview as JSON. With no registered projects or session data, it prints explici
 Hub is a separate optional command; the skills-first SDLC flow remains usable when no project has
 Hub enabled.
 
+Hub session metadata is stored outside project checkouts at `~/.drunken/sessions.json` by default.
+Set `DRUNKEN_SESSION_METADATA_PATH` to use another local file. The versioned store accepts only
+session id, agent, project id/path, reported task, and start/update timestamps; it rejects other
+fields, including transcript content. Reads are local and work offline. The store does not discover
+or launch agent sessions by itself; an adapter must supply metadata before it appears in the Hub.
+
 Prove it resolves. This is a separate step on purpose, because Jira answers a search with `200` and
 `[]` when the credential is bad:
 
