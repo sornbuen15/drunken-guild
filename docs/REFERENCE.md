@@ -151,11 +151,14 @@ The Hub is another optional project integration, independent from Jira. Enable i
 `uv run drunken-init --project drunken-guild --no-hub`. Re-registration reports whether the Hub
 setting changed or stayed the same. Omit both flags when neither integration is configured.
 
-Run `drunken-hub` to list the local project registry and any session information available to the
-Hub. It reads local state only and does not contact Jira or require a relay. `drunken-hub --json`
-prints the same overview as JSON. With no registered projects or session data, it prints explicit
-empty states. The Hub is a separate optional command; the skills-first SDLC flow remains usable
-when no project has Hub enabled.
+Run `drunken-hub` to list the local project registry, project-local skills, profile-configured MCP
+integrations, and any session information available to the Hub. It reads local state only and does
+not contact Jira or require a relay. Agent access is shown as unknown unless project-local evidence
+records it. The catalog reads MCP integration names from the project profile and does not inspect
+host MCP files, commands, environment values, or credentials. `drunken-hub --json` prints the same
+overview as JSON. With no registered projects or session data, it prints explicit empty states. The
+Hub is a separate optional command; the skills-first SDLC flow remains usable when no project has
+Hub enabled.
 
 Prove it resolves. This is a separate step on purpose, because Jira answers a search with `200` and
 `[]` when the credential is bad:
