@@ -28,7 +28,7 @@ versions from one run.
 | Agent | Instruction / skill / discovery | Routing and tools | Human gates | Token data | Overall |
 |---|---|---|---|---|---|
 | Codex | Partial: this implementation session read the shared instructions and selected skills; this does not validate native auto-discovery or a scenario suite | Not tested systematically | Partial: observed in this task only | Not available from provider counters in this record | Partial |
-| Claude Code | Not tested for this evaluation | Not tested | Not tested | Not available | Not tested |
+| Claude Code | Partial: Claude Code 2.1.286 was available on macOS 27.0.1 arm64; this task inspected the shared root `AGENTS.md` and selected skills explicitly. Native discovery was not exercised in a Claude Code session. | Partial: local Hub JSON reports an empty session list; no Claude session or controls were exposed by the Hub. Routing scenarios and MCP operations were not exercised in Claude Code. | Not tested in a Claude Code session | Not available | Partial, limited to local Hub availability and explicit instruction inspection |
 | Aider | Not tested | Not tested | Not tested | Not available | Not tested |
 | Gemini CLI | Not tested | Not tested | Not tested | Not available | Not tested |
 | Antigravity | Not tested | Not tested | Not tested | Not available | Not tested |
