@@ -151,6 +151,12 @@ The Hub is another optional project integration, independent from Jira. Enable i
 `uv run drunken-init --project drunken-guild --no-hub`. Re-registration reports whether the Hub
 setting changed or stayed the same. Omit both flags when neither integration is configured.
 
+Run `drunken-hub` to list the local project registry and any session information available to the
+Hub. It reads local state only and does not contact Jira or require a relay. `drunken-hub --json`
+prints the same overview as JSON. With no registered projects or session data, it prints explicit
+empty states. The Hub is a separate optional command; the skills-first SDLC flow remains usable
+when no project has Hub enabled.
+
 Prove it resolves. This is a separate step on purpose, because Jira answers a search with `200` and
 `[]` when the credential is bad:
 
@@ -439,6 +445,17 @@ rewritten, so anything secret that was ever committed must still be rotated, and
 ```bash
 uv run drunken-init --project alpha --migrate-ai-layer            # plan only
 uv run drunken-init --project alpha --migrate-ai-layer --apply    # back up, exclude, untrack
+```
+
+The AI layer is intentionally untracked, so Git does not copy it into newly created worktrees.
+`drunken-doctor --project alpha --offline` reports linked worktrees that are missing or differ from
+the registered checkout. Synchronization is manual: preview first, then use `--apply` to copy only
+missing files. A different or tracked file is reported and left untouched; no checkout hook runs
+automatically.
+
+```bash
+drunken-init --project alpha --sync-worktrees                 # preview only
+drunken-init --project alpha --sync-worktrees --apply         # copy missing files
 ```
 
 Two things never go in the config repo: a **credential** (it lives in no git repository; the

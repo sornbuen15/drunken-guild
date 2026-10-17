@@ -90,6 +90,7 @@ dev = [
 drunken-doctor = "core.doctor:main"
 drunken-init = "core.init:main"
 drunken-usage = "core.usage:main"
+drunken-hub = "core.hub:main"
 drunken-hook = "core.hook:main"
 drunken-install = "core.install:main"
 drunken-jira-mcp = "jira_mcp.server:main"

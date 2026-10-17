@@ -20,7 +20,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 
 SCRIPT_LINE = re.compile(r"^(?P<name>[A-Za-z0-9._-]+)\s*=\s*\"(?P<target>[^\"]+)\"")
 
-#: The four an operator types.
+#: Operator-facing commands, including the optional local Hub.
 OPERATOR_COMMANDS = {
     "drunken-doctor",
     "drunken-init",
@@ -28,6 +28,7 @@ OPERATOR_COMMANDS = {
     # that the skills no longer need a clone to reach a machine.
     "drunken-install",
     "drunken-usage",
+    "drunken-hub",
 }
 
 #: Not typed by anyone: one is a server a host launches, one is a hook
