@@ -36,6 +36,17 @@ versions from one run.
 Add agents only with a named version/configuration and evidence. Compatibility is not implied for
 other versions, models, operating systems or MCP setups.
 
+## Codex platform evidence
+
+Evidence collected on 2026-10-17 for the current operator machine. This records the versions and
+capabilities observed in this session; it does not establish compatibility across other Codex
+versions or operating systems.
+
+| OS | Codex version | Session information observed by Hub | Controls observed | Evidence / status |
+|---|---|---|---|---|
+| macOS 27.0.1 (build 26A434, arm64) | Desktop 26.1013.40934 (build 20770, prod); CLI 0.162.1 | The active Codex task is visible to this assistant, but Hub's `load_sessions()` returns an empty list. Hub did not discover this task's session metadata. | CLI version can be queried. Hub launch, stop, dispatch, and session enumeration controls were not demonstrated; status is unknown. | `sw_vers`, `uname -a`, `codex --version`, and the Codex app version check; partial evidence for this macOS machine only. |
+| Windows | Not tested | Unknown | Unknown | Pending a run on the operator's Windows machine. |
+
 ## Routing protocol
 
 1. Record agent name, version, model, OS, repository revision, project configuration and enabled
