@@ -35,6 +35,8 @@ def test_lists_registered_projects_without_network(
     output = capsys.readouterr().out
     assert "alpha" in output
     assert "/work/alpha" in output
+    assert "Project resources:" in output
+    assert "Agent access: unknown" in output
     assert "No session data is available" in output
 
 
@@ -68,5 +70,59 @@ def test_json_output_identifies_hub_availability(
     assert hub.main(["--registry", str(registry_path), "--json"]) == 0
 
     payload = json.loads(capsys.readouterr().out)
-    assert payload["projects"] == [{"id": "alpha", "path": None, "hub_enabled": False}]
+    assert payload["projects"][0]["id"] == "alpha"
+    assert payload["projects"][0]["path"] is None
+    assert payload["projects"][0]["hub_enabled"] is False
+    assert payload["projects"][0]["resources"]["agent_access"]["status"] == "unknown"
     assert payload["sessions"] == []
+
+
+def test_project_resource_catalog_lists_resources_and_unknown_agent_access(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "skills" / "review").mkdir(parents=True)
+    (tmp_path / "skills" / "review" / "SKILL.md").write_text(
+        "---\nname: review\n---\n", encoding="utf-8"
+    )
+
+    catalog = hub.scan_project_resources(tmp_path, ["drunken-jira-mcp"])
+
+    assert catalog["skills"] == [{"name": "review", "path": "skills/review/SKILL.md"}]
+    assert catalog["mcp_integrations"] == [
+        {"name": "drunken-jira-mcp", "source": "project profile"}
+    ]
+    assert catalog["agent_access"]["status"] == "unknown"
+
+
+def test_json_catalog_uses_profile_mcp_names_without_emitting_reference(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    registry_path = tmp_path / "projects.json"
+    registry_path.write_text(
+        json.dumps(
+            {
+                "version": 2,
+                "projects": {
+                    "alpha": {
+                        "path": str(tmp_path),
+                        "jira": {
+                            "url": "https://jira.example.invalid",
+                            "email": "alpha@example.invalid",
+                            "project_key": "ALPHA",
+                            "credential": "env://ALPHA_JIRA_TOKEN",
+                        },
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    assert hub.main(["--registry", str(registry_path), "--json"]) == 0
+
+    output = capsys.readouterr().out
+    payload = json.loads(output)
+    assert payload["projects"][0]["resources"]["mcp_integrations"] == [
+        {"name": "drunken-jira-mcp", "source": "project profile"}
+    ]
+    assert "ALPHA_JIRA_TOKEN" not in output
