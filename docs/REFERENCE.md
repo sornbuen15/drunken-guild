@@ -35,7 +35,7 @@ verbatim from the versions of those two files at the commit this branch forked f
 
 **For the runtime**, additionally:
 
-- Python 3.10+ and [`uv`](https://docs.astral.sh/uv/)
+- Python 3.12+ and [`uv`](https://docs.astral.sh/uv/)
 - A Jira account, and a Discord bot if you want approvals
 
 ---

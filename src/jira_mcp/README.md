@@ -4,7 +4,7 @@ This is a Model Context Protocol (MCP) server for integrating Jira into AI Agent
 
 ## Prerequisites
 
-- Python 3.10+
+- Python 3.12+
 - A Jira Cloud account with an API Token.
 
 ## Installation

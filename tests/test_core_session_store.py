@@ -77,12 +77,14 @@ def test_hub_reads_saved_metadata_from_local_state(
     metadata_path = tmp_path / "machine-state" / "sessions.json"
     save_session_metadata([_session()], metadata_path)
     monkeypatch.setenv(ENV_SESSION_METADATA, str(metadata_path))
+    monkeypatch.setattr(hub, "discover_claude_sessions", lambda _, **kwargs: ([], []))
 
     assert hub.main(["--registry", str(registry_path), "--json"]) == 0
 
     payload = json.loads(capsys.readouterr().out)
-    assert payload["sessions"][0]["session_id"] == "session-alpha"
-    assert payload["sessions"][0]["agent"] == "Codex"
+    assert payload["sessions"] == []
+    assert payload["saved_sessions"][0]["session_id"] == "session-alpha"
+    assert payload["saved_sessions"][0]["agent"] == "Codex"
 
 
 def test_hub_reports_invalid_local_metadata_without_exposing_it(
@@ -105,6 +107,7 @@ def test_hub_reports_invalid_local_metadata_without_exposing_it(
         encoding="utf-8",
     )
     monkeypatch.setenv(ENV_SESSION_METADATA, str(metadata_path))
+    monkeypatch.setattr(hub, "discover_claude_sessions", lambda _, **kwargs: ([], []))
 
     assert hub.main(["--registry", str(registry_path), "--json"]) == 2
 

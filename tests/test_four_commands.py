@@ -45,8 +45,7 @@ EXPECTED = OPERATOR_COMMANDS | PLUMBING
 def declared_scripts() -> dict[str, str]:
     """Every console script pyproject declares, as `name -> target`.
 
-    Read with a regex rather than `tomllib`: the declared floor is Python 3.10,
-    where `tomllib` does not exist, and a guard is not worth a new dependency.
+    Read with a regex to keep the guard focused on declared console-script targets.
     """
     text = (REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8")
     block = text.partition("[project.scripts]")[2].partition("\n[")[0]
