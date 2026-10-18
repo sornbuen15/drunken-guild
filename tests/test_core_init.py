@@ -40,7 +40,10 @@ class TestBootstrap:
 
         state = tmp_path / "state"
         assert state.is_dir()
-        assert stat.S_IMODE(state.stat().st_mode) == paths.HOME_MODE
+        if paths.is_windows():
+            assert paths.is_group_or_world_accessible(state) is False
+        else:
+            assert stat.S_IMODE(state.stat().st_mode) == paths.HOME_MODE
 
     def test_writes_an_empty_v2_registry(self, tmp_path) -> None:
         run()

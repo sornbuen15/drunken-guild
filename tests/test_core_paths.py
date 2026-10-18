@@ -95,7 +95,10 @@ class TestPermissions:
         created = paths.ensure_home()
 
         assert created.is_dir()
-        assert stat.S_IMODE(created.stat().st_mode) == paths.HOME_MODE
+        if paths.is_windows():
+            assert paths.is_group_or_world_accessible(created) is False
+        else:
+            assert stat.S_IMODE(created.stat().st_mode) == paths.HOME_MODE
 
     def test_ensure_home_tightens_an_existing_loose_directory(
         self, monkeypatch, tmp_path
@@ -106,7 +109,10 @@ class TestPermissions:
 
         paths.ensure_home()
 
-        assert stat.S_IMODE(loose.stat().st_mode) == paths.HOME_MODE
+        if paths.is_windows():
+            assert paths.is_group_or_world_accessible(loose) is False
+        else:
+            assert stat.S_IMODE(loose.stat().st_mode) == paths.HOME_MODE
 
     def test_secure_file_restricts_to_owner(self, tmp_path) -> None:
         target = tmp_path / "auth.json"
@@ -115,22 +121,102 @@ class TestPermissions:
 
         paths.secure_file(target)
 
-        assert stat.S_IMODE(target.stat().st_mode) == paths.SECRET_FILE_MODE
+        if paths.is_windows():
+            assert paths.is_group_or_world_accessible(target) is False
+        else:
+            assert stat.S_IMODE(target.stat().st_mode) == paths.SECRET_FILE_MODE
 
     def test_secure_file_is_a_noop_for_a_missing_path(self, tmp_path) -> None:
         paths.secure_file(tmp_path / "absent")
 
-    def test_detects_a_world_readable_secret_file(self, tmp_path) -> None:
+    @pytest.mark.parametrize(
+        ("directory", "rights"),
+        [(True, paths.ICACLS_DIR_RIGHTS), (False, paths.ICACLS_FILE_RIGHTS)],
+    )
+    def test_windows_security_replaces_acls_with_owner_only(
+        self, monkeypatch, tmp_path, directory, rights
+    ) -> None:
+        monkeypatch.setattr(paths, "is_windows", lambda: True)
+        monkeypatch.setenv("USERNAME", "alpha")
+        target = tmp_path / ("state" if directory else "sessions.json")
+        if directory:
+            target.mkdir()
+        else:
+            target.write_text("{}", encoding="utf-8")
+        calls = []
+
+        def run(command, **kwargs):
+            calls.append((command, kwargs))
+            return type("Completed", (), {"returncode": 0})()
+
+        monkeypatch.setattr(paths.subprocess, "run", run)
+        if directory:
+            monkeypatch.setenv(paths.ENV_HOME, str(target))
+            paths.ensure_home()
+        else:
+            paths.secure_file(target)
+
+        assert [call[0] for call in calls] == [
+            ["icacls", str(target), "/reset"],
+            [
+                "icacls",
+                str(target),
+                "/inheritance:r",
+                "/grant:r",
+                f"alpha:{rights}",
+            ],
+        ]
+        assert all(kwargs["check"] is False for _, kwargs in calls)
+        assert all(kwargs["timeout"] == 5 for _, kwargs in calls)
+
+    def test_windows_security_failure_is_not_silently_ignored(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        monkeypatch.setattr(paths, "is_windows", lambda: True)
+        target = tmp_path / "state"
+        target.mkdir()
+        monkeypatch.setenv(paths.ENV_HOME, str(target))
+
+        def run(*args, **kwargs):
+            return type("Completed", (), {"returncode": 1})()
+
+        monkeypatch.setattr(paths.subprocess, "run", run)
+
+        with pytest.raises(PermissionError, match="Could not restrict Windows ACL"):
+            paths.ensure_home()
+
+    def test_detects_a_world_readable_secret_file(self, tmp_path, monkeypatch) -> None:
         target = tmp_path / "auth.json"
         target.write_text("{}")
-        os.chmod(target, 0o644)
+        if paths.is_windows():
+            monkeypatch.setattr(
+                paths,
+                "_windows_icacls_output",
+                lambda path: (
+                    f"{path} Everyone:(F)\n"
+                    "Successfully processed 1 files; Failed processing 0 files.\n"
+                ),
+            )
+        else:
+            os.chmod(target, 0o644)
 
         assert paths.is_group_or_world_accessible(target) is True
 
-    def test_owner_only_file_is_not_flagged(self, tmp_path) -> None:
+    def test_owner_only_file_is_not_flagged(self, tmp_path, monkeypatch) -> None:
         target = tmp_path / "auth.json"
         target.write_text("{}")
-        os.chmod(target, 0o600)
+        if paths.is_windows():
+            monkeypatch.setenv("USERNAME", "alpha")
+            monkeypatch.setattr(
+                paths,
+                "_windows_icacls_output",
+                lambda path: (
+                    f"{path} alpha:(F)\n"
+                    "Successfully processed 1 files; Failed processing 0 files.\n"
+                ),
+            )
+        else:
+            os.chmod(target, 0o600)
 
         assert paths.is_group_or_world_accessible(target) is False
 

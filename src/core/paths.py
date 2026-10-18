@@ -119,14 +119,50 @@ def ensure_home() -> Path:
     """Create the state directory if absent and enforce owner-only access."""
     path = home().path
     path.mkdir(parents=True, exist_ok=True)
-    path.chmod(HOME_MODE)
+    if is_windows():
+        _secure_windows_path(path)
+    else:
+        path.chmod(HOME_MODE)
     return path
 
 
 def secure_file(path: Path) -> None:
     """Restrict *path* to the owner. Call after creating anything secret-bearing."""
     if path.exists():
-        path.chmod(SECRET_FILE_MODE)
+        if is_windows():
+            _secure_windows_path(path)
+        else:
+            path.chmod(SECRET_FILE_MODE)
+
+
+def _secure_windows_path(path: Path) -> None:
+    """Remove inherited and existing ACL entries, then grant owner access only."""
+    rights = ICACLS_DIR_RIGHTS if path.is_dir() else ICACLS_FILE_RIGHTS
+    commands = [
+        ["icacls", str(path), "/reset"],
+        [
+            "icacls",
+            str(path),
+            "/inheritance:r",
+            "/grant:r",
+            f"{_icacls_principal()}:{rights}",
+        ],
+    ]
+    for command in commands:
+        try:
+            completed = subprocess.run(
+                command,
+                capture_output=True,
+                timeout=5,
+                check=False,
+                text=True,
+                encoding=locale.getpreferredencoding(False),
+                errors="replace",
+            )
+        except (OSError, subprocess.SubprocessError) as exc:
+            raise PermissionError(f"Could not restrict Windows ACL for {path}") from exc
+        if completed.returncode != 0:
+            raise PermissionError(f"Could not restrict Windows ACL for {path}")
 
 
 def is_group_or_world_accessible(path: Path) -> bool:
