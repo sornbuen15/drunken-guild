@@ -312,6 +312,10 @@ only for versions and scenarios with recorded evidence; unavailable token data i
 **Decided:** 2026-10-12 — the Boss approved validating the shared workflow per agent and avoiding
 general compatibility claims without evidence.
 
+### REQ-037 — Discover all live local agent sessions
+**Class:** Must
+**Acceptance:** On Windows and macOS, Hub displays every live coding-agent session discoverable on the machine regardless of vendor or project registration, identifies project registration separately, distinguishes idle and busy when the source reports them, labels unavailable values unknown, and retains no transcripts.
+
 ## Inferred — not yet accepted
 - (none — all accepted by the Boss, 2026-09-23)
 - A user-level SessionStart hook that tells the agent to run init in a folder the guild does not

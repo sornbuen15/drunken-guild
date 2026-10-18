@@ -35,7 +35,7 @@ verbatim from the versions of those two files at the commit this branch forked f
 
 **For the runtime**, additionally:
 
-- Python 3.10+ and [`uv`](https://docs.astral.sh/uv/)
+- Python 3.12+ and [`uv`](https://docs.astral.sh/uv/)
 - A Jira account, and a Discord bot if you want approvals
 
 ---
@@ -165,6 +165,8 @@ Set `DRUNKEN_SESSION_METADATA_PATH` to use another local file. The versioned sto
 session id, agent, project id/path, reported task, and start/update timestamps; it rejects other
 fields, including transcript content. Reads are local and work offline. The store does not discover
 or launch agent sessions by itself; an adapter must supply metadata before it appears in the Hub.
+The current live-session source inventory, coverage limits, and provider-neutral record contract are
+documented in [Local live-session discovery](SESSION-DISCOVERY.md).
 
 Prove it resolves. This is a separate step on purpose, because Jira answers a search with `200` and
 `[]` when the credential is bad:
