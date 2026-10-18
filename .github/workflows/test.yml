@@ -87,9 +87,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # 3.10 is the floor declared in pyproject and was never actually
-        # exercised until now; 3.13 is what the maintainers run.
-        python-version: ["3.10", "3.13"]
+        # Test the declared 3.12 floor and the current maintainer runtime.
+        python-version: ["3.12", "3.13"]
 
     steps:
       - uses: actions/checkout@v4
