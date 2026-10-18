@@ -6,7 +6,13 @@ from pathlib import Path
 import pytest
 
 from core import hub
-from core.paths import ENV_HOME, ENV_SESSION_METADATA, session_metadata_path
+from core.paths import (
+    ENV_HOME,
+    ENV_SESSION_METADATA,
+    is_group_or_world_accessible,
+    is_windows,
+    session_metadata_path,
+)
 from core.session_store import (
     SESSION_FIELDS,
     SessionMetadataError,
@@ -53,6 +59,8 @@ def test_metadata_round_trips_offline_without_transcript_fields(tmp_path: Path) 
     assert set(document["sessions"][0]) == set(SESSION_FIELDS)
     assert load_session_metadata(metadata_path) == [document["sessions"][0]]
     assert "transcript" not in saved_path.read_text(encoding="utf-8")
+    if is_windows():
+        assert is_group_or_world_accessible(saved_path) is False
 
 
 def test_store_rejects_transcript_fields_instead_of_persisting_them(
