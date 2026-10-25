@@ -30,6 +30,9 @@
     {"request": "Write the install guide for this tool — keep it short and scannable.", "expect": {"kind": "skill", "name": "concise-docs"}},
     {"request": "Turn this test run into release notes a reader can scan in ten seconds.", "expect": {"kind": "skill", "name": "concise-docs"}},
 
+    {"request": "What failed in this work, what caused it, and how do we prevent it recurring?", "expect": {"kind": "skill", "name": "task-answers"}},
+    {"request": "Tell me what remains before merge, with the actual check results instead of vague progress.", "expect": {"kind": "skill", "name": "task-answers"}},
+
     {"request": "I'm stepping away for the afternoon — you need my OK before force-pushing, so how do you ask?", "expect": {"kind": "skill", "name": "ask-boss"}},
     {"request": "You need my approval to drop the staging database. Get it without blocking your other work.", "expect": {"kind": "skill", "name": "ask-boss"}},
 

@@ -647,14 +647,18 @@ def _unresolvable(server: dict[str, Any]) -> list[str]:
     """
     missing: list[str] = []
     command = str(server.get("command") or "")
-    if command.startswith("/"):
+    if Path(command).is_absolute() or command.startswith("/"):
         if not Path(command).exists():
             missing.append(command)
     elif command and shutil.which(command) is None:
         missing.append(command)
 
     for arg in server.get("args") or []:
-        if isinstance(arg, str) and arg.startswith("/") and not Path(arg).exists():
+        if (
+            isinstance(arg, str)
+            and (Path(arg).is_absolute() or arg.startswith("/"))
+            and not Path(arg).exists()
+        ):
             missing.append(arg)
     return missing
 

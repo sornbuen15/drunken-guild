@@ -14,7 +14,7 @@ attrs==26.1.0
     # via
     #   jsonschema
     #   referencing
-certifi==2026.7.22
+certifi==2026.10.19
     # via
     #   httpcore
     #   httpx
@@ -24,13 +24,17 @@ cfgv==3.5.0
     # via pre-commit
 click==8.4.2
     # via uvicorn
+colorama==0.4.6
+    # via
+    #   click
+    #   pytest
 coverage==7.14.3
     # via pytest-cov
 cryptography==50.0.0
     # via pyjwt
 distlib==0.4.3
     # via virtualenv
-filelock==3.29.4
+filelock==4.2.4
     # via
     #   python-discovery
     #   virtualenv
@@ -70,7 +74,7 @@ mypy-extensions==1.1.0
     # via mypy
 nodeenv==1.10.0
     # via pre-commit
-packaging==26.2
+packaging==26.3
     # via
     #   pytest
     #   virtualenv
@@ -124,6 +128,8 @@ python-dotenv==1.2.2
     #   pydantic-settings
 python-multipart==0.0.32
     # via mcp
+pywin32==312
+    # via mcp
 pyyaml==6.0.3
     # via pre-commit
 referencing==0.37.0
@@ -156,5 +162,5 @@ typing-inspection==0.4.2
     #   pydantic-settings
 uvicorn==0.52.1
     # via mcp
-virtualenv==21.14.1
+virtualenv==21.14.13
     # via pre-commit

@@ -10,7 +10,7 @@ from typing import Any, Sequence
 
 from .config_gen import MCP_SERVERS
 from .registry import ProjectRegistry
-from .session_discovery import discover_claude_sessions
+from .session_discovery import discover_claude_sessions as discover_claude_sessions
 from .session_store import SessionMetadataError, load_session_metadata
 
 SKILL_ROOTS = ("skills", ".claude/skills", ".agents/skills", ".gemini/skills")
@@ -187,7 +187,26 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument(
         "--json", action="store_true", help="Emit JSON instead of text."
     )
+    parser.add_argument(
+        "--web", action="store_true", help="Open a local browser dashboard server."
+    )
+    parser.add_argument(
+        "--port", type=int, default=8765, help="Local dashboard port (default: 8765)."
+    )
     args = parser.parse_args(argv)
+
+    if args.web:
+        from .dashboard import serve
+
+        if args.json:
+            parser.error("--web and --json cannot be combined")
+        if not 0 <= args.port <= 65535:
+            parser.error("--port must be between 0 and 65535")
+        try:
+            return serve(args.registry, args.port)
+        except OSError as exc:
+            print(f"Could not start the local dashboard: {exc}", file=sys.stderr)
+            return 2
 
     registry = ProjectRegistry(args.registry) if args.registry else ProjectRegistry()
     projects = []

@@ -8,6 +8,9 @@ Map task keywords to their absolute skill file paths. Load ONLY the relevant ski
 - `project-docs` — Use when a step has to find, create or reconcile a project's own documents — "where does this project keep its PRD?", "there are two PRD.md files, which one win
   Path: $HOME/.claude/skills/project-docs/SKILL.md
 
+- `task-answers` (`/task-answers`) — Use when explaining ongoing technical work, failures, progress, fixes or prevention — "what failed and how do we fix it?", "what remains before merge?". Ground
+  Path: $HOME/.claude/skills/task-answers/SKILL.md
+
 - `audit` (`/audit`) — Use when a work cycle ends, before anyone calls a requirement done, or when asked what is complete — "what shipped?", "does this requirement have evidence?", "w
   Path: $HOME/.claude/skills/audit/SKILL.md
 

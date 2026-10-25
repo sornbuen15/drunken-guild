@@ -315,6 +315,11 @@ general compatibility claims without evidence.
 ### REQ-037 — Discover all live local agent sessions
 **Class:** Must
 **Acceptance:** On Windows and macOS, Hub displays every live coding-agent session discoverable on the machine regardless of vendor or project registration, identifies project registration separately, distinguishes idle and busy when the source reports them, labels unavailable values unknown, and retains no transcripts.
+**Amended:** 2026-10-25 — the owner requests a local browser dashboard for easier
+monitoring. Provide session/project filters, session details, source coverage and
+observation times over the existing discovery contract. Keep stored metadata and
+demonstration records distinct from live observations; unavailable task/status
+values remain unknown. Initial delivery is read-only and retains the CLI.
 
 ## Inferred — not yet accepted
 - (none — all accepted by the Boss, 2026-09-23)

@@ -151,11 +151,11 @@ class TestPaths:
         """§1.5: ALPHA's registered path is not the repository — the repo is
         inside it, so every git command from the root failed."""
         context = ProjectContext.build("alpha", registry)
-        assert str(context.git_root_path()) == "/abs/alpha-workspace/alpha"
+        assert context.git_root_path() == Path("/abs/alpha-workspace") / "alpha"
 
     def test_git_root_defaults_to_the_project_root(self, registry) -> None:
-        assert (
-            str(ProjectContext.build("bare", registry).git_root_path()) == "/abs/bare"
+        assert ProjectContext.build("bare", registry).git_root_path() == Path(
+            "/abs/bare"
         )
 
     def test_git_root_can_ascend_for_a_project_registered_at_a_subfolder(
@@ -224,7 +224,7 @@ class TestPaths:
         )
         context = ProjectContext.build("p", ProjectRegistry(str(target)))
 
-        assert str(context.board_dir_path()) == "/abs/p/docs/kanban"
+        assert context.board_dir_path() == Path("/abs/p") / "docs" / "kanban"
 
 
 class TestVerifyJiraIdentity:

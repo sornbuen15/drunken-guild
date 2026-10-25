@@ -21,6 +21,10 @@ description: >
     length and shape.
   </role>
 
+  For questions about ongoing work, failures, causes or fixes, use `/task-answers`.
+  This skill covers authored documents and summaries; task-answers grounds the
+  conversational answer in the current work and its evidence.
+
   <doc_types>
     Six shapes, one example of each under `references/` — read the one that matches before
     writing, rather than inventing a shape from memory:

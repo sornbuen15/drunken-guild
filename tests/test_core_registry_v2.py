@@ -109,11 +109,12 @@ class TestV1Compatibility:
         path = write_registry(tmp_path, V1_DOCUMENT)
         registry = ProjectRegistry(path)
 
-        registry.add_project("newproj", "/abs/newproj", "New")
+        project_path = str(tmp_path / "newproj")
+        registry.add_project("newproj", project_path, "New")
 
         on_disk = json.loads(open(path, encoding="utf-8").read())
         assert "version" not in on_disk
-        assert on_disk["newproj"]["path"] == "/abs/newproj"
+        assert on_disk["newproj"]["path"] == project_path
 
 
 class TestV2Schema:
@@ -187,11 +188,12 @@ class TestV2Schema:
         path = write_registry(tmp_path, V2_DOCUMENT)
         registry = ProjectRegistry(path)
 
-        registry.add_project("newproj", "/abs/newproj")
+        project_path = str(tmp_path / "newproj")
+        registry.add_project("newproj", project_path)
 
         on_disk = json.loads(open(path, encoding="utf-8").read())
         assert on_disk["version"] == SCHEMA_VERSION
-        assert on_disk["projects"]["newproj"]["path"] == "/abs/newproj"
+        assert on_disk["projects"]["newproj"]["path"] == project_path
 
     def test_updating_a_project_preserves_its_other_identity_fields(
         self, tmp_path
@@ -200,10 +202,11 @@ class TestV2Schema:
         path = write_registry(tmp_path, V2_DOCUMENT)
         registry = ProjectRegistry(path)
 
-        registry.add_project("alpha", "/abs/moved", "Moved")
+        project_path = str(tmp_path / "moved")
+        registry.add_project("alpha", project_path, "Moved")
 
         config = registry.get_project_config("alpha")
-        assert config.path == "/abs/moved"
+        assert config.path == project_path
         assert config.jira.project_key == "ALPHA"
 
 

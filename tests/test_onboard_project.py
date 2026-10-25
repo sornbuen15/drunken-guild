@@ -14,6 +14,7 @@ Both exist because of specific damage:
 
 import importlib.util
 import json
+import sys
 from pathlib import Path
 
 import pytest
@@ -144,7 +145,9 @@ class TestAHostConfigIsDifferentFromARepoConfig:
         `which` answers while developing. It works until the venv is rebuilt."""
         venv_bin = tmp_path / ".venv" / "bin"
         venv_bin.mkdir(parents=True)
-        executable = venv_bin / "drunken-jira-mcp"
+        executable = venv_bin / (
+            "drunken-jira-mcp.exe" if sys.platform == "win32" else "drunken-jira-mcp"
+        )
         executable.write_text("#!/bin/sh\n")
         executable.chmod(0o755)
         monkeypatch.setenv("UV_TOOL_BIN_DIR", str(tmp_path / "absent"))
@@ -152,7 +155,7 @@ class TestAHostConfigIsDifferentFromARepoConfig:
 
         resolved = config_gen.resolve_command("drunken-jira-mcp")
 
-        assert resolved == str(venv_bin / "drunken-jira-mcp"), (
+        assert Path(resolved) == executable, (
             "It still has to return something usable — but the warning is the "
             "point, because the failure otherwise arrives weeks later."
         )
@@ -183,8 +186,6 @@ class TestSecretsAreWrittenLockedDown:
     def test_the_file_is_never_briefly_readable(self, onboard, monkeypatch, tmp_path):
         """Created with the mode rather than chmod-ed after: in between, the
         token sits on disk at whatever the umask allowed."""
-        import stat
-
         monkeypatch.setenv("DRUNKEN_HOME", str(tmp_path / "state"))
         monkeypatch.setattr(
             onboard.paths, "home", lambda: _Resolved(tmp_path / "state")
@@ -192,7 +193,51 @@ class TestSecretsAreWrittenLockedDown:
 
         path = onboard.write_secrets({"jira": {"default": "not-a-real-token"}})
 
-        assert stat.S_IMODE(path.stat().st_mode) == 0o600
+        assert onboard.paths.is_group_or_world_accessible(path) is False
+
+    def test_file_permissions_are_restricted_before_serializing_secrets(
+        self, onboard, monkeypatch, tmp_path
+    ):
+        monkeypatch.setattr(
+            onboard.paths, "home", lambda: _Resolved(tmp_path / "state")
+        )
+        restricted = []
+        original_secure = onboard.paths.secure_file
+        original_dump = onboard.json.dump
+
+        def secure(path):
+            original_secure(path)
+            restricted.append(path)
+
+        def dump(document, handle, **kwargs):
+            assert restricted == [tmp_path / "state" / "secrets.json"], (
+                "The file must be secured before writing any secret content"
+            )
+            return original_dump(document, handle, **kwargs)
+
+        monkeypatch.setattr(onboard.paths, "secure_file", secure)
+        monkeypatch.setattr(onboard.json, "dump", dump)
+        onboard.write_secrets({"jira": {"default": "not-a-real-token"}})
+
+    def test_an_acl_failure_does_not_truncate_existing_secrets(
+        self, onboard, monkeypatch, tmp_path
+    ):
+        state = tmp_path / "state"
+        state.mkdir()
+        existing = state / "secrets.json"
+        original = '{"jira": {"default": "synthetic-old-value"}}\n'
+        existing.write_text(original, encoding="utf-8")
+        monkeypatch.setattr(onboard.paths, "home", lambda: _Resolved(state))
+
+        def refuse(_):
+            raise PermissionError("Cannot restrict permissions")
+
+        monkeypatch.setattr(onboard.paths, "secure_file", refuse)
+        with pytest.raises(PermissionError):
+            onboard.write_secrets({"jira": {"default": "synthetic-new-value"}})
+        assert existing.read_text(encoding="utf-8") == original, (
+            "An ACL failure must preserve the operator's existing credential file"
+        )
 
 
 class _Resolved:

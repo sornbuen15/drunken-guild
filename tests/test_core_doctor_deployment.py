@@ -235,7 +235,7 @@ class TestSeeingThatTheDeployedCodeIsStale:
 
         result = doctor.compare_deployed_content(env, source, ["core"])
 
-        assert result["stale"] == ["core/away.py"], (
+        assert result["stale"] == [str(Path("core") / "away.py")], (
             "the stale file has to be named — 'drift detected' sends the reader "
             "back to the shell to find out which, which is how DG-275 stayed "
             f"undeployed. Got {result}"
