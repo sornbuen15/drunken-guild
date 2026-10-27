@@ -108,6 +108,9 @@ def discover_claude_sessions(
             {
                 "session_id": session_id if isinstance(session_id, str) else None,
                 "provider": "Claude Code",
+                "kind": record.get("kind")
+                if isinstance(record.get("kind"), str)
+                else None,
                 "project_path": (
                     record.get("cwd") if isinstance(record.get("cwd"), str) else None
                 ),

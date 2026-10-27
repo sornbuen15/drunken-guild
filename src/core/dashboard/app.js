@@ -8,7 +8,7 @@ const time = (value) => value && !Number.isNaN(new Date(value).valueOf()) ? new 
 const key = (record, index) => `${record.source || ''}:${record.session_id || record.project_path || index}`;
 function node(tag, className, text) { const element = document.createElement(tag); if (className) element.className = className; if (text !== undefined) element.textContent = text; return element; }
 function badge(value) { const element = node('span', `badge ${value}`); element.append(node('span', `status-dot ${value}`), node('span', '', label(value))); return element; }
-function mark(provider) { return node('span', `agent-mark ${provider === 'Codex' ? 'codex' : ''}`, provider === 'Codex' ? '⌘' : provider === 'Gemini CLI' ? '✧' : '✳'); }
+function mark(provider) { return node('span', `agent-mark ${provider === 'Codex' ? 'codex' : ''}`, provider === 'Codex' ? '⌘' : provider === 'Antigravity' ? '✧' : '✳'); }
 function field(title, value) { const element = node('div', 'detail-field'); element.append(node('div', 'field-label', title), node('div', 'detail-value', value || 'Not reported')); return element; }
 
 async function refresh() {
@@ -112,9 +112,10 @@ function renderSources() {
   for (const source of state.data.session_sources) {
     const row = node('div','source-row'); const info = node('div'); let description = 'Source could not be queried';
     if (source.status === 'available') description = `${source.session_count ?? 0} session(s) reported · ${time(source.observed_at)}`;
-    if (source.status === 'unsupported') description = 'Live discovery is not supported yet';
+    if (source.status === 'unsupported') description = 'Live sessions: adapter not implemented';
     if (source.status === 'error') description = 'Query failed; session count is unknown';
-    info.append(node('div','source-label',source.provider),node('div','source-description',description)); row.append(mark(source.provider),info,node('span',`source-state ${source.status}`,{available:'Connected',unsupported:'Not supported',unavailable:'Unavailable',error:'Query error'}[source.status] || 'Unknown')); target.append(row);
+    const cli = source.cli_status === 'found' ? `CLI found on PATH (${source.command})` : source.cli_status === 'not_found' ? `CLI not found on PATH (${source.command}); may be installed elsewhere` : 'CLI availability not checked';
+    info.append(node('div','source-label',source.provider),node('div','source-description',cli),node('div','source-description',description)); row.append(mark(source.provider),info,node('span',`source-state ${source.status}`,{available:'Connected',unsupported:'No session adapter',unavailable:'Unavailable',error:'Query error'}[source.status] || 'Unknown')); target.append(row);
   }
 }
 
