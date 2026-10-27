@@ -53,6 +53,18 @@ def stub_resolve_route(monkeypatch):
 # names the data file maps that step to (see src/core/data/route_keywords.json).
 SDLC_CASES = [
     (
+        "ordinary_conversation",
+        "en",
+        "Please explain what failed and compare the two options in plain language.",
+        ["clear-responses"],
+    ),
+    (
+        "ordinary_conversation",
+        "th",
+        "ช่วยอธิบายว่าเกิดอะไรขึ้นและช่วยตัดสินใจให้หน่อย",
+        ["clear-responses"],
+    ),
+    (
         "requirements",
         "en",
         "What is the scope for this new requirement?",
@@ -115,6 +127,7 @@ def core_skills(tmp_path: Path) -> tuple[Path, Path]:
         "project-docs",
         "concise-docs",
         "worker",
+        "clear-responses",
     ):
         make_skill(skills, name)
     agents.mkdir()
