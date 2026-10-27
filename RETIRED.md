@@ -51,6 +51,8 @@ repository, and it cost more than disk:
 
 | `templates/CLAUDE.md` | a 211-line rulebook that predated REQ-015's one-line `CLAUDE.md` adapter and restated coordination rules inline — the Jira lifecycle, the approval protocol, git, what must never be deleted. Those rules now live in a project's own `AGENTS.md`, written once by `drunken-init`, and nothing else restates them. `templates/CONVENTIONS.md`, `.cursorrules` and `.aider.conf.yml` pointed at this file as "the authority"; all three now point at `AGENTS.md` instead (DG-427) | a project's own `AGENTS.md` (REQ-015), via `drunken-init` | `git log --follow -- templates/CLAUDE.md`, its last commit before this retirement, at its original path |
 
+| `skills/documents/task-answers/` | answered only questions about ongoing technical work, leaving ordinary conversation outside its scope; the owner asked for one general response standard | `skills/documents/clear-responses/SKILL.md` | `f37c8b6`, at its original path |
+
 ## Recovering one
 
 ```bash

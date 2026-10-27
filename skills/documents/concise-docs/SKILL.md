@@ -21,9 +21,9 @@ description: >
     length and shape.
   </role>
 
-  For questions about ongoing work, failures, causes or fixes, use `/task-answers`.
-  This skill covers authored documents and summaries; task-answers grounds the
-  conversational answer in the current work and its evidence.
+  For ordinary conversation, including questions about ongoing work, use
+  `/clear-responses`. This skill covers authored documents and summaries;
+  clear-responses grounds conversational answers in the available evidence.
 
   <doc_types>
     Six shapes, one example of each under `references/` — read the one that matches before

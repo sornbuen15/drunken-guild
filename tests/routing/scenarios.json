@@ -30,8 +30,10 @@
     {"request": "Write the install guide for this tool — keep it short and scannable.", "expect": {"kind": "skill", "name": "concise-docs"}},
     {"request": "Turn this test run into release notes a reader can scan in ten seconds.", "expect": {"kind": "skill", "name": "concise-docs"}},
 
-    {"request": "What failed in this work, what caused it, and how do we prevent it recurring?", "expect": {"kind": "skill", "name": "task-answers"}},
-    {"request": "Tell me what remains before merge, with the actual check results instead of vague progress.", "expect": {"kind": "skill", "name": "task-answers"}},
+    {"request": "What failed in this work, what caused it, and how do we prevent it recurring?", "expect": {"kind": "skill", "name": "clear-responses"}},
+    {"request": "Tell me what remains before merge, with the actual check results instead of vague progress.", "expect": {"kind": "skill", "name": "clear-responses"}},
+    {"request": "I have ten minutes. Explain the two options in plain language so I can choose.", "expect": {"kind": "skill", "name": "clear-responses"}},
+    {"request": "Is this ready to use today? Give me a direct answer and any important limit.", "expect": {"kind": "skill", "name": "clear-responses"}},
 
     {"request": "I'm stepping away for the afternoon — you need my OK before force-pushing, so how do you ask?", "expect": {"kind": "skill", "name": "ask-boss"}},
     {"request": "You need my approval to drop the staging database. Get it without blocking your other work.", "expect": {"kind": "skill", "name": "ask-boss"}},
@@ -61,11 +63,11 @@
     {"request": "Is anything still open under the Routing epic?", "expect": {"kind": "tool", "name": "jira_search_issues"}},
     {"request": "Park DG-405 in the backlog for now.", "expect": {"kind": "tool", "name": "jira_move_to_backlog"}},
 
-    {"request": "What does git rebase --onto do?", "expect": {"kind": "none"}},
+    {"request": "What does git rebase --onto do?", "expect": {"kind": "skill", "name": "clear-responses"}},
     {"request": "Rename the variable tmp to buffer in utils.py.", "expect": {"kind": "none"}},
     {"request": "Thanks, that's all for today.", "expect": {"kind": "none"}},
-    {"request": "Explain what a bounded context is, in two sentences.", "expect": {"kind": "none"}},
+    {"request": "Explain what a bounded context is, in two sentences.", "expect": {"kind": "skill", "name": "clear-responses"}},
     {"request": "What time zone is UTC+7?", "expect": {"kind": "none"}},
-    {"request": "อธิบาย MoSCoW แบบสั้นๆ", "expect": {"kind": "none"}}
+    {"request": "อธิบาย MoSCoW แบบสั้นๆ", "expect": {"kind": "skill", "name": "clear-responses"}}
   ]
 }

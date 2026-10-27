@@ -36,6 +36,10 @@ trigger nothing. Each scenario runs 3 times and passes when the right choice is 
 2 of 3; every scenario must pass on every agent.
 **Decided:** 2026-10-09 — for 2.0.0 the scenario list runs on Claude Code; the other agents follow
 REQ-003's deferral.
+**Amended:** 2026-10-27 — ordinary conversation needing an explanation, comparison,
+progress update, troubleshooting or decision routes to `clear-responses`. Simple
+facts, acknowledgments and trivial edits still need no skill. The former
+`task-answers` covered only ongoing technical work and is retired.
 
 ### REQ-003 — It works with Claude Code, Antigravity and Aider
 **Class:** Should
