@@ -44,7 +44,9 @@ class CodexThreadObserver:
             text=True,
             encoding="utf-8",
             errors="replace",
-            creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0)
+            if os.name == "nt"
+            else 0,
         )
         self.replies: queue.Queue[dict[str, Any]] = queue.Queue()
         self.next_id = 0
