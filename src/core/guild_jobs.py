@@ -21,7 +21,7 @@ from pathlib import Path
 from typing import Any
 
 from .codex_threads import CodexThreadObserver
-from .paths import secure_file
+from .paths import HOME_MODE, secure_file
 from .redact import redact
 
 PROVIDERS = {"Claude Code": "claude", "Codex": "codex"}
@@ -169,7 +169,10 @@ class JobManager:
     ) -> None:
         self.root = state_dir.resolve()
         self.root.mkdir(parents=True, exist_ok=True)
-        secure_file(self.root)
+        if os.name == "nt":
+            secure_file(self.root)
+        else:
+            self.root.chmod(HOME_MODE)
         self.file = self.root / "jobs.json"
         self.projects = {key: value.resolve() for key, value in projects.items()}
         self.lock = threading.RLock()
