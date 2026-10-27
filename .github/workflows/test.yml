@@ -118,6 +118,21 @@ jobs:
       - name: Tests
         run: pytest
 
+  dashboard-ui:
+    name: dashboard UI
+    runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Browser script syntax and regression checks
+        run: |
+          node --check src/core/dashboard/app.js
+          node --test tests/dashboard_ui.test.cjs
+
   # No `needs: changes` gate here on purpose. gitleaks scans markdown as
   # readily as Python, and check_doc_drift.py exists precisely for documentation
   # changes. This job runs on every push and every pull request.
@@ -171,8 +186,11 @@ jobs:
             > /tmp/shipped-requirements.txt
           pip-audit --strict --progress-spinner off -r /tmp/shipped-requirements.txt
 
-      - name: Dependency audit — the dev environment
-        run: pip-audit --strict --progress-spinner off -r requirements-dev.txt
+      - name: Dependency audit — the dev environment (uv.lock)
+        run: |
+          uv export --format requirements-txt --no-emit-project --extra dev \
+            > /tmp/dev-requirements.txt
+          pip-audit --strict --progress-spinner off -r /tmp/dev-requirements.txt
 
       # Static analysis, gated at MEDIUM and above — a real bar rather than a
       # decorative one. The three MEDIUM findings this repo had (B310,

@@ -36,6 +36,10 @@ trigger nothing. Each scenario runs 3 times and passes when the right choice is 
 2 of 3; every scenario must pass on every agent.
 **Decided:** 2026-10-09 — for 2.0.0 the scenario list runs on Claude Code; the other agents follow
 REQ-003's deferral.
+**Amended:** 2026-10-27 — ordinary conversation needing an explanation, comparison,
+progress update, troubleshooting or decision routes to `clear-responses`. Simple
+facts, acknowledgments and trivial edits still need no skill. The former
+`task-answers` covered only ongoing technical work and is retired.
 
 ### REQ-003 — It works with Claude Code, Antigravity and Aider
 **Class:** Should
@@ -315,6 +319,11 @@ general compatibility claims without evidence.
 ### REQ-037 — Discover all live local agent sessions
 **Class:** Must
 **Acceptance:** On Windows and macOS, Hub displays every live coding-agent session discoverable on the machine regardless of vendor or project registration, identifies project registration separately, distinguishes idle and busy when the source reports them, labels unavailable values unknown, and retains no transcripts.
+**Amended:** 2026-10-25 — the owner requests a local browser dashboard for easier
+monitoring. Provide session/project filters, session details, source coverage and
+observation times over the existing discovery contract. Keep stored metadata and
+demonstration records distinct from live observations; unavailable task/status
+values remain unknown. Initial delivery is read-only and retains the CLI.
 
 ## Inferred — not yet accepted
 - (none — all accepted by the Boss, 2026-09-23)

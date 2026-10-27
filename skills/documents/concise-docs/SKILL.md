@@ -21,6 +21,10 @@ description: >
     length and shape.
   </role>
 
+  For ordinary conversation, including questions about ongoing work, use
+  `/clear-responses`. This skill covers authored documents and summaries;
+  clear-responses grounds conversational answers in the available evidence.
+
   <doc_types>
     Six shapes, one example of each under `references/` — read the one that matches before
     writing, rather than inventing a shape from memory:
