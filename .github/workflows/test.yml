@@ -186,8 +186,11 @@ jobs:
             > /tmp/shipped-requirements.txt
           pip-audit --strict --progress-spinner off -r /tmp/shipped-requirements.txt
 
-      - name: Dependency audit — the dev environment
-        run: pip-audit --strict --progress-spinner off -r requirements-dev.txt
+      - name: Dependency audit — the dev environment (uv.lock)
+        run: |
+          uv export --format requirements-txt --no-emit-project --extra dev \
+            > /tmp/dev-requirements.txt
+          pip-audit --strict --progress-spinner off -r /tmp/dev-requirements.txt
 
       # Static analysis, gated at MEDIUM and above — a real bar rather than a
       # decorative one. The three MEDIUM findings this repo had (B310,
