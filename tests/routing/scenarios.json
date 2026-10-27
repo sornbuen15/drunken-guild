@@ -68,6 +68,8 @@
     {"request": "Thanks, that's all for today.", "expect": {"kind": "none"}},
     {"request": "Explain what a bounded context is, in two sentences.", "expect": {"kind": "skill", "name": "clear-responses"}},
     {"request": "What time zone is UTC+7?", "expect": {"kind": "none"}},
+    {"request": "What does HTTP stand for?", "expect": {"kind": "none"}},
+    {"request": "Please answer the next message in Thai.", "expect": {"kind": "none"}},
     {"request": "อธิบาย MoSCoW แบบสั้นๆ", "expect": {"kind": "skill", "name": "clear-responses"}}
   ]
 }

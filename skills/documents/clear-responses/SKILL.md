@@ -1,8 +1,9 @@
 ---
 name: clear-responses
 description: >
-  Use for ordinary conversation that needs an explanation, comparison,
-  progress update, troubleshooting, or a decision. Answer with relevant substance
+  Use when ordinary conversation needs an explanation, comparison, progress
+  update, troubleshooting, or a decision, such as "What failed, and how do we
+  prevent it?" Answer with relevant substance
   and evidence, without filler or a rigid template. Simple facts and acknowledgments
   need no skill. Complements specialized action skills. Trigger on /clear-responses.
 ---

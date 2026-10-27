@@ -2,7 +2,7 @@
 
 Map task keywords to their absolute skill file paths. Load ONLY the relevant skill before executing.
 
-- `clear-responses` (`/clear-responses`) — Use for ordinary conversation that needs an explanation, comparison, progress update, troubleshooting, or a decision. Answer with relevant substance and evidenc
+- `clear-responses` (`/clear-responses`) — Use when ordinary conversation needs an explanation, comparison, progress update, troubleshooting, or a decision, such as "What failed, and how do we prevent it
   Path: $HOME/.claude/skills/clear-responses/SKILL.md
 
 - `concise-docs` — Use when writing a guide, a test case, a report, a release note, a Jira ticket body or a chat/session summary for a human to read — "write the install guide", "
