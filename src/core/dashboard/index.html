@@ -7,6 +7,7 @@
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='9' fill='%232a4037'/%3E%3Cpath d='M9 10h14v4H13v8h6v-3h-3v-4h7v11H9z' fill='%23eff3e9'/%3E%3C/svg%3E">
   <link rel="stylesheet" href="/style.css">
   <script src="/app.js" defer></script>
+  <script src="/jobs.js" defer></script>
 </head>
 <body>
   <aside class="sidebar">
@@ -21,15 +22,29 @@
     <div class="sidebar-divider"></div>
     <div class="nav-label">PROJECT CAMPS <span id="sidebar-project-count">0</span></div>
     <div id="project-nav" class="project-nav"></div>
-    <div class="sidebar-bottom"><span class="local-icon">⌘</span><div><strong>Code responsibly.</strong><span>Read-only · Local only</span></div></div>
+    <div class="sidebar-bottom"><span class="local-icon">⌘</span><div><strong>Code responsibly.</strong><span>Local workspace</span></div></div>
   </aside>
 
   <main>
     <header class="topbar"><div class="breadcrumb">Agent workspace <span>/</span> <strong>Guild hall</strong></div><div class="topbar-right"><span class="local-badge"><span class="small-dot"></span> Local only</span><span class="avatar" title="Guild keeper">GK</span></div></header>
     <div class="page">
-      <div class="page-heading"><div><div class="eyebrow">⌘ &nbsp; PARTY MENU / LOCAL REALM</div><h1>Drunken Guild<span class="guild-stamp" aria-hidden="true">JRPG</span></h1><p>A party of programmers. A board full of quests. One local tavern.</p></div><div class="heading-actions"><div class="mode-switch" aria-label="Data mode"><button id="mode-live" class="selected" aria-pressed="true">Live data</button><button id="mode-demo" aria-pressed="false">Demo</button></div><button class="refresh-button" id="refresh"><span aria-hidden="true">↻</span> Refresh</button></div></div>
+      <div class="page-heading"><div><div class="eyebrow">⌘ &nbsp; PARTY MENU / LOCAL REALM</div><h1>Drunken Guild</h1><p>Assign work. Follow your party. Inspect results.</p></div><div class="heading-actions"><div class="mode-switch" aria-label="Data mode"><button id="mode-live" class="selected" aria-pressed="true">Live data</button><button id="mode-demo" aria-pressed="false">Demo</button></div><button class="refresh-button" id="refresh"><span aria-hidden="true">↻</span> Refresh</button></div></div>
       <div id="demo-banner" class="notice demo-notice" hidden><strong>Demo workspace</strong><span>Sample records for exploring the interface. These are not live agent observations.</span></div>
       <div id="error-banner" class="notice error-notice" role="alert" hidden></div>
+
+      <section class="panel jobs-panel" aria-labelledby="jobs-heading">
+        <div class="panel-heading"><div><h2 id="jobs-heading">Jobs &amp; subagents</h2><p id="job-availability">Connecting to task monitor...</p></div><span id="job-connection" role="status"></span></div>
+        <div class="jobs-layout"><div>
+          <form id="job-form">
+            <div class="job-selects"><label>Project<select id="job-project" required></select></label><label>Agent<select id="job-provider" required></select></label></div>
+            <label for="job-prompt">Task or follow-up</label><textarea id="job-prompt" required maxlength="12000" rows="3" placeholder="What should this agent do?"></textarea>
+            <p id="job-context">New tasks start in a separate worktree from the project’s current commit. Uncommitted changes are not copied.</p>
+            <div class="job-actions"><button type="submit" id="job-submit" disabled>Send task</button><button type="button" id="job-new">New task</button></div>
+            <p id="job-message" role="status" aria-live="polite"></p>
+          </form>
+          <div id="job-list" aria-label="Managed tasks"></div>
+        </div><div class="job-inspector"><div class="job-actions"><button id="job-followup" type="button" disabled>Send follow-up</button><button id="job-cancel" type="button" disabled>Cancel task</button></div><div id="job-detail"></div></div></div>
+      </section>
 
       <section class="stats" aria-label="Workspace summary">
         <article class="stat"><div class="stat-label">In the hall <span>⚑</span></div><div class="stat-value" id="stat-total">—</div><div class="stat-foot">Sessions from available sources</div></article>
@@ -45,10 +60,10 @@
             <div class="filter-bar"><div class="status-tabs" role="group" aria-label="Filter by activity"><button class="selected" data-status="all" aria-pressed="true">All</button><button data-status="busy" aria-pressed="false">Working</button><button data-status="idle" aria-pressed="false">Idle</button><button data-status="unknown" aria-pressed="false">Unknown</button></div><div class="filter-selects"><label class="project-filter" for="provider-filter"><span class="sr-only">Provider</span><select id="provider-filter"><option value="all">All agents</option></select></label><label class="project-filter" for="project-filter"><span class="sr-only">Project</span><select id="project-filter"><option value="all">All projects</option></select></label></div></div>
             <div class="search-bar"><span aria-hidden="true">⌕</span><label class="sr-only" for="search">Search agent sessions</label><input id="search" type="search" placeholder="Search agent, project or session…" autocomplete="off"><span class="result-count" id="result-count"></span></div>
             <div class="table-scroll"><table><thead><tr><th>AGENT / SESSION</th><th>PROJECT</th><th>STATUS</th><th>REPORTED TASK</th><th><span class="sr-only">Details</span></th></tr></thead><tbody id="sessions-body"></tbody></table></div>
-            <div class="panel-footer"><span><span class="small-dot"></span> Read-only scouting. No agents disturbed.</span><label class="auto-refresh"><input type="checkbox" id="auto-refresh" checked> Auto-refresh · 15s</label></div>
+            <div class="panel-footer"><span><span class="small-dot"></span> Discovered sessions below are observation only.</span><label class="auto-refresh"><input type="checkbox" id="auto-refresh" checked> Auto-refresh · 15s</label></div>
           </section>
 
-          <section class="panel source-panel" id="sources" aria-labelledby="sources-heading"><div class="panel-heading"><div><h2 id="sources-heading">Source coverage</h2><p>Available sources define what this workspace can see.</p></div><span class="outline-pill">LOCAL</span></div><div id="source-list"></div><div class="coverage-note">A running application is not proof of a live session. Unsupported sources remain visible here.</div></section>
+          <section class="panel source-panel" id="sources" aria-labelledby="sources-heading"><div class="panel-heading"><div><h2 id="sources-heading">Agent tools &amp; session sources</h2><p>CLI availability and live session discovery are checked separately.</p></div><span class="outline-pill">LOCAL</span></div><div id="source-list"></div><div class="coverage-note">Checks known CLI commands on the Dashboard server’s PATH. Finding a CLI does not confirm login or a live session. A missing command may be installed elsewhere.</div></section>
           <section class="panel saved-panel" id="saved" aria-labelledby="saved-heading"><div class="panel-heading"><div><h2 id="saved-heading">Saved metadata <span id="saved-count" class="count-pill">0</span></h2><p>Stored records are separate from live activity.</p></div></div><div id="saved-list"></div></section>
         </div>
 

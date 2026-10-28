@@ -142,3 +142,139 @@ def test_multiple_tabs_share_one_discovery_until_cache_expires(
     assert len(calls) == 2, (
         "Cached observations must expire instead of hiding source changes"
     )
+
+
+def test_agent_inventory_separates_cli_presence_from_live_sessions(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "core.dashboard.shutil.which",
+        lambda command: (
+            f"/tools/{command}" if command in {"claude", "codex", "aider"} else None
+        ),
+    )
+    records = dashboard.agent_inventory()
+    assert {record["provider"] for record in records} == {
+        "Claude Code",
+        "Codex",
+        "Aider",
+        "Antigravity",
+    }
+    found = {
+        record["provider"] for record in records if record["cli_status"] == "found"
+    }
+    assert found == {"Claude Code", "Codex", "Aider"}
+    assert (
+        next(record for record in records if record["provider"] == "Antigravity")[
+            "cli_status"
+        ]
+        == "not_found"
+    )
+    assert all(
+        "activity" not in record and "session_count" not in record for record in records
+    )
+
+
+def test_job_control_requires_same_origin_and_token(tmp_path: Path) -> None:
+    from core.guild_jobs import JobManager
+
+    manager = JobManager(tmp_path / "state", {"alpha": tmp_path}, start_worker=False)
+    instance = dashboard.create_server(None, 0, jobs=manager)
+    thread = threading.Thread(target=instance.serve_forever, daemon=True)
+    thread.start()
+    host, port = instance.server_address
+    assert isinstance(host, str) and isinstance(port, int)
+    origin = f"http://{host}:{port}"
+    payload = json.dumps(
+        {
+            "project_id": "alpha",
+            "provider": "Codex",
+            "prompt": "Check tests",
+            "request_id": "alpha",
+        }
+    )
+
+    def post(headers: dict[str, str]) -> int:
+        connection = http.client.HTTPConnection(host, port, timeout=3)
+        try:
+            connection.request("POST", "/api/jobs", body=payload, headers=headers)
+            response = connection.getresponse()
+            response.read()
+            return response.status
+        finally:
+            connection.close()
+
+    try:
+        status, _, body = request(instance, "/api/jobs")
+        assert status == 200
+        token = json.loads(body)["csrf_token"]
+        assert post({"Content-Type": "application/json", "Origin": origin}) == 403
+        assert (
+            post(
+                {
+                    "Content-Type": "application/json",
+                    "Origin": "https://foreign.example",
+                    "X-Guild-Token": token,
+                }
+            )
+            == 403
+        )
+        assert (
+            post(
+                {
+                    "Content-Type": "application/json",
+                    "Origin": origin,
+                    "X-Guild-Token": token,
+                }
+            )
+            == 202
+        )
+        assert len(manager.snapshot()) == 1
+    finally:
+        instance.shutdown()
+        instance.server_close()
+        thread.join(timeout=2)
+        manager.close()
+
+
+def test_remote_origin_requires_configured_tailnet_identity() -> None:
+    instance = dashboard.create_server(
+        None, 0, web_origin="https://guild.example", web_user="owner@example.invalid"
+    )
+    thread = threading.Thread(target=instance.serve_forever, daemon=True)
+    thread.start()
+    try:
+        headers = {"Host": "guild.example", "Origin": "https://guild.example"}
+        assert request(instance, "/api/jobs", headers)[0] == 403
+        assert (
+            request(
+                instance,
+                "/api/jobs",
+                {**headers, "Tailscale-User-Login": "other@example.invalid"},
+            )[0]
+            == 403
+        )
+        assert (
+            request(
+                instance,
+                "/api/jobs",
+                {**headers, "Tailscale-User-Login": "owner@example.invalid"},
+            )[0]
+            == 200
+        )
+        assert (
+            request(
+                instance,
+                "/api/jobs",
+                {
+                    **headers,
+                    "Tailscale-User-Login": "owner@example.invalid",
+                    "Origin": "https://foreign.example",
+                },
+            )[0]
+            == 403
+        )
+    finally:
+        instance.shutdown()
+        instance.server_close()
+        thread.join(timeout=2)

@@ -324,6 +324,22 @@ monitoring. Provide session/project filters, session details, source coverage an
 observation times over the existing discovery contract. Keep stored metadata and
 demonstration records distinct from live observations; unavailable task/status
 values remain unknown. Initial delivery is read-only and retains the CLI.
+**Amended:** 2026-10-26 — detect known agent CLI entry points on the Dashboard
+server PATH (initially Claude, Codex, Aider and Antigravity), separately from session
+adapter capability. A missing command means not found on that PATH, not proof
+that the tool is absent from the machine. CLI presence does not imply login or
+a running session. Keep checks lightweight and do not launch agents to inventory them.
+The owner selects Antigravity, replacing Gemini CLI in this Dashboard inventory;
+this does not remove historical integration requirements elsewhere.
+**Amended:** 2026-10-27 — allow the owner to submit, follow up on and cancel
+Guild-owned Claude Code and Codex tasks from the Dashboard. Create a separate
+Git worktree per new task, retain a bounded task/result history and show the
+project, current activity and reported subagents. Never claim control of an
+unowned desktop or terminal session. Codex subagents require a separate
+app-server metadata query because the CLI JSON stream can omit child creation;
+report unknown coverage honestly. Remote access may use an existing Tailscale
+Serve proxy with an exact HTTPS origin and an allowlisted Tailscale login. Keep
+the backend on loopback and leave existing Serve routes intact.
 
 ## Inferred — not yet accepted
 - (none — all accepted by the Boss, 2026-09-23)

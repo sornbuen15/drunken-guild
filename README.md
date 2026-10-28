@@ -48,7 +48,7 @@ full list of known limitations is in [`docs/REFERENCE.md`](./docs/REFERENCE.md).
 | [`docs/REFERENCE.md`](./docs/REFERENCE.md) | skills vs agents, the extras catalog, the flow in detail, known limitations |
 | [`AGENTS.md`](./AGENTS.md) | the rules, if you are contributing here — a project's root `AGENTS.md` is the map to its own documents |
 | [`skills/INDEX.md`](./skills/INDEX.md) | every skill, its trigger and its path |
-| [`docs/HUB-DASHBOARD.md`](./docs/HUB-DASHBOARD.md) | local JRPG dashboard, live-source limits and self-reported metadata |
+| [`docs/HUB-DASHBOARD.md`](./docs/HUB-DASHBOARD.md) | local agent dashboard, managed Claude/Codex tasks and session-source limits |
 | [`REPOSITORY_MAP.md`](./REPOSITORY_MAP.md) | which directory is whose, and the `templates/` inventory |
 | [`Drunken-Guild-Guide.md`](./Drunken-Guild-Guide.md) | architecture, Jira workflow, approval flow |
 | [`DESIGN.md`](./DESIGN.md) | why it is shaped this way |

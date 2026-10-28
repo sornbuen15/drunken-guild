@@ -193,7 +193,24 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument(
         "--port", type=int, default=8765, help="Local dashboard port (default: 8765)."
     )
+    parser.add_argument(
+        "--control",
+        action="store_true",
+        help="Enable explicit Claude/Codex job submission in isolated worktrees",
+    )
+    parser.add_argument("--jobs-dir", help="Private managed-job state directory")
+    parser.add_argument(
+        "--web-origin",
+        help="Exact HTTPS origin served by the trusted local Tailscale proxy",
+    )
+    parser.add_argument(
+        "--web-user", help="Tailscale login permitted to access the remote web origin"
+    )
     args = parser.parse_args(argv)
+    if (
+        args.control or args.jobs_dir or args.web_origin or args.web_user
+    ) and not args.web:
+        parser.error("Web control options require --web")
 
     if args.web:
         from .dashboard import serve
@@ -203,8 +220,15 @@ def main(argv: Sequence[str] | None = None) -> int:
         if not 0 <= args.port <= 65535:
             parser.error("--port must be between 0 and 65535")
         try:
-            return serve(args.registry, args.port)
-        except OSError as exc:
+            return serve(
+                args.registry,
+                args.port,
+                control=args.control,
+                jobs_dir=args.jobs_dir,
+                web_origin=args.web_origin,
+                web_user=args.web_user,
+            )
+        except (OSError, ValueError) as exc:
             print(f"Could not start the local dashboard: {exc}", file=sys.stderr)
             return 2
 

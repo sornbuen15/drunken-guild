@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import secrets
+import shutil
 import threading
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -11,16 +13,39 @@ from time import monotonic
 from typing import Any, cast
 from urllib.parse import urlsplit
 
-from . import hub
+from . import hub, paths
+from .guild_jobs import JobManager
 from .registry import ProjectRegistry
 from .session_store import SessionMetadataError
 
 ASSETS = Path(__file__).with_name("dashboard")
 STATIC_FILES = {
     "/": ("index.html", "text/html; charset=utf-8"),
+    "/jobs.js": ("jobs.js", "text/javascript; charset=utf-8"),
     "/app.js": ("app.js", "text/javascript; charset=utf-8"),
     "/style.css": ("style.css", "text/css; charset=utf-8"),
 }
+
+
+def agent_inventory() -> list[dict[str, str]]:
+    """Find known CLI entry points on this process PATH without launching agents.
+
+    Absence from PATH is not evidence that a tool is absent from the machine.
+    CLI availability is independent of session discovery and authentication.
+    """
+    return [
+        {
+            "provider": provider,
+            "command": command,
+            "cli_status": "found" if shutil.which(command) else "not_found",
+        }
+        for provider, command in (
+            ("Claude Code", "claude"),
+            ("Codex", "codex"),
+            ("Aider", "aider"),
+            ("Antigravity", "agy"),
+        )
+    ]
 
 
 def collect_snapshot(registry_path: str | None) -> dict[str, Any]:
@@ -36,15 +61,20 @@ def collect_snapshot(registry_path: str | None) -> dict[str, Any]:
         [(project["id"], project["path"] or "") for project in projects],
         registry_known=hub._registry_is_known(registry),
     )
-    sources.extend(
-        {
-            "provider": provider,
-            "status": "unsupported",
-            "session_count": None,
-            "observed_at": None,
-        }
-        for provider in ("Codex", "Gemini CLI")
-    )
+    inventory = agent_inventory()
+    for tool in inventory:
+        source = next(
+            (item for item in sources if item["provider"] == tool["provider"]), None
+        )
+        if source is None:
+            source = {
+                "provider": tool["provider"],
+                "status": "unsupported",
+                "session_count": None,
+                "observed_at": None,
+            }
+            sources.append(source)
+        source.update(tool)
     return {
         "mode": "live",
         "observed_at": datetime.now(timezone.utc).isoformat(),
@@ -88,18 +118,32 @@ def demo_snapshot() -> dict[str, Any]:
         "session_sources": [
             {
                 "provider": "Claude Code",
+                "cli_status": "found",
+                "command": "claude",
                 "status": "available",
                 "session_count": 2,
                 "observed_at": now,
             },
             {
                 "provider": "Codex",
+                "cli_status": "found",
+                "command": "codex",
                 "status": "unsupported",
                 "session_count": None,
                 "observed_at": None,
             },
             {
-                "provider": "Gemini CLI",
+                "provider": "Aider",
+                "cli_status": "found",
+                "command": "aider",
+                "status": "unsupported",
+                "session_count": None,
+                "observed_at": None,
+            },
+            {
+                "provider": "Antigravity",
+                "cli_status": "not_found",
+                "command": "agy",
                 "status": "unsupported",
                 "session_count": None,
                 "observed_at": None,
@@ -134,68 +178,206 @@ class _SnapshotCache:
             return self.snapshot
 
 
-def create_server(registry_path: str | None, port: int = 8765) -> ThreadingHTTPServer:
+def create_server(
+    registry_path: str | None,
+    port: int = 8765,
+    *,
+    jobs: JobManager | None = None,
+    web_origin: str | None = None,
+    web_user: str | None = None,
+) -> ThreadingHTTPServer:
     """Bind only to IPv4 loopback and reject foreign browser origins/Host values."""
 
     cache = _SnapshotCache(registry_path)
+    csrf_token = secrets.token_urlsafe(32)
+    if bool(web_origin) != bool(web_user):
+        raise ValueError(
+            "Remote access requires both an HTTPS origin and an allowed Tailscale user"
+        )
+    remote = urlsplit(web_origin or "")
+    if web_origin and (
+        remote.scheme != "https"
+        or not remote.hostname
+        or remote.path
+        or remote.query
+        or remote.fragment
+        or remote.username
+    ):
+        raise ValueError(
+            "Remote origin must be an HTTPS origin without a path or credentials"
+        )
 
-    class Handler(BaseHTTPRequestHandler):
-        def log_message(self, format: str, *args: Any) -> None:
-            """Keep session metadata and local paths out of HTTP access logs."""
+    server = _GuildServer(("127.0.0.1", port), _Handler)
+    server.jobs = jobs
+    server.web_origin = web_origin
+    server.web_user = web_user
+    server.remote_host = remote.netloc
+    server.csrf_token = csrf_token
+    server.cache = cache
+    return server
 
-        def _send(self, status: int, body: bytes, content_type: str) -> None:
-            self.send_response(status)
-            self.send_header("Content-Type", content_type)
-            self.send_header("Content-Length", str(len(body)))
-            self.send_header("Cache-Control", "no-store")
-            self.send_header("X-Content-Type-Options", "nosniff")
-            self.send_header("Referrer-Policy", "no-referrer")
-            self.send_header(
-                "Content-Security-Policy",
-                "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; frame-ancestors 'none'; base-uri 'none'; form-action 'none'",
+
+class _GuildServer(ThreadingHTTPServer):
+    jobs: JobManager | None
+    web_origin: str | None
+    web_user: str | None
+    remote_host: str
+    csrf_token: str
+    cache: _SnapshotCache
+
+
+class _Handler(BaseHTTPRequestHandler):
+    @property
+    def hub(self) -> _GuildServer:
+        return cast(_GuildServer, self.server)
+
+    def log_message(self, format: str, *args: Any) -> None:
+        """Keep session metadata and local paths out of HTTP access logs."""
+
+    def _send(self, status: int, body: bytes, content_type: str) -> None:
+        self.send_response(status)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("Referrer-Policy", "no-referrer")
+        self.send_header(
+            "Content-Security-Policy",
+            "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; frame-ancestors 'none'; base-uri 'none'; form-action 'none'",
+        )
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _local_request(self) -> bool:
+        port = cast(tuple[str, int], self.server.server_address)[1]
+        allowed_hosts = {f"127.0.0.1:{port}", f"localhost:{port}"}
+        origin = self.headers.get("Origin")
+        host = self.headers.get("Host")
+        if host in allowed_hosts and (
+            origin is None or origin in {f"http://{item}" for item in allowed_hosts}
+        ):
+            return True
+        return bool(
+            self.hub.web_origin
+            and host == self.hub.remote_host
+            and (origin is None or origin == self.hub.web_origin)
+            and self.headers.get("Tailscale-User-Login") == self.hub.web_user
+        )
+
+    def do_GET(self) -> None:
+        if not self._local_request():
+            self._send(403, b"Local requests only", "text/plain")
+            return
+        path = urlsplit(self.path).path
+        if path == "/api/jobs":
+            self._json(
+                200,
+                {
+                    "enabled": self.hub.jobs is not None,
+                    "csrf_token": self.hub.csrf_token if self.hub.jobs else None,
+                    "projects": list(self.hub.jobs.projects) if self.hub.jobs else [],
+                    "providers": [
+                        tool
+                        for tool in agent_inventory()
+                        if tool["provider"] in {"Claude Code", "Codex"}
+                    ],
+                    "jobs": self.hub.jobs.snapshot() if self.hub.jobs else [],
+                },
             )
-            self.end_headers()
-            self.wfile.write(body)
+        elif path in STATIC_FILES:
+            filename, content_type = STATIC_FILES[path]
+            self._send(200, (ASSETS / filename).read_bytes(), content_type)
+        elif path in {"/api/snapshot", "/api/demo"}:
+            self._snapshot(path == "/api/demo")
+        else:
+            self._send(404, b"Not found", "text/plain")
 
-        def _local_request(self) -> bool:
-            port = cast(tuple[str, int], self.server.server_address)[1]
-            allowed_hosts = {f"127.0.0.1:{port}", f"localhost:{port}"}
-            origin = self.headers.get("Origin")
-            return self.headers.get("Host") in allowed_hosts and (
-                origin is None or origin in {f"http://{host}" for host in allowed_hosts}
+    def _json(self, status: int, payload: dict[str, Any]) -> None:
+        self._send(status, json.dumps(payload).encode("utf-8"), "application/json")
+
+    def do_POST(self) -> None:
+        self.connection.settimeout(5)
+        if (
+            not self._local_request()
+            or not self.headers.get("Origin")
+            or not secrets.compare_digest(
+                self.headers.get("X-Guild-Token", ""), self.hub.csrf_token
             )
-
-        def do_GET(self) -> None:
-            if not self._local_request():
-                self._send(403, b"Local requests only", "text/plain")
-                return
-            path = urlsplit(self.path).path
-            if path in STATIC_FILES:
-                filename, content_type = STATIC_FILES[path]
-                self._send(200, (ASSETS / filename).read_bytes(), content_type)
-            elif path in {"/api/snapshot", "/api/demo"}:
-                self._snapshot(path == "/api/demo")
+        ):
+            self._json(
+                403, {"error": "Reload the Guild page and submit from that page"}
+            )
+            return
+        if self.hub.jobs is None:
+            self._json(403, {"error": "Job control is not enabled on this server"})
+            return
+        if self.headers.get_content_type() != "application/json":
+            self._json(415, {"error": "Expected JSON"})
+            return
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+            if not 0 < length <= 65536 or self.headers.get("Transfer-Encoding"):
+                raise ValueError("Invalid request size")
+            data = json.loads(self.rfile.read(length))
+            if not isinstance(data, dict):
+                raise ValueError("Expected a JSON object")
+            route = urlsplit(self.path).path
+            if route == "/api/jobs":
+                self._json(202, {"job": self.hub.jobs.submit(data)})
+            elif route.startswith("/api/jobs/") and route.endswith("/cancel"):
+                self._json(200, {"job": self.hub.jobs.cancel(route.split("/")[3])})
             else:
-                self._send(404, b"Not found", "text/plain")
+                self._json(404, {"error": "Unknown control action"})
+        except (ValueError, UnicodeDecodeError) as exc:
+            self._json(400, {"error": str(exc)})
+        except OSError:
+            self._json(
+                503, {"error": "Job state could not be saved or request timed out"}
+            )
 
-        def _snapshot(self, demo: bool) -> None:
-            try:
-                payload = demo_snapshot() if demo else cache.get()
-            except (OSError, ValueError, SessionMetadataError):
-                self._send(
-                    503,
-                    b'{"error":"The local Hub snapshot could not be read. Check the registry and metadata files, then retry."}',
-                    "application/json",
-                )
-                return
-            self._send(200, json.dumps(payload).encode("utf-8"), "application/json")
-
-    return ThreadingHTTPServer(("127.0.0.1", port), Handler)
+    def _snapshot(self, demo: bool) -> None:
+        try:
+            payload = demo_snapshot() if demo else self.hub.cache.get()
+        except (OSError, ValueError, SessionMetadataError):
+            self._send(
+                503,
+                b'{"error":"The local Hub snapshot could not be read. Check the registry and metadata files, then retry."}',
+                "application/json",
+            )
+            return
+        self._send(200, json.dumps(payload).encode("utf-8"), "application/json")
 
 
-def serve(registry_path: str | None, port: int = 8765) -> int:
+def serve(
+    registry_path: str | None,
+    port: int = 8765,
+    *,
+    control: bool = False,
+    jobs_dir: str | None = None,
+    web_origin: str | None = None,
+    web_user: str | None = None,
+) -> int:
     """Run until interrupted; no browser, agent control or network relay is started."""
-    server = create_server(registry_path, port)
+    jobs = None
+    if control:
+        registry = (
+            ProjectRegistry(registry_path) if registry_path else ProjectRegistry()
+        )
+        projects = {}
+        for project_id in registry.project_ids():
+            config = registry.get_project_config(project_id)
+            if config.path:
+                projects[project_id] = Path(config.path)
+        state_dir = Path(jobs_dir) if jobs_dir else paths.ensure_home() / "guild-jobs"
+        jobs = JobManager(state_dir, projects)
+    try:
+        server = create_server(
+            registry_path, port, jobs=jobs, web_origin=web_origin, web_user=web_user
+        )
+    except (OSError, ValueError):
+        if jobs:
+            jobs.close()
+        raise
     print(
         f"Agent workspace: http://127.0.0.1:{server.server_address[1]} (Ctrl+C to stop)",
         flush=True,
@@ -206,4 +388,6 @@ def serve(registry_path: str | None, port: int = 8765) -> int:
         pass
     finally:
         server.server_close()
+        if jobs:
+            jobs.close()
     return 0
