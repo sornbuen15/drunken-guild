@@ -16,8 +16,6 @@ import threading
 import time
 from typing import Any
 
-from .redact import redact
-
 MAX_REPLY = 2_000_000
 TIMEOUT = 6.0
 SOURCE_KINDS = [
@@ -110,11 +108,8 @@ class CodexThreadObserver:
         raise OSError(f"Codex app-server timed out on {method}")
 
     def children(self, parent_id: str) -> list[dict[str, str | None]]:
-        """Return reported descendants, without claiming unknown activity is idle."""
-        found = self._list_children(parent_id)
-        if found:
-            self._enrich_children(parent_id, found)
-        return list(found.values())
+        """Return reported descendants without reading transcript items."""
+        return list(self._list_children(parent_id).values())
 
     def _list_children(self, parent_id: str) -> dict[str, dict[str, str | None]]:
         found: dict[str, dict[str, str | None]] = {}
@@ -141,11 +136,8 @@ class CodexThreadObserver:
                     "parent_id": entry.get("parentThreadId")
                     if isinstance(entry.get("parentThreadId"), str)
                     else parent_id,
-                    "task": redact(entry.get("name") or entry.get("preview") or "")[
-                        :240
-                    ]
-                    or "Task not reported",
-                    "status": "unknown",
+                    "task": "Task not reported",
+                    "status": self._status(entry.get("status")),
                     "activity": "Child thread reported",
                 }
             cursor = result.get("nextCursor")
@@ -153,41 +145,15 @@ class CodexThreadObserver:
                 break
         return found
 
-    def _enrich_children(
-        self, parent_id: str, found: dict[str, dict[str, str | None]]
-    ) -> None:
-        # The CLI stream may omit child creation, but stored coordination items
-        # supply a task path and state. Read only the current parent turn, then
-        # keep only subAgentActivity fields; never persist conversation items.
-        turns = self._request(
-            "thread/turns/list",
-            {"threadId": parent_id, "limit": 1, "itemsView": "full"},
-        ).get("data", [])
-        if not isinstance(turns, list):
-            return
-        for turn in turns:
-            if not isinstance(turn, dict) or not isinstance(turn.get("items"), list):
-                continue
-            for item in turn["items"]:
-                if not isinstance(item, dict) or item.get("type") != "subAgentActivity":
-                    continue
-                child_id = item.get("agentThreadId")
-                child = found.get(child_id) if isinstance(child_id, str) else None
-                if child is not None:
-                    self._apply_activity(child, item)
-
     @staticmethod
-    def _apply_activity(child: dict[str, str | None], item: dict[str, Any]) -> None:
-        path = item.get("agentPath")
-        if isinstance(path, str) and path:
-            child["task"] = redact(path.rsplit("/", 1)[-1].replace("_", " "))[:240]
-        kind = item.get("kind")
-        if kind in {"started", "interacted"}:
-            child["status"] = "running"
-        elif kind in {"completed", "failed"}:
-            child["status"] = kind
-        if isinstance(kind, str):
-            child["activity"] = kind
+    def _status(value: Any) -> str:
+        if isinstance(value, dict):
+            value = value.get("type")
+        return (
+            value
+            if isinstance(value, str) and value in {"running", "completed", "failed"}
+            else "unknown"
+        )
 
     def close(self) -> None:
         if self.process.poll() is None:
