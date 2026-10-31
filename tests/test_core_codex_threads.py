@@ -7,7 +7,7 @@ from typing import Any
 from core.codex_threads import CodexThreadObserver
 
 
-def test_child_thread_and_activity_are_joined_without_copying_transcript(
+def test_child_thread_metadata_is_reported_without_copying_transcript(
     monkeypatch: Any,
 ) -> None:
     observer = object.__new__(CodexThreadObserver)
@@ -22,45 +22,32 @@ def test_child_thread_and_activity_are_joined_without_copying_transcript(
                     {
                         "id": "child-beta",
                         "parentThreadId": "parent-alpha",
-                        "preview": "",
+                        "preview": "PRIVATE PROMPT",
                         "status": {"type": "notLoaded"},
                     }
                 ],
                 "nextCursor": None,
             }
-        assert method == "thread/turns/list"
-        return {
-            "data": [
-                {
-                    "items": [
-                        {"type": "userMessage", "content": "PRIVATE TRANSCRIPT"},
-                        {
-                            "type": "subAgentActivity",
-                            "agentThreadId": "child-beta",
-                            "agentPath": "/root/review_tests",
-                            "kind": "started",
-                        },
-                        {
-                            "type": "subAgentActivity",
-                            "agentThreadId": "child-beta",
-                            "agentPath": "/root/review_tests",
-                            "kind": "completed",
-                        },
-                    ]
-                }
-            ]
-        }
+        raise AssertionError(f"unexpected transcript request: {method}")
 
     monkeypatch.setattr(observer, "_request", reply)
     children = observer.children("parent-alpha")
-    assert calls == ["thread/list", "thread/turns/list"]
+    assert calls == ["thread/list"]
     assert children == [
         {
             "id": "child-beta",
             "parent_id": "parent-alpha",
-            "task": "review tests",
-            "status": "completed",
-            "activity": "completed",
+            "task": "Task not reported",
+            "status": "unknown",
+            "activity": "Child thread reported",
         }
     ]
-    assert "PRIVATE TRANSCRIPT" not in str(children)
+    assert "PRIVATE PROMPT" not in str(children)
+
+
+def test_only_runtime_activity_states_are_reported() -> None:
+    assert CodexThreadObserver._status({"type": "running"}) == "running"
+    assert CodexThreadObserver._status("completed") == "completed"
+    assert CodexThreadObserver._status({"type": "failed"}) == "failed"
+    assert CodexThreadObserver._status({"type": "notLoaded"}) == "unknown"
+    assert CodexThreadObserver._status({"type": "future-state"}) == "unknown"
