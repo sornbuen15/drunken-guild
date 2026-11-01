@@ -316,8 +316,13 @@ only for versions and scenarios with recorded evidence; unavailable token data i
 **Decided:** 2026-10-12 — the Boss approved validating the shared workflow per agent and avoiding
 general compatibility claims without evidence.
 
-### REQ-037 — Discover all live local agent sessions
-**Class:** Must
+### ~~REQ-037 — Discover all live local agent sessions~~
+**Dropped** 2026-11-01 — the owner retired the Hub after review found that its
+provider-limited observations did not deliver the machine-wide agent, session,
+subagent, task, and ticket visibility needed to justify operating it. The shipped
+implementation is retained in Git history; no replacement monitor is planned.
+
+**Former class:** Must
 **Acceptance:** On Windows and macOS, Hub displays every live coding-agent session discoverable on the machine regardless of vendor or project registration, identifies project registration separately, distinguishes idle and busy when the source reports them, labels unavailable values unknown, and retains no transcripts.
 **Amended:** 2026-10-25 — the owner requests a local browser dashboard for easier
 monitoring. Provide session/project filters, session details, source coverage and
