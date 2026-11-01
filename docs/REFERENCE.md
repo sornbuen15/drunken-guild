@@ -146,28 +146,6 @@ uv run drunken-init \
   --jira-credential 'file://~/.drunken/secrets.json#jira.drunken-guild'
 ```
 
-The Hub is another optional project integration, independent from Jira. Enable it with
-`uv run drunken-init --project drunken-guild --hub`; disable it explicitly with
-`uv run drunken-init --project drunken-guild --no-hub`. Re-registration reports whether the Hub
-setting changed or stayed the same. Omit both flags when neither integration is configured.
-
-Run `drunken-hub` to list the local project registry, project-local skills, profile-configured MCP
-integrations, and any session information available to the Hub. It reads local state only and does
-not contact Jira or require a relay. Agent access is shown as unknown unless project-local evidence
-records it. The catalog reads MCP integration names from the project profile and does not inspect
-host MCP files, commands, environment values, or credentials. `drunken-hub --json` prints the same
-overview as JSON. With no registered projects or session data, it prints explicit empty states. The
-Hub is a separate optional command; the skills-first SDLC flow remains usable when no project has
-Hub enabled.
-
-Hub session metadata is stored outside project checkouts at `~/.drunken/sessions.json` by default.
-Set `DRUNKEN_SESSION_METADATA_PATH` to use another local file. The versioned store accepts only
-session id, agent, project id/path, reported task, and start/update timestamps; it rejects other
-fields, including transcript content. Reads are local and work offline. The store does not discover
-or launch agent sessions by itself; an adapter must supply metadata before it appears in the Hub.
-The current live-session source inventory, coverage limits, and provider-neutral record contract are
-documented in [Local live-session discovery](SESSION-DISCOVERY.md).
-
 Prove it resolves. This is a separate step on purpose, because Jira answers a search with `200` and
 `[]` when the credential is bad:
 
