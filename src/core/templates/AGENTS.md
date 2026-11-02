@@ -19,6 +19,19 @@ Pointers only — read the skill, role or tool named; do not reason from this ta
 | **unsure which skill, role or tool fits** | `skills/INDEX.md` — read it rather than guessing a name from memory. |
 <!-- guild-block:end -->
 
+## Intent and authority
+
+- Classify intent before choosing a skill, role, or tool.
+- A question, explanation, analysis, review, or plan does not authorize implementation
+  or any other file or external-state change. Inspect read-only evidence and return the answer,
+  findings, or proposal the user requested.
+- An implementation or external action requires a clear instruction to perform that action and a
+  bounded target. A discussed possibility, recommendation, or description of a future change is
+  not authority to act.
+- When a request may change files or external state but authority is ambiguous, ask
+  one focused question before making the change. Do not infer permission from urgency, prior
+  discussion, or the availability of a matching skill or tool.
+
 The instructions every coding agent reads in this project, whichever agent it is. Rules that bind
 every agent live here and nowhere else; an agent-specific file (CLAUDE.md, …) only points here.
 

@@ -8,6 +8,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 LEDGER = ROOT / "tests" / "routing" / "agent-coverage.json"
 SMOKE = ROOT / "tests" / "routing" / "skills-first-smoke.json"
+INTENT_AUTHORITY = ROOT / "tests" / "routing" / "intent-authorization.json"
 DOC = ROOT / "docs" / "AGENT-COMPATIBILITY.md"
 
 
@@ -63,3 +64,52 @@ def test_other_projects_instruction_files_are_preserved_by_policy() -> None:
     assert "Instruction files are not disposable" in agents
     assert "does not authorize deleting `AGENTS.md`, `CLAUDE.md`" in prd
     assert "preserves the files on disk" in " ".join(prd.split())
+
+
+def test_intent_and_authority_contract_covers_non_action_and_action_requests() -> None:
+    data = json.loads(INTENT_AUTHORITY.read_text(encoding="utf-8"))
+    scenarios = {scenario["id"]: scenario for scenario in data["scenarios"]}
+
+    assert {
+        "question-about-change",
+        "explain-possible-fix",
+        "review-without-editing",
+        "plan-without-implementation",
+        "explicit-small-build",
+        "ambiguous-state-change",
+        "external-action-question",
+    } <= scenarios.keys()
+
+    for scenario in scenarios.values():
+        if scenario["intent"] != "implementation":
+            assert scenario["authorizes_state_change"] is False
+            assert scenario["expected_route"] != {"kind": "skill", "name": "build"}
+
+    build = scenarios["explicit-small-build"]
+    assert build["authorizes_state_change"] is True
+    assert build["expected_route"] == {"kind": "skill", "name": "build"}
+
+    known_routes = {
+        ("skill", "clear-responses"),
+        ("skill", "build"),
+        ("role", "reviewer"),
+        ("role", "manager"),
+    }
+    assert {
+        (scenario["expected_route"]["kind"], scenario["expected_route"]["name"])
+        for scenario in scenarios.values()
+    } <= known_routes
+
+
+def test_portable_instructions_require_intent_before_state_change() -> None:
+    required = {
+        "Classify intent before choosing a skill, role, or tool.",
+        "A question, explanation, analysis, review, or plan does not authorize implementation",
+        "When a request may change files or external state but authority is ambiguous, ask",
+    }
+    for path in (ROOT / "AGENTS.md", ROOT / "src" / "core" / "templates" / "AGENTS.md"):
+        content = path.read_text(encoding="utf-8")
+        missing = {rule for rule in required if rule not in content}
+        assert not missing, (
+            f"{path} is missing intent/authority rules: {sorted(missing)}"
+        )
