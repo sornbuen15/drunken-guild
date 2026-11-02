@@ -64,8 +64,9 @@
     {"request": "Park DG-405 in the backlog for now.", "expect": {"kind": "tool", "name": "jira_move_to_backlog"}},
 
     {"request": "What does git rebase --onto do?", "expect": {"kind": "skill", "name": "clear-responses"}},
-    {"request": "Rename the variable tmp to buffer in utils.py.", "expect": {"kind": "none"}},
+    {"request": "Rename the variable tmp to buffer in utils.py.", "expect": {"kind": "skill", "name": "build"}},
     {"request": "Thanks, that's all for today.", "expect": {"kind": "none"}},
+    {"request": "Understood. I'll decide which option to use later.", "expect": {"kind": "none"}},
     {"request": "Explain what a bounded context is, in two sentences.", "expect": {"kind": "skill", "name": "clear-responses"}},
     {"request": "What time zone is UTC+7?", "expect": {"kind": "none"}},
     {"request": "What does HTTP stand for?", "expect": {"kind": "none"}},

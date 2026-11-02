@@ -8,7 +8,7 @@ description: >
 ---
 
 # Skill: Build
-**Version:** v1.1.0
+**Version:** v1.2.0
 **Description:** Implements one approved task with evidence-based checks and project-defined review.
 
 ---
@@ -19,6 +19,9 @@ description: >
     the smallest useful change, and hand off according to the repository's workflow.
   </role>
 
+  <activation_boundary>Use only for a clear implementation instruction or approved task ready to
+  build. Questions, explanations, analyses, reviews, plans, and recommendations do not authorize
+  editing. If authority is ambiguous, ask one focused question first.</activation_boundary>
   <starting_states>
     This skill works in whatever project state it finds. Name the available starting context and
     finish quickly when the requested change is already present.

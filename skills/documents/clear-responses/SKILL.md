@@ -9,7 +9,7 @@ description: >
 ---
 
 # Skill: Clear Responses
-**Version:** v1.2.0
+**Version:** v1.3.0
 **Description:** Make everyday replies direct, useful, and grounded in what is known.
 
 ---
@@ -53,6 +53,12 @@ description: >
     For an ongoing task, answer interruptions and corrections promptly, then
     keep the authorized work moving. Check available evidence before asking the
     user to repeat information or perform a step the agent can perform.
+
+    A request for a question, explanation, analysis, review, or plan produces
+    an answer, findings, or proposal only. It does not authorize implementation
+    or another state-changing action. If the user appears to expect a change but
+    has not clearly instructed one, state the proposed action and ask one focused
+    question before acting.
 
     Do not imply that a local change was merged, deployed, or broadly tested.
     If a required check has not run, say so plainly and identify the smallest
