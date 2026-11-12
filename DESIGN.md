@@ -198,7 +198,19 @@ silently widened permission are both worse than a refusal.
 
 ---
 
-## 5. Where the rules live
+## 5. Local CI is an external evidence boundary
+
+The separately installed local CI service owns execution, isolation, cleanup, and report
+production. This repository consumes its versioned report contract as evidence; it does not
+install, configure, operate, or administer that service.
+
+An agent may request a check and read a report when the service is available. The report is
+trustworthy for a handoff only when its contract version is supported, its required checks are
+resolved, its overall result is `pass`, and its revision SHA matches the branch head being
+handed off. Missing, stale, skipped, or not-run evidence is reported as such rather than
+inferred as a pass.
+
+## 6. Where the rules live
 
 | question | file |
 |---|---|

@@ -2094,3 +2094,36 @@ class TestDG482NoStateLeaksBetweenCalls:
             "command naming it must not be denied just because repo a's "
             "resolution happened first"
         )
+
+
+class TestLocalCIDenyRules:
+    """X8: agents cannot run release or secret-management operations."""
+
+    @staticmethod
+    def _deny_rules():
+        settings = json.loads(
+            (
+                Path(__file__).resolve().parents[1] / ".claude" / "settings.json"
+            ).read_text(encoding="utf-8")
+        )
+        return [pr.Rule.parse(entry) for entry in settings["permissions"]["deny"]]
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "ci check --profile release repo/example --branch develop",
+            "ci sonar repo/example --branch develop",
+            "ci sync-secrets --json",
+            "sops -d secrets/config.yaml",
+            "sops decrypt secrets/config.yaml",
+        ],
+    )
+    def test_ci_release_and_secret_commands_are_denied(self, command: str) -> None:
+        assert pr.is_denied("Bash", {"command": command}, self._deny_rules())
+
+    def test_age_key_reads_are_denied(self) -> None:
+        assert pr.is_denied(
+            "Read",
+            {"file_path": "/home/user/.config/sops/age/keys.txt"},
+            self._deny_rules(),
+        )

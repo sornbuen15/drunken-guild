@@ -93,6 +93,9 @@ description: >
     2. TRACE: map each requirement to task records, code and checks; state each source used.
     3. VERIFY: run relevant checks only when appropriate and authorized; record revision, command
        and actual output. Do not claim live-service, merge or deployment evidence without observing it.
+       When a local-CI `report.json` is available, verify its contract, `overall` value and
+       `revision.sha`; treat a report for a different branch head as stale and list every
+       `skipped`/`not_run` check separately.
     4. CLASSIFY: list gaps and uncertainties separately.
     5. REPORT: write a dated report only if the project's docs define a report location or the user
        asks for one. Never overwrite an existing report.

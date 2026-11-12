@@ -132,6 +132,16 @@ permission.
 
 ## Things that will bite you anywhere
 
+### Local CI boundary
+
+When the separately installed local CI is available, an agent may run `ci status`,
+`ci up`, `ci check --profile fast|full`, `ci report`, `ci verify`, and `ci sleep`.
+Starting or stopping an installed service is not installation or deployment. The
+agent must not run the `release` profile, change Woodpecker settings, manage CI
+secrets, read SOPS/age key material, or write under the local-infra repositories.
+CI configuration uses `env://` or `file://...#key` references; credentials and
+`op://` runtime references must not enter this repository.
+
 - **English only** — every description, instruction, commit, comment and PR this repository sees.
 - **No registered id in a commit** (REQ-023): fixtures, examples, messages use alpha, beta, zeta.
 - **No secret ever enters a commit.** A reference without a scheme is an error, not a literal: show
