@@ -70,7 +70,8 @@ description: >
        - all external input validated at the boundary; parameterised queries; escaped output
        - no secret in code, committed config or logs; secrets from a secret store
        - TLS for anything sensitive; explicit, restrictive CORS; rate limits on auth and public APIs
-       - no known CVEs in dependencies; versions pinned; scanning in CI
+       - no known CVEs in dependencies; versions pinned; scanning in CI is evidenced by the
+         local-CI `full` report, with its revision matching the proposed branch head
     4. **Rate** each finding by likelihood × impact. Critical and High findings name mitigation
        options and evidence; the owner decides how to proceed unless project policy says otherwise.
   </security_review>

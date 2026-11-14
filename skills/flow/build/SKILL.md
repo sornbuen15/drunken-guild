@@ -108,11 +108,15 @@ description: >
       plan:      holds | diverges — <one line>
       blast:     <changed areas and shared dependencies>
       checks:    <commands and actual outcomes>
+      ci:        <profile, report path, overall and revision match; or not_run with reason>
       untested:  <item> — evidence: <what was checked, how, what came back>
       handoff:   <project-defined next step>
       Next:      /audit for evidence, or the repository's required review gate
     ```
 
+    The `ci` line is required when local CI is available. It must name every skipped,
+    not_run, or failed optional check from the report; never infer a pass from a local
+    branch test. If local CI is unavailable, write `not_run` and the observed reason.
     Omit `untested` when there is nothing in it. End with the next project-defined step. Normally
     this is `/audit` for acceptance evidence; when local review policy requires another gate, name
     that gate instead.

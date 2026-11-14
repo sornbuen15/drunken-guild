@@ -157,11 +157,16 @@ description: >
       - [ ] Skill files follow canonical SKILL.md structure (see AGENTS.md)
       - [ ] Agent files follow canonical agent `.md` structure (see AGENTS.md)
       - [ ] Sync scripts have NOT been run — installation is always a manual user step
+      - [ ] When local CI is available, the report has `overall=pass`, its
+        `revision.sha` matches the pushed branch head, and skipped/not-run checks
+        are listed in `## Evidence`
     </rule>
 
     <rule priority="HIGH" name="PR Title and Description">
       PR title: `type(scope): description` (mirrors primary commit message)
-      PR body must include: ## What (one paragraph), ## Why (one paragraph), ## Checklist (checked off).
+      PR body must include: ## What (one paragraph), ## Why (one paragraph),
+      ## Evidence (report, revision and skipped/not-run checks), ## Checklist
+      (checked off).
     </rule>
   </pr_lifecycle>
 
