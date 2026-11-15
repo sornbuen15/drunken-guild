@@ -7,6 +7,12 @@ The top heading is the version this tree declares in `pyproject.toml`; `Unreleas
 while a release is being prepared, and is renamed to the version when it is tagged
 (`tests/test_install_agents.py::TestTheChangelog`).
 
+## 2.1.2 — 2026-11-15
+
+### Fixed
+- Retired local material under `_not_used/` is excluded from worktree-layer inspection, so
+  `drunken-doctor` no longer descends into inaccessible pytest temporary directories there.
+
 ## 2.1.0 — 2026-10-14
 
 Skills-first SDLC workflows work from project context, keep Jira optional, and leave important
