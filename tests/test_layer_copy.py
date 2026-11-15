@@ -2014,6 +2014,16 @@ class TestAiLayerFilesUnderNeverDescendsIntoANestedRepository:
             f"must never descend into a nested repository. Found: {found}"
         )
 
+    def test_retired_local_material_is_not_descended_into(self, tmp_path: Path) -> None:
+        root = tmp_path / "proj"
+        retired = root / "_not_used" / "tmp" / "pytest-basetemp"
+        retired.mkdir(parents=True)
+        (retired / "AGENTS.md").write_text("retired local material\n", encoding="utf-8")
+
+        found = layer_copy.ai_layer_files_under(root)
+
+        assert not any("_not_used" in f.as_posix() for f in found)
+
     def test_a_fake_dot_git_directory_with_no_head_is_not_a_boundary(
         self, tmp_path: Path
     ) -> None:

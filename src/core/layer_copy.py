@@ -332,6 +332,12 @@ def ai_layer_files_under(
     project's checkout; the config-repo walk does not, its folder is
     author-controlled.
 
+    **Retired local material is outside the project scan.** ``_not_used`` is
+    the repository's recoverable holding area for retired work and generated
+    artifacts. It is intentionally not an AI-layer or dependency tree, so a
+    diagnostic walk must skip it even when it contains inaccessible pytest
+    basetemp directories.
+
     **A marker is never allowed to hide the project's own AI layer (review of #192, reproduced).** A
     directory is stepped over only when none of these hold, whatever marker it carries: it is
     ``.claude`` or ``.gemini`` at the root; it directly holds a file on the AI-layer list; or a path
@@ -362,6 +368,8 @@ def ai_layer_files_under(
                 # Never followed, file or directory: see the docstring.
                 continue
             if entry.is_dir():
+                if entry.name == "_not_used":
+                    continue
                 if _is_real_git_marker(entry / ".git"):
                     # A nested repository (or worktree) boundary: see the
                     # docstring. `entry` is always a descendant discovered
