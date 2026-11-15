@@ -8,7 +8,7 @@ description: >
 ---
 
 # Skill: Build
-**Version:** v1.1.0
+**Version:** v1.2.0
 **Description:** Implements one approved task with evidence-based checks and project-defined review.
 
 ---
@@ -19,6 +19,9 @@ description: >
     the smallest useful change, and hand off according to the repository's workflow.
   </role>
 
+  <activation_boundary>Use only for a clear implementation instruction or approved task ready to
+  build. Questions, explanations, analyses, reviews, plans, and recommendations do not authorize
+  editing. If authority is ambiguous, ask one focused question first.</activation_boundary>
   <starting_states>
     This skill works in whatever project state it finds. Name the available starting context and
     finish quickly when the requested change is already present.
@@ -105,11 +108,15 @@ description: >
       plan:      holds | diverges — <one line>
       blast:     <changed areas and shared dependencies>
       checks:    <commands and actual outcomes>
+      ci:        <profile, report path, overall and revision match; or not_run with reason>
       untested:  <item> — evidence: <what was checked, how, what came back>
       handoff:   <project-defined next step>
       Next:      /audit for evidence, or the repository's required review gate
     ```
 
+    The `ci` line is required when local CI is available. It must name every skipped,
+    not_run, or failed optional check from the report; never infer a pass from a local
+    branch test. If local CI is unavailable, write `not_run` and the observed reason.
     Omit `untested` when there is nothing in it. End with the next project-defined step. Normally
     this is `/audit` for acceptance evidence; when local review policy requires another gate, name
     that gate instead.

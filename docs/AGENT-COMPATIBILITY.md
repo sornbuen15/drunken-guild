@@ -28,13 +28,24 @@ versions from one run.
 | Agent | Instruction / skill / discovery | Routing and tools | Human gates | Token data | Overall |
 |---|---|---|---|---|---|
 | Codex | Partial: this implementation session read the shared instructions and selected skills; this does not validate native auto-discovery or a scenario suite | Not tested systematically | Partial: observed in this task only | Not available from provider counters in this record | Partial |
-| Claude Code | Not tested for this evaluation | Not tested | Not tested | Not available | Not tested |
+| Claude Code | Partial: Claude Code 2.1.286 was available on macOS 27.0.1 arm64; this task inspected the shared root `AGENTS.md` and selected skills explicitly. Native discovery was not exercised in a Claude Code session. | Not tested systematically | Not tested in a Claude Code session | Not available | Partial, limited to explicit instruction inspection and CLI availability |
 | Aider | Not tested | Not tested | Not tested | Not available | Not tested |
 | Gemini CLI | Not tested | Not tested | Not tested | Not available | Not tested |
 | Antigravity | Not tested | Not tested | Not tested | Not available | Not tested |
 
 Add agents only with a named version/configuration and evidence. Compatibility is not implied for
 other versions, models, operating systems or MCP setups.
+
+## Codex platform evidence
+
+Evidence collected on 2026-10-17 for the current operator machine. This records the versions and
+capabilities observed in this session; it does not establish compatibility across other Codex
+versions or operating systems.
+
+| OS | Codex version | Session/runtime evidence | Controls observed | Evidence / status |
+|---|---|---|---|---|
+| macOS 27.0.1 (build 26A434, arm64) | Desktop 26.1013.40934 (build 20770, prod); CLI 0.162.1 | The active Codex task was visible to this assistant. | CLI version can be queried. Native session enumeration and control were not systematically tested. | `sw_vers`, `uname -a`, `codex --version`, and the Codex app version check; partial evidence for this macOS machine only. |
+| Windows | Not tested | Unknown | Unknown | Not tested in this PR; tracked by DG-537 for Windows follow-up. |
 
 ## Routing protocol
 

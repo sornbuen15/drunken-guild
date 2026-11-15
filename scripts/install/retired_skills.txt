@@ -43,6 +43,7 @@ post-mortem
 project-audit-reviewer
 project-hygiene
 scrutinize
+task-answers
 task-estimation
 test-report-generator
 zero-defect-mindset

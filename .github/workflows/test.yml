@@ -87,9 +87,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # 3.10 is the floor declared in pyproject and was never actually
-        # exercised until now; 3.13 is what the maintainers run.
-        python-version: ["3.10", "3.13"]
+        # Test the declared 3.12 floor and the current maintainer runtime.
+        python-version: ["3.12", "3.13"]
 
     steps:
       - uses: actions/checkout@v4
@@ -172,8 +171,11 @@ jobs:
             > /tmp/shipped-requirements.txt
           pip-audit --strict --progress-spinner off -r /tmp/shipped-requirements.txt
 
-      - name: Dependency audit — the dev environment
-        run: pip-audit --strict --progress-spinner off -r requirements-dev.txt
+      - name: Dependency audit — the dev environment (uv.lock)
+        run: |
+          uv export --format requirements-txt --no-emit-project --extra dev \
+            > /tmp/dev-requirements.txt
+          pip-audit --strict --progress-spinner off -r /tmp/dev-requirements.txt
 
       # Static analysis, gated at MEDIUM and above — a real bar rather than a
       # decorative one. The three MEDIUM findings this repo had (B310,
@@ -217,13 +219,9 @@ jobs:
         if: always()
         run: python scripts/check_doc_drift.py
 
-      # DG-516. Skills and agents are read, not skimmed — a long file costs
-      # context on every load. Wired next to the doc-drift check above for
-      # the same reason that one runs here and not only locally: the gate
-      # has to hold on every push, not only on a machine with pre-commit
-      # installed. Today's oversize files are a checked-in ratchet
-      # (scripts/skill_size_baseline.json), not rewritten by this gate.
-      - name: Skill and agent size
+      # Size is a review signal, not a correctness gate. Improvements belong
+      # in the backlog rather than blocking unrelated work.
+      - name: Skill and agent size report
         if: always()
         run: python scripts/check_skill_size.py
 

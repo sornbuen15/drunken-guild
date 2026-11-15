@@ -1,5 +1,6 @@
 # mypy: ignore-errors
 import os
+from pathlib import Path
 from typing import Any
 from unittest import mock
 
@@ -13,7 +14,9 @@ def mock_registry_path(tmp_path: Any) -> str:
     return os.path.join(tmp_path, "projects.json")
 
 
-def test_registry_default_ignores_the_working_directory(monkeypatch: Any) -> None:
+def test_registry_default_ignores_the_working_directory(
+    monkeypatch: Any, tmp_path: Path
+) -> None:
     """Was: the default resolved to '<cwd>/.agents/projects.json'.
 
     That is the §1.2 root cause — the registry a server read depended on which
@@ -21,19 +24,23 @@ def test_registry_default_ignores_the_working_directory(monkeypatch: Any) -> Non
     about what a project even was. It now comes from $DRUNKEN_HOME.
     """
     monkeypatch.delenv("DRUNKEN_REGISTRY_PATH", raising=False)
-    monkeypatch.setenv("DRUNKEN_HOME", "/state")
+    state = tmp_path / "state"
+    monkeypatch.setenv("DRUNKEN_HOME", str(state))
 
     with mock.patch("os.getcwd", autospec=True, return_value="/mock/cwd"):
         registry = ProjectRegistry()
 
-    assert registry.registry_path == "/state/projects.json"
+    assert registry.registry_path == str(state / "projects.json")
 
 
-def test_registry_default_honours_the_registry_env_override(monkeypatch: Any) -> None:
+def test_registry_default_honours_the_registry_env_override(
+    monkeypatch: Any, tmp_path: Path
+) -> None:
     """Antigravity's mcp_config.json already sets this, and does so correctly."""
-    monkeypatch.setenv("DRUNKEN_REGISTRY_PATH", "/elsewhere/projects.json")
+    override = tmp_path / "elsewhere" / "projects.json"
+    monkeypatch.setenv("DRUNKEN_REGISTRY_PATH", str(override))
 
-    assert ProjectRegistry().registry_path == "/elsewhere/projects.json"
+    assert ProjectRegistry().registry_path == str(override)
 
 
 def test_registry_initialization_custom(mock_registry_path: str) -> None:
@@ -46,19 +53,20 @@ def test_get_projects_empty(mock_registry_path: str) -> None:
     assert registry.get_projects() == {}
 
 
-def test_add_and_get_project(mock_registry_path: str) -> None:
+def test_add_and_get_project(mock_registry_path: str, tmp_path: Path) -> None:
     registry = ProjectRegistry(registry_path=mock_registry_path)
 
-    registry.add_project("test-proj", "/absolute/path/test-proj", "Test project")
+    project_path = str(tmp_path / "test-proj")
+    registry.add_project("test-proj", project_path, "Test project")
 
     projects = registry.get_projects()
     assert "test-proj" in projects
-    assert projects["test-proj"]["path"] == "/absolute/path/test-proj"
+    assert projects["test-proj"]["path"] == project_path
     assert projects["test-proj"]["description"] == "Test project"
 
     project = registry.get_project("test-proj")
     assert project is not None
-    assert project["path"] == "/absolute/path/test-proj"
+    assert project["path"] == project_path
 
 
 def test_add_project_relative_path_raises_error(mock_registry_path: str) -> None:
@@ -67,10 +75,10 @@ def test_add_project_relative_path_raises_error(mock_registry_path: str) -> None
         registry.add_project("test-proj", "relative/path")
 
 
-def test_remove_project(mock_registry_path: str) -> None:
+def test_remove_project(mock_registry_path: str, tmp_path: Path) -> None:
     registry = ProjectRegistry(registry_path=mock_registry_path)
-    registry.add_project("p1", "/absolute/p1")
-    registry.add_project("p2", "/absolute/p2")
+    registry.add_project("p1", str(tmp_path / "p1"))
+    registry.add_project("p2", str(tmp_path / "p2"))
 
     assert registry.remove_project("p1") is True
     assert registry.get_project("p1") is None

@@ -318,5 +318,36 @@
     ],
     "names": ["project-docs", "concise-docs"],
     "priority": 15
+  },
+  {
+    "category": "ordinary_conversation",
+    "keywords": [
+      "question",
+      "questions",
+      "explain",
+      "explanation",
+      "compare",
+      "comparison",
+      "decision",
+      "decide",
+      "troubleshoot",
+      "what failed",
+      "what remains",
+      "plain language",
+      "ถาม",
+      "อธิบาย",
+      "เปรียบเทียบ",
+      "ตัดสินใจ",
+      "แก้ปัญหา",
+      "เกิดอะไรขึ้น",
+      "เหลืออะไร",
+      "สรุป",
+      "คำตอบ",
+      "ตรวจคำตอบ",
+      "ตอบก่อนหน้านี้",
+      "ใช้ clear-responses หรือยัง"
+    ],
+    "names": ["clear-responses"],
+    "priority": 16
   }
 ]

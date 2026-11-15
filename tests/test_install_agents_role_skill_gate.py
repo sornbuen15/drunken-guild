@@ -68,7 +68,7 @@ def _run_sh(
     env = dict(os.environ)
     env["HOME"] = home.as_posix()
     if prepend_path is not None:
-        env["PATH"] = f"{prepend_path.as_posix()}:{env.get('PATH', '')}"
+        env["PATH"] = os.pathsep.join([str(prepend_path), env.get("PATH", "")])
     return subprocess.run(
         [BASH, str(script), *([extra_args] if extra_args else [])],
         capture_output=True,

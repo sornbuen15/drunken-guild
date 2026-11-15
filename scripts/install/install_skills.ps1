@@ -279,10 +279,12 @@ foreach ($SkillFile in $SkillFiles) {
     $Desc = $Desc.Substring(0, [Math]::Min(160, $Desc.Length)).TrimEnd()
 
     $HomeSkillPath = "`$HOME/.claude/skills/$SkillName/SKILL.md"
+    # Keep the generated index byte-identical without a non-ASCII script byte.
+    $IndexSeparator = [char]0x2014
     if ($Trigger) {
-        $IndexLines += "- ``$SkillName`` (``$Trigger``) — $Desc"
+        $IndexLines += "- ``$SkillName`` (``$Trigger``) $IndexSeparator $Desc"
     } else {
-        $IndexLines += "- ``$SkillName`` — $Desc"
+        $IndexLines += "- ``$SkillName`` $IndexSeparator $Desc"
     }
     $IndexLines += "  Path: $HomeSkillPath"
     $IndexLines += ""

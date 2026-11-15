@@ -203,6 +203,7 @@ import os
 import re
 import subprocess
 import sys
+import tempfile
 from typing import List
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
@@ -347,6 +348,37 @@ def _configured_remote_names() -> List[str]:
     return [r for r in result.stdout.decode("utf-8", "replace").split() if r]
 
 
+def _windows_ls_remote(
+    remote: str, env: dict[str, str], timeout: float
+) -> subprocess.CompletedProcess[bytes]:
+    """Bound the launcher and its children without waiting on inherited pipes."""
+    args = ["git", "ls-remote", "--refs", remote]
+    with tempfile.TemporaryFile() as output, tempfile.TemporaryFile() as errors:
+        process = subprocess.Popen(args, stdout=output, stderr=errors, env=env)
+        try:
+            process.wait(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            try:
+                # Only terminate the tree rooted at this exact child we started.
+                subprocess.run(
+                    ["taskkill", "/PID", str(process.pid), "/T", "/F"],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    timeout=5,
+                    check=False,
+                )
+            finally:
+                if process.poll() is None:
+                    process.kill()
+                process.wait(timeout=2)
+            raise
+        output.seek(0)
+        errors.seek(0)
+        return subprocess.CompletedProcess(
+            args, process.returncode, output.read(), errors.read()
+        )
+
+
 def _advertised_remote_refs(remote: str) -> dict[str, str]:
     """``ref name -> sha`` for every ref *remote* (a configured name, or
     the literal URL/path git handed the hook as ``$2``) advertises right
@@ -367,12 +399,15 @@ def _advertised_remote_refs(remote: str) -> dict[str, str]:
     env = {**os.environ, **_NO_PROMPT_ENV}
     timeout = _ls_remote_timeout()
     try:
-        result = subprocess.run(
-            ["git", "ls-remote", "--refs", remote],
-            capture_output=True,
-            env=env,
-            timeout=timeout,
-        )
+        if sys.platform == "win32":
+            result = _windows_ls_remote(remote, env, timeout)
+        else:
+            result = subprocess.run(
+                ["git", "ls-remote", "--refs", remote],
+                capture_output=True,
+                env=env,
+                timeout=timeout,
+            )
     except subprocess.TimeoutExpired:
         raise ScanFailed(
             f"git ls-remote did not answer within {timeout:.0f}s "

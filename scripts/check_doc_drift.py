@@ -153,6 +153,9 @@ RETIRED = (
         "install_mcp.sh for the config; drunken-doctor --requirements for the pins",
     ),
     Retired("drunken-status", "DG-356", "the /audit step"),
+    Retired("drunken-hub", "DG-525", "nothing; Hub monitoring is retired"),
+    Retired("HUB-DASHBOARD.md", "DG-525", "the retirement record in RETIRED.md"),
+    Retired("SESSION-DISCOVERY.md", "DG-525", "the retirement record in RETIRED.md"),
     # Retired with the Discord lane but missed by this list until DG-360 found
     # CLAUDE.md still explaining how to call it, five sessions later. A rule
     # about a function nobody can call is worse than no rule: it is read as

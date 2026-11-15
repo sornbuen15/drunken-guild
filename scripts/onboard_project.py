@@ -85,11 +85,15 @@ def write_secrets(document: Dict[str, Any]) -> Path:
     """
     paths.ensure_home()
     path: Path = paths.home().path / "secrets.json"
+    existed = path.exists()
+    if existed:
+        paths.secure_file(path)
     fd = os.open(str(path), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, SECRETS_MODE)
     with os.fdopen(fd, "w", encoding="utf-8") as handle:
+        if not existed:
+            paths.secure_file(path)
         json.dump(document, handle, indent=4, sort_keys=True)
         handle.write("\n")
-    os.chmod(path, SECRETS_MODE)
     return path
 
 

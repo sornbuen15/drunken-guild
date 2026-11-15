@@ -45,6 +45,9 @@ work from user requests and project files without Jira. Setup details — creden
 
 ## Use from a clone
 
+The complete cycle is [`docs/WORKFLOW.md`](./docs/WORKFLOW.md). This page only covers setup and
+the first use.
+
 Read the repository's `AGENTS.md`, then open the relevant `skills/flow/*/SKILL.md` and follow it.
 For an agent that supports skills, use its documented discovery mechanism; otherwise point the
 agent at the skill file explicitly. No runtime or Jira registration is required for the core flow.
@@ -78,7 +81,9 @@ creating a second one for the same work.
 
 > **New or existing, an untracked AI layer has no worktree memory.** `AGENTS.md`, `CLAUDE.md` and
 > `.claude/` are deliberately not committed, so a *new* `git worktree` of either kind of project
-> starts with none of them — details: [`docs/REFERENCE.md`](./docs/REFERENCE.md#ai-layer-location-and-git-worktrees).
+> starts with none of them. Run `drunken-doctor --project <id> --offline` to find missing copies;
+> `drunken-init --project <id> --sync-worktrees` previews a manual sync — details:
+> [`docs/REFERENCE.md`](./docs/REFERENCE.md#ai-layer-location-and-git-worktrees).
 
 ## Agent compatibility
 
@@ -109,6 +114,7 @@ per-prompt route.
 | | |
 |---|---|
 | [`README.md`](./README.md) | the two-sentence version and the flow table |
+| [`docs/WORKFLOW.md`](./docs/WORKFLOW.md) | the commands, roles and evidence cycle |
 | [`docs/REFERENCE.md`](./docs/REFERENCE.md) | the extras catalog, the flow in detail, mid-sprint scenarios, known limitations |
 | [`AGENTS.md`](./AGENTS.md) | the rules, if you are contributing here |
 | [`skills/INDEX.md`](./skills/INDEX.md) | every skill, its trigger and its path |

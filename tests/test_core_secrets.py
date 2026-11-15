@@ -93,6 +93,9 @@ class TestFileResolver:
 
     def test_expands_tilde(self, tmp_path, monkeypatch) -> None:
         monkeypatch.setenv("HOME", str(tmp_path))
+        monkeypatch.setenv("USERPROFILE", str(tmp_path))
+        monkeypatch.delenv("HOMEDRIVE", raising=False)
+        monkeypatch.delenv("HOMEPATH", raising=False)
         (tmp_path / "token").write_text("home-relative")
         assert secrets.resolve("file://~/token").reveal() == "home-relative"
 

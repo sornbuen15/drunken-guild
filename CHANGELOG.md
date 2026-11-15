@@ -7,6 +7,15 @@ The top heading is the version this tree declares in `pyproject.toml`; `Unreleas
 while a release is being prepared, and is renamed to the version when it is tagged
 (`tests/test_install_agents.py::TestTheChangelog`).
 
+## 2.1.1 — 2026-11-15
+
+The documentation now has one canonical workflow path, with setup, operator, integration and
+reference material clearly separated.
+
+### Changed
+- Added the concise seven-step workflow guide with its evidence and local-CI boundary.
+- Clarified which document owns each user-facing explanation and removed navigation ambiguity.
+
 ## 2.1.0 — 2026-10-14
 
 Skills-first SDLC workflows work from project context, keep Jira optional, and leave important

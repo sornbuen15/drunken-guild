@@ -122,7 +122,7 @@ class TestTheGuardItself:
         everything else reports success."""
         message = guard.explain([Path("tests/test_token_economy.py")])
 
-        assert "tests/test_token_economy.py" in message
+        assert str(Path("tests") / "test_token_economy.py") in message
         assert "gitignore" in message.lower()
 
 

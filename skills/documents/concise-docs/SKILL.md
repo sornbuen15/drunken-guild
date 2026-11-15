@@ -21,8 +21,12 @@ description: >
     length and shape.
   </role>
 
+  For ordinary conversation, including questions about ongoing work, use
+  `/clear-responses`. This skill covers authored documents and summaries;
+  clear-responses grounds conversational answers in the available evidence.
+
   <doc_types>
-    Six shapes, one example of each under `references/` — read the one that matches before
+    Seven shapes, one example of each under `references/` — read the one that matches before
     writing, rather than inventing a shape from memory:
 
     | type | lead with | example |
@@ -32,6 +36,7 @@ description: >
     | report | the finding, then the evidence | `references/status.md` |
     | release note | what changed for the reader, not the diff | `references/release-note.md` |
     | ticket | FINDING/SCOPE/ACCEPTANCE, nothing narrated | `references/ticket.md` |
+    | pull request | task, change, reason and actual checks | `references/pull-request.md` |
     | chat summary | the decision, then what is still open | `references/chat-summary.md` |
   </doc_types>
 

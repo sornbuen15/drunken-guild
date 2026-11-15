@@ -19,6 +19,19 @@ Pointers only — read the skill, role or tool named; do not reason from this ta
 | **unsure which skill, role or tool fits** | `skills/INDEX.md` — read it rather than guessing a name from memory. |
 <!-- guild-block:end -->
 
+## Intent and authority
+
+- Classify intent before choosing a skill, role, or tool.
+- A question, explanation, analysis, review, or plan does not authorize implementation
+  or any other file or external-state change. Inspect read-only evidence and return the answer,
+  findings, or proposal the user requested.
+- An implementation or external action requires a clear instruction to perform that action and a
+  bounded target. A discussed possibility, recommendation, or description of a future change is
+  not authority to act.
+- When a request may change files or external state but authority is ambiguous, ask
+  one focused question before making the change. Do not infer permission from urgency, prior
+  discussion, or the availability of a matching skill or tool.
+
 Shared instruction entry point. Agent discovery differs; see `docs/AGENT-COMPATIBILITY.md` for
 per-agent evidence.
 **Amended** (REQ-006, Q3-A): a generated one-line adapter that only points at this standard is
@@ -131,6 +144,16 @@ permission.
 ---
 
 ## Things that will bite you anywhere
+
+### Local CI boundary
+
+When the separately installed local CI is available, an agent may run `ci status`,
+`ci up`, `ci check --profile fast|full`, `ci report`, `ci verify`, and `ci sleep`.
+Starting or stopping an installed service is not installation or deployment. The
+agent must not run the `release` profile, change Woodpecker settings, manage CI
+secrets, read SOPS/age key material, or write under the local-infra repositories.
+CI configuration uses `env://` or `file://...#key` references; credentials and
+`op://` runtime references must not enter this repository.
 
 - **English only** — every description, instruction, commit, comment and PR this repository sees.
 - **No registered id in a commit** (REQ-023): fixtures, examples, messages use alpha, beta, zeta.

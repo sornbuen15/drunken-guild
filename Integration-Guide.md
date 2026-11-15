@@ -1,6 +1,9 @@
 # Drunken-Guild: AI Integration Guide
 
-This guide is for connecting a local AI coding tool (Claude Code, Cursor, Aider) to Drunken-Guild, so it can read and update Jira directly instead of you doing it by hand, and send a one-way Discord notification when something wants a person.
+This guide covers the optional integration surfaces around Drunken Guild. The core workflow does
+not require Jira, Discord, or another MCP service. For the canonical user path, read
+[`GETTING_STARTED.md`](./GETTING_STARTED.md); for the work cycle, read
+[`docs/WORKFLOW.md`](./docs/WORKFLOW.md).
 
 ---
 

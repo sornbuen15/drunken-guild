@@ -1,8 +1,10 @@
 # Reference
 
-Detail moved out of README.md and GETTING_STARTED.md so both could stay short (DG-517). Copied
-verbatim from the versions of those two files at the commit this branch forked from
-(`origin/develop`, `1459e3a`) — nothing here is paraphrased or re-derived.
+This is the detailed reference for capabilities, limits, integrations and edge cases. It is not
+the first-use guide: start with [`README.md`](../README.md), then
+[`GETTING_STARTED.md`](../GETTING_STARTED.md), and use [`WORKFLOW.md`](./WORKFLOW.md) for the
+seven-step cycle. Keep full explanations here when a topic is reference material; link to them
+from user-facing pages instead of repeating them.
 
 ## Contents
 
@@ -12,7 +14,7 @@ verbatim from the versions of those two files at the commit this branch forked f
 4. [AI layer location and git worktrees](#ai-layer-location-and-git-worktrees)
 5. [Skills, agents and the three roles](#skills-agents-and-the-three-roles)
 6. [The optional extras — 17 skills, 15 agents](#the-optional-extras--17-skills-15-agents)
-7. [Steps 1-7, in detail](#steps-1-7-in-detail)
+7. [Steps 1-7, in detail](#steps-1-7-detailed-reference)
 8. [Using the three roles](#using-the-three-roles)
 9. [Skills not authored here](#skills-not-authored-here)
 10. [Mid-sprint scenarios](#mid-sprint-scenarios)
@@ -35,7 +37,7 @@ verbatim from the versions of those two files at the commit this branch forked f
 
 **For the runtime**, additionally:
 
-- Python 3.10+ and [`uv`](https://docs.astral.sh/uv/)
+- Python 3.12+ and [`uv`](https://docs.astral.sh/uv/)
 - A Jira account, and a Discord bot if you want approvals
 
 ---
@@ -143,8 +145,7 @@ uv run drunken-init \
   --jira-url https://your-domain.atlassian.net \
   --jira-email you@example.com \
   --jira-project-key DG \
-  --jira-credential 'file://~/.drunken/secrets.json#jira.drunken-guild' \
-  --discord-channel 123456789012345678
+  --jira-credential 'file://~/.drunken/secrets.json#jira.drunken-guild'
 ```
 
 Prove it resolves. This is a separate step on purpose, because Jira answers a search with `200` and
@@ -193,7 +194,44 @@ claude mcp add --scope user drunken-jira-mcp -- "$(command -v drunken-jira-mcp)"
 The steps, the Windows form and the check are in [GETTING_STARTED.md](../GETTING_STARTED.md).
 
 > `uv tool install` ignores `uv.lock`, so the tool environment can drift inside the allowed
-> dependency range. Pass `--with-requirements` if you need it pinned.
+> dependency range. To pin it to the lockfile, export a temporary requirements file, confirm the
+> locked `mcp` version in that file, then pass it to the install. Use the temporary-directory
+> variable for your shell:
+>
+> macOS/Linux:
+>
+> ```bash
+> requirements_file="$(mktemp)"
+> uv export --format requirements.txt --no-dev --no-emit-project -o "$requirements_file"
+> grep '^mcp==' "$requirements_file"
+> uv tool install . --with-requirements "$requirements_file" --force
+> rm "$requirements_file"
+> ```
+>
+> PowerShell:
+>
+> ```powershell
+> $requirementsFile = Join-Path $env:TEMP 'drunken-guild-requirements.txt'
+> uv export --format requirements.txt --no-dev --no-emit-project -o $requirementsFile
+> Select-String -Path $requirementsFile -Pattern '^mcp=='
+> uv tool install . --with-requirements $requirementsFile --force
+> Remove-Item $requirementsFile
+> ```
+>
+> Command Prompt:
+>
+> ```bat
+> set "REQUIREMENTS_FILE=%TEMP%\drunken-guild-requirements.txt"
+> uv export --format requirements.txt --no-dev --no-emit-project -o "%REQUIREMENTS_FILE%"
+> findstr /B /I "mcp==" "%REQUIREMENTS_FILE%"
+> uv tool install . --with-requirements "%REQUIREMENTS_FILE%" --force
+> del "%REQUIREMENTS_FILE%"
+> ```
+>
+> The matching `mcp==…` line is evidence of the exported lock pin. After installation,
+> `uv tool list --show-with` shows the additional requirement recorded for the tool; this is not
+> an independent inspection of the environment's resolved package metadata. The exported file is
+> disposable; do not commit it beside `uv.lock`.
 
 ### Install the AI layer (the old GETTING_STARTED.md walkthrough)
 
@@ -400,6 +438,17 @@ uv run drunken-init --project alpha --migrate-ai-layer            # plan only
 uv run drunken-init --project alpha --migrate-ai-layer --apply    # back up, exclude, untrack
 ```
 
+The AI layer is intentionally untracked, so Git does not copy it into newly created worktrees.
+`drunken-doctor --project alpha --offline` reports linked worktrees that are missing or differ from
+the registered checkout. Synchronization is manual: preview first, then use `--apply` to copy only
+missing files. A different or tracked file is reported and left untouched; no checkout hook runs
+automatically.
+
+```bash
+drunken-init --project alpha --sync-worktrees                 # preview only
+drunken-init --project alpha --sync-worktrees --apply         # copy missing files
+```
+
 Two things never go in the config repo: a **credential** (it lives in no git repository; the
 registry holds a reference such as `file://~/.drunken/secrets.json#jira.alpha`) and an
 **`.mcp.json`** (a project carries none; declare the server once per machine). This repository is
@@ -568,7 +617,11 @@ either set from git with the commit named in `RETIRED.md`'s table, e.g.
 
 ---
 
-## Steps 1-7, in detail
+## Steps 1-7: detailed reference
+
+The readable workflow diagram and the short explanation live in
+[`WORKFLOW.md`](./WORKFLOW.md). This section keeps only the operational detail needed when a
+step is being applied; it is not another overview of the cycle.
 
 *(from the old GETTING_STARTED.md, "Step-by-step: your first ticket")*
 
