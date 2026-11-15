@@ -9,9 +9,12 @@ board — and two hooks (SessionStart context, per-prompt routing) make a sessio
 right skill without being told. *(An individual project's own brief, requirements or spec are its
 own documents, usually `.ai/` — the `project-docs` skill lists every place they are looked for.)*
 
-This page is the **operator** manual — install is [`README.md`](./README.md) and
-[`GETTING_STARTED.md`](./GETTING_STARTED.md) — covering the registry, Jira day to day, approvals,
-and running more than one project.
+This page is the **operator** manual. It covers registry operations, Jira day to day, approvals,
+and running more than one project. Use the canonical pages for the other topics:
+
+- install and first use: [`GETTING_STARTED.md`](./GETTING_STARTED.md)
+- the seven-step work cycle: [`docs/WORKFLOW.md`](./docs/WORKFLOW.md)
+- capabilities and limits: [`docs/REFERENCE.md`](./docs/REFERENCE.md)
 
 ## 1. Architecture
 

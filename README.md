@@ -64,6 +64,7 @@ for the verified install, update, first-project, and Windows paths.
 ## Read next
 
 [`GETTING_STARTED.md`](./GETTING_STARTED.md) - install and first use ·
+[`docs/WORKFLOW.md`](./docs/WORKFLOW.md) - the complete work cycle ·
 [`docs/REFERENCE.md`](./docs/REFERENCE.md) - capabilities and limits ·
 [`DESIGN.md`](./DESIGN.md) - decisions and evidence ·
 [`AGENTS.md`](./AGENTS.md) - contributor rules; a project's root `AGENTS.md` is the map ·
