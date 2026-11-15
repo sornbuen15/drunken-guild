@@ -1,17 +1,21 @@
 # DOMAIN — drunken-guild
 
-Accepted by the Boss, 2026-09-23. Built from `.ai/PRD.md` (REQ-001–022; REQ-005 dropped).
+Accepted by the Boss, 2026-09-23; reframed 2026-11-02. Built from `.ai/PRD.md`.
 
 ## Bounded contexts
 
 | context | requirements served | what it owns |
 |---|---|---|
-| **Flow** | REQ-001, REQ-004, REQ-012, REQ-016, REQ-017, REQ-021, REQ-024 | The steps from requirement to validation, and how each step hands to the next |
-| **Routing** | REQ-002, REQ-010, REQ-011, REQ-013 | How agents load instructions, select skills and access tools |
+| **Flow** | REQ-001, REQ-004, REQ-012, REQ-016, REQ-017, REQ-021, REQ-024, REQ-026 | The iterative steps from requirement to validation, and the proportionate path through them |
+| **Authority** | REQ-027, REQ-028, REQ-033 | What the human authorised, what the agent may do, and which action class controls it |
+| **Evidence** | REQ-029, REQ-030, REQ-034 | How observations, hypotheses, verification and measured value support engineering decisions |
+| **Communication** | REQ-031, REQ-036 | How answers and durable artifacts give each reader sufficient decision-relevant information |
+| **Routing** | REQ-002, REQ-010, REQ-011, REQ-013, REQ-032 | How agents classify intent, load and compose methods, select roles and access tools |
 | **Instructions** | REQ-006, REQ-007, REQ-015 | The one instruction file every agent reads, and the adapters that lead each agent to it |
 | **Layering** | REQ-019, REQ-020 | Where a project's AI layer lives and how it gets there: kept out of the project's repository, held in one private config repo, put in place by init |
-| **Distribution** | REQ-003, REQ-008, REQ-009, REQ-014, REQ-022 | The shared source of skills and roles, installation options, and evidence for each agent |
-| **Safety** | REQ-018, REQ-023, REQ-025 | What keeps projects safe and records compatibility evidence for agents and tools |
+| **Distribution** | REQ-003, REQ-008, REQ-009, REQ-014, REQ-022 | The shared source, installation and evidence for each provider's use |
+| **Safety** | REQ-018, REQ-023, REQ-025 | What keeps projects safe and honest about provider capability |
+| **Core boundary** | REQ-035 | Which runtime product surfaces remain outside the core; dropped requirements remain PRD history, not active domain mappings |
 
 ## Shared vocabulary
 
@@ -20,11 +24,17 @@ Accepted by the Boss, 2026-09-23. Built from `.ai/PRD.md` (REQ-001–022; REQ-00
 | **Agent** | A coding tool that does the work: Claude Code, Antigravity, Aider, Gemini CLI | "agent" meaning a role |
 | **Supported agent** | An agent/version/configuration with evidence recorded in `docs/AGENT-COMPATIBILITY.md` | "every agent" |
 | **Role** | A responsibility in the flow: manager, worker, reviewer | "agent", "subagent" |
+| **Specialization** | A technical lens such as backend, QA, security, DevOps or principal engineering; not a separate role unless isolation is justified | "persona" as automatic agent |
 | **Step** | One stage of the flow, owned by exactly one skill and started by one command | "command", "stage" |
 | **Replan** | The step that revises scope and tickets when a requirement is added, cut or changed | — |
 | **Skill** | A packaged workflow in the SKILL.md format, the same content on every agent | — |
 | **Description** | The part of a skill an agent reads to decide whether to use it | "trigger" |
 | **Route** | One rule: a situation, and which skill, role or MCP tool it must use | — |
+| **Intent** | What the human is asking for: question, explanation, analysis, review, plan, implementation or external action | "keyword" |
+| **Authorization** | The human instruction that permits a bounded state-changing action | "discussion", "agreement" |
+| **Path** | Fast, Standard or Controlled handling selected from work and risk | "process size" |
+| **Evidence** | An observed source that can support or refute a claim: code, test output, revision, runtime observation or accepted decision | "confidence" |
+| **Hypothesis** | An explanation still requiring a test; never reported as an observed fact | "root cause" before proof |
 | **Routing table** | All routes a description cannot carry, kept in the instruction file | — |
 | **Scenario** | A plain-language request together with the route it must produce, or "none" | "test case" |
 | **Instruction file** | The project's AGENTS.md: the single place for rules that bind every agent | "the map" |
@@ -32,6 +42,7 @@ Accepted by the Boss, 2026-09-23. Built from `.ai/PRD.md` (REQ-001–022; REQ-00
 | **Source** | The one central copy of skills and roles, which anyone can use | "one place", "central source" |
 | **Install** | Putting the source into a supported agent's own location; running it again is an update | "deploy", "update script" as a separate thing |
 | **Preload** | Loading the instruction file and every description at session start, for an agent with no skill discovery | — |
+| **Lightweight** | Appropriate and sufficient for the work and risk, with no overhead lacking a justified user, safety or evidence purpose | "fewest steps", "shortest docs" |
 | **Brief** | The project-level agreement: what, who for, stack, constraints | "constitution" |
 | **Project** | A body of work the Boss runs under the guild, in its own repository | — |
 | **Work** | What a project builds: its code, requirements, stack and domain. Lives in the project's repository and says nothing about how the AI works | "content", "the product" |
@@ -44,8 +55,34 @@ Accepted by the Boss, 2026-09-23. Built from `.ai/PRD.md` (REQ-001–022; REQ-00
 **Step** — Flow
 - There are seven steps; each is owned by exactly one skill.
 - Every step names the step that follows it, and the skills, roles and tools it calls.
-- Replan revises scope and tickets against a changed requirement; it never re-orders work.
+- Replan records a changed requirement, preserves valid work, identifies affected or retired work,
+  and proposes the changed plan before implementation; it never re-orders work by itself.
 - No step decides the order of work; that is the Boss's.
+
+**Path** — Flow / Authority
+- Fast is for low-risk reversible work and retains the applicable verification and safety boundary.
+- Standard adds planning and review where coordination or change size justifies them.
+- Controlled adds impact analysis, explicit approval and independent verification for consequential
+  or hard-to-reverse work.
+- A human can change the proposed path; no path grants authority that the request did not.
+
+**Intent** — Routing / Authority
+- A request is classified before a skill, role or tool is selected.
+- A question, explanation, analysis, review and plan are non-implementing intents.
+- Implementation and external action require an instruction to act within a bounded scope.
+
+**Authorization** — Authority / Safety
+- Discussion, agreement with an idea and discovery of a relevant skill are not authorization.
+- Materially ambiguous state-changing work stops for a human decision.
+- Completion evidence names the authorising request and the surfaces changed.
+
+**Evidence** — Evidence / Communication
+- Facts, expected and actual results, hypotheses, unknowns, tests and inferred conclusions remain
+  distinguishable in working notes and reports.
+- A claim uses evidence appropriate to its scope: a unit test does not prove deployment, and a
+  process start does not prove service health.
+- Workflow expansion is a hypothesis until delivery, rework, defect, routing or correction evidence
+  shows value.
 
 **Brief** — Flow
 - A project has exactly one brief, and it lives in the PRD; no separate constitution exists.
@@ -90,7 +127,16 @@ Accepted by the Boss, 2026-09-23. Built from `.ai/PRD.md` (REQ-001–022; REQ-00
 
 **Role** — Distribution
 - A role is defined once, as a skill; any agent-specific definition only points at it.
+- Manager, worker and reviewer are the core roles.
+- A specialization remains a lens unless separate context, authority, independent review or useful
+  parallel work justifies another agent.
 
 **Install** — Distribution
 - One install covers every supported agent; the Boss runs it.
 - An update is the same install, run again.
+
+**Guidance** — Communication / Distribution
+- Quick start, daily use, safety, provider setup, troubleshooting and reference are separate layers
+  for separate reader needs.
+- A short first-use path does not remove prerequisites, effects, limits or recovery information.
+- Commands and links are verified against the release they describe.

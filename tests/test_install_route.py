@@ -65,6 +65,12 @@ SDLC_CASES = [
         ["clear-responses"],
     ),
     (
+        "ordinary_conversation",
+        "th",
+        "ช่วยตรวจคำตอบก่อนหน้านี้ว่าใช้ clear-responses หรือยัง",
+        ["clear-responses"],
+    ),
+    (
         "requirements",
         "en",
         "What is the scope for this new requirement?",

@@ -1,18 +1,25 @@
 # PRD — drunken-guild
 
 ## Brief
-**What:**         drunken-guild 2.0.0: make the flow a spec-driven development standard that the
-                  supported agents can all run, and that tells an agent on its own when to use a
-                  skill, an agent or an MCP tool — not only what the rules are.
+**What:**         Drunken Guild is a lightweight, evidence-driven, human-governed AI engineering
+                  workflow. It helps one person work with coding agents through a process that is
+                  appropriate to the work and its risk, rather than applying the largest process
+                  to every request.
 **Who for:**      One person (the Boss) running a project with one or more AI coding agents doing
                   the work — and the agents themselves, which read this standard.
-**Stack:**        Already in place: Python runtime (drunken-jira-mcp, drunken-doctor/init/usage,
-                  drunken-hook), skills as SKILL.md, agents, Jira as the source of truth.
-**Constraints:**  Every claim about a standard or about how an agent behaves carries its evidence.
-                  Nothing is assumed. (Boss, 2026-09-23)
-**Out of scope:** Agents other than Claude Code, Antigravity, Aider and Gemini CLI. Sprints,
-                  time-boxes and estimates. Cloud-provider sessions (Bedrock, Vertex). Teams of
-                  more than one person.
+**Stack:**        Portable SKILL.md methods and role adapters; a Python runtime for install,
+                  doctor, safety, registry, usage and optional Jira integration; Git and project
+                  documents as durable evidence. No background service is required.
+**Constraints:**  Every claim about a standard, agent capability or completed result carries its
+                  evidence. A question, discussion, review request or request for a plan is not
+                  authorization to implement. The human owns goals, priority, scope and
+                  consequential decisions. Guidance and controls are appropriate and sufficient,
+                  not minimized for their own sake. (Boss, 2026-09-23; amended 2026-11-02)
+**Out of scope:** Runtime orchestration or machine-wide monitoring of every agent/session/subagent;
+                  a simulated organization with an agent for every job title; mandatory Jira,
+                  Scrum ceremonies, sprints, time-boxes or estimates; autonomous merge or deploy;
+                  and blanket multi-provider compatibility claims without provider-specific
+                  evidence. Teams of more than one person remain outside the primary use case.
 
 ## Requirements
 
@@ -22,6 +29,9 @@
 build and validation — and each stage maps to one step.
 **Decided:** 2026-09-23 (Q5-A, amended by Q7) — the flow is seven commands: the six plus
 `/replan` as a skill of its own. DG-353's six-command definition is amended accordingly.
+**Amended:** 2026-11-02 — REQ-026 selects how much of the flow the work needs. When more than one
+stage is required, their dependency order remains the standard sequence; proportionate handling
+does not create a second flow or force every request through all seven commands.
 
 ### REQ-002 — The agent knows when to use a skill, an agent or an MCP tool
 **Class:** Must
@@ -40,11 +50,17 @@ REQ-003's deferral.
 progress update, troubleshooting or decision routes to `clear-responses`. Simple
 facts, acknowledgments and trivial edits still need no skill. The former
 `task-answers` covered only ongoing technical work and is retired.
+**Amended:** 2026-11-02 — selection begins with intent and authority, then work type and risk.
+The agent distinguishes a question, explanation, analysis, review, plan, implementation request
+and external action before selecting a route. It may compose more than one method when the routes
+do not conflict; it does not treat discovery of a relevant skill as permission to act.
 
-### REQ-003 — It works with Claude Code, Antigravity and Aider
+### REQ-003 — Compatibility is claimed per provider and capability
 **Class:** Should
-**Acceptance:** The same standard works under Claude Code, Antigravity and Aider, each in that
-agent's own way.
+**Acceptance:** The portable standard can be delivered through provider-specific adapters, and
+each named provider/version/configuration is classified Verified, Partial, Experimental or
+Unsupported from recorded evidence for instruction loading, discovery, routing, tools, subagents,
+human gates and safety. No shared file format alone counts as support.
 **Decided:** 2026-09-23 (Q1-A) — Aider is supported in full, by preload: `.aider.conf.yml` reads
 AGENTS.md and every skill's description at session start, so REQ-002 holds on Aider too. Cost
 accepted: those tokens are spent in every Aider session.
@@ -52,12 +68,20 @@ accepted: those tokens are spent in every Aider session.
 2.0.0 is Claude Code in full. Must → Should; the Aider and Antigravity parts of REQ-008 and
 REQ-011 go with it. Reason: no evidence yet of where those agents keep their skills (DG-394,
 DG-399), and the Boss's own projects run Claude Code.
+**Amended:** 2026-11-02 — a provider is classified Verified, Partial, Experimental or Unsupported
+for a named version/configuration and scenario. Portable Markdown is a shared source, not proof of
+equal discovery, routing, tools, subagents, approvals or safety. Claude Code and Codex are verified
+separately first; Antigravity and Aider remain no stronger than their recorded evidence.
 
 ### REQ-004 — Replan is its own step
-**Class:** Should
+**Class:** Must
 **Acceptance:** When a requirement is added, cut or changed, replan re-plans: scope and tickets
 are revised against the change.
 **Decided:** 2026-09-23 (Q5-A) — `/replan` is its own command.
+**Amended:** 2026-11-02 — replan records what was added, changed or removed; identifies accepted
+work that remains valid, affected work to revise, and work to retire; checks for duplicate work;
+and proposes the changed plan before implementation. It preserves decision evidence and continues
+from the current state: change the plan, not restart the project.
 
 ### ~~REQ-005 — Refine is its own step, separate from replan~~
 **Dropped** 2026-09-23 (Q7, a /prd change): ordering work is the Boss's decision — the person who
@@ -141,6 +165,10 @@ such as `agents/*.md` only points at them.
 **Decided:** 2026-09-23 (Q8-A) — the Claude subagents stay, as thin adapters that load the role
 skill, for their separate context; Gemini CLI gets the same where it has subagents; on Aider the
 roles run in sequence in one session. The installer generates the adapters.
+**Amended:** 2026-11-02 — Manager, worker and reviewer are the only core ownership roles. Backend,
+QA, security, DevOps and principal-engineering viewpoints are specializations or decision lenses
+by default. A specialist becomes a separate agent only when isolated context, separate authority,
+independent review or useful parallel work justifies the coordination cost.
 
 ### REQ-015 — CLAUDE.md is a one-line adapter
 **Class:** Must
@@ -232,7 +260,7 @@ a scanned pdf is not yet verified.
 **Decided:** 2026-10-10 — the Boss: in 2.0.0 (DG-497).
 
 ### REQ-022 — The guild is easy to install, use and update
-**Class:** Should
+**Class:** Must
 **Acceptance:** A new skill or role reaches a machine that has the guild installed with one update
 command, with no clone and no model call. A change to how the flow itself works is a minor or
 major release with a changelog, and a status command says what has changed, before it is applied.
@@ -240,6 +268,10 @@ major release with a changelog, and a status command says what has changed, befo
 updating easy, and updating should cost no tokens unless the way of working itself has a new
 version. Channel for now: GitHub tags (see REQ-008).
 **Decided:** 2026-10-10 — the Boss: in 2.0.0, said twice (DG-498..DG-502).
+**Amended:** 2026-11-02 — easy does not mean the fewest pages, dependencies or controls. Guidance,
+installation and maintenance must be appropriate and sufficient: a new user has a short verified
+path to first use, deeper reference and troubleshooting remain available, prerequisites and effects
+are explicit, configuration is not overwritten silently, and recovery is documented and tested.
 
 ### REQ-023 — A registered project id never reaches this repository
 **Class:** Must
@@ -315,6 +347,125 @@ tool availability, human gates and token data for each named agent. An agent is 
 only for versions and scenarios with recorded evidence; unavailable token data is reported as such.
 **Decided:** 2026-10-12 — the Boss approved validating the shared workflow per agent and avoiding
 general compatibility claims without evidence.
+
+### REQ-026 — The workflow is proportionate to the work and its risk
+**Class:** Must
+**Acceptance:** The agent selects a Fast, Standard or Controlled path and states the reason. Fast
+keeps the necessary context, change and verification for low-risk reversible work; Standard adds
+planning and review where coordination is useful; Controlled adds explicit impact analysis,
+approval and independent verification for security, data, architecture, deployment or hard-to-
+reverse work. A shorter path never removes an applicable acceptance criterion or safety gate, and
+the human may change the path.
+
+### REQ-027 — Discussion is not authorization
+**Class:** Must
+**Acceptance:** A question receives an answer; a request to analyse or review produces findings; a
+request for a plan produces a proposal. None changes files or external state. Implementation begins
+only from an instruction to act and remains inside its stated scope. When authority is ambiguous
+and the action would materially change state, the agent asks first. The completion report names the
+authorising request, changed surfaces and observed verification.
+
+### REQ-028 — The human remains in the loop
+**Class:** Must
+**Acceptance:** The human owns the goal, priority, accepted requirements and consequential choices.
+The agent prepares evidence and recommendations without expanding scope. Destructive, irreversible,
+merge-worthy, deployment and other designated approval actions wait for a current human decision.
+The human can stop, redirect or reject work at every boundary without restarting valid completed
+work.
+
+### REQ-029 — Engineering claims distinguish evidence from inference
+**Class:** Must
+**Acceptance:** Investigation and reporting distinguish observed facts, expected and actual results,
+hypotheses, unknowns, tests and conclusions inferred from evidence. "Passed", "fixed", "supported",
+"deployed" and estimates are used only with the evidence appropriate to that claim. A change is not
+called successful until its intended result and relevant regression boundary have been checked.
+
+### REQ-030 — Problem solving is a verifiable loop
+**Class:** Must
+**Acceptance:** A problem workflow records the symptom and baseline; evaluates impact, risk and
+urgency; tests hypotheses; compares viable remedies and side effects; applies only an authorised
+remedy; verifies the result and relevant regressions; and records prevention when justified. An
+unknown cause remains unknown rather than becoming a confident narrative.
+
+### REQ-031 — Communication is clear, bounded and fit for its reader
+**Class:** Must
+**Acceptance:** Explanations lead with the conclusion and evidence; status reports say completed,
+active, blocked and next; change reports say what changed, where, why and how it was verified;
+decisions present options, trade-offs and a recommendation. Comments, tickets, pull requests,
+release notes and review findings use their own reader-appropriate forms. Responses stop when the
+decision-relevant information is complete and do not repeat a conclusion as filler.
+
+### REQ-032 — A skill is one bounded method
+**Class:** Must
+**Acceptance:** Every skill states when to use it, when not to use it, required input, produced
+output, completion evidence, authority boundary and hand-off. One policy has one owning source;
+wrappers point to it rather than restating it. The index aids discovery but is not activation.
+Positive, paraphrased, negative and composition scenarios prove that descriptions and routes select
+the skill without relying on one keyword form.
+
+### REQ-033 — Safety has three explicit control levels
+**Class:** Must
+**Acceptance:** The project maintains a tested matrix of hard-denied actions, actions requiring
+human approval, and safe autonomous actions inside an authorised scope. Enforceable controls live
+in tools or guards rather than model memory alone. No path may weaken secret protection, Git hooks,
+protected delivery targets, the no-agent-merge rule or the no-autonomous-deploy rule.
+
+### REQ-034 — Workflow value is measured before the system expands
+**Class:** Must
+**Acceptance:** Changes to workflow, skills, roles or runtime components are evaluated against time
+to delivery, workflow overhead, rework, defects/regressions, routing accuracy and human correction;
+token or monetary cost is included only when observable. A component that adds overhead without
+evidence of reduced time, error or risk is simplified, retired or kept experimental rather than
+expanded because it already exists.
+
+### REQ-035 — Core operation requires no background product surface
+**Class:** Must
+**Acceptance:** Requirements, planning, building, review, audit and replan work without a daemon,
+dashboard or database service. Jira, usage estimation and other integrations are optional. The core
+may use installed files, project documents, Git and tools invoked for the current task; it does not
+reintroduce Hub or claim machine-wide observation through another name.
+
+### REQ-036 — Guidance is layered, sufficient and verified
+**Class:** Must
+**Acceptance:** Documentation provides a tested quick start, daily workflow, safety/approval guide,
+provider-specific setup, troubleshooting/recovery and detailed reference. A reader can reach first
+success without reading every page, while consequential prerequisites, effects and limits remain
+available. Commands and internal links are checked against the release they document; brevity by
+itself is not a pass criterion.
+
+## 2026-11-02 reframe traceability
+
+### Existing requirement disposition
+
+| existing requirement | disposition | reason |
+|---|---|---|
+| REQ-001 | keep | The seven-step standard remains the shared flow; REQ-026 makes its use proportionate. |
+| REQ-002 | amend | Intent and authority now precede skill, role and tool selection. |
+| REQ-003 | amend | Compatibility becomes provider-, version- and capability-specific. |
+| REQ-004 | amend | Replan preserves valid work and proposes only the affected change. |
+| REQ-005 | remain dropped | The human still owns ordering; no refine ceremony returns. |
+| REQ-006–008 | keep | Standard instructions, resolving pointers and one distributable source remain necessary. |
+| REQ-009 | retain under REQ-003/025 | Gemini CLI is a possible provider, not a blanket compatibility promise. |
+| REQ-010–013 | keep | Descriptions, routes, next-step ownership and route resolution remain the activation base. |
+| REQ-014 | amend | Three core roles remain; technical personas become specializations by default. |
+| REQ-015–021 | keep | Adapters, PRD brief, learning, audits, layering, config and draft intake are unaffected. |
+| REQ-022 | amend | Easy means appropriate, sufficient, verified and recoverable, not merely shorter. |
+| REQ-023–025 | keep | Privacy, existing-project operation and evidence-specific compatibility remain constraints. |
+| REQ-037 | remain dropped | The Hub failed its value boundary; REQ-035 prevents a renamed replacement. |
+
+### New decisions and delivery impact
+
+| decision | requirement effect | delivery impact |
+|---|---|---|
+| Appropriate and sufficient, not minimal for its own sake | amend REQ-022; add REQ-026 and REQ-036 | installer, doctor, getting-started and reference evidence |
+| A question is not an instruction | amend REQ-002; add REQ-027 | routing, response and authority scenarios |
+| Human-governed work | add REQ-028 and REQ-033 | approval protocol, deny floor and action matrix |
+| Engineer/scientist behaviour | add REQ-029 and REQ-030 | investigation and verification methods |
+| Clear communication by artifact | add REQ-031 | clear-responses and artifact-specific references |
+| Skills activate and compose without duplication | amend REQ-002 and REQ-014; add REQ-032 | skill audit, role adapters and routing evaluation |
+| Requirement change continues from current state | amend REQ-004 | replan and duplicate-work checks |
+| Portability is evidence-specific | amend REQ-003; retain REQ-025 | Claude/Codex evidence first; other providers classified honestly |
+| Value before expansion | add REQ-034 and REQ-035; retain dropped REQ-037 | no Hub replacement; establish a measurement baseline |
 
 ### ~~REQ-037 — Discover all live local agent sessions~~
 **Dropped** 2026-11-01 — the owner retired the Hub after review found that its
