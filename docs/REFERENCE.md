@@ -1,8 +1,10 @@
 # Reference
 
-Detail moved out of README.md and GETTING_STARTED.md so both could stay short (DG-517). Copied
-verbatim from the versions of those two files at the commit this branch forked from
-(`origin/develop`, `1459e3a`) — nothing here is paraphrased or re-derived.
+This is the detailed reference for capabilities, limits, integrations and edge cases. It is not
+the first-use guide: start with [`README.md`](../README.md), then
+[`GETTING_STARTED.md`](../GETTING_STARTED.md), and use [`WORKFLOW.md`](./WORKFLOW.md) for the
+seven-step cycle. Keep full explanations here when a topic is reference material; link to them
+from user-facing pages instead of repeating them.
 
 ## Contents
 
@@ -12,7 +14,7 @@ verbatim from the versions of those two files at the commit this branch forked f
 4. [AI layer location and git worktrees](#ai-layer-location-and-git-worktrees)
 5. [Skills, agents and the three roles](#skills-agents-and-the-three-roles)
 6. [The optional extras — 17 skills, 15 agents](#the-optional-extras--17-skills-15-agents)
-7. [Steps 1-7, in detail](#steps-1-7-in-detail)
+7. [Steps 1-7, in detail](#steps-1-7-detailed-reference)
 8. [Using the three roles](#using-the-three-roles)
 9. [Skills not authored here](#skills-not-authored-here)
 10. [Mid-sprint scenarios](#mid-sprint-scenarios)
@@ -615,7 +617,11 @@ either set from git with the commit named in `RETIRED.md`'s table, e.g.
 
 ---
 
-## Steps 1-7, in detail
+## Steps 1-7: detailed reference
+
+The readable workflow diagram and the short explanation live in
+[`WORKFLOW.md`](./WORKFLOW.md). This section keeps only the operational detail needed when a
+step is being applied; it is not another overview of the cycle.
 
 *(from the old GETTING_STARTED.md, "Step-by-step: your first ticket")*
 
