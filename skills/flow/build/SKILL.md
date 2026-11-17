@@ -52,7 +52,7 @@ description: >
        them before the fix when practical and report actual output. Never claim a run that did not
        happen.
     5. **Implement** the smallest change, then run relevant project checks.
-    6. **Hand off.** Before a local CI PR, follow `references/local-ci-handoff.md`. Follow repository
+    6. **Hand off.** For projects using local CI, follow `references/local-ci-handoff.md`. Follow repository
        review policy; report changed areas, checks, risks and next step. Update a tracker only when
        the project workflow calls for it.
     7. **Stop at the human gate** required by the project workflow.

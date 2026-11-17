@@ -36,3 +36,12 @@ def test_build_requires_recheck_and_stops_when_ci_unavailable() -> None:
     assert "`not_run`" in text
     assert "observed reason" in text
     assert "boss" in text
+
+
+def test_build_does_not_require_local_ci_when_project_has_not_selected_it() -> None:
+    text = " ".join(HANDOFF.read_text(encoding="utf-8").lower().split())
+
+    assert "project has not selected local ci" in text
+    assert "normal pr workflow" in text
+    assert "no local ci report is required" in text
+    assert "selected local ci is unavailable" in text
