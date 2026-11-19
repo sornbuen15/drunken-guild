@@ -34,10 +34,10 @@ def _write_lines(path: Path, n: int) -> None:
     path.write_text("\n".join(f"line {i}" for i in range(n)) + "\n")
 
 
-def test_the_repo_reports_oversize_for_review(guard) -> None:
-    """The real tree reports oversize files without making them invisible."""
-    problems = guard.scan()
-    assert any("skills/flow/build/SKILL.md" in problem for problem in problems)
+def test_the_build_skill_stays_within_its_size_limit(guard) -> None:
+    """The build handoff keeps detail in a reference instead of growing the skill."""
+    build = REPO_ROOT / "skills" / "flow" / "build" / "SKILL.md"
+    assert guard.line_count(build) <= guard.SKILL_LIMIT
 
 
 def test_a_new_130_line_skill_fails(guard, tmp_path, monkeypatch) -> None:

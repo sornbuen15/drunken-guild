@@ -26,7 +26,7 @@ For a local CI report, record:
 - Report SHA and `overall` result.
 - The actual `ci verify PATH/report.json --json` outcome.
 
-When Local CI is available, run the `full` profile before PR handoff. Treat a report as current only when verification confirms its SHA matches the branch head and `overall=pass`. If Local CI is unavailable, state `not run` and why; never imply a pass.
+When the project uses Local CI, run the `full` profile before PR handoff. Treat a report as current only when verification confirms its SHA matches the branch head and `overall=pass`. If selected Local CI is unavailable, state `not run` and why; never imply a pass. A project without Local CI follows its normal PR workflow without a local CI report.
 
 | Check | Status | Summary |
 |---|---|---|

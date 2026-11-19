@@ -45,6 +45,7 @@ def test_pull_request_reference_records_verified_ci_evidence() -> None:
         "overall=pass",
         "skipped",
         "not_run",
-        "local ci is unavailable",
+        "selected local ci is unavailable",
+        "project without local ci follows its normal pr workflow",
     ):
         assert required_detail in text

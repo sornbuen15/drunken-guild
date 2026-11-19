@@ -52,9 +52,9 @@ description: >
        them before the fix when practical and report actual output. Never claim a run that did not
        happen.
     5. **Implement** the smallest change, then run relevant project checks.
-    6. **Hand off.** Follow the repository's review and delivery policy. Include changed areas,
-       checks and outcomes, unresolved risks, and the next step. Update a tracker only when the
-       project workflow calls for it.
+    6. **Hand off.** For projects using local CI, follow `references/local-ci-handoff.md`. Follow repository
+       review policy; report changed areas, checks, risks and next step. Update a tracker only when
+       the project workflow calls for it.
     7. **Stop at the human gate** required by the project workflow.
   </action_sequence>
 
@@ -113,12 +113,8 @@ description: >
       handoff:   <project-defined next step>
       Next:      /audit for evidence, or the repository's required review gate
     ```
-
-    The `ci` line is required when local CI is available. It must name every skipped,
-    not_run, or failed optional check from the report; never infer a pass from a local
-    branch test. If local CI is unavailable, write `not_run` and the observed reason.
-    Omit `untested` when there is nothing in it. End with the next project-defined step. Normally
-    this is `/audit` for acceptance evidence; when local review policy requires another gate, name
-    that gate instead.
+    When local CI is available, the `ci` line names every skipped, not_run or failed optional check;
+    never infer a pass from a local branch test. If unavailable, give `not_run` and the observed reason.
+    Omit empty `untested`. End with `/audit` or the repository's required review gate.
   </output_format>
 </system_prompt>
